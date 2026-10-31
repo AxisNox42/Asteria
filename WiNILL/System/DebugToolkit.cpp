@@ -60,7 +60,8 @@ int AugmentVisibleRows(float h) {
     return std::max(1, (int)((h - AUG_ROWS_Y - AUG_BOTTOM) / ROW_H));
 }
 constexpr float SPAWN_COUNT_Y = 136.0f;
-constexpr float SPAWN_GRID_Y = 190.0f;
+constexpr float SPAWN_CATEGORY_Y = 178.0f;
+constexpr float SPAWN_GRID_Y = 222.0f;
 constexpr float SPAWN_ACTION_BOTTOM = 60.0f;
 constexpr float CAPTURE_CURRENT_Y = 140.0f;
 constexpr float CAPTURE_ALL_Y = 190.0f;
@@ -101,6 +102,19 @@ PanelLayout GetPanelLayout(float sw, float sh) {
 
 float Clamp01(float v) {
     return std::max(0.0f, std::min(1.0f, v));
+}
+
+// What each spawn category offers: spawn-target ids (see MobLabel).
+//   0-9 mobs as before, 10 NORMA, 11 NORMA's test window.
+int SpawnEntries(int category, const int*& ids) {
+    static const int kRegular[] = { 0, 2, 3, 5, 6, 9 };
+    static const int kElite[] = { 1, 4, 7, 8 };
+    static const int kBoss[] = { 10, 11 };
+    switch (category) {
+    case 1: ids = kElite; return (int)(sizeof(kElite) / sizeof(kElite[0]));
+    case 2: ids = kBoss;  return (int)(sizeof(kBoss) / sizeof(kBoss[0]));
+    default: ids = kRegular; return (int)(sizeof(kRegular) / sizeof(kRegular[0]));
+    }
 }
 
 float SpawnGridStep(float panelHeight) {
@@ -416,7 +430,8 @@ const wchar_t* DebugToolkit::FieldTypeLabel(FieldType type) {
 const wchar_t* DebugToolkit::MobLabel(int index) {
     static const wchar_t* labels[] = {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
-        L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR"
+        L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR",
+        L"NORMA", L"NORMA 테스트 창"
     };
     if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
         return L"알 수 없음";
@@ -883,14 +898,29 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         const float rowStep = SpawnGridStep(p.h);
         const float buttonW = (p.w - 48.0f) * 0.5f;
         const float gap = 16.0f;
-        for (int index = 0; index < 10; ++index) {
-            const int col = index & 1;
-            const int row = index / 2;
+        {
+            const float catW = (p.w - 32.0f - 2.0f * 8.0f) / 3.0f;
+            for (int c = 0; c < 3; ++c) {
+                if (!Hit(p.x + 16.0f + c * (catW + 8.0f), p.y + SPAWN_CATEGORY_Y,
+                         catW, 32.0f, mx, my) || spawnCategory_ == c)
+                    continue;
+                spawnCategory_ = c;
+                selectedMob_ = -1;
+                SetMessage(L"분류를 바꿨습니다");
+            }
+        }
+        const int* ids = nullptr;
+        const int entryCount = SpawnEntries(spawnCategory_, ids);
+        for (int slot = 0; slot < entryCount; ++slot) {
+            const int col = slot & 1;
+            const int row = slot / 2;
             const float bx = p.x + 16.0f + col * (buttonW + gap);
             const float by = buttonY + row * rowStep;
             if (!Hit(bx, by, buttonW, buttonH, mx, my)) continue;
-            selectedMob_ = index;
-            SetMessage(L"대상을 선택했습니다 - 소환 버튼을 누르세요");
+            selectedMob_ = ids[slot];
+            SetMessage(selectedMob_ == 11
+                ? L"대상을 선택했습니다 - 열기 버튼을 누르세요"
+                : L"대상을 선택했습니다 - 소환 버튼을 누르세요");
         }
         const float summonY = p.y + p.h - SPAWN_ACTION_BOTTOM;
         if (click && Hit(p.x + 16.0f, summonY, p.w - 32.0f,
@@ -949,9 +979,21 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                         spawned = context_.spawnMob((int)MobKind::MAGNETAR,
                                                     spawnCount_);
                     break;
+                case 10:
+                    if (context_.spawnBoss) spawned = context_.spawnBoss(0);
+                    break;
+                case 11:
+                    if (context_.openTestPane && context_.openTestPane()) {
+                        SetMessage(L"테스트 창을 열었습니다");
+                        return true;
+                    }
+                    SetMessage(L"테스트 창을 열 수 없습니다");
+                    return true;
                 }
                 if (spawned <= 0) {
-                    SetMessage(L"소환 실패: 몬스터 수용 한도에 도달했습니다");
+                    SetMessage(selectedMob_ >= 10
+                        ? L"소환 실패: 보스가 이미 필드에 있거나 런이 진행 중이 아닙니다"
+                        : L"소환 실패: 몬스터 수용 한도에 도달했습니다");
                     return true;
                 }
                 std::wstring message = L"소환 완료: ";
@@ -1197,17 +1239,28 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
     const float rowStep = SpawnGridStep(h);
     const float buttonW = (w - 48.0f) * 0.5f;
     const float gap = 16.0f;
-    for (int index = 0; index < 10; ++index) {
-        const int col = index & 1;
-        const int row = index / 2;
+    {
+        static const wchar_t* const kCategory[3] = { L"일반", L"엘리트", L"보스" };
+        const float catW = (w - 32.0f - 2.0f * 8.0f) / 3.0f;
+        for (int c = 0; c < 3; ++c)
+            DrawButton(x + 16.0f + c * (catW + 8.0f), y + SPAWN_CATEGORY_Y, catW, 32.0f,
+                       kCategory[c], spawnCategory_ == c, true);
+    }
+    const int* ids = nullptr;
+    const int entryCount = SpawnEntries(spawnCategory_, ids);
+    for (int slot = 0; slot < entryCount; ++slot) {
+        const int col = slot & 1;
+        const int row = slot / 2;
         const float bx = x + 16.0f + col * (buttonW + gap);
         const float by = buttonY + row * rowStep;
-        DrawButton(bx, by, buttonW, buttonH, MobLabel(index),
-                   selectedMob_ == index, true);
+        DrawButton(bx, by, buttonW, buttonH, MobLabel(ids[slot]),
+                   selectedMob_ == ids[slot], true);
     }
+    const bool bossPick = selectedMob_ >= 10;
     const std::wstring summonLabel = selectedMob_ >= 0
-        ? std::wstring(L"소환 ") + MobLabel(selectedMob_) + L"  x" +
-          FormatInt(spawnCount_)
+        ? (selectedMob_ == 11 ? std::wstring(L"열기 ") + MobLabel(selectedMob_)
+           : bossPick ? std::wstring(L"소환 ") + MobLabel(selectedMob_)
+           : std::wstring(L"소환 ") + MobLabel(selectedMob_) + L"  x" + FormatInt(spawnCount_))
         : L"소환할 대상을 선택하세요";
     DrawButton(x + 16.0f, y + h - SPAWN_ACTION_BOTTOM, w - 32.0f,
                38.0f, summonLabel.c_str(), false, selectedMob_ >= 0);

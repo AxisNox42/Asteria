@@ -1,5 +1,8 @@
 #pragma once
+#include <cwchar>
+#include <string>
 #include "Settings.h"
+#include "KeyBindings.h"
 
 // 튜토리얼 — '/' 로 줄바꿈 (증강 설명과 동일 파서)
 inline constexpr int TUTORIAL_PAGE_COUNT = 7;
@@ -10,26 +13,143 @@ inline int LangIndexTutorial() {
     return li;
 }
 
+// Key tokens in the texts below follow the current key bindings:
+//   {MOVE} = movement keys ("WASD"), {DASH} = dash key, {SKILLS} = skill keys ("Q/E/R")
+//   {START} / {QUIT} = the fixed READY keys (Space / Esc, not bindable)
+inline const wchar_t* ExpandKeyTokens(const wchar_t* src, std::wstring& out) {
+    const std::wstring move = MoveKeysLabel();
+    const std::wstring dash = KeyName(ActionKey(GameAction::Dash));
+    const std::wstring skills = SkillKeysLabel();
+    out.clear();
+    for (const wchar_t* p = src; *p;) {
+        if (!std::wcsncmp(p, L"{MOVE}", 6)) { out += move; p += 6; }
+        else if (!std::wcsncmp(p, L"{DASH}", 6)) { out += dash; p += 6; }
+        else if (!std::wcsncmp(p, L"{SKILLS}", 8)) { out += skills; p += 8; }
+        else if (!std::wcsncmp(p, L"{START}", 7)) { out += KeyName(kBindKeySpace); p += 7; }
+        else if (!std::wcsncmp(p, L"{QUIT}", 6)) { out += KeyName(kBindKeyEscape); p += 6; }
+        else out += *p++;
+    }
+    return out.c_str();
+}
+
 // ── READY 화면 (짧은 요약) ──
 inline const wchar_t* kReadyTitle[LANG_COUNT] = {
-    L"작전 개시",
-    L"Mission Start",
-    L"作戦開始",
+    L"튜토리얼",
+    L"Tutorial",
+    L"チュートリアル",
 };
 inline const wchar_t* kReadyBrief[LANG_COUNT] = {
-    L"별자리 영역 안에서 침입 신호를 막아내세요 / WASD·마우스·SHIFT·QER로 싸우고, 레벨업마다 증강을 고릅니다",
-    L"Stop rogue signals inside the starfield / WASD·mouse·SHIFT·QER — pick augments each level-up",
-    L"星座領域内で侵入信号を阻止 / WASD·マウス·SHIFT·QER — レベルアップで強化選択",
-};
-inline const wchar_t* kReadyHint[LANG_COUNT] = {
-    L"자세한 설명 → 메인 메뉴 「튜토리얼」",
-    L"Full guide → Main menu 「Tutorial」",
-    L"詳細 → メインメニュー「チュートリアル」",
+    L"연습장에서 조작을 익히세요 — {START} 또는 ESC로 로비로 돌아갑니다",
+    L"Learn the controls in the practice field — press {START} or ESC to return to the lobby",
+    L"練習場で操作に慣れましょう — {START}またはESCでロビーに戻ります",
 };
 
 inline const wchar_t* ReadyTitle()  { return kReadyTitle[LangIndexTutorial()]; }
-inline const wchar_t* ReadyBrief()  { return kReadyBrief[LangIndexTutorial()]; }
-inline const wchar_t* ReadyHint()   { return kReadyHint[LangIndexTutorial()]; }
+inline const wchar_t* ReadyBrief() {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyBrief[LangIndexTutorial()], expanded);
+}
+
+// ── READY 연습장 + 키보드 패널 ──
+inline const wchar_t* kReadyFieldTitle = L"PRACTICE FIELD";
+inline const wchar_t* kReadyObjectivesTitle = L"OBJECTIVES";
+inline const wchar_t* kReadyFieldNote[LANG_COUNT] = {
+    L"연습 모드 · 피해 없음",
+    L"Practice · no damage",
+    L"練習モード · ダメージなし",
+};
+inline const wchar_t* kReadyKills[LANG_COUNT] = { L"처치", L"Kills", L"撃破" };
+inline constexpr int READY_OBJECTIVE_COUNT = 4;   // ready_practice::Objective order
+inline const wchar_t* kReadyObjective[LANG_COUNT][READY_OBJECTIVE_COUNT] = {
+    { L"이동하기", L"사격하기", L"대시하기", L"스웜 처치" },
+    { L"Move", L"Shoot", L"Dash", L"Defeat Swarms" },
+    { L"移動する", L"射撃する", L"ダッシュする", L"スウォーム撃破" },
+};
+// Instruction shown inside the practice field for the current step,
+// by ready_practice::Objective (Move, Shoot, Dash, Kill) and then "done".
+inline constexpr int READY_STEP_HINT_COUNT = READY_OBJECTIVE_COUNT + 1;
+inline const wchar_t* kReadyStepHint[LANG_COUNT][READY_STEP_HINT_COUNT] = {
+    { L"{MOVE} 키로 함선을 움직여 보세요",
+      L"마우스로 조준하고, 왼쪽 버튼을 누르고 있으면 사격합니다",
+      L"{DASH} 키로 대시 — 순간 무적과 함께 빠르게 피합니다",
+      L"스웜 4마리를 처치하세요 — 3초 뒤 같은 자리에 다시 나타납니다",
+      L"준비 완료! {START} 키로 출격하세요" },
+    { L"Move your ship with {MOVE}",
+      L"Aim with the mouse — hold the left button to fire",
+      L"Press {DASH} to dash — a quick dodge with brief invulnerability",
+      L"Defeat 4 Swarms — they come back on the same spot after 3 s",
+      L"Ready! Press {START} to launch" },
+    { L"{MOVE}で艦を動かしてみましょう",
+      L"マウスで照準 — 左ボタン長押しで射撃",
+      L"{DASH}でダッシュ — 一瞬の無敵で素早く回避",
+      L"スウォームを4体撃破 — 3秒後に同じ場所へ再出現",
+      L"準備完了！{START}で出撃" },
+};
+// Step counter above the instruction ("STEP 2 / 4").
+inline const wchar_t* kReadyStepLabel = L"STEP";
+
+// Under the dash objective when the dash is bound to the start key.
+inline const wchar_t* kReadyDashOnStart[LANG_COUNT] = {
+    L"{DASH}는 로비 복귀 키 — 전투에서 사용",
+    L"{DASH} returns to the lobby here — use it in combat",
+    L"{DASH}はロビー復帰キー — 戦闘で使用",
+};
+// Under the checklist once every step is done.
+inline const wchar_t* kReadyAllDone[LANG_COUNT] = {
+    L"완료 — {START}로 로비 복귀",
+    L"Done — return to the lobby with {START}",
+    L"完了 — {START}でロビーに戻る",
+};
+inline const wchar_t* kReadyAim[LANG_COUNT] = {
+    L"조준 · 좌클릭 유지 사격",
+    L"Aim · hold left click to fire",
+    L"照準 · 左クリック長押しで射撃",
+};
+// Legend beside the keyboard, one line per key group (keys follow the bindings).
+inline constexpr int READY_LEGEND_COUNT = 5;
+inline const wchar_t* kReadyLegend[LANG_COUNT][READY_LEGEND_COUNT] = {
+    { L"{MOVE}  이동", L"{DASH}  대시", L"{SKILLS}  스킬 (증강 후)", L"{START}  로비로", L"{QUIT}  나가기" },
+    { L"{MOVE}  move", L"{DASH}  dash", L"{SKILLS}  skills (from augments)", L"{START}  lobby", L"{QUIT}  leave" },
+    { L"{MOVE}  移動", L"{DASH}  ダッシュ", L"{SKILLS}  スキル (強化後)", L"{START}  ロビー", L"{QUIT}  戻る" },
+};
+// Small caption under a single-action key cap, by keyboard_panel::KeyRole
+// (None, Move, Dash, Skill, Start, Quit). Empty = no caption.
+inline constexpr int READY_KEY_ROLE_COUNT = 6;
+inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
+    { L"", L"", L"대시", L"", L"로비로", L"나가기" },
+    { L"", L"", L"dash", L"", L"lobby", L"leave" },
+    { L"", L"", L"ダッシュ", L"", L"ロビー", L"戻る" },
+};
+
+inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }
+inline const wchar_t* ReadyKills()     { return kReadyKills[LangIndexTutorial()]; }
+inline const wchar_t* ReadyAim()       { return kReadyAim[LangIndexTutorial()]; }
+inline const wchar_t* ReadyObjective(int i) {
+    if (i < 0 || i >= READY_OBJECTIVE_COUNT) return L"";
+    return kReadyObjective[LangIndexTutorial()][i];
+}
+inline const wchar_t* ReadyStepHint(int step) {
+    static std::wstring expanded;
+    if (step < 0 || step >= READY_STEP_HINT_COUNT) return L"";
+    return ExpandKeyTokens(kReadyStepHint[LangIndexTutorial()][step], expanded);
+}
+inline const wchar_t* ReadyDashOnStart() {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyDashOnStart[LangIndexTutorial()], expanded);
+}
+inline const wchar_t* ReadyAllDone() {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyAllDone[LangIndexTutorial()], expanded);
+}
+inline const wchar_t* ReadyLegend(int i) {
+    static std::wstring expanded[READY_LEGEND_COUNT];
+    if (i < 0 || i >= READY_LEGEND_COUNT) return L"";
+    return ExpandKeyTokens(kReadyLegend[LangIndexTutorial()][i], expanded[i]);
+}
+inline const wchar_t* ReadyKeyCaption(int role) {
+    if (role < 0 || role >= READY_KEY_ROLE_COUNT) return L"";
+    return kReadyKeyCaption[LangIndexTutorial()][role];
+}
 
 // ── 튜토리얼 창 (페이지별) ──
 inline const wchar_t* kTutorialWinTitle[LANG_COUNT] = {
@@ -56,8 +176,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"영역 밖은 시야 밖입니다. 보이는 별자리 영역 안에서만 전투·피격·이펙트가 일어납니다 / "
         L"목표: 웨이브를 버티며 최대한 오래 생존하고 점수·코인을 모으세요",
 
-        L"WASD — 항성 함선 이동 / 마우스 — 조준 방향, 좌클릭 유지 시 연사 / "
-        L"SHIFT — 대시(짧은 무적·쿨다운). 위험한 탄막을 뚫을 때 사용 / "
+        L"{MOVE} — 항성 함선 이동 / 마우스 — 조준 방향, 좌클릭 유지 시 연사 / "
+        L"{DASH} — 대시(짧은 무적·쿨다운). 위험한 탄막을 뚫을 때 사용 / "
         L"Q · E · R — 액티브 스킬 슬롯. 증강으로 해금되며 최대 3개까지 장착 / "
         L"ESC — 일시정지(재개·설정·메뉴) / Space — READY 화면에서 전투 시작, 일시정지 중 재개 / "
         L"마우스를 카드·아이콘 위에 올리면 상세 설명이 표시됩니다",
@@ -66,7 +186,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"레벨업하면 증강 카드 3장이 자동으로 열립니다 / "
         L"숫자키 1·2·3으로 후보를 고르고 Space로 확정합니다 / "
         L"증강은 공격·방어·이동·스킬·경제 등 빌드를 결정합니다. 중복·시너지를 고려하세요 / "
-        L"일부 증강은 Q/E/R 액티브를 해금하거나 기존 스킬을 강화합니다 / "
+        L"일부 증강은 {SKILLS} 액티브를 해금하거나 기존 스킬을 강화합니다 / "
         L"도감에서 이미 본 증강은 이름·효과를 미리 확인할 수 있습니다(미발견은 ???)",
 
         L"레벨업마다 증강과 함께 디버프도 반드시 1개 받습니다 — 피할 수 없습니다 / "
@@ -102,8 +222,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"Outside the visible constellation zones is out of play: no combat, hits, or effects there / "
         L"Goal: survive waves and collect score·coins for as long as you can",
 
-        L"WASD — move your astral vessel / Mouse — aim; hold LMB to fire / "
-        L"SHIFT — dash with brief i-frames and cooldown / "
+        L"{MOVE} — move your astral vessel / Mouse — aim; hold LMB to fire / "
+        L"{DASH} — dash with brief i-frames and cooldown / "
         L"Q · E · R — active skills from augments (max 3 slots) / "
         L"ESC — pause menu / Space — start from READY, resume from pause / "
         L"Hover cards and icons for full descriptions",
@@ -112,7 +232,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"On level-up, 3 augment cards open on their own / "
         L"Keys 1·2·3 select; Space confirms / "
         L"Augments define your build: damage, defense, mobility, skills, economy / "
-        L"Some unlock or upgrade Q/E/R actives / "
+        L"Some unlock or upgrade {SKILLS} actives / "
         L"Codex shows discovered augments in detail; unknown ones stay hidden",
 
         L"Every level-up also forces one debuff — cannot skip / "
@@ -148,8 +268,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"星座領域の外は戦闘範囲外 — 攻撃·被弾·演出は領域内のみ / "
         L"目標: ウェーブを凌ぎ、できるだけ長くスコア·コインを集める",
 
-        L"WASD — 星の船(プレイヤー)移動 / マウス — 照準、左クリック長押しで連射 / "
-        L"SHIFT — 短い無敵付きダッシュ(クールダウンあり) / "
+        L"{MOVE} — 星の船(プレイヤー)移動 / マウス — 照準、左クリック長押しで連射 / "
+        L"{DASH} — 短い無敵付きダッシュ(クールダウンあり) / "
         L"Q · E · R — 強化で解放するアクティブスキル(最大3) / "
         L"ESC — 一時停止 / Space — READYから開始、停止中は再開 / "
         L"カード·アイコンにホバーで詳細表示",
@@ -158,7 +278,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"レベルアップすると強化カード3枚が自動で開きます / "
         L"1·2·3で選択、Spaceで確定 / "
         L"強化は攻撃·防御·移動·スキル·経済などビルドを決めます / "
-        L"一部はQ/E/Rアクティブの解放·強化になります / "
+        L"一部は{SKILLS}アクティブの解放·強化になります / "
         L"図鑑で発見済み強化の説明を確認(未発見は???)",
 
         L"レベルアップごとにデバフも必ず1つ — 回避不可 / "
@@ -189,9 +309,9 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
 };
 
 inline const wchar_t* kTutorialControls[LANG_COUNT] = {
-    L"WASD 이동  |  마우스 사격  |  SHIFT 대시  |  Q / E / R 스킬  |  ESC 일시정지",
-    L"WASD  |  Mouse fire  |  SHIFT dash  |  Q / E / R skills  |  ESC pause",
-    L"WASD  |  マウス射撃  |  SHIFTダッシュ  |  Q/E/Rスキル  |  ESC停止",
+    L"{MOVE} 이동  |  마우스 사격  |  {DASH} 대시  |  {SKILLS} 스킬  |  ESC 일시정지",
+    L"{MOVE}  |  Mouse fire  |  {DASH} dash  |  {SKILLS} skills  |  ESC pause",
+    L"{MOVE}  |  マウス射撃  |  {DASH}ダッシュ  |  {SKILLS}スキル  |  ESC停止",
 };
 
 inline const wchar_t* TutorialWinTitle() { return kTutorialWinTitle[LangIndexTutorial()]; }
@@ -201,6 +321,10 @@ inline const wchar_t* TutorialPageTitle(int page) {
 }
 inline const wchar_t* TutorialPageBody(int page) {
     if (page < 0 || page >= TUTORIAL_PAGE_COUNT) return L"";
-    return kTutorialPageBody[LangIndexTutorial()][page];
+    static std::wstring expanded;
+    return ExpandKeyTokens(kTutorialPageBody[LangIndexTutorial()][page], expanded);
 }
-inline const wchar_t* TutorialControls() { return kTutorialControls[LangIndexTutorial()]; }
+inline const wchar_t* TutorialControls() {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kTutorialControls[LangIndexTutorial()], expanded);
+}

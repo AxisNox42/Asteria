@@ -24,6 +24,7 @@
 #include "../../Render/PlanetShader.h"
 #include "../../Render/NebulaGlowShader.h"
 #include "MainShader.h"
+#include "../ReadyLaunch.h"
 #include "../../System/Audio.h"
 #include "TextRenderer.h"
 #include "IconSystem.h"
@@ -70,13 +71,13 @@ float UiApproach(float v, float target, float dt, float speed) {
 // English route IDs, which caused names such as ASTRAL_LOG to flash before the
 // localized page title appeared.
 const wchar_t* MainMenuRouteLabel(int language, int index) {
-    static const wchar_t* kRoutes[3][5] = {
-        { L"플레이", L"상점", L"도감", L"설정", L"종료" },
-        { L"PLAY", L"SHOP", L"ASTRAL LOG", L"SETTINGS", L"EXIT" },
-        { L"スタート", L"ショップ", L"星界記録", L"設定", L"終了" },
+    static const wchar_t* kRoutes[3][kMainMenuRouteCount] = {
+        { L"튜토리얼", L"플레이", L"상점", L"도감", L"설정", L"종료" },
+        { L"TUTORIAL", L"PLAY", L"SHOP", L"ASTRAL LOG", L"SETTINGS", L"EXIT" },
+        { L"チュートリアル", L"スタート", L"ショップ", L"星界記録", L"設定", L"終了" },
     };
     const int li = std::max(0, std::min(2, language));
-    const int mi = std::max(0, std::min(4, index));
+    const int mi = std::max(0, std::min(kMainMenuRouteCount - 1, index));
     return kRoutes[li][mi];
 }
 
@@ -233,7 +234,7 @@ void DrawSettingsOrbitArc(float cx, float cy, float radiusX,
 float MainMenuCommandStartY(float sh, float uiScale) {
     const float kRowH = 70.0f * uiScale;
     const float kGap = 15.0f * uiScale;
-    constexpr float kRowCount = 5.0f;
+    constexpr float kRowCount = (float)kMainMenuRouteCount;
     const float totalH = kRowCount * kRowH + (kRowCount - 1.0f) * kGap;
     float y = sh * 0.48f;
     if (y + totalH > sh - 54.0f) y = sh - totalH - 54.0f;
@@ -254,7 +255,7 @@ float OutgameButtonRailStartY(float sh, float uiScale, int rowCount,
 }
 
 float MainMenuButtonRailStartY(float sh, float uiScale) {
-    return OutgameButtonRailStartY(sh, uiScale, 5,
+    return OutgameButtonRailStartY(sh, uiScale, kMainMenuRouteCount,
                                    70.0f * uiScale, 8.0f * uiScale);
 }
 
@@ -1291,12 +1292,12 @@ static float MenuCommandReveal(float timeline, int row,
 static void DrawMainMenuAstralVeil(float sw, float sh,
                                    float menuX, float menuY,
                                    float menuW, float menuH,
-                                   const float focusWeights[5],
+                                   const float focusWeights[kMainMenuRouteCount],
                                    float alpha) {
     if (alpha <= 0.001f) return;
     const UiThemePalette& theme = GetUiTheme();
     float focus = 0.0f;
-    for (int i = 0; i < 5; ++i) focus = std::max(focus, focusWeights[i]);
+    for (int i = 0; i < kMainMenuRouteCount; ++i) focus = std::max(focus, focusWeights[i]);
 
     // These oversized soft fields extend beyond the menu bounds, so the
     // result reads as a translucent celestial medium rather than a panel.
@@ -1372,6 +1373,11 @@ bool TryEscNavigateBack() {
         st = GS::MAIN_MENU;
         return true;
     case GS::TUTORIAL:
+        st = GS::MAIN_MENU;
+        return true;
+    case GS::READY:
+        // The practice field is only reachable from the lobby's TUTORIAL button.
+        ready_launch::g_TutorialMode = false;
         st = GS::MAIN_MENU;
         return true;
     case GS::CREATIVE_CONFIG:

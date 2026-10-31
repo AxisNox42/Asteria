@@ -14,6 +14,14 @@ extern bool s_MainMenuResumeFromPanel;
 extern float g_SettingsEntryT;
 extern bool s_SettingsInlineNeedsReset;
 
+// Lobby rail (top to bottom): TUTORIAL, PLAY, SHOP, ASTRAL LOG, SETTINGS, EXIT.
+inline constexpr int kMainMenuRouteCount = 6;
+inline constexpr int kMainMenuTutorialIndex = 0;
+inline constexpr int kMainMenuPlayIndex = 1;
+inline constexpr int kMainMenuShopIndex = 2;
+inline constexpr int kMainMenuCodexIndex = 3;
+inline constexpr int kMainMenuSettingsIndex = 4;
+inline constexpr int kMainMenuExitIndex = 5;
 const wchar_t* MainMenuRouteLabel(int language, int index);
 std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
                                     float maxWidth);
@@ -26,7 +34,9 @@ void ResetRunConfigUi(float entryStart = 0.0f);
 void ResetSettingsUi(float entryStart = 0.0f);
 void Scene_RunConfigInline(const SceneCtx& c);
 void Scene_SettingsInline(const SceneCtx& c);
-void FinalizeLoadout(const SceneCtx& c, int wIdx);
+// Starts the run straight away (no practice screen). The lobby TUTORIAL button
+// passes tutorial=true to land on the READY practice field instead.
+void FinalizeLoadout(const SceneCtx& c, int wIdx, bool tutorial = false);
 int FixedWeaponForSelectedJob();
 
 float UiApproach(float value, float target, float dt, float speed);

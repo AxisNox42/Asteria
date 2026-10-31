@@ -78,6 +78,11 @@ enum class MobKind {
     NORMA,      // window boss (NormaBoss.h); keep last so XP slots stay put
 };
 
+// The run-deciding bosses: no stun, no crowding, no regular-mob buffs.
+inline constexpr bool IsBossMob(MobKind kind) {
+    return kind == MobKind::NORMA;
+}
+
 // Elite mobs carry a second ability and an elite frame.
 inline constexpr bool IsEliteMob(MobKind kind) {
     return kind == MobKind::REGULUS || kind == MobKind::GENESIS ||
@@ -423,6 +428,22 @@ public:
     bool noBlast = false;
     bool summoned = false;
     float hitFlashTimer = 0.0f;
+    // Brief hit-stun from a player shot: frozen in place, shoved along the shot.
+    static constexpr float HIT_STUN_TIME = 0.07f;
+    static constexpr float HIT_KNOCK_SPEED = 57.0f;     // ~4px over HIT_STUN_TIME
+    // A fast fire rate must not keep a mob pinned: a new stun only lands after the
+    // cooldown (counted from the last stun's start), i.e. at most 1/cooldown per second.
+    static constexpr float HIT_STUN_COOLDOWN = 0.25f;
+    float hitStunTimer = 0.0f;
+    float hitStunCooldown = 0.0f;
+    float hitKnockX = 0.0f, hitKnockY = 0.0f;
+    void TryHitStun(float dirX, float dirY) {
+        if (hitStunCooldown > 0.0f) return;
+        hitStunTimer = HIT_STUN_TIME;
+        hitStunCooldown = HIT_STUN_COOLDOWN;
+        hitKnockX = dirX * HIT_KNOCK_SPEED;
+        hitKnockY = dirY * HIT_KNOCK_SPEED;
+    }
     float deathEffectTimer = -1.0f;
     // Elite-kill experiment: set at the kill when the hit stop fires. During
     // the death's waves (EliteKillFxWeight) the rings warp slightly, inside
@@ -447,12 +468,17 @@ public:
     float normaMaxHp = 0.0f;
     int normaPhase = 1;
     float normaPhaseFlash = 0.0f;   // > 0 right after entering phase 2
+    float normaInvuln = 0.0f;       // > 0: holds still, takes no damage (phase change)
+    bool normaHidden = false;       // Warp: inside a pane, out of the fight
+    float normaHide = 0.0f;         // 0..1 how far it has slipped into the pane (drawing)
+    float normaWarpSrcX = 0.0f, normaWarpSrcY = 0.0f;   // the pane it hides in, world
     float normaVisualAngle = 0.0f;
     // Pattern state machine (NormaBoss.h).
     norma::Pattern normaPattern = norma::Pattern::None;
     norma::Stage normaStage = norma::Stage::Recover;
     float normaTimer = 0.0f;        // seconds in the current stage
     int normaCount = 0;             // patterns started so far
+    norma::Pattern normaLastPattern = norma::Pattern::None;   // the one before, never repeated back to back
     float normaFireTimer = 0.0f;
     float normaSpin = 0.0f;         // stream and ring angle
     // Written by the game loop when it serves an Ask: the pane the boss uses
@@ -464,25 +490,14 @@ public:
     float normaAimAngle = 0.0f;     // Aim: where the stream points
     int normaAimShot = 0;
     float normaLastPlayerAngle = 0.0f;
-    // The player's velocity, written by the game loop each frame, for
-    // predictive aim (norma::LeadAngle).
+    // The player's velocity, written by the game loop each frame. No boss shot
+    // leads the player any more; kept for norma::LeadAngle.
     float normaPlayerVX = 0.0f, normaPlayerVY = 0.0f;
     std::array<float, norma::kGhostCount> normaGhostX{}, normaGhostY{};
     float normaGhostTimer = 0.0f;
     int normaGhostHead = 0;
     float normaGhostLife = 0.0f;    // > 0 while afterimages show
-    // 11 Dash: charge under way, its step (0 wind, 1 travel, 2 rest), and lane.
-    int normaDash = 0;
-    int normaDashStep = 0;
-    float normaDashTimer = 0.0f;
-    float normaDashDirX = 1.0f, normaDashDirY = 0.0f;
-    float normaDashFromX = 0.0f, normaDashFromY = 0.0f;
-    float normaDashLength = 0.0f;
-    float normaDashToX = 0.0f, normaDashToY = 0.0f;   // where the charge lands
-    bool normaDashLocked = false;
-    bool normaDashHit = false;
     float normaExposed = 0.0f;      // > 0: holding still, open to extra damage
-    float normaContactGrace = 0.0f; // > 0: the body deals no contact damage
     // The drawn tesseract's orientation. It turns slowly; while the boss aims
     // or charges it stops turning and rolls the nearest outline corner
     // (normaCubeLead) onto that direction, always the short way round.
@@ -493,16 +508,6 @@ public:
     // 0..1 how far the pane-bracket ring is out: only while the boss handles
     // panes (hiding in one, summoning through them, ramming with one).
     float normaRingShow = 0.0f;
-    // 0..1 through the current charge's wind-up, 0 outside it (for drawing
-    // and for holding the panes still meanwhile).
-    float NormaDashWindShare() const {
-        if (kind != MobKind::NORMA || normaPattern != norma::Pattern::Dash ||
-            normaStage != norma::Stage::Act || normaDashStep != 0) return 0.0f;
-        return std::clamp(normaDashTimer / norma::DashWindFor(normaPhase, normaDash), 0.0f, 1.0f);
-    }
-    float normaDashFace = 0.0f;     // drawn heading: eases after the lane's
-    // Shove for the player from a charge, applied and cleared by the game loop.
-    float normaKnockX = 0.0f, normaKnockY = 0.0f;
     float normaVelX = 0.0f, normaVelY = 0.0f;   // eased drift velocity, world px/s
 
     EnemyShieldState regulusShield;
@@ -705,6 +710,7 @@ public:
     }
 
     float ApplyDamage(float damage) {
+        if (kind == MobKind::NORMA && (normaHidden || normaInvuln > 0.0f)) return 0.0f;
         if (kind == MobKind::NORMA && normaExposed > 0.0f) damage *= norma::kExposeDamage;
         const bool hadShield = regulusShield.hp > 0.0f;
         const float dealt = ApplyEnemyDamageWithShield(
@@ -770,6 +776,7 @@ public:
             speed *= 0.52f;
             sizeScale = 2.4f;   // tier 4: outer halo + tilted orbit add the rest
             contactDmg = 4.0f;
+            quasarReflections = QuasarReflectionsFor((int)g_Difficulty);   // every spawn path gets the run's bounces
             quasarState = 0;
             quasarSpinSpeed = 2.2f;
             quasarCoreAngle = 0.0f;
@@ -868,23 +875,6 @@ public:
 
     // Frame edge plus the player's body, so a ram lands on touch, not overlap.
     float AntaresRamRange() const { return 26.0f * sizeScale + 18.0f; }
-
-    // Keeps NORMA's charge landing, and the body between runs, inside the
-    // view (the body's reach in from each edge), so a charge never carries
-    // it off screen.
-    void ConfineNormaDash(float left, float top, float right, float bottom) {
-        if (!alive || kind != MobKind::NORMA || normaPattern != norma::Pattern::Dash) return;
-        const float reach = 18.0f * sizeScale * 2.1f;
-        if (left + reach >= right - reach || top + reach >= bottom - reach) return;
-        normaDashToX = std::clamp(normaDashToX, left + reach, right - reach);
-        normaDashToY = std::clamp(normaDashToY, top + reach, bottom - reach);
-        // Winding up or backing off for the next charge, the body stays in
-        // view too (backing off from a player near an edge would leave it).
-        if (normaStage == norma::Stage::Act && normaDashStep != 1) {
-            worldX = std::clamp(worldX, left + reach, right - reach);
-            worldY = std::clamp(worldY, top + reach, bottom - reach);
-        }
-    }
 
     // Keeps Antares inside the map (world-space edges). Until its frame is
     // fully inside it is left alone; after that a run (stage 2 and up) that
@@ -1861,29 +1851,13 @@ public:
         return p + ctrlPlayerVel * t;                       // forced: a summoned shooter always leads
     }
 
-    // Smart chase for a controlled enemy: sidesteps incoming
-    // shots, and otherwise runs to GenesisAimPoint.
+    // Smart chase for a controlled enemy: runs to GenesisAimPoint
+    // (no sidestepping of incoming shots).
     void GenesisControlledMove(float dx, float dy, float distance, float playerCX, float playerCY,
                                float deltaTime, float speedMult, const std::vector<Bullet>* bullets) {
         const glm::vec2 pnow(playerCX, playerCY);
-        ctrlDodgeCooldown = std::max(0.0f, ctrlDodgeCooldown - deltaTime);
         const float baseSpeed = speed * speedMult;
-        // Sidestep: a short burst across the shot's line.
-        if (ctrlDodgeTimer <= 0.0f && ctrlDodgeCooldown <= 0.0f) {
-            glm::vec2 away;
-            if (GenesisIncomingShot(bullets, away)) {
-                ctrlDodgeDir = away;
-                ctrlDodgeTimer = GENESIS_CTRL_DODGE_BURST;
-            }
-        }
-        if (ctrlDodgeTimer > 0.0f) {
-            const float dodgeSpeed = std::max(GENESIS_CTRL_DODGE_MIN_SPEED, baseSpeed * GENESIS_CTRL_DODGE_SPEED_MULT);
-            worldX += ctrlDodgeDir.x * dodgeSpeed * deltaTime;
-            worldY += ctrlDodgeDir.y * dodgeSpeed * deltaTime;
-            ctrlDodgeTimer -= deltaTime;
-            if (ctrlDodgeTimer <= 0.0f) ctrlDodgeCooldown = GENESIS_CTRL_DODGE_COOLDOWN;
-            return;
-        }
+        (void)bullets;
         if (distance > 5.0f) {
             glm::vec2 to = GenesisAimPoint(pnow, distance, baseSpeed) - glm::vec2(worldX, worldY);
             const float len = glm::length(to);
@@ -2423,10 +2397,39 @@ public:
             normaPhase = 2;
             normaPhaseFlash = norma::kPhaseFlashSeconds;
             norma::g_Events.push_back({ norma::Fx::PhaseShift, worldX, worldY, 0.0f });
+            // Whatever it was doing ends: every pane blows, it holds still,
+            // then new panes spray open (the game loop serves both Asks).
+            normaHidden = false;
+            normaExposed = 0.0f;
+            normaInvuln = norma::kPhaseInvuln;
+            normaPattern = Pattern::None;
+            normaStage = Stage::Recover;
+            normaTimer = 0.0f;
+            norma::g_Asks.push_back(norma::Ask::PhaseBlow);
+        }
+        if (normaInvuln > 0.0f) {
+            normaInvuln = std::max(0.0f, normaInvuln - deltaTime);
+            if (normaInvuln <= 0.0f) {
+                norma::g_Asks.push_back(norma::Ask::PhaseSpray);
+                norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 1.4f });
+            }
+            // Holds still meanwhile: the drift eases to a stop.
+            const float settle = std::exp(-8.0f * deltaTime);
+            normaVelX *= settle;
+            normaVelY *= settle;
+            worldX += normaVelX * deltaTime;
+            worldY += normaVelY * deltaTime;
+            normaPhaseFlash = std::max(normaPhaseFlash, 0.05f);
+            return;
+        }
+        {
+            const float hideTo = normaHidden ? 1.0f
+                : (normaPattern == Pattern::Warp && normaStage == Stage::Telegraph)
+                  ? std::clamp(normaTimer / norma::kWarpEnter, 0.0f, 1.0f) : 0.0f;
+            normaHide += (hideTo - normaHide) * std::min(1.0f, 14.0f * deltaTime);
         }
         normaLastPlayerAngle = atan2f(dy, dx);
         normaRecoil = std::max(0.0f, normaRecoil - deltaTime);
-        normaContactGrace = std::max(0.0f, normaContactGrace - deltaTime);
         if (normaExposed > 0.0f) {
             // An opening: everything holds while it lasts, and the still body
             // is safe to stand against (no contact damage). Any drift in
@@ -2499,17 +2502,19 @@ public:
             hover();
             if (normaPaneId > 0) {
                 enter(Stage::Telegraph);
-            } else if (normaPaneId < 0) {
-                // No pane to be had: fall back on the aimed stream.
-                normaPattern = Pattern::Aim;
-                normaAimAngle = normaLastPlayerAngle;
-                normaAimShot = 0;
+            } else if (normaPaneId < 0 || normaTimer > 0.5f) {
+                // (An unanswered request counts as none, so the boss never stalls.)
+                // No pane to be had (spent by rams, closed by the player, or
+                // a Wall already up): blow what is left and open fresh ones
+                // instead, so the fallback is not a free extra barrage.
+                normaPattern = Pattern::Reinforce;
+                normaLastPattern = normaPattern;
                 enter(Stage::Telegraph);
             }
             break;
         case Stage::Telegraph:
             if (normaPattern == Pattern::Aim) {
-                TurnNormaAim(NormaLead(dx, dy, norma::kAimStreamSpeed, 1.0f),
+                TurnNormaAim(atan2f(dy, dx),
                              norma::kAimTrackTelegraph * deltaTime);
                 if (normaTimer >= norma::kAimTelegraph) {
                     norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.5f });
@@ -2529,6 +2534,13 @@ public:
                     norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.8f });
                     enter(Stage::Act);
                 }
+            } else if (normaPattern == Pattern::Reinforce) {
+                hover();
+                if (normaTimer >= norma::kReinforceTelegraph) {
+                    norma::g_Asks.push_back(norma::Ask::ReopenPanes);
+                    norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.8f });
+                    enter(Stage::Act);
+                }
             } else if (normaPattern == Pattern::Refuge) {
                 if (normaTimer >= norma::kRefugeTelegraph) {
                     norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 1.4f });
@@ -2541,6 +2553,25 @@ public:
                     norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.9f });
                     enter(Stage::Act);
                 }
+            } else if (normaPattern == Pattern::Warp) {
+                // Slips into the pane the game loop picked.
+                glideTo(normaWarpSrcX, normaWarpSrcY, 7.0f);
+                if (normaTimer >= norma::kWarpEnter) {
+                    worldX = normaWarpSrcX;
+                    worldY = normaWarpSrcY;
+                    normaHidden = true;
+                    normaHide = 1.0f;
+                    normaVelX = normaVelY = 0.0f;
+                    norma::g_Events.push_back({ norma::Fx::EnterPane, worldX, worldY, 0.0f });
+                    enter(Stage::Act);
+                }
+            } else if (normaPattern == Pattern::Wall) {
+                // The game loop stands the panes in a line, one by one.
+                hover();
+                if (normaTimer >= norma::kWallBuildSeconds) {
+                    norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.9f });
+                    enter(Stage::Act);
+                }
             } else {   // CloseWindow: the game loop runs the countdown
                 hover();
                 if (normaTimer >= norma::kCloseCountdown + 0.3f) enter(Stage::Recover);
@@ -2548,7 +2579,7 @@ public:
             break;
         case Stage::Act:
             if (normaPattern == Pattern::Aim) {
-                TurnNormaAim(NormaLead(dx, dy, norma::kAimStreamSpeed, 1.0f),
+                TurnNormaAim(atan2f(dy, dx),
                              norma::kAimTrackRate * deltaTime);
                 normaFireTimer += deltaTime;
                 while (normaFireTimer >= norma::kAimStreamInterval) {
@@ -2566,20 +2597,30 @@ public:
                 // The game loop flies and bursts the box; the boss holds fire.
                 hover();
                 if (normaTimer >= norma::kThrowSeconds) enter(Stage::Recover);
-            } else if (normaPattern == Pattern::Detonate) {
+            } else if (normaPattern == Pattern::Detonate || normaPattern == Pattern::Reinforce) {
                 // New panes snap open (the game loop); then back to business.
                 hover();
                 if (normaTimer >= norma::kDetonateReopen) enter(Stage::Recover);
+            } else if (normaPattern == Pattern::Warp) {
+                // Gone. Then the game loop smashes the other pane, puts the
+                // boss in its place, and the boss is left open.
+                moved = true;
+                normaVelX = normaVelY = 0.0f;
+                if (normaTimer >= norma::kWarpHide) {
+                    normaHidden = false;
+                    normaHide = 0.0f;
+                    norma::g_Asks.push_back(norma::Ask::WarpSmash);
+                    normaExposed = norma::kWarpExpose;
+                    enter(Stage::Recover);
+                }
+            } else if (normaPattern == Pattern::Wall) {
+                // The game loop pushes the wall; the boss holds fire.
+                hover();
+                if (normaTimer >= norma::kWallSeconds) enter(Stage::Recover);
             } else if (normaPattern == Pattern::Ram) {
                 // The game loop flies the pane; the boss holds fire.
                 hover();
                 if (normaTimer >= norma::kRamSeconds) enter(Stage::Recover);
-            } else if (normaPattern == Pattern::Dash) {
-                UpdateNormaDash(dx, dy, deltaTime, playerHP, leaveGhosts);
-                if (normaDash >= norma::DashCountFor(normaPhase)) {
-                    normaExposed = norma::kExposeAfterDash;
-                    enter(Stage::Recover);
-                }
             } else if (normaPattern == Pattern::Refuge) {
                 normaFireTimer += deltaTime;
                 while (normaFireTimer >= norma::kRefugeWaveInterval) {
@@ -2609,10 +2650,6 @@ public:
             }
             break;
         }
-        if (normaPattern == Pattern::Dash && normaStage == Stage::Act) {
-            moved = true;   // the charge places the body itself
-            normaVelX = normaVelY = 0.0f;
-        }
         if (!moved) {
             const float coast = std::exp(-norma::kCoastDecay * deltaTime);
             normaVelX *= coast;
@@ -2620,20 +2657,24 @@ public:
             worldX += normaVelX * deltaTime;
             worldY += normaVelY * deltaTime;
         }
-        if (normaContactGrace <= 0.0f) TryContact(distance, playerHP, contactDmg, deltaTime);
+        if (!normaHidden) TryContact(distance, playerHP, contactDmg, deltaTime);
     }
 
     // forced: a pattern to run instead of the next in turn (smoke captures).
     void StartNormaPattern(norma::Pattern forced = norma::Pattern::None) {
         using norma::Pattern;
         normaPattern = forced != Pattern::None ? forced
-                     : norma::NextPattern(normaCount++, normaPhase, rand());
+                     : norma::NextPattern(normaCount++, normaPhase, rand(), normaLastPattern);
+        normaLastPattern = normaPattern;
         normaTimer = 0.0f;
         normaFireTimer = 0.0f;
         normaPaneId = 0;
         switch (normaPattern) {
         case Pattern::Detonate:
             norma::g_Asks.push_back(norma::Ask::DetonatePanes);
+            normaStage = norma::Stage::Telegraph;
+            break;
+        case Pattern::Reinforce:
             normaStage = norma::Stage::Telegraph;
             break;
         case Pattern::Refuge:
@@ -2648,6 +2689,14 @@ public:
             norma::g_Asks.push_back(norma::Ask::ThrowBox);
             normaStage = norma::Stage::Telegraph;
             break;
+        case Pattern::Warp:
+            norma::g_Asks.push_back(norma::Ask::WarpPlan);
+            normaStage = norma::Stage::Wait;
+            break;
+        case Pattern::Wall:
+            norma::g_Asks.push_back(norma::Ask::BuildWall);
+            normaStage = norma::Stage::Wait;   // refused while the last wall still stands
+            break;
         case Pattern::Ram:
             norma::g_Asks.push_back(norma::Ask::RamWindow);
             normaStage = norma::Stage::Wait;
@@ -2657,112 +2706,9 @@ public:
             normaAimShot = 0;
             normaStage = norma::Stage::Telegraph;
             break;
-        case Pattern::Dash:
-            normaDash = 0;
-            normaDashStep = 0;
-            normaDashTimer = 0.0f;
-            normaDashHit = false;
-            normaDashFromX = worldX;
-            normaDashFromY = worldY;
-            normaDashFace = normaLastPlayerAngle;
-            normaDashLocked = false;
-            normaStage = norma::Stage::Act;   // each charge winds up on its own
-            break;
         default:
             normaStage = norma::Stage::Telegraph;
             break;
-        }
-    }
-
-    // One step of the charge sequence (see norma::kDash*). dx, dy: the player
-    // relative to the body at the start of the frame.
-    template <class Ghosts>
-    void UpdateNormaDash(float dx, float dy, float deltaTime, float& playerHP, const Ghosts& leaveGhosts) {
-        const float px = worldX + dx, py = worldY + dy;
-        normaDashTimer += deltaTime;
-        // The drawn heading turns quickly but never snaps (a new lane after
-        // overshooting the player points nearly backwards).
-        const float want = atan2f(normaDashDirY, normaDashDirX);
-        const float diff = atan2f(sinf(want - normaDashFace), cosf(want - normaDashFace));
-        normaDashFace += diff * std::min(1.0f, 12.0f * deltaTime);
-        if (normaDashStep == 0) {
-            const float wind = norma::DashWindFor(normaPhase, normaDash);
-            const float k = std::clamp(normaDashTimer / wind, 0.0f, 1.0f);
-            if (k < norma::kDashLock) {
-                const float ddx = px - normaDashFromX, ddy = py - normaDashFromY;
-                const float len = std::max(1.0f, std::sqrt(ddx * ddx + ddy * ddy));
-                normaDashDirX = ddx / len;
-                normaDashDirY = ddy / len;
-                normaDashLength = std::clamp(len + norma::kDashOvershoot,
-                                             norma::kDashMinLength, norma::kDashMaxLength);
-                // Travel starts from the drawn-back spot, so it lands here.
-                normaDashToX = normaDashFromX + normaDashDirX * (normaDashLength - norma::kDashPullBack);
-                normaDashToY = normaDashFromY + normaDashDirY * (normaDashLength - norma::kDashPullBack);
-            } else if (!normaDashLocked) {
-                normaDashLocked = true;   // the lane is committed: flash it
-                norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.6f });
-            }
-            // Draws back, easing out, as it winds up.
-            const float back = norma::kDashPullBack * k * k * (3.0f - 2.0f * k);
-            worldX = normaDashFromX - normaDashDirX * back;
-            worldY = normaDashFromY - normaDashDirY * back;
-            normaRecoil = norma::kRecoilSeconds * k;
-            if (k >= 1.0f) {
-                normaDashStep = 1;
-                normaDashTimer = 0.0f;
-                normaDashHit = false;
-                normaDashFromX = worldX;
-                normaDashFromY = worldY;
-                norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.8f });
-            }
-            return;
-        }
-        if (normaDashStep == 1) {
-            // Springs off the drawn-back spot and settles into the landing:
-            // eased at both ends rather than a jolt off the line.
-            const float k = std::clamp(normaDashTimer / norma::kDashTime, 0.0f, 1.0f);
-            const float ease = k * k * (3.0f - 2.0f * k);
-            const float nx = normaDashFromX + (normaDashToX - normaDashFromX) * ease;
-            const float ny = normaDashFromY + (normaDashToY - normaDashFromY) * ease;
-            leaveGhosts(nx - worldX, ny - worldY);
-            worldX = nx;
-            worldY = ny;
-            const float reach = 18.0f * sizeScale * 1.3f + norma::kDashReach;
-            const float hx = px - worldX, hy = py - worldY;
-            if (!normaDashHit && hx * hx + hy * hy < reach * reach && space::PlayerExposed()) {
-                normaDashHit = true;
-                HurtPlayer(playerHP, norma::kDashDamage);
-                // Thrown off to the side of the lane it stands on.
-                const float side = (normaDashDirX * hy - normaDashDirY * hx) >= 0.0f ? 1.0f : -1.0f;
-                const float sx = -normaDashDirY * side, sy = normaDashDirX * side;
-                const float across = norma::kDashSideKnock, along = 1.0f - across;
-                normaKnockX += (sx * across + normaDashDirX * along) * norma::kDashKnock;
-                normaKnockY += (sy * across + normaDashDirY * along) * norma::kDashKnock;
-                normaContactGrace = norma::kDashContactGrace;
-            }
-            if (k >= 1.0f) {
-                normaDashStep = 2;
-                normaDashTimer = 0.0f;
-            }
-            return;
-        }
-        // Back off to a runway before the next charge.
-        const float gap = std::sqrt(dx * dx + dy * dy);
-        if (gap < norma::kDashRunway && gap > 1.0f) {
-            const float step = std::min(norma::kDashBackSpeed * deltaTime, norma::kDashRunway - gap);
-            const float bx = -dx / gap * step, by = -dy / gap * step;
-            leaveGhosts(bx, by);
-            worldX += bx;
-            worldY += by;
-        }
-        const bool roomy = gap >= norma::kDashRunway * 0.95f;
-        if ((normaDashTimer >= norma::kDashRest && roomy) || normaDashTimer >= norma::kDashRestMax) {
-            ++normaDash;
-            normaDashStep = 0;
-            normaDashTimer = 0.0f;
-            normaDashLocked = false;
-            normaDashFromX = worldX;
-            normaDashFromY = worldY;
         }
     }
 
@@ -2770,16 +2716,13 @@ public:
         using norma::Pattern;
         using norma::Stage;
         const bool facing =
-            (normaPattern == Pattern::Aim && (normaStage == Stage::Telegraph || normaStage == Stage::Act)) ||
-            (normaPattern == Pattern::Dash && normaStage == Stage::Act);
+            normaPattern == Pattern::Aim && (normaStage == Stage::Telegraph || normaStage == Stage::Act);
         if (!facing) {
             normaCubeYaw += deltaTime * (normaPhase == 2 ? 0.9f : 0.35f);
             normaCubePitch = 0.55f + 0.25f * sinf(normaCubeYaw * 0.7f);
             return;
         }
-        // Mid-charge the lead corner stays: the body drills about it.
-        if (normaPattern == Pattern::Dash && normaDashStep == 1) return;
-        const float want = normaPattern == Pattern::Aim ? normaAimAngle : normaDashFace;
+        const float want = normaAimAngle;
         float sx[8], sy[8], reach = 0.0f;
         for (int i = 0; i < 8; ++i) {
             norma::CubeCornerOnScreen(i, normaCubeYaw, normaCubePitch, sx[i], sy[i]);
@@ -2805,12 +2748,6 @@ public:
         if (best < 0) return;
         normaCubeLead = best;
         normaCubeRoll += bestTurn * std::min(1.0f, 6.0f * deltaTime);
-    }
-
-    // Predictive aim at the player (dx, dy away), for a shot of `speed`.
-    float NormaLead(float dx, float dy, float speed, float lead) const {
-        const float s = speed * (normaPhase == 2 ? norma::kPhase2ShotSpeed : 1.0f);
-        return norma::LeadAngle(0.0f, 0.0f, dx, dy, normaPlayerVX, normaPlayerVY, s, lead);
     }
 
     // Turns the aimed stream toward `target` by at most `maxStep` radians.
@@ -3057,6 +2994,7 @@ public:
                 const glm::vec4& attackBounds = glm::vec4(0.0f)) {
         if (!alive) return;
         hitFlashTimer = std::max(0.0f, hitFlashTimer - deltaTime);
+        hitStunCooldown = std::max(0.0f, hitStunCooldown - deltaTime);
         magnetarInterceptTimer = std::max(0.0f,
                                           magnetarInterceptTimer - deltaTime);
         for (float& flash : magnetarFaceHitFlash)
@@ -3080,6 +3018,13 @@ public:
             burnTimer -= deltaTime;
             if (burnTimer <= 0.0f) { burnTimer = 0.0f; burnDps = 0.0f; }
             if (!alive) return;
+        }
+
+        if (hitStunTimer > 0.0f) {
+            worldX += hitKnockX * deltaTime;
+            worldY += hitKnockY * deltaTime;
+            hitStunTimer = std::max(0.0f, hitStunTimer - deltaTime);
+            return;
         }
 
         const float dx = playerCX - worldX;

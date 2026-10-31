@@ -3,12 +3,16 @@
 // Skill HUD view model: plain game values → what each key and passive
 // shows (cooldown wedge, effect frame, ready pulse). No GL and no game
 // headers, so tests/skill_hud_model_test.cpp can build it alone.
-//   slot 0 = SHIFT (dash), slots 1..3 = Q/E/R (inputs index 0..2)
+//   slot 0 = dash, slots 1..3 = skills 1..3 (inputs index 0..2); the key
+//   labels follow the current key bindings (System/KeyBindings.h, which has
+//   no GL or input dependencies either)
 //   passives: cooldown-type only (RAIN). On/off passives and debuffs
 //   are listed in the owned-augment panel, not here.
 // ─────────────────────────────────────────────────────────────
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include "../System/KeyBindings.h"
 
 namespace skill_hud {
 
@@ -127,7 +131,16 @@ inline HudColor ColorFor(SkillGlyph g) {
 }
 
 inline SkillHudView BuildSkillHudView(const SkillHudInputs& in, const SkillHudPulse& pulse) {
-    static const wchar_t* kKeys[4] = { L"SHIFT", L"Q", L"E", L"R" };
+    // Labels outlive this call (the view only holds pointers); refreshed every
+    // build so a rebind shows up on the next frame.
+    static std::wstring keyLabels[4];
+    static const GameAction kKeyActions[4] = {
+        GameAction::Dash, GameAction::Skill1, GameAction::Skill2, GameAction::Skill3 };
+    const wchar_t* kKeys[4];
+    for (int i = 0; i < 4; ++i) {
+        keyLabels[i] = KeyName(ActionKey(kKeyActions[i]));
+        kKeys[i] = keyLabels[i].c_str();
+    }
     SkillHudView v{};
 
     SkillSlotView& dash = v.slots[0];

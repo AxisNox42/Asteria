@@ -24,6 +24,16 @@ public:
     bool  scored     = false;
     float deathScale = 1.0f;
     float hitFlashTimer = 0.0f;
+    float hitStunTimer = 0.0f;                    // brief hit-stun from a player shot
+    float hitStunCooldown = 0.0f;                 // caps stuns per second (see Monster::HIT_STUN_COOLDOWN)
+    float hitKnockX = 0.0f, hitKnockY = 0.0f;
+    void TryHitStun(float dirX, float dirY, float time, float cooldown, float knockSpeed) {
+        if (hitStunCooldown > 0.0f) return;
+        hitStunTimer = time;
+        hitStunCooldown = cooldown;
+        hitKnockX = dirX * knockSpeed;
+        hitKnockY = dirY * knockSpeed;
+    }
     glm::vec3 color = glm::vec3(0.15f, 0.85f, 1.0f);   // Lens: icy cyan
     // A Scope a Genesis summoned (Nightmare): controlled colour while its Genesis lives,
     // half rewards, and a slot in that Genesis' summon cap.
@@ -117,10 +127,18 @@ public:
         }
         hitFlashTimer -= dt;
         if (hitFlashTimer < 0.0f) hitFlashTimer = 0.0f;
+        hitStunCooldown = std::max(0.0f, hitStunCooldown - dt);
         regulusShield.flashTimer = std::max(0.0f,
                                             regulusShield.flashTimer - dt);
         regulusShield.grantTimer = std::max(0.0f,
                                             regulusShield.grantTimer - dt);
+
+        if (hitStunTimer > 0.0f) {
+            worldX += hitKnockX * dt;
+            worldY += hitKnockY * dt;
+            hitStunTimer = std::max(0.0f, hitStunTimer - dt);
+            return;
+        }
 
         if (genesisSummoned) {
             const glm::vec2 pnow(playerCX, playerCY);

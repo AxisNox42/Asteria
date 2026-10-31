@@ -14,7 +14,9 @@
 //   8 Throw       fill a small pane with shots, hurl it at the player, and
 //                 burst it where it lands
 //   7 Aim         a stream that keeps tracking the player
-//  11 Dash        the body itself charges the player a few times
+//  14 Warp        (phase 2) slip into a pane, hide, then smash out of another one
+//  13 Wall        pop big panes open one after another (0.1s apart) in a cascade
+//                 between the player and the boss: a still stack that blocks, then blows
 //  12 Detonate    set every pane the boss has open to blow, then, once they
 //                 have, open fresh ones elsewhere
 // The boss cannot touch OS windows itself: it posts Asks, and the game loop
@@ -74,6 +76,14 @@ constexpr float kRefugeLinger = 1.0f;       // pause before the next pattern
 // space::kFuseSeconds), then the boss opens new ones.
 constexpr float kDetonateFuseWait = 1.8f;   // fuse plus a beat for the panes to fold shut
 constexpr float kDetonateReopen = 1.2f;     // the new panes' laser and bracket snap
+// 15 Reinforce: when the boss is short of panes it opens more (up to the phase's
+// count), with a beat to show it first. Picked when 2 or fewer stand; when the
+// full count stands, Detonate (blowing them all on purpose) is picked more often.
+constexpr float kReinforceTelegraph = 0.7f;
+constexpr int   kReinforceBelow = 2;
+// How many panes the boss has open, kept current by the game loop; -1 unknown.
+inline int g_PaneCount = -1;
+constexpr float kDetonateBurstShare = 0.5f; // share of a thrown box's load a blown pane scatters
 // 3 CloseWindow
 constexpr float kCloseCountdown = 3.0f;
 constexpr float kCloseDamage = 35.0f;       // to the player left inside
@@ -83,7 +93,7 @@ constexpr float kCloseMobDamage = 200.0f;   // to mobs left inside
 // across the stream gets out of it.
 constexpr float kAimTelegraph = 0.8f;
 constexpr float kAimSeconds = 3.5f;
-constexpr float kAimStreamInterval = 0.08f;
+constexpr float kAimStreamInterval = 0.11f;
 constexpr float kAimStreamSpeed = 500.0f;
 constexpr float kAimTrackTelegraph = 4.0f;  // rad/s while warning
 constexpr float kAimTrackRate = 1.8f;       // rad/s while firing
@@ -107,42 +117,6 @@ constexpr int   kThrowInner = 14;
 constexpr float kThrowRingSpeed = 330.0f;
 constexpr float kThrowInnerSpeed = 180.0f;
 constexpr float kThrowSeconds = 3.0f;       // the boss's share of the pattern
-// 11 Dash: the body charges the player kDashCount times. Each charge winds
-// up: the body reddens, draws back and squashes, tracking the player until
-// kDashLock of the wind; red chevrons run to the landing spot, where a red
-// target ring fills over the wind-up and gets inward ticks once the lane
-// locks; the body shivers just before it goes. It then shoots to the
-// landing spot (past where the player was), stretching along the lane, and
-// rests a moment.
-// Touching the player on the way hurts and shoves it (once per charge).
-constexpr int   kDashCount = 3;
-constexpr int   kDashCountPhase2 = 4;
-// The first charge of a turn winds up long (time to read it); the rest
-// follow quickly, as one combo.
-constexpr float kDashWindFirst = 1.2f, kDashWindFirstPhase2 = 1.0f;
-constexpr float kDashWindNext = 0.7f, kDashWindNextPhase2 = 0.6f;
-constexpr float kDashTremble = 0.15f;       // the body shivers this long before it goes
-constexpr float kDashLock = 0.55f;       // locks early: the committed lane shows longer
-constexpr float kDashPullBack = 60.0f;      // world px
-constexpr float kDashTime = 0.42f;        // eased in and out (smoothstep)
-constexpr float kDashOvershoot = 180.0f;    // world px past the player
-constexpr float kDashMinLength = 260.0f, kDashMaxLength = 760.0f;
-constexpr float kDashRest = 0.35f;
-// Between charges the body backs off to at least kDashRunway from the player
-// (at up to kDashBackSpeed), so no charge starts point-blank; the rest runs
-// on up to kDashRestMax while it does.
-constexpr float kDashRunway = 320.0f;       // world px
-constexpr float kDashBackSpeed = 900.0f;    // world px/s
-constexpr float kDashRestMax = 0.9f;
-// A charge that lands throws the player off to the side of the lane (not
-// along it, which pinned players to the screen edge), and the body deals no
-// contact damage for kDashContactGrace after.
-constexpr float kDashSideKnock = 0.85f;     // share of the shove across the lane
-constexpr float kDashContactGrace = 1.0f;
-constexpr float kDashDamage = 18.0f;
-constexpr float kDashKnock = 240.0f;        // world px of shove
-constexpr float kDashReach = 22.0f;         // past the body's half size
-inline int DashCountFor(int phase) { return phase >= 2 ? kDashCountPhase2 : kDashCount; }
 // The tesseract's corners, and where corner i lands on screen (unit cube,
 // before roll) at the given yaw and pitch. The boss turns its cube with
 // these; the drawing projects the same way.
@@ -169,16 +143,11 @@ inline int LitStarsFor(float hp, float maxHp) {
 }
 constexpr float kStarOutFlash = 0.35f;      // a star going dark flares this long
 
-inline float DashWindFor(int phase, int charge) {
-    if (charge == 0) return phase >= 2 ? kDashWindFirstPhase2 : kDashWindFirst;
-    return phase >= 2 ? kDashWindNextPhase2 : kDashWindNext;
-}
-
 // 10 Ram: the boss takes one of its panes and hurls it across the screen.
-// While the boss controls it the pane's glow turns red. It squeezes down to
-// a small block (so its lane can be sidestepped) and draws back from the
-// player (aim, tracking until kRamLock of the way, then locked; its lane to
-// the screen edge shows once locked), then flies, speeding up e-fold every
+// While the boss controls it the pane's glow turns red. Several panes can be
+// hurled together (RamCountFor), each keeping its own size. It draws back from the
+// player (aim, tracking until kRamLock of the way, then locked; no lane is
+// drawn: the draw-back is the tell), then flies, speeding up e-fold every
 // kRamRamp seconds, until it hits the screen edge. Its frame sweeping over
 // the player (or a mob) hurts and shoves it; being inside the pane when it
 // sets off is safe. Dragging it away (Ctrl) breaks the control. The pane
@@ -186,27 +155,91 @@ inline float DashWindFor(int phase, int charge) {
 constexpr float kRamAim = 1.3f;
 constexpr float kRamAimPhase2 = 1.0f;
 constexpr float kRamLock = 0.55f;
-constexpr float kRamW = 300.0f, kRamH = 220.0f;   // squeezed size, screen px
-constexpr float kRamPullBack = 70.0f;       // screen px
+constexpr float kRamPullBack = 130.0f;      // screen px: the only warning, the pane draws back from where it will go
 constexpr float kRamStartSpeed = 250.0f;    // screen px/s
 constexpr float kRamRamp = 0.18f;
 constexpr float kRamMaxSpeed = 1800.0f;
 constexpr float kRamSettle = 0.5f;          // red fades back after the hit
 // The pane slamming the screen edge bursts like a thrown box, at this share
-// of its load, fanned back off the wall.
-constexpr float kRamBurstShare = 2.0f / 3.0f;
-constexpr float kRamBurstFan = 4.18879f;    // 240 degrees
+// of its load, spread evenly all the way round.
+constexpr float kRamBurstShare = 1.0f;
+constexpr float kRamBurstFan = 6.2831853f;  // the full circle, spread evenly
 constexpr float kRamDamage = 25.0f;
 constexpr float kRamMobDamage = 150.0f;
 constexpr float kRamKnock = 260.0f;         // world px of shove
 constexpr float kRamSeconds = 3.0f;         // the boss's share of the pattern
+constexpr int kRamCount = 2, kRamCountPhase2 = 3;   // panes hurled at once, at most
+inline int RamCountFor(int phase) { return phase >= 2 ? kRamCountPhase2 : kRamCount; }
 inline float RamAimFor(int phase) { return phase >= 2 ? kRamAimPhase2 : kRamAim; }
+
+// 13 Wall: a spray of error windows. kWallCount panes of random size pop open
+// kWallStagger apart, strewn over the ground between the boss and the player.
+// They are red panes: marked and sharpened for kWallWarn first, they burst open
+// with a shockwave and no one can stand inside (blue panes, the boss's usual
+// ones, can be entered). The barricade stands still:
+// its pane borders stop the player's shots, and it blocks the view. After
+// kWallStand seconds the panes are lit to blow (the Detonate fuse), each
+// scattering its share of a thrown box's load.
+// Rules of the wall panes:
+//   - the footprints are marked for kWallWarn first; a player standing in one
+//     when its pane pops open is hurt and thrown clear (once per wall)
+//   - nothing can stand inside a wall pane (the player, the boss, every mob):
+//     whatever is in one is pushed out through its nearest edge, so the
+//     panes are solid. Mobs and the boss are also slid along the edge toward
+//     the player's side, so they go round the corner
+constexpr float kWallDamage = 20.0f;
+constexpr float kWallKnock = 260.0f;        // world px of shove
+constexpr float kWallPlayerMargin = 14.0f;  // px kept between the player's centre and a pane's edge
+constexpr float kWallDetourSpeed = 170.0f;  // px/s a mob slides along a pane's edge toward the player's side
+constexpr int   kWallCount = 4;
+constexpr int   kWallCountPhase2 = 4;
+constexpr float kWallStagger = 0.1f;
+constexpr float kWallHold = 0.3f;           // beat after the last pane before the stand timer
+// Each pane gets a random size within these (screen px, capped by a share of the screen)
+// and lands across the boss-to-player line, kWallSpread apart sideways (+- kWallJitter).
+constexpr float kWallMinW = 260.0f, kWallMaxW = 560.0f;
+constexpr float kWallMinH = 200.0f, kWallMaxH = 400.0f;
+constexpr float kWallMaxShareW = 0.45f, kWallMaxShareH = 0.5f;
+constexpr float kWallSpread = 200.0f, kWallJitter = 60.0f;
+constexpr float kWallWarn = 1.2f;           // red brackets mark the footprints before any pane opens
+constexpr float kWallStand = 2.5f;          // seconds the wall stays up before it is lit
+constexpr float kWallBuildSeconds = 1.0f;   // the boss's telegraph
+constexpr float kWallSeconds = 4.5f;        // the boss's share of the pattern
+inline int WallCountFor(int phase) { return phase >= 2 ? kWallCountPhase2 : kWallCount; }
+
+// 14 Warp (phase 2): the boss glides into one of its panes and is gone: it
+// cannot be hurt or touch anyone. The pane it will burst out of (the one near
+// the player) flickers red for kWarpHide seconds. Then that pane is smashed:
+// the boss stands in its place, a ring of shots and glass spray out, a player
+// standing in it is hurt and thrown clear, and the boss is left open for a
+// moment.
+constexpr float kWarpEnter = 0.7f;          // gliding into the pane
+constexpr float kWarpHide = 2.0f;           // gone, the other pane flickering
+// The pane the boss went into jolts the way it went in (kWarpRecoil px,
+// ringing out), then acts as a turret: it fires an aimed stream from its edge
+// toward the player while the boss is inside. The pane to be smashed trembles
+// harder and cracks open as the time runs out.
+constexpr float kWarpRecoil = 34.0f;
+constexpr float kWarpStreamDelay = 0.45f;
+constexpr float kWarpStreamInterval = 0.22f;
+constexpr float kWarpStreamSpeed = 420.0f;
+constexpr float kWarpTremble = 7.0f;
+constexpr float kWarpExpose = 1.2f;         // open after smashing out
+constexpr float kWarpDamage = 25.0f;
+constexpr float kWarpKnock = 260.0f;        // world px of shove
+constexpr float kWarpBurstShare = 0.5f;     // share of a thrown box's load
+
+// Phase change: every pane the boss has blows, the boss holds still and
+// untouchable for kPhaseInvuln, then a fresh spray of panes pops open
+// kPhaseSprayStagger apart.
+constexpr float kPhaseInvuln = 1.6f;
+constexpr float kPhaseSprayStagger = 0.1f;
 
 // Panes belong to patterns: Detonate blows the boss's panes and opens
 // fresh ones, and Refuge opens one when none is near; nothing opens them on a clock. The
 // others (Refuge, Ram, Throw) use whatever is open. At most this many stand.
-constexpr int   kMaxBossPanes = 2;
-constexpr int   kMaxBossPanesPhase2 = 3;
+constexpr int   kMaxBossPanes = 3;
+constexpr int   kMaxBossPanesPhase2 = 5;
 inline int MaxBossPanesFor(int phase) { return phase >= 2 ? kMaxBossPanesPhase2 : kMaxBossPanes; }
 
 // Sizes of the panes the boss opens, in screen pixels (random within these).
@@ -215,13 +248,12 @@ constexpr float kRefugeMinH = 300.0f, kRefugeMaxH = 460.0f;
 constexpr float kPaneMaxShareW = 0.35f, kPaneMaxShareH = 0.42f;   // of the screen
 // Boss panes stand still, and every so often hop to a new spot: brackets
 // mark the spot for kPaneHopWarn, then the pane glides there in kPaneHopMove.
-constexpr float kPaneHoldMin = 5.0f, kPaneHoldMax = 7.0f;   // seconds between hops
+constexpr float kPaneHoldMin = 3.5f, kPaneHoldMax = 5.0f;   // seconds between hops
 constexpr float kPaneHopWarn = 0.6f;
 constexpr float kPaneHopMove = 0.5f;
 
-// Openings to hit the boss: after its charges, and when a rammed pane hits
-// the screen edge, it holds still, exposed, taking extra damage.
-constexpr float kExposeAfterDash = 1.6f;
+// Opening to hit the boss: when a rammed pane hits the screen edge it holds
+// still, exposed, taking extra damage.
 constexpr float kExposeAfterRam = 2.0f;
 constexpr float kExposeDamage = 1.5f;
 
@@ -231,13 +263,15 @@ constexpr float kSnapSeconds = 0.25f;
 constexpr float kSnapGrow = 0.6f;           // brackets start 1.6x and close in
 
 enum class Pattern { None = 0, Refuge = 2, CloseWindow = 3, Aim = 7,
-                     Throw = 8, Ram = 10, Dash = 11, Detonate = 12 };
+                     Throw = 8, Ram = 10, Detonate = 12, Wall = 13, Warp = 14,
+                     Reinforce = 15 };
 enum class Stage { Recover, Wait, Telegraph, Act, Exit };
 
 // Requests from the boss to the game loop, served once per frame.
 enum class Ask { OpenRefuges, ClosePlayerWindow, ReleaseWindows,
                  ThrowBox, RamWindow, DetonatePanes,
-                 ReopenPanes };
+                 ReopenPanes, BuildWall, WarpPlan, WarpSmash,
+                 PhaseBlow, PhaseSpray };
 inline std::vector<Ask> g_Asks;
 
 // Effect cues from the boss; the game loop turns them into shockwaves,
@@ -312,19 +346,30 @@ inline float HoverSpeedSmooth(float distance) {
 }
 
 // The pattern after `count` earlier ones: window patterns on even turns,
-// a direct attack (cross barrage or aimed stream) on odd ones. CloseWindow
+// the aimed stream on odd ones (the boss is built around its panes). CloseWindow
 // joins the window pool in phase 2.
-inline Pattern NextPattern(int count, int phase, int roll) {
+inline Pattern NextPattern(int count, int phase, int roll, Pattern last = Pattern::None) {
     const int r = roll < 0 ? -roll : roll;
-    if (count % 2 == 1) return (r / 7) % 2 == 0 ? Pattern::Aim : Pattern::Dash;
-    const int windowKinds = phase >= 2 ? 5 : 4;
-    switch (r % windowKinds) {
-    case 0:  return Pattern::Refuge;
-    case 1:  return Pattern::Throw;
-    case 2:  return Pattern::Ram;
-    case 3:  return Pattern::Detonate;
-    default: return Pattern::CloseWindow;
-    }
+    if (count % 4 == 3) return Pattern::Aim;   // the stream is the exception, not every other turn
+    const int windowKinds = phase >= 2 ? 7 : 5;
+    const auto kind = [&](int k) {
+        switch (k % windowKinds) {
+        case 0:  return Pattern::Refuge;
+        case 1:  return Pattern::Throw;
+        case 2:  return Pattern::Ram;
+        case 3:  return Pattern::Detonate;
+        case 4:  return Pattern::Wall;
+        case 5:  return Pattern::Warp;
+        default: return Pattern::CloseWindow;
+        }
+    };
+    // Short of panes: open more. All panes up: blow them (every other time).
+    if (g_PaneCount >= 0 && last != Pattern::Reinforce && g_PaneCount <= kReinforceBelow && r % 3 != 0)
+        return Pattern::Reinforce;
+    if (g_PaneCount >= MaxBossPanesFor(phase) && last != Pattern::Detonate && r % 2 == 0)
+        return Pattern::Detonate;
+    // Never the same window pattern twice running.
+    return kind(r) == last ? kind(r + 1) : kind(r);
 }
 
 } // namespace norma

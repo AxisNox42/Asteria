@@ -82,7 +82,10 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
             }
         }
 
-        if (bullet.space < 0) bullet.space = space::SpaceAt(bullet.x, bullet.y);
+        if (bullet.space < 0) {
+            bullet.space = space::SpaceAt(bullet.x, bullet.y);
+            bullet.firedAt = space::g_Clock;
+        }
         const float prevX = bullet.x, prevY = bullet.y;
         if (!(bullet.isEnemy && timeStopTimer > 0.0f)) {
             bullet.Update(bulletDelta);
@@ -95,6 +98,10 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
             bullet.space = space::SpaceAt(bullet.x, bullet.y);
         int absorbingPane = 0;
         if (bullet.active &&
+            space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane) &&
+            !space::Absorbs(absorbingPane, bullet.firedAt)) {
+            bullet.space = space::SpaceAt(bullet.x, bullet.y);   // a pane born after the shot: pass
+        } else if (bullet.active &&
             space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane)) {
             bullet.active = false;
             // The player's own shots still stop at the border but never wear

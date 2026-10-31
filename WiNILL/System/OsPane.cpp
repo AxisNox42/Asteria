@@ -638,6 +638,12 @@ void SetLocked(int id, bool locked) {
     if (i >= 0) s_panes[i].locked = locked;
 }
 
+void RaiseToFront(int id) {
+    const int i = IndexOfId(id);
+    if (i < 0 || !s_panes[i].open || s_panes[i].adopted || !s_handles[i] || s_arrange) return;
+    StackBelowGame(s_handles[i]);
+}
+
 void SetHold(bool hold) { s_hold = hold; }
 
 // Another program's window that can hide what lies under it: visible, not

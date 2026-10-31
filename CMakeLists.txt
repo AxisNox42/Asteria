@@ -32,6 +32,7 @@ add_executable(WiNILL
     ${WINILL_DIR}/Core/Scenes/SceneSettings.cpp
     ${WINILL_DIR}/Core/Scenes/SceneRunConfig.cpp
     ${WINILL_DIR}/Core/Scenes/SceneStart.cpp
+    ${WINILL_DIR}/Core/Scenes/SceneReady.cpp
     ${WINILL_DIR}/Core/Scenes/ScenePause.cpp
     ${WINILL_DIR}/Core/Scenes/SceneRunEnd.cpp
     ${WINILL_DIR}/Core/Scenes/SceneAugment.cpp

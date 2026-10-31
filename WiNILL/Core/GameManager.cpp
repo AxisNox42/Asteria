@@ -4,6 +4,7 @@
 #include "Weapons.h"
 #include "GameContext.h"
 #include "Scenes.h"
+#include "ReadyLaunch.h"
 #include <algorithm>   // std::min (등급 가중치 게이팅)
 
 extern PlayerStats g_Stats;   // 최대치 도달 증강 게이팅용 (main.cpp 정의)
@@ -120,7 +121,9 @@ void GameManager::HandleInput(GLFWwindow* window) {
 
     if (sp == GLFW_PRESS && spaceReleased) {
         if (currentState == GameState::READY) {
-            currentState = GameState::RUNNING;
+            // Lobby tutorial: Space leaves the practice field.
+            ready_launch::g_TutorialMode = false;
+            currentState = GameState::MAIN_MENU;
         } else if (currentState == GameState::RUNNING) {
             // Augment selection opens by itself after a level-up.
             pauseResumeState = GameState::RUNNING;

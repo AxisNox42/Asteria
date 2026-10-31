@@ -11,6 +11,10 @@
 #include "Juice.h"
 #include "../Core/Codex.h"
 
+// A player shot hits a monster within this radius, times its sizeScale
+// (also used by the READY practice field).
+inline constexpr float MONSTER_BULLET_HIT_RADIUS = 15.0f;
+
 // Kill stardust: spawned now, or held on the mob for a delayed death and
 // released on the blast ring (Quasar supernova, Genesis first wave).
 inline void SpawnKillStardust(Monster& m, int value, float playerCX, float playerCY,
@@ -201,7 +205,7 @@ public:
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
-                const float hitRadius = 15.0f * monster->sizeScale;
+                const float hitRadius = MONSTER_BULLET_HIT_RADIUS * monster->sizeScale;
                 if (monster->worldX < minX - hitRadius || monster->worldX > maxX + hitRadius ||
                     monster->worldY < minY - hitRadius || monster->worldY > maxY + hitRadius)
                     continue;
@@ -218,6 +222,11 @@ public:
                 const float dealt = manager.ApplyDamage(*monster, baseDamage, shotSpace);
                 SpawnDamageNumber(monster->worldX, monster->worldY, dealt,
                                   isCrit);
+                if (monster->alive && !IsBossMob(monster->kind) && !IsEliteMob(monster->kind) &&
+                    !monster->genesisThrown && monster->genesisRotorPhase == 0 &&
+                    monster->thrownPhase == 0) {
+                    monster->TryHitStun(bullet.dirX, bullet.dirY);
+                }
                 SpawnSparks(bullet.x, bullet.y, isCrit ? 6 : 3,
                             isCrit ? 1.0f : bullet.color.r,
                             isCrit ? 0.85f : bullet.color.g,
@@ -262,6 +271,10 @@ public:
                 const float dealt = manager.ApplyDamage(*ranged, baseDamage, shotSpace);
                 SpawnDamageNumber(ranged->worldX, ranged->worldY, dealt,
                                   isCrit);
+                if (ranged->alive) {
+                    ranged->TryHitStun(bullet.dirX, bullet.dirY, Monster::HIT_STUN_TIME,
+                                       Monster::HIT_STUN_COOLDOWN, Monster::HIT_KNOCK_SPEED);
+                }
                 SpawnSparks(bullet.x, bullet.y, isCrit ? 6 : 3,
                             isCrit ? 1.0f : bullet.color.r,
                             isCrit ? 0.85f : bullet.color.g,

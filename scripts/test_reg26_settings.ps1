@@ -31,7 +31,7 @@ try {
 # every snapshot option has a save key.
 Push-Location $root
 try {
-    $uiOnly = 'g_SettingsEntryT', 'g_MainMenuEntryT', 'g_ScrollAccum'
+    $uiOnly = 'g_SettingsEntryT', 'g_MainMenuEntryT', 'g_ScrollAccum', 'g_KeyCaptureActive', 'g_CapturedKey'
     $edited = Select-String -Path 'WiNILL\Core\Scenes\SceneSettings.cpp' -Pattern '\b(g_\w+)\s*=(?!=)' -AllMatches |
         ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique |
         Where-Object { $uiOnly -notcontains $_ }
@@ -43,12 +43,16 @@ try {
         g_ShowCombo='combo';
         g_SoundVol='soundvol'; g_BgmEnabled='bgmenabled'; g_SfxEnabled='sfxenabled'; g_AudioMonoOutput='audiomono'
         g_AudioEngineEnabled='audioenabled'; g_AutoSkill='autoskill'
-        g_ShowCrosshair='crosshair'; g_DebugMode='debugmode'; g_Language='lang' }
+        g_ShowCrosshair='crosshair'; g_DebugMode='debugmode'; g_Language='lang'
+        g_BgmVol='bgmvol'; g_SfxVol='sfxvol'; g_KeyBinds='keybind' }
     $save = Get-Content 'WiNILL\System\SaveSystem.h' -Raw
     foreach ($g in $captured) {
         $key = $saveKey[$g]
         if (-not $key) { throw "snapshot option $g has no known save key" }
-        if ($save -notmatch "add\(`"$key=" -or $save -notmatch "strcmp\(key, `"$key`"\)") { throw "$g ($key) is not both saved and loaded" }
+        # Scalar options use add("key=..") / strcmp; indexed ones use "key%d=" / strncmp.
+        $saved = ($save -match "add\(`"$key=") -or ($save -match "`"$key%d=")
+        $loaded = ($save -match "strcmp\(key, `"$key`"\)") -or ($save -match "strncmp\(key, `"$key`"")
+        if (-not $saved -or -not $loaded) { throw "$g ($key) is not both saved and loaded" }
     }
     Write-Host "coverage: $(@($edited).Count) edited options in the $($captured.Count)-field snapshot; all saved and loaded"
 } finally { Pop-Location }

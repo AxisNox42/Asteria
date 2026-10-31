@@ -61,6 +61,9 @@
     <ClCompile Include="Core\Scenes\SceneStart.cpp">
       <Filter>Core\Scenes</Filter>
     </ClCompile>
+    <ClCompile Include="Core\Scenes\SceneReady.cpp">
+      <Filter>Core\Scenes</Filter>
+    </ClCompile>
     <ClCompile Include="Core\Scenes\ScenePause.cpp">
       <Filter>Core\Scenes</Filter>
     </ClCompile>

@@ -55,6 +55,9 @@ public:
         haloStrength_ = strength;
         haloRadiusPx_ = radiusPx;
     }
+    // Multiplies the final halo width (1 = as configured); lets one label group
+    // draw a thinner outline without touching the global setting.
+    void SetHaloScale(float scale) { haloScale_ = scale; }
 
     void Draw(const wchar_t* text, float x, float y, float scale,
               float r, float g, float b, float a = 1.0f);
@@ -69,6 +72,7 @@ private:
     GLint  uProj_ = -1, uCol_ = -1, uHalo_ = -1, uHaloR_ = -1;
     float  haloStrength_ = 0.0f;
     float  haloRadiusPx_ = 2.0f;
+    float  haloScale_ = 1.0f;
     // Empty texels baked around every glyph so the halo can fall off
     // inside the glyph's own atlas cell.
     static constexpr int kGlyphPad = 4;
@@ -417,7 +421,7 @@ inline void TextRenderer::SetHaloUniforms(float scale, float texelScale)
     // the configured width, so small labels keep open counters instead of
     // turning into dark blobs. Never sample past the baked glyph padding.
     const float textPx = emPx_ * scale;
-    const float radiusPx = std::min(haloRadiusPx_, std::max(0.9f, textPx * 0.07f));
+    const float radiusPx = std::min(haloRadiusPx_, std::max(0.9f, textPx * 0.07f)) * haloScale_;
     const float radiusTexels = texelScale > 0.0f
         ? std::min((float)kGlyphPad - 0.5f, radiusPx / texelScale) : 0.0f;
     // halo.x = how much of the text colour the halo keeps (a dark shade of

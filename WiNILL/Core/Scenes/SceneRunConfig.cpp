@@ -5,6 +5,7 @@
 #include "GameContext.h"
 #include "SceneUI.h"
 #include "SceneInternal.h"
+#include "../ReadyLaunch.h"
 #include "RunStats.h"
 #include "UiLayout.h"
 #include "WindowChrome.h"
@@ -130,7 +131,7 @@ void ResetRunConfigUi(float entryStart) {
 }
 
 
-void FinalizeLoadout(const SceneCtx& c, int wIdx) {
+void FinalizeLoadout(const SceneCtx& c, int wIdx, bool tutorial) {
     float& fireTimer = *c.fireTimer;
 
     g_Difficulty = static_cast<Difficulty>(std::max(0, std::min(kPlayDifficultyCount - 1, s_RcDifficulty)));
@@ -140,7 +141,13 @@ void FinalizeLoadout(const SceneCtx& c, int wIdx) {
     g_GameManager.maxHP    = g_Stats.maxHP;
     g_GameManager.playerHP = g_Stats.maxHP;
     g_PrevHP               = g_Stats.maxHP;
-    g_GameManager.currentState = GameState::READY;
+    ready_launch::g_TutorialMode = tutorial;
+    if (tutorial) {
+        g_GameManager.currentState = GameState::READY;
+    } else {
+        // PLAY skips the practice screen.
+        g_GameManager.currentState = GameState::RUNNING;
+    }
 }
 
 // 선택된 직업의 고정 무기 인덱스.  현재 플레이 가능한 직업은 소총과
@@ -625,6 +632,10 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         swprintf_s(statValues[4], L"%.2f", previewStats.bulletSpread);
         wcscpy_s(statValues[5], T(kTxtScreenRange));
     }
+    // The stat rows sit over the desktop in small type; a slightly thinner outline
+    // keeps the counters open.
+    constexpr float kStatHaloScale = 0.65f;
+    g_TextS.SetHaloScale(kStatHaloScale);
     for (int i = 0; i < kPlayStatCount; ++i) {
         const int col = i % 3;
         const int row = i / 3;
@@ -649,6 +660,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
                  y + 31.0f * uiS, 1.75f * uiS,
                  weaponR, weaponG, weaponB, 0.70f * contentA);
     }
+    g_TextS.SetHaloScale(1.0f);
     BatchFlush();
 
     // 하단: BACK | PLAY

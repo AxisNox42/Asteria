@@ -51,18 +51,19 @@ static void PatternsTakeTurns() {
         const Pattern first = norma::NextPattern(0, 1, roll);
         Check(first == Pattern::Refuge ||
               first == Pattern::Throw || first == Pattern::Ram ||
-              first == Pattern::Detonate,
-              "phase 1 window turn picks Refuge, Throw, Ram or Detonate");
-        const Pattern direct = norma::NextPattern(1, 1, roll);
-        Check(direct == Pattern::Aim || direct == Pattern::Dash,
-              "odd turns are a direct attack (aimed stream or charge)");
+              first == Pattern::Detonate || first == Pattern::Wall,
+              "phase 1 window turn picks Refuge, Throw, Ram, Detonate or Wall");
+        Check(norma::NextPattern(1, 1, roll) != Pattern::Aim, "the stream is not every other turn");
+        for (int last = 2; last <= 14; ++last)
+            Check(norma::NextPattern(0, 1, roll, (Pattern)last) != (Pattern)last, "never the same window pattern twice");
+        Check(norma::NextPattern(3, 1, roll) == Pattern::Aim, "every fourth turn is the aimed stream");
     }
-    bool sawAim = false, sawDash = false;
-    for (int roll = 0; roll < 40; ++roll) {
-        sawAim = sawAim || norma::NextPattern(1, 1, roll) == Pattern::Aim;
-        sawDash = sawDash || norma::NextPattern(1, 1, roll) == Pattern::Dash;
-    }
-    Check(sawAim && sawDash, "direct turns use both the aimed stream and the charge");
+    for (int roll = 0; roll < 40; ++roll)
+        Check(norma::NextPattern(0, 1, roll) != Pattern::Warp, "phase 1 never warps");
+    bool sawWarp = false;
+    for (int roll = 0; roll < 40; ++roll)
+        sawWarp = sawWarp || norma::NextPattern(2, 2, roll) == Pattern::Warp;
+    Check(sawWarp, "phase 2 adds Warp to the window turns");
     bool sawClose = false;
     for (int roll = 0; roll < 12; ++roll)
         sawClose = sawClose || norma::NextPattern(2, 2, roll) == Pattern::CloseWindow;

@@ -186,6 +186,7 @@
     <ClCompile Include="Core\Scenes\SceneSettings.cpp" />
     <ClCompile Include="Core\Scenes\SceneRunConfig.cpp" />
     <ClCompile Include="Core\Scenes\SceneStart.cpp" />
+    <ClCompile Include="Core\Scenes\SceneReady.cpp" />
     <ClCompile Include="Core\Scenes\ScenePause.cpp" />
     <ClCompile Include="Core\Scenes\SceneRunEnd.cpp" />
     <ClCompile Include="Core\Scenes\SceneAugment.cpp" />

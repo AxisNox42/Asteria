@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <system_error>
 #include "Settings.h"
+#include "KeyBindings.h"
 #include "Meta.h"
 #include "Achievements.h"
 #include "Codex.h"
@@ -288,6 +289,9 @@ inline void SaveGame() {
     add("mobstyle=%lld\n",  (int)g_MobVisualStyle);
     add("vfxdens=%lld\n",   (int)g_VfxDensity);
     add("macopt=%lld\n",    g_MacOptV1 ? 1 : 0);
+    for (int i = 0; i < GAME_ACTION_COUNT; i++) {
+        std::snprintf(ln, sizeof(ln), "keybind%d=%d\n", i, g_KeyBinds.key[i]); buf += ln;
+    }
     add("best_easy=%lld\n",   g_BestScore[0]);
     add("best_normal=%lld\n", g_BestScore[1]);
     add("best_hard=%lld\n",   g_BestScore[2]);
@@ -304,6 +308,7 @@ inline void SaveGame() {
         std::snprintf(ln, sizeof(ln), "wtkills%d=%lld\n",  i, g_WeaponTotalKills[i]); buf += ln;
         std::snprintf(ln, sizeof(ln), "wruns%d=%lld\n",    i, g_WeaponRunCount[i]);    buf += ln;
     }
+    add("tutdone=%lld\n",    g_TutorialDone ? 1 : 0);
     add("themeowned=%lld\n", (long long)g_ThemeOwned);
     add("themesel=%lld\n",   (long long)g_ThemeSel);
     for (int i = 0; i < META_COUNT; i++) {
@@ -421,6 +426,7 @@ inline void LoadGame() {
         if (!ReadSaveFile(SaveBackupPath(), content)) return;
     }
     // 줄 단위 파싱 (기존 sscanf 로직 그대로)
+    bool sawTutorialKey = false;
     size_t pos = 0;
     char line[160];
     while (pos < content.size()) {
@@ -462,6 +468,11 @@ inline void LoadGame() {
         else if (!std::strcmp(key, "mobstyle"))   { int v = (int)val; if (v >= 0 && v <= 1) g_MobVisualStyle = (MobVisualStyle)v; }
         else if (!std::strcmp(key, "vfxdens"))    { int v = (int)val; if (v >= 0 && v <= 2) g_VfxDensity = (VfxDensity)v; }
         else if (!std::strcmp(key, "macopt"))     g_MacOptV1          = (val != 0);
+        else if (!std::strncmp(key, "keybind", 7)) {
+            // Validated as a set after the loop (bad key / duplicates -> defaults).
+            const int ai = atoi(key + 7);
+            if (ai >= 0 && ai < GAME_ACTION_COUNT) g_KeyBinds.key[ai] = (int)val;
+        }
         // Scores, counts and coins are never negative; a damaged value reads as 0.
         else if (!std::strcmp(key, "best_easy"))   g_BestScore[0]      = ClampSaveValue(val);
         else if (!std::strcmp(key, "best_normal")) g_BestScore[1]      = ClampSaveValue(val);
@@ -475,6 +486,7 @@ inline void LoadGame() {
         else if (!std::strncmp(key, "wtkills", 7))  { int i = atoi(key+7); if (i>=0&&i<2) g_WeaponTotalKills[i] = ClampSaveValue(val); }
         else if (!std::strncmp(key, "wruns",   5))  { int i = atoi(key+5); if (i>=0&&i<2) g_WeaponRunCount[i]   = ClampSaveValue(val); }
         else if (!std::strcmp(key, "coins"))       g_Coins             = ClampSaveValue(val);
+        else if (!std::strcmp(key, "tutdone"))   { g_TutorialDone = (val != 0); sawTutorialKey = true; }
         else if (!std::strcmp(key, "themeowned"))  g_ThemeOwned        = (int)val | 1;
         // Ownership is checked by ApplyAccentTheme (themeowned may load later).
         else if (!std::strcmp(key, "themesel"))  { if (val >= 0 && val < ACCENT_COUNT) g_ThemeSel = (int)val; }
@@ -507,6 +519,9 @@ inline void LoadGame() {
             if (ji >= 1 && ji < JOB_COUNT) g_JobBought[ji] = (val != 0);
         }
     }
+    SanitizeKeyBindings(g_KeyBinds);
+    // 튜토리얼 기록이 없는 예전 세이브는 이미 플레이한 사람의 것이라 잠그지 않는다.
+    if (!sawTutorialKey) g_TutorialDone = true;
 }
 
 // 세이브 진행도 초기화 — 점수/코인/메타/업적/도감/테마를 전부 리셋(설정/언어는 유지).
@@ -528,6 +543,7 @@ inline void ResetSaveProgress() {
     }
     g_ThemeOwned = 1; g_ThemeSel = 0; ApplyAccentTheme();
     for (int i = 0; i < JOB_COUNT; i++) g_JobBought[i] = false;
+    g_TutorialDone = false;
     SaveGame();
 }
 

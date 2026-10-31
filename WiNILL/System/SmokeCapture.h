@@ -9,6 +9,8 @@
 //   ASTERIA_SMOKE_ORBITS  = 0              (선택, PLAY 무기 별자리 궤도 링 끄기)
 // STEP 형식: NAME[@fx,fy][!|*][~sec]
 //   QUASARFALL=<초> / QUASARBEAM=<초> : 퀘이사 준비 시작부터 지정 시점 재현 (ASTERIA_QREFLECT=<n> 로 빔 반사 횟수)
+//   READY : 새 런을 READY 화면(연습장 + 키보드 패널)에 세워 둠 (이미 READY면 연습 상태 유지)
+//   READYSTEP=<n> : READY 에서 연습 목표 앞의 n개를 완료 처리 (단계별 키 밝기 확인용)
 //   MOBGRID / MOBBUFF=<1 보호막,2 가속,4 은신 비트합> : 몹 격자 배치 / 전원에 버프 부여
 //   MOBCLEAR / MOBDUMP=<라벨> : 모든 몹 제거 / 살아있는 그라비티·레굴루스 상태를 Screenshots/mob_state.txt 에 기록
 //   GENESISROTOR=<초> : 제네시스 로터 준비 시작부터 지정 시점 재현 (캡처 시 정지)

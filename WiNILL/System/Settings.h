@@ -349,6 +349,8 @@ inline int GfxArcSegs(float mult = 1.5f) {
 //   g_ThemeOwned 는 비트마스크(비트0=기본, 항상 보유), g_ThemeSel 은 선택 인덱스.
 //   g_Accent* 는 선택 테마의 실제 RGB (ApplyAccentTheme 가 세팅, 렌더가 읽음).
 inline int   g_ThemeOwned = 1;
+// 로비 튜토리얼을 끝까지 마쳤는지. false 인 동안(첫 실행)은 튜토리얼·설정·종료만 열린다.
+inline bool  g_TutorialDone = false;
 inline int   g_ThemeSel   = 0;
 inline float g_AccentR    = 0.30f;
 inline float g_AccentG    = 1.0f;

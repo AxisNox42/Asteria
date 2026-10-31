@@ -16,10 +16,12 @@ namespace space {
 struct Region {
     int id = 0;
     float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+    float bornAt = 0.0f;   // g_Clock when the pane first stood
 };
 
 inline std::vector<Region> g_Regions;
 inline int g_PlayerSpace = 0;
+inline float g_Clock = 0.0f;   // seconds; shots stamp it when first seen
 
 constexpr int kPlayerSource = -2;    // "whatever space the player is in"
 constexpr int kUntracked = -1;       // source not tracked: always allowed
@@ -82,6 +84,60 @@ inline bool CrossedBorder(int shotSpace, float x, float y, int& absorbingPane) {
     const int now = SpaceAt(x, y);
     if (now == shotSpace) return false;
     absorbingPane = AbsorbingPane(shotSpace, now);
+    return true;
+}
+
+// A pane only stops shots fired after it stood: a pane that opens over shots
+// already in flight (Detonate reopening its panes) lets them through.
+inline bool Absorbs(int paneId, float firedAt) {
+    if (paneId <= 0) return true;
+    for (const Region& r : g_Regions)
+        if (r.id == paneId) return firedAt >= r.bornAt;
+    return true;
+}
+
+// Solid panes (the Wall pattern's stack): a rectangle nothing may stand in.
+struct Box { float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f; };
+
+inline bool InsideBoxes(const std::vector<Box>& boxes, float margin, float x, float y) {
+    for (const Box& b : boxes)
+        if (x > b.x - margin && x < b.x + b.w + margin && y > b.y - margin && y < b.y + b.h + margin)
+            return true;
+    return false;
+}
+
+// Moves (x, y) out of every box, to the nearest point outside all of them.
+// The boxes may overlap each other (a cascade) and the nearest edge of the one
+// a point is in may lie inside the next, or off the screen, so candidates are
+// straight out from the point and the corners of the stack's outline, and
+// those on the screen win over those off it. False when it was not inside.
+inline bool PushOutOfBoxes(const std::vector<Box>& boxes, float margin,
+                           float screenW, float screenH, float& x, float& y) {
+    if (!InsideBoxes(boxes, margin, x, y)) return false;
+    std::vector<float> xs, ys;
+    for (const Box& b : boxes) {
+        xs.push_back(b.x - margin - 1.0f);
+        xs.push_back(b.x + b.w + margin + 1.0f);
+        ys.push_back(b.y - margin - 1.0f);
+        ys.push_back(b.y + b.h + margin + 1.0f);
+    }
+    float bestD = -1.0f, bx = x, by = y;
+    for (int onScreenOnly = 1; onScreenOnly >= 0 && bestD < 0.0f; --onScreenOnly) {
+        const auto consider = [&](float cx, float cy) {
+            if (onScreenOnly && (cx < 0.0f || cx > screenW || cy < 0.0f || cy > screenH)) return;
+            if (InsideBoxes(boxes, margin, cx, cy)) return;
+            const float d = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+            if (bestD < 0.0f || d < bestD) { bestD = d; bx = cx; by = cy; }
+        };
+        for (float cx : xs) {
+            consider(cx, y);
+            for (float cy : ys) consider(cx, cy);
+        }
+        for (float cy : ys) consider(x, cy);
+    }
+    if (bestD < 0.0f) return false;
+    x = bx;
+    y = by;
     return true;
 }
 

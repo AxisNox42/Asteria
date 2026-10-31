@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1130" width="1800" height="1130"><title>NORMA 보스 본체와 창 규칙 v3</title><defs><style>
+*{vector-effect:non-scaling-stroke}
+.bg{fill:#080910}
+.frame{fill:none;stroke:#2b2d3d;stroke-width:1.4}
+.scr{fill:none;stroke:#3a3d52;stroke-width:1.4}
+.i{fill:none;stroke:#b8efff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:miter}
+.it{fill:none;stroke:#b8efff;stroke-width:3;stroke-linecap:round;stroke-linejoin:miter}
+.ig{fill:none;stroke:#b8efff;stroke-opacity:.22;stroke-width:9;stroke-linecap:round}
+.id{fill:none;stroke:#4d6a78;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:miter}
+.ih{fill:none;stroke:#ebfdff;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:miter}
+.w{fill:none;stroke:#eef1ff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:miter}
+.wt{fill:none;stroke:#eef1ff;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:miter}
+.b{fill:none;stroke:#7f93ff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:miter}
+.bt{fill:none;stroke:#9fb0ff;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:miter}
+.d{fill:none;stroke:#3f4778;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:miter}
+.v{fill:none;stroke:#c3b2ff;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:miter}
+.vt{fill:none;stroke:#d8ccff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:miter}
+.c{fill:none;stroke:#34e0f0;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.g{fill:none;stroke:#8a90a8;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:miter}
+.gd{fill:none;stroke:#4a4e60;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:miter}
+.r{fill:none;stroke:#ff8a9a;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter}
+.t1{font:700 40px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#f1f2f8}
+.t2{font:20px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#9aa0b8}
+.h{font:700 26px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#eef0fa}
+.p{font:17px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#aab0c6}
+.s{font:14px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#868ca4}
+.hw{font:700 18px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#eef1ff}
+.hb{font:700 16px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#8fa2ff}
+.hi{font:700 16px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#b8efff}
+.hv{font:700 16px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#c3b2ff}
+.hc{font:700 16px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#34e0f0}
+.hg{font:700 15px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#8a90a8}
+.tag{font:700 15px 'Malgun Gothic','Noto Sans CJK KR',sans-serif;fill:#c3b2ff;letter-spacing:2px}
+</style></defs><rect class="bg" width="1800" height="1130"/>
+<text class="t1" x="30.0" y="56.0" text-anchor="start">NORMA v3 · 임시 본체와 창 규칙</text>
+<text class="t2" x="30.0" y="92.0" text-anchor="start">본체는 네모로 틀만 잡고 패턴을 먼저 구체화한다 · 공격하는 강화 레굴루스 방향은 유지</text>
+<rect class="frame" x="30.0" y="120.0" width="860.0" height="560.0"/>
+<text class="h" x="52.0" y="160.0" text-anchor="start">A. 임시 본체 — 네모</text>
+<text class="p" x="52.0" y="188.0" text-anchor="start">외형은 패턴을 구체화한 뒤 정한다 · 지금은 크기·중심·판정 기준만 잡는다</text>
+<rect class="it" x="187.0" y="277.0" width="286.0" height="286.0"/>
+<circle class="i" cx="330.0" cy="420.0" r="13.2"/>
+<text class="hi" x="330.0" y="600.0" text-anchor="middle">보스 본체 (임시)</text>
+<text class="s" x="330.0" y="625.0" text-anchor="middle">정사각 테두리 + 중심점</text>
+<text class="p" x="560.0" y="300.0" text-anchor="start">유지하는 방향</text>
+<text class="p" x="560.0" y="328.0" text-anchor="start">· 레굴루스 계열: 얼음빛 청백색</text>
+<text class="p" x="560.0" y="356.0" text-anchor="start">· 즉발 레이저와 모서리 괄호로</text>
+<text class="p" x="560.0" y="384.0" text-anchor="start">  창을 만들고 명령한다</text>
+<text class="p" x="560.0" y="412.0" text-anchor="start"></text>
+<text class="p" x="560.0" y="440.0" text-anchor="start">임시로 두는 것</text>
+<text class="p" x="560.0" y="468.0" text-anchor="start">· 본체 외형 (네모)</text>
+<text class="p" x="560.0" y="496.0" text-anchor="start">· 보스 탄 모양 (작은 사각형)</text>
+<text class="p" x="560.0" y="524.0" text-anchor="start">· 7번에서 던지는 것 = 네모의 네 변</text>
+<rect class="frame" x="910.0" y="120.0" width="860.0" height="560.0"/>
+<text class="h" x="932.0" y="160.0" text-anchor="start">B. 창과의 연결은 생성·명령하는 순간에만</text>
+<text class="p" x="932.0" y="188.0" text-anchor="start">레굴루스가 보호막을 줄 때의 즉발 레이저와 괄호 조임 연출을 쓴다</text>
+<rect class="scr" x="935.0" y="240.0" width="260.0" height="300.0"/>
+<text class="tag" x="935.0" y="230.0" text-anchor="start">① 레이저 번쩍 (0.25초)</text>
+<rect class="it" x="968.1" y="283.1" width="33.8" height="33.8"/>
+<circle class="i" cx="985.0" cy="300.0" r="2.0"/>
+<rect class="gd" x="1030.0" y="370.0" width="140.0" height="120.0"/>
+<path class="gd" d="M1030.0 394.0 1170.0 394.0"/>
+<path class="gd" d="M1149.0 377.0 1159.0 387.0"/>
+<path class="gd" d="M1159.0 377.0 1149.0 387.0"/>
+<rect class="gd" x="1124.0" y="377.0" width="10.0" height="10.0"/>
+<path class="gd" d="M1100.0 382.0 1110.0 382.0"/>
+<text class="hg" x="1040.0" y="388.0" text-anchor="start">실제 창</text>
+<path class="ig" d="M995.0 310.0 1030.0 370.0"/>
+<path class="ih" d="M995.0 310.0 1030.0 370.0"/>
+<path class="ig" d="M995.0 310.0 1170.0 370.0"/>
+<path class="ih" d="M995.0 310.0 1170.0 370.0"/>
+<path class="ig" d="M995.0 310.0 1030.0 490.0"/>
+<path class="ih" d="M995.0 310.0 1030.0 490.0"/>
+<path class="ig" d="M995.0 310.0 1170.0 490.0"/>
+<path class="ih" d="M995.0 310.0 1170.0 490.0"/>
+<rect class="scr" x="1215.0" y="240.0" width="260.0" height="300.0"/>
+<text class="tag" x="1215.0" y="230.0" text-anchor="start">② 괄호가 1.6배에서 조여듦</text>
+<rect class="it" x="1248.1" y="283.1" width="33.8" height="33.8"/>
+<circle class="i" cx="1265.0" cy="300.0" r="2.0"/>
+<rect class="gd" x="1310.0" y="370.0" width="140.0" height="120.0"/>
+<path class="gd" d="M1310.0 394.0 1450.0 394.0"/>
+<path class="gd" d="M1429.0 377.0 1439.0 387.0"/>
+<path class="gd" d="M1439.0 377.0 1429.0 387.0"/>
+<rect class="gd" x="1404.0" y="377.0" width="10.0" height="10.0"/>
+<path class="gd" d="M1380.0 382.0 1390.0 382.0"/>
+<text class="hg" x="1320.0" y="388.0" text-anchor="start">실제 창</text>
+<path class="ig" d="M1275.0 310.0 1310.0 370.0"/>
+<path class="ig" d="M1275.0 310.0 1450.0 370.0"/>
+<path class="ig" d="M1275.0 310.0 1310.0 490.0"/>
+<path class="ig" d="M1275.0 310.0 1450.0 490.0"/>
+<path class="id" d="M1310.0 352.0 1288.0 352.0 1288.0 374.0"/>
+<path class="id" d="M1450.0 352.0 1472.0 352.0 1472.0 374.0"/>
+<path class="id" d="M1310.0 508.0 1288.0 508.0 1288.0 486.0"/>
+<path class="id" d="M1450.0 508.0 1472.0 508.0 1472.0 486.0"/>
+<path class="it" d="M1332.0 370.0 1310.0 370.0 1310.0 392.0"/>
+<path class="it" d="M1428.0 370.0 1450.0 370.0 1450.0 392.0"/>
+<path class="it" d="M1332.0 490.0 1310.0 490.0 1310.0 468.0"/>
+<path class="it" d="M1428.0 490.0 1450.0 490.0 1450.0 468.0"/>
+<path class="i" d="M1288.0 352.0 1304.0 366.0"/>
+<path class="i" d="M1304.0 366.0 1299.1 365.1"/>
+<path class="i" d="M1304.0 366.0 1302.5 361.2"/>
+<path class="i" d="M1472.0 508.0 1456.0 494.0"/>
+<path class="i" d="M1456.0 494.0 1460.9 494.9"/>
+<path class="i" d="M1456.0 494.0 1457.5 498.8"/>
+<path class="i" d="M1461.9 431.0 1466.7 432.3"/>
+<path class="i" d="M1459.0 433.9 1460.3 438.7"/>
+<path class="i" d="M1455.1 432.9 1451.6 436.4"/>
+<path class="i" d="M1454.1 429.0 1449.3 427.7"/>
+<path class="i" d="M1457.0 426.1 1455.7 421.3"/>
+<path class="i" d="M1460.9 427.1 1464.4 423.6"/>
+<rect class="scr" x="1495.0" y="240.0" width="260.0" height="300.0"/>
+<text class="tag" x="1495.0" y="230.0" text-anchor="start">③ 연결 사라짐 · 괄호만 남음</text>
+<rect class="it" x="1528.1" y="283.1" width="33.8" height="33.8"/>
+<circle class="i" cx="1545.0" cy="300.0" r="2.0"/>
+<rect class="g" x="1590.0" y="370.0" width="140.0" height="120.0"/>
+<path class="g" d="M1590.0 394.0 1730.0 394.0"/>
+<path class="g" d="M1709.0 377.0 1719.0 387.0"/>
+<path class="g" d="M1719.0 377.0 1709.0 387.0"/>
+<rect class="g" x="1684.0" y="377.0" width="10.0" height="10.0"/>
+<path class="g" d="M1660.0 382.0 1670.0 382.0"/>
+<text class="hg" x="1600.0" y="388.0" text-anchor="start">실제 창</text>
+<path class="it" d="M1612.0 370.0 1590.0 370.0 1590.0 392.0"/>
+<path class="it" d="M1708.0 370.0 1730.0 370.0 1730.0 392.0"/>
+<path class="it" d="M1612.0 490.0 1590.0 490.0 1590.0 468.0"/>
+<path class="it" d="M1708.0 490.0 1730.0 490.0 1730.0 468.0"/>
+<text class="p" x="935.0" y="590.0" text-anchor="start">창 위에는 레굴루스가 아군에게 씌우는 것과 같은 모서리 괄호만 남는다.</text>
+<text class="p" x="935.0" y="616.0" text-anchor="start">보스와 창 사이에 계속 이어진 선은 없다. 창을 닫거나 순서를 바꾸거나</text>
+<text class="p" x="935.0" y="642.0" text-anchor="start">반사를 걸 때만 같은 레이저가 다시 한 번 번쩍인다.</text>
+<rect class="frame" x="30.0" y="700.0" width="1740.0" height="400.0"/>
+<text class="h" x="52.0" y="740.0" text-anchor="start">C. 창 = 별도 공간 (확정 규칙)</text>
+<text class="p" x="52.0" y="768.0" text-anchor="start">창 안과 밖은 공격이 서로 닿지 않는다 · 경계를 넘는 것은 몹과 플레이어의 이동뿐</text>
+<text class="hw" x="60.0" y="810.0" text-anchor="start">① 투사체·레이저는 경계에서 소멸</text>
+<rect class="d" x="290.0" y="840.0" width="240.0" height="170.0"/>
+<path class="d" d="M290.0 864.0 530.0 864.0"/>
+<path class="d" d="M509.0 847.0 519.0 857.0"/>
+<path class="d" d="M519.0 847.0 509.0 857.0"/>
+<rect class="d" x="484.0" y="847.0" width="10.0" height="10.0"/>
+<path class="d" d="M460.0 852.0 470.0 852.0"/>
+<text class="hb" x="300.0" y="858.0" text-anchor="start">창</text>
+<path class="c" d="M114.0 930.0 91.6 937.1 96.0 930.0 91.6 922.9Z"/>
+<path class="c" d="M150.0 930.0 162.0 930.0"/>
+<path class="c" d="M220.0 930.0 232.0 930.0"/>
+<path class="c" d="M293.5 930.9 297.7 932.1"/>
+<path class="c" d="M290.9 933.5 292.1 937.7"/>
+<path class="c" d="M287.5 932.5 284.3 935.7"/>
+<path class="c" d="M286.5 929.1 282.3 927.9"/>
+<path class="c" d="M289.1 926.5 287.9 922.3"/>
+<path class="c" d="M292.5 927.5 295.7 924.3"/>
+<path class="d" d="M438.7 935.0 430.0 940.0 421.3 935.0 421.3 925.0 430.0 920.0 438.7 925.0Z"/>
+<circle class="d" cx="430.0" cy="930.0" r="2.0"/>
+<path class="i" d="M354.0 894.0 346.0 894.0 346.0 886.0 354.0 886.0Z"/>
+<path class="v" d="M295.5 890.9 299.7 892.1"/>
+<path class="v" d="M292.9 893.5 294.1 897.7"/>
+<path class="v" d="M289.5 892.5 286.3 895.7"/>
+<path class="v" d="M288.5 889.1 284.3 887.9"/>
+<path class="v" d="M291.1 886.5 289.9 882.3"/>
+<path class="v" d="M294.5 887.5 297.7 884.3"/>
+<path class="i" d="M354.0 979.0 346.0 979.0 346.0 971.0 354.0 971.0Z"/>
+<path class="v" d="M295.5 975.9 299.7 977.1"/>
+<path class="v" d="M292.9 978.5 294.1 982.7"/>
+<path class="v" d="M289.5 977.5 286.3 980.7"/>
+<path class="v" d="M288.5 974.1 284.3 972.9"/>
+<path class="v" d="M291.1 971.5 289.9 967.3"/>
+<path class="v" d="M294.5 972.5 297.7 969.3"/>
+<text class="s" x="60.0" y="1045.0" text-anchor="start">전기장·폭발도 경계에서 잘리고, 접촉 피해도 같은 공간끼리만 생긴다</text>
+<text class="hw" x="640.0" y="810.0" text-anchor="start">② 몹과 플레이어는 걸어서 넘나든다</text>
+<rect class="bt" x="840.0" y="840.0" width="240.0" height="170.0"/>
+<path class="bt" d="M840.0 864.0 1080.0 864.0"/>
+<path class="bt" d="M1059.0 847.0 1069.0 857.0"/>
+<path class="bt" d="M1069.0 847.0 1059.0 857.0"/>
+<rect class="bt" x="1034.0" y="847.0" width="10.0" height="10.0"/>
+<path class="bt" d="M1010.0 852.0 1020.0 852.0"/>
+<text class="hb" x="850.0" y="858.0" text-anchor="start">내가 있는 창</text>
+<path class="c" d="M1020.0 946.0 1027.1 968.4 1020.0 964.0 1012.9 968.4Z"/>
+<path class="d" d="M768.7 905.0 760.0 910.0 751.3 905.0 751.3 895.0 760.0 890.0 768.7 895.0Z"/>
+<circle class="d" cx="760.0" cy="900.0" r="2.0"/>
+<path class="d" d="M775.0 900.0 830.0 900.0"/>
+<path class="d" d="M830.0 900.0 823.1 904.1"/>
+<path class="d" d="M830.0 900.0 823.1 895.9"/>
+<path class="b" d="M898.7 905.0 890.0 910.0 881.3 905.0 881.3 895.0 890.0 890.0 898.7 895.0Z"/>
+<circle class="b" cx="890.0" cy="900.0" r="2.0"/>
+<path class="d" d="M762.0 975.0 740.0 984.0 726.0 975.0 740.0 966.0Z"/>
+<circle class="d" cx="740.0" cy="975.0" r="2.0"/>
+<path class="b" d="M770.0 975.0 920.0 975.0"/>
+<path class="b" d="M920.0 975.0 913.1 979.1"/>
+<path class="b" d="M920.0 975.0 913.1 970.9"/>
+<path class="b" d="M972.0 975.0 950.0 984.0 936.0 975.0 950.0 966.0Z"/>
+<circle class="b" cx="950.0" cy="975.0" r="2.0"/>
+<text class="s" x="640.0" y="1045.0" text-anchor="start">넘는 순간 소속이 바뀐다 · 경계에 걸치면 중심점 쪽 소속</text>
+<text class="s" x="640.0" y="1067.0" text-anchor="start">안타레스 돌진도 예외 없음: 창 경계에서 기절하지 않고 통과</text>
+<text class="hw" x="1220.0" y="810.0" text-anchor="start">③ 겹치면 앞 창이 겹친 영역을 가진다</text>
+<rect class="bt" x="1240.0" y="850.0" width="240.0" height="120.0"/>
+<path class="bt" d="M1240.0 874.0 1480.0 874.0"/>
+<path class="bt" d="M1459.0 857.0 1469.0 867.0"/>
+<path class="bt" d="M1469.0 857.0 1459.0 867.0"/>
+<rect class="bt" x="1434.0" y="857.0" width="10.0" height="10.0"/>
+<path class="bt" d="M1410.0 862.0 1420.0 862.0"/>
+<text class="hb" x="1250.0" y="868.0" text-anchor="start">앞 창 A</text>
+<path class="d" d="M1480.0 905.0 1620.0 905.0 1620.0 1025.0 1400.0 1025.0 1400.0 970.0"/>
+<path class="d" d="M1480.0 929.0 1620.0 929.0"/>
+<text class="hb" x="1495.0" y="923.0" text-anchor="start">뒤 창 B</text>
+<text class="s" x="1220.0" y="1045.0" text-anchor="start">뒤 창 테두리는 겹친 영역에서 그리지 않는다</text>
+<text class="s" x="1220.0" y="1067.0" text-anchor="start">내 창은 밝게, 다른 창과 다른 공간의 몹은 어둡고 얇게</text>
+</svg>

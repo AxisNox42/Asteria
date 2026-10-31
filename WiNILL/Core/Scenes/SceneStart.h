@@ -14,3 +14,5 @@ struct TutorialSceneContext {
 
 void Scene_Tutorial(const SceneCtx& scene, const TutorialSceneContext& state);
 void Scene_Ready(const SceneCtx& scene, const SceneTextContext& text);
+// Smoke capture: mark the first `steps` practice objectives done (in order).
+void Ready_SmokeCompleteSteps(int steps);

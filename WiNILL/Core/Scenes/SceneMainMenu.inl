@@ -46,11 +46,11 @@ void Scene_MainMenu(const SceneCtx& c) {
     static int   s_menuSelect = -1;
     static float s_menuExitT  = 0.0f;
     static bool  s_confirmQuit = false;
-    static float kHoverT[5] = {};
+    static float kHoverT[kMainMenuRouteCount] = {};
     constexpr float kTitleDur  = 0.55f;
     constexpr float kBtnDur    = 0.45f;
     constexpr float kBtnStag   = 0.14f;
-    constexpr float kTextStart = kTitleDur + 4.0f * kBtnStag + kBtnDur;
+    constexpr float kTextStart = kTitleDur + (float)(kMainMenuRouteCount - 1) * kBtnStag + kBtnDur;
     constexpr float kTextDur   = 0.35f;
     constexpr float kIntroDone = kTextStart + kTextDur;
 
@@ -59,7 +59,7 @@ void Scene_MainMenu(const SceneCtx& c) {
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
         s_confirmQuit = false;
-        for (int i = 0; i < 5; ++i) kHoverT[i] = 0.0f;
+        for (int i = 0; i < kMainMenuRouteCount; ++i) kHoverT[i] = 0.0f;
         g_MainMenuEntryT = 0.001f;
     } else {
         g_MainMenuEntryT += delta;
@@ -67,11 +67,11 @@ void Scene_MainMenu(const SceneCtx& c) {
     if (s_MainMenuResumeFromPanel) {
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
-        for (int i = 0; i < 5; ++i) kHoverT[i] = 0.0f;
+        for (int i = 0; i < kMainMenuRouteCount; ++i) kHoverT[i] = 0.0f;
         s_MainMenuResumeFromPanel = false;
     }
     const bool exitActive = (s_menuSelect >= 0);
-    const float menuExitDuration = s_menuSelect == 4
+    const float menuExitDuration = s_menuSelect == kMainMenuExitIndex
         ? 0.52f : kOutgameTransitionDuration;
     if (exitActive) {
         s_menuExitT += std::min(delta, 0.05f);
@@ -101,10 +101,11 @@ void Scene_MainMenu(const SceneCtx& c) {
         { 0.18f, 0.62f, 0.96f },
         { 0.18f, 0.62f, 0.96f },
         { 0.18f, 0.62f, 0.96f },
+        { 0.18f, 0.62f, 0.96f },
     };
     // Lobby buttons use one localized route label; route IDs must not leak
     // through as English-only text when Korean or Japanese is selected.
-    const int   kBtnCount = 5;
+    const int   kBtnCount = kMainMenuRouteCount;
     const float BW = std::min(560.0f * uiScale,
                               std::max(420.0f * uiScale, sw * 0.34f));
     const float BH = 70.0f * uiScale;
@@ -150,8 +151,14 @@ void Scene_MainMenu(const SceneCtx& c) {
         float reveal = Smoothstep(rawBtnPh);
         bool selected = (s_menuSelect == i);
         float exitP = SceneTransitionEase(s_menuExitT / menuExitDuration);
+        // First launch: only TUTORIAL, SETTINGS and EXIT are open until the
+        // tutorial has been completed once.
+        const bool locked = !g_TutorialDone
+                         && (i == kMainMenuPlayIndex || i == kMainMenuShopIndex
+                             || i == kMainMenuCodexIndex);
         const bool buttonReady = !booting && !introActive && !introWasActive
-                              && !exitActive && !s_confirmQuit && g_FadeDir == 0;
+                              && !exitActive && !s_confirmQuit && g_FadeDir == 0
+                              && !locked;
         const float priorBx = baseBx + (1.0f - reveal) * 34.0f - 10.0f * kHoverT[i];
         const float priorBy = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
         bool hov = UpdatePanelButtonHover(kHoverT[i], buttonReady,
@@ -159,13 +166,13 @@ void Scene_MainMenu(const SceneCtx& c) {
                                           priorBx, priorBy, BW, BH,
                                           delta, 4.0f * uiScale);
         float t = kHoverT[i];
-        float rowA = reveal * uiA;
+        float rowA = reveal * uiA * (locked ? 0.42f : 1.0f);
         if (exitActive && !selected) rowA *= (1.0f - exitP * 0.86f);
         float slide = (1.0f - reveal) * 34.0f;
         float bx = baseBx + slide - 10.0f * t;
         float by = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
         float ar = kBtns[i].ir, ag = kBtns[i].ig, ab = kBtns[i].ib;
-        if (i == 4) {
+        if (i == kMainMenuExitIndex) {
             // Keep the idle command in the shared family color. The warmer
             // warning hue appears only while SHUTDOWN is actively targeted.
             const float warnT = std::max(t, selected ? exitP : 0.0f);
@@ -186,8 +193,37 @@ void Scene_MainMenu(const SceneCtx& c) {
                         uiScale, false, PanelButtonSlideSide::Left, false,
                         routeVariants, 3);
 
-        if (hov && lmb && !g_LmbPrev) {
-            if (i == 4) {
+        if (locked) {
+            // Line-only padlock to the right of the label: a shackle arc over
+            // a body outline with a keyhole stroke.
+            BindMainShader();
+            const float lw = 1.6f * uiScale;
+            const float bw = 20.0f * uiScale, bh = 15.0f * uiScale;
+            const float lx = bx + std::min(BW - bw - 24.0f * uiScale, 250.0f * uiScale);
+            const float ly = by + BH * 0.5f - 1.0f * uiScale;
+            const float la = 0.7f * reveal * uiA;
+            const float sr = bw * 0.30f;
+            const float scx = lx + bw * 0.5f, scy = ly;
+            const int kSeg = 8;
+            for (int s = 0; s < kSeg; ++s) {
+                const float a0 = 3.14159265f * (float)s / (float)kSeg;
+                const float a1 = 3.14159265f * (float)(s + 1) / (float)kSeg;
+                LogoLine(scx - sr * cosf(a0), scy - sr * sinf(a0),
+                         scx - sr * cosf(a1), scy - sr * sinf(a1),
+                         lw, 0.80f, 0.90f, 1.0f, la);
+            }
+            LogoLine(scx - sr, scy, scx - sr, scy + 3.0f * uiScale, lw, 0.80f, 0.90f, 1.0f, la);
+            LogoLine(scx + sr, scy, scx + sr, scy + 3.0f * uiScale, lw, 0.80f, 0.90f, 1.0f, la);
+            const float by0 = scy + 3.0f * uiScale;
+            LogoLine(lx, by0, lx + bw, by0, lw, 0.80f, 0.90f, 1.0f, la);
+            LogoLine(lx + bw, by0, lx + bw, by0 + bh, lw, 0.80f, 0.90f, 1.0f, la);
+            LogoLine(lx + bw, by0 + bh, lx, by0 + bh, lw, 0.80f, 0.90f, 1.0f, la);
+            LogoLine(lx, by0 + bh, lx, by0, lw, 0.80f, 0.90f, 1.0f, la);
+            LogoLine(scx, by0 + bh * 0.30f, scx, by0 + bh * 0.70f, lw, 0.80f, 0.90f, 1.0f, la);
+        }
+
+        if (hov && lmb && !g_LmbPrev && !locked) {
+            if (i == kMainMenuExitIndex) {
                 s_confirmQuit = true;   // EXIT asks first
             } else {
                 s_menuSelect = i;
@@ -196,30 +232,35 @@ void Scene_MainMenu(const SceneCtx& c) {
         }
     }
 
-    const float kExitDelay = (s_menuSelect == 4) ? 0.52f : 0.18f;
+    const float kExitDelay = (s_menuSelect == kMainMenuExitIndex) ? 0.52f : 0.18f;
     if (s_menuSelect >= 0 && s_menuExitT >= kExitDelay && g_FadeDir == 0) {
         int selectedMenu = s_menuSelect;
         const float handoffT = s_menuExitT;
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
         switch (selectedMenu) {
-        case 0:
+        case kMainMenuPlayIndex:
             ResetRunConfigUi(handoffT);
             s_MainMenuRunConfigPanel = true;
             break;
-        case 1:
+        case kMainMenuShopIndex:
             ResetShopUi(handoffT);
             s_MainMenuArmoryPanel = true;
             break;
-        case 2:
+        case kMainMenuCodexIndex:
             ResetCodexUi(handoffT);
             s_MainMenuCodexPanel = true;
             break;
-        case 3:
+        case kMainMenuSettingsIndex:
             ResetSettingsUi(handoffT);
             s_MainMenuSettingsPanel = true;
             break;
-        case 4:
+        case kMainMenuTutorialIndex:
+            // Practice field straight from the lobby; Space/ESC come back.
+            c.reset();
+            FinalizeLoadout(c, FixedWeaponForSelectedJob(), true);
+            break;
+        case kMainMenuExitIndex:
             glfwSetWindowShouldClose(window, GLFW_TRUE);
             break;
         }
@@ -231,7 +272,7 @@ void Scene_MainMenu(const SceneCtx& c) {
         if (answer == ConfirmChoice::Yes) {
             s_confirmQuit = false;
             DrawConfirmDialog(false, ConfirmTextQuit(), sw, sh, mx, my, lmb, g_LmbPrev, delta);
-            s_menuSelect = 4;
+            s_menuSelect = kMainMenuExitIndex;
             s_menuExitT = 0.0f;
         } else if (answer == ConfirmChoice::No) {
             s_confirmQuit = false;

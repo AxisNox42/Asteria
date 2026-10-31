@@ -2,6 +2,7 @@
 #include "SpaceRules.h"
 
 #include <cmath>
+#include <vector>
 #include <cstdio>
 
 static int g_failures = 0;
@@ -107,6 +108,42 @@ static void SmallerPanesAreSturdier() {
           "huge panes keep the base");
 }
 
+static void NewPanesLetOlderShotsPass() {
+    Reset();
+    space::g_Regions = { {3, 0.0f, 0.0f, 100.0f, 100.0f, 5.0f} };
+    Check(!space::Absorbs(3, 4.0f), "pane born after the shot lets it pass");
+    Check(space::Absorbs(3, 5.0f), "pane stops shots fired once it stood");
+    Check(space::Absorbs(0, 1.0f), "open field is never exempt");
+    Check(space::Absorbs(9, 1.0f), "unknown pane keeps the old rule");
+}
+
+static void SolidBoxesNeverTrapAnything() {
+    // A cascade of four overlapping panes, like the Wall pattern's stack.
+    std::vector<space::Box> cascade;
+    for (int i = 0; i < 4; ++i) cascade.push_back({ 300.0f + 70.0f * (float)i, 100.0f + 56.0f * (float)i, 440.0f, 320.0f });
+    int trapped = 0, moved = 0;
+    for (float px = 280.0f; px < 880.0f; px += 7.0f)
+        for (float py = 80.0f; py < 620.0f; py += 7.0f) {
+            float x = px, y = py;
+            const bool wasInside = space::InsideBoxes(cascade, 14.0f, x, y);
+            const bool pushed = space::PushOutOfBoxes(cascade, 14.0f, 1280.0f, 720.0f, x, y);
+            if (pushed) ++moved;
+            if (space::InsideBoxes(cascade, 14.0f, x, y)) ++trapped;
+            if (pushed != wasInside) ++trapped;
+            if (pushed && (x < 0.0f || x > 1280.0f || y < 0.0f || y > 720.0f)) ++trapped;
+        }
+    Check(moved > 100, "points inside the stack were pushed");
+    Check(trapped == 0, "nothing is left inside the overlapping stack or thrown off the screen");
+    // A pane against the screen edge: out through the side that is on the screen.
+    std::vector<space::Box> edge = { { 0.0f, 100.0f, 400.0f, 300.0f } };
+    float x = 100.0f, y = 250.0f;
+    Check(space::PushOutOfBoxes(edge, 0.0f, 1280.0f, 720.0f, x, y) && x >= 0.0f && !space::InsideBoxes(edge, 0.0f, x, y),
+          "a pane at the screen edge pushes out onto the screen");
+    float ox = 1100.0f, oy = 650.0f;
+    Check(!space::PushOutOfBoxes(cascade, 14.0f, 1280.0f, 720.0f, ox, oy) && ox == 1100.0f,
+          "a point outside is left alone");
+}
+
 int main() {
     NoPanesAllowsEverything();
     FrontPaneOwnsOverlap();
@@ -114,6 +151,8 @@ int main() {
     EnemyHitsNeedTheSameSpace();
     ShotsStopAtBorders();
     SmallerPanesAreSturdier();
+    NewPanesLetOlderShotsPass();
+    SolidBoxesNeverTrapAnything();
     if (g_failures == 0) std::printf("space rules: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
 }

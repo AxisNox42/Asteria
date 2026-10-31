@@ -205,8 +205,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
         drawRect(anchorX, std::max(22.0f, MainLogoTop(sh) - 20.0f),
                  1.2f, mainTotalH + 170.0f,
                  0.48f, 0.82f, 1.0f, 0.12f * oldMenuA);
-        for (int i = 0; i < 5; ++i) {
-            const bool focus = (!s_backExit && i == 2);
+        for (int i = 0; i < kMainMenuRouteCount; ++i) {
+            const bool focus = (!s_backExit && i == kMainMenuCodexIndex);
             const float rowY = ghostRailY + (float)i * (mainBH + ghostGap);
             const float rowX = mainX - ghostSlide - (focus ? 0.0f : 26.0f * oldOut);
             const float rowA = (s_backExit ? 0.82f : focus ? 0.76f : 0.18f) * oldMenuA;

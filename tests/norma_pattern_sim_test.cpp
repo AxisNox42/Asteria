@@ -21,10 +21,12 @@ static void Check(bool ok, const char* what) {
 
 struct Tally {
     int refugeShots = 0, aimShots = 0;
-    int aimTurns = 0, dashTurns = 0, windowTurns = 0;
-    float dashTravel = 0.0f;   // how far the body moved during charges
-    float exposed = 0.0f;      // seconds the boss stood open after charges
-    float maxAccel = 0.0f;     // sharpest speed change (px/s^2) outside charges
+    int aimTurns = 0, windowTurns = 0;
+    float exposed = 0.0f;      // seconds the boss stood open after a ram
+    float maxAccel = 0.0f;     // sharpest speed change (px/s^2) outside openings
+    int repeats = 0;           // the same window pattern twice running
+    int kinds = 0;             // bitmask of patterns seen
+    float longestIdle = 0.0f;  // longest stretch with no pattern running or shot fired
 };
 
 // noPane: answer every pane Ask with "none" (-1), as on a desktop with no
@@ -41,6 +43,8 @@ static Tally Run(float seconds, bool noPane, int phase) {
     norma::Pattern last = norma::Pattern::None;
     const float playerX = 420.0f, playerY = 0.0f;
     float prevVX = 0.0f, prevVY = 0.0f;
+    norma::Pattern prevTurn = norma::Pattern::None;
+    float idle = 0.0f;
     for (float time = 0.0f; time < seconds; time += DT) {
         const size_t before = bullets.size();
         const float bx = boss.worldX, by = boss.worldY;
@@ -49,27 +53,27 @@ static Tally Run(float seconds, bool noPane, int phase) {
         if (boss.normaPattern == norma::Pattern::Refuge) t.refugeShots += fired;
         if (boss.normaPattern == norma::Pattern::Aim) t.aimShots += fired;
         if (boss.normaExposed > 0.0f) t.exposed += DT;
-        if (boss.normaPattern == norma::Pattern::Dash)
-            t.dashTravel += std::sqrt((boss.worldX - bx) * (boss.worldX - bx) +
-                                      (boss.worldY - by) * (boss.worldY - by));
         if (boss.normaPattern != last && boss.normaPattern != norma::Pattern::None) {
             if (boss.normaPattern == norma::Pattern::Aim) ++t.aimTurns;
-            else if (boss.normaPattern == norma::Pattern::Dash) ++t.dashTurns;
             else ++t.windowTurns;
+            if (boss.normaPattern == prevTurn && boss.normaPattern != norma::Pattern::Aim) ++t.repeats;
+            prevTurn = boss.normaPattern;
+            t.kinds |= 1 << (int)boss.normaPattern;
         }
         {
             const float vx = (boss.worldX - bx) / DT, vy = (boss.worldY - by) / DT;
-            const bool freeMove = boss.normaPattern != norma::Pattern::Dash &&
-                              boss.normaExposed <= 0.0f;
+            const bool freeMove = boss.normaExposed <= 0.0f;
             if (freeMove) t.maxAccel = std::max(t.maxAccel,
                 std::sqrt((vx - prevVX) * (vx - prevVX) + (vy - prevVY) * (vy - prevVY)) / DT);
             prevVX = vx;
             prevVY = vy;
         }
         last = boss.normaPattern;
+        idle = (boss.normaStage == norma::Stage::Wait) ? idle + DT : 0.0f;
+        t.longestIdle = std::max(t.longestIdle, idle);
         for (norma::Ask ask : norma::g_Asks) {
-            if (ask == norma::Ask::ClosePlayerWindow ||
-                ask == norma::Ask::RamWindow) {
+            if (ask == norma::Ask::ClosePlayerWindow || ask == norma::Ask::RamWindow ||
+                ask == norma::Ask::BuildWall || ask == norma::Ask::WarpPlan) {
                 if (noPane) {
                     boss.normaPaneId = -1;
                 } else {
@@ -86,26 +90,26 @@ static Tally Run(float seconds, bool noPane, int phase) {
 
 int main() {
     const Tally withPanes = Run(120.0f, false, 1);
-    std::printf("phase 1 with panes: aim %d (%d shots), dash %d (%.0f px), window turns %d, refuge %d\n",
-                withPanes.aimTurns, withPanes.aimShots, withPanes.dashTurns, withPanes.dashTravel,
+    std::printf("phase 1 with panes: aim %d (%d shots), window turns %d, refuge %d\n",
+                withPanes.aimTurns, withPanes.aimShots,
                 withPanes.windowTurns, withPanes.refugeShots);
-    Check(withPanes.aimTurns + withPanes.dashTurns >= 3, "a direct attack comes round every other turn");
-    Check(withPanes.dashTurns == 0 || withPanes.dashTravel > 500.0f, "the charges really move the body");
-    Check(withPanes.dashTurns == 0 || withPanes.exposed > 1.0f, "the boss stands open after its charges");
+    Check(withPanes.aimTurns >= 3, "the aimed stream comes round every other turn");
     Check(withPanes.aimShots > 0, "the aimed stream fires");
     Check(withPanes.windowTurns >= 3, "window patterns take their turns");
-    std::printf("sharpest speed change outside charges: %.0f px/s^2\n", withPanes.maxAccel);
+    std::printf("sharpest speed change outside openings: %.0f px/s^2\n", withPanes.maxAccel);
     Check(withPanes.maxAccel < 700.0f, "the drift never lurches (bounded acceleration)");
 
     const Tally noPanes = Run(120.0f, true, 1);
-    std::printf("phase 1 no panes: aim turns %d (%d shots), dash turns %d, window turns %d\n",
-                noPanes.aimTurns, noPanes.aimShots, noPanes.dashTurns, noPanes.windowTurns);
+    std::printf("phase 1 no panes: aim turns %d (%d shots), window turns %d\n",
+                noPanes.aimTurns, noPanes.aimShots, noPanes.windowTurns);
     Check(noPanes.aimShots > 0, "with no pane the boss still fires");
+    Check(noPanes.longestIdle < 1.0f, "the boss never stalls waiting on an answer");
+    Check(withPanes.repeats == 0 && noPanes.repeats == 0, "no window pattern twice running");
 
     const Tally phase2 = Run(60.0f, false, 2);
-    std::printf("phase 2: aim turns %d (%d shots), dash turns %d\n", phase2.aimTurns,
-                phase2.aimShots, phase2.dashTurns);
-    Check(phase2.aimTurns + phase2.dashTurns > 0, "phase 2 uses its direct attacks");
+    std::printf("phase 2: aim turns %d (%d shots)\n", phase2.aimTurns,
+                phase2.aimShots);
+    Check(phase2.aimTurns > 0, "phase 2 uses the aimed stream");
 
     if (g_failures == 0) std::printf("norma pattern sim: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

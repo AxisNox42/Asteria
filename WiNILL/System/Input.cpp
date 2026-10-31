@@ -36,6 +36,8 @@ extern int g_VolLen;
 
 bool  keys[1024] = {};
 float g_ScrollAccum = 0.0f;
+bool  g_KeyCaptureActive = false;
+int   g_CapturedKey = -1;
 
 wchar_t g_CodexSearch[64] = {0};
 int     g_CodexSearchLen  = 0;
@@ -253,6 +255,11 @@ static void InputKeyCallback(GLFWwindow* window, int key, int, int action, int m
         if      (action == GLFW_PRESS)   keys[key] = true;
         else if (action == GLFW_RELEASE) keys[key] = false;
     }
+    if (g_KeyCaptureActive) {
+        // Only the first press counts; key repeats must not overwrite it.
+        if (action == GLFW_PRESS && g_CapturedKey < 0) g_CapturedKey = key;
+        return;
+    }
     if (g_DebugToolkit.IsAugmentSearchActive()) {
         if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
 #ifdef _WIN32
@@ -355,6 +362,7 @@ void InputUnregisterCallbacks(GLFWwindow*) {
 void InputClearState() {
     std::memset(keys, 0, sizeof(keys));
     g_ScrollAccum = 0.0f;
+    g_CapturedKey = -1;
     ClearTextComposition();
 }
 

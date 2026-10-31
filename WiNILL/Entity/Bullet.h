@@ -50,6 +50,8 @@ public:
     // NORMA window space the shot was fired in (SpaceRules.h); -1 until its
     // first update. It dissolves on reaching any other space.
     int   space = -1;
+    // space::g_Clock when the shot was first updated; panes opened later do not stop it.
+    float firedAt = 0.0f;
     // NORMA's shot: a small square with a short tail (placeholder look).
     bool  normaShot = false;
 

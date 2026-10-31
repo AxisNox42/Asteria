@@ -81,6 +81,8 @@ void Place(int id, float x, float y);
 void Resize(int id, float x, float y, float w, float h);
 void CloseAll();              // every pane, e.g. when a run ends
 void SetLocked(int id, bool locked);
+// Brings the pane in front of the game's other panes (still under the game itself).
+void RaiseToFront(int id);
 // 0..1: how unsteady the pane's contents paint (jittering lines, corrupted
 // characters, a tint toward violet). Repaints every frame while above 0.
 void SetUnstable(int id, float level);

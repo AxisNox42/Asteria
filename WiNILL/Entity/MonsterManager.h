@@ -23,7 +23,7 @@ public:
     std::vector<RegulusBeam> regulusBeams;
 
     static bool RegulusBuffable(const Monster& m) {
-        return m.alive && m.kind != MobKind::REGULUS && m.kind != MobKind::NORMA;
+        return m.alive && m.kind != MobKind::REGULUS && !IsBossMob(m.kind);
     }
 
     void TickRegulusBuffs(float dt) {
@@ -511,7 +511,7 @@ private:
     // boss, and the Scope (a ranged enemy, its own class). Uniform: each is one entry.
     static int GenesisSummonPool(MobKind* out) {
         int n = 0;
-        for (int k = 0; k < (int)MobKind::NORMA && n < 15; ++k) {
+        for (int k = 0; k < (int)MobKind::NORMA && n < 15; ++k) {   // NORMA stays out of the pool
             const MobKind kind = (MobKind)k;
             if (IsEliteMob(kind)) continue;
             out[n++] = kind;

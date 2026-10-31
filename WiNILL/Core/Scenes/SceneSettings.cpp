@@ -8,6 +8,7 @@
 #include "UiLayout.h"
 #include "WindowChrome.h"
 #include "Settings.h"
+#include "Input.h"
 #include "Translations.h"
 #include "TutorialText.h"
 #include "Meta.h"
@@ -58,6 +59,18 @@ static const wchar_t* SettingsText(const wchar_t* kr, const wchar_t* en,
     return li == 0 ? kr : (li == 2 ? jp : en);
 }
 
+// CONTROLS row names, indexed by GameAction then [KR, EN, JP].
+static const wchar_t* const kKeyActionLabels[GAME_ACTION_COUNT][3] = {
+    { L"위로 이동",     L"MOVE UP",    L"上へ移動" },
+    { L"아래로 이동",   L"MOVE DOWN",  L"下へ移動" },
+    { L"왼쪽 이동",     L"MOVE LEFT",  L"左へ移動" },
+    { L"오른쪽 이동",   L"MOVE RIGHT", L"右へ移動" },
+    { L"대시",          L"DASH",       L"ダッシュ" },
+    { L"스킬 1",        L"SKILL 1",    L"スキル1" },
+    { L"스킬 2",        L"SKILL 2",    L"スキル2" },
+    { L"스킬 3",        L"SKILL 3",    L"スキル3" },
+};
+
 void Scene_SettingsInline(const SceneCtx& c) {
     const float sw = c.sw, sh = c.sh;
     const float dt = std::min(c.delta, 0.05f);
@@ -75,9 +88,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
     static float tabSwitchT   = 0.0f;
     static int   s_volDrag    = -1;   // category*8+row of the slider being dragged
     static float listHover[32] = {};
-    static float rowHover[4][6]  = {};
-    static float optHover[4][6][8] = {};
+    static float rowHover[5][10] = {};
+    static float optHover[5][10][8] = {};
     static float holdT = 0.0f;
+    static bool  resetLatched = false;   // reset fired; wait for the button release
+    static float resetDoneT = 0.0f;      // seconds left on the "reset done" label
     static int listCursor = 1;
     static bool accordionFocusPending = false;
     // Category whose header should be scrolled to the top of the board.
@@ -96,6 +111,13 @@ void Scene_SettingsInline(const SceneCtx& c) {
     static bool savedSettingsValid = false;
     static bool confirmBack = false;
     static bool settingsDirty = false;
+    // CONTROLS: action whose key is being captured (-1 = none), fade of the
+    // other rows while waiting, per-key confirm flash and the status line.
+    static int  captureAction = -1;
+    static float captureBlend = 0.0f;
+    static float keyFlash[GAME_ACTION_COUNT] = {};
+    static std::wstring keyMsg;
+    static float keyMsgT = 0.0f;
     static bool  wasInline = false;
     if (!wasInline || s_SettingsInlineNeedsReset) {
         entry = g_SettingsEntryT;
@@ -107,6 +129,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
         tabSwitchT = 0.0f;
         s_volDrag  = -1;
         holdT = 0.0f;
+        resetLatched = false;
+        resetDoneT = 0.0f;
         listCursor = 1;
         accordionFocusPending = false;
         settingsScroll = 0.0f;
@@ -119,6 +143,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
         savedSettingsValid = true;
         confirmBack = false;
         settingsDirty = false;
+        captureAction = -1;
+        captureBlend = 0.0f;
+        for (auto& f : keyFlash) f = 0.0f;
+        keyMsgT = 0.0f;
+        g_KeyCaptureActive = false;
+        g_CapturedKey = -1;
         for (auto& h : listHover) h = 0.0f;
         for (auto& category : rowHover)
             for (auto& h : category) h = 0.0f;
@@ -146,7 +176,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const bool rmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     if (c.inputFocusChanged) prevEsc = esc;
     if (c.inputFocusChanged) s_volDrag = -1;
-    const bool backInput = (esc && !prevEsc) || (rmb && !g_RmbPrev);
+    // While a key is being captured, ESC / right-click cancel the capture
+    // instead of leaving the screen (decided from the frame-start state).
+    const bool keyCapturing = captureAction >= 0;
+    const bool backInput = !keyCapturing && ((esc && !prevEsc) || (rmb && !g_RmbPrev));
     prevEsc = esc;
     const float entryOldOut = SceneTransitionEase(entry / kOutgameTransitionDuration);
     const float entryTreeIn = SceneTransitionEase(
@@ -162,6 +195,58 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float oldA = exiting ? outP : (1.0f - entryOldOut);
     const bool ready = !exiting && entry >= 0.55f;
     const bool inputReady = ready && !confirmBack;
+
+    // ── Key capture (CONTROLS): the Input key callback stores the next press
+    // in g_CapturedKey while g_KeyCaptureActive is set.
+    auto endKeyCapture = [&]() {
+        captureAction = -1;
+        g_KeyCaptureActive = false;
+        g_CapturedKey = -1;
+    };
+    keyMsgT = std::max(0.0f, keyMsgT - dt);
+    for (auto& f : keyFlash) f = std::max(0.0f, f - dt * 2.5f);
+    if (captureAction >= 0) {
+        if (c.inputFocusChanged || (rmb && !g_RmbPrev) || !inputReady) {
+            endKeyCapture();
+        } else {
+            g_KeyCaptureActive = true;
+            if (g_CapturedKey >= 0) {
+                const int pressed = g_CapturedKey;
+                g_CapturedKey = -1;
+                if (pressed == kBindKeyEscape) {
+                    endKeyCapture();
+                } else {
+                    int other = -1;
+                    const int norm = NormalizeBindKey(pressed);
+                    for (int i = 0; i < GAME_ACTION_COUNT; ++i)
+                        if (i != captureAction && g_KeyBinds.key[i] == norm) other = i;
+                    const BindResult result = AssignKeyBinding(
+                        g_KeyBinds, (GameAction)captureAction, pressed);
+                    if (result == BindResult::Rejected) {
+                        // Stay in capture so another key can be tried.
+                        keyMsg = SettingsText(L"사용할 수 없는 키입니다",
+                                              L"THAT KEY IS RESERVED",
+                                              L"使用できないキーです");
+                        keyMsgT = 2.2f;
+                    } else {
+                        keyFlash[captureAction] = 1.0f;
+                        if (result == BindResult::Swapped && other >= 0) {
+                            keyFlash[other] = 1.0f;
+                            const std::wstring a = kKeyActionLabels[captureAction][LangIndex()];
+                            const std::wstring b = kKeyActionLabels[other][LangIndex()];
+                            keyMsg = LangIndex() == 0 ? a + L" · " + b + L" 키를 서로 바꿨습니다"
+                                   : LangIndex() == 2 ? a + L" と " + b + L" のキーを入れ替えました"
+                                   : L"SWAPPED KEYS: " + a + L" / " + b;
+                            keyMsgT = 2.2f;
+                        }
+                        endKeyCapture();
+                    }
+                }
+            }
+        }
+    }
+    captureBlend += ((captureAction >= 0 ? 1.0f : 0.0f) - captureBlend)
+                  * std::min(1.0f, dt * 10.0f);
     SetSceneTextureReveal(exiting
         ? std::max(0.0f, 1.0f - outP)
         : SceneTransitionEase(entry / kOutgameTransitionDuration));
@@ -213,9 +298,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
 
     // Canvas panel — solid core + feathered edges
     // Tab accent color — shared by sphere motif and option chips
-    const float tabR = tab == 0 ? 0.35f : tab == 1 ? 1.00f : tab == 2 ? 0.35f : 0.72f;
-    const float tabG = tab == 0 ? 0.72f : tab == 1 ? 0.72f : tab == 2 ? 0.92f : 0.52f;
-    const float tabB = tab == 0 ? 1.00f : tab == 1 ? 0.30f : tab == 2 ? 0.55f : 1.00f;
+    const float tabR = tab == 0 ? 0.35f : tab == 1 ? 1.00f : tab == 2 ? 0.35f : tab == 3 ? 1.00f : 0.72f;
+    const float tabG = tab == 0 ? 0.72f : tab == 1 ? 0.72f : tab == 2 ? 0.92f : tab == 3 ? 0.45f : 0.52f;
+    const float tabB = tab == 0 ? 1.00f : tab == 1 ? 0.30f : tab == 2 ? 0.55f : tab == 3 ? 0.62f : 1.00f;
 
     DrawPersistentSceneSideVignettes(sw, sh, kWideSceneLinearAlpha);
     {
@@ -251,14 +336,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // \uC88C\uCE21 ghost \uBC84\uD2BC \u2014 \uCEE8\uD14D\uC2A4\uD2B8\uC5D0 \uB530\uB77C \uBA54\uC778\uBA54\uB274 vs \uC77C\uC2DC\uC815\uC9C0 \uBA54\uB274
     if (s_MainMenuSettingsPanel) {
         const float mainMenuGap = 10.0f * uiS;
-        const wchar_t* menu[5] = { SettingsText(L"플레이", L"PLAY", L"プレイ"),
-                                   SettingsText(L"상점", L"SHOP", L"ショップ"),
-                                   SettingsText(L"성도 기록", L"ASTRAL_LOG", L"星界記録"),
-                                   SettingsText(L"설정", L"SETTING", L"設定"),
-                                   SettingsText(L"종료", L"EXIT", L"終了") };
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < kMainMenuRouteCount; ++i) {
             const float y = MainMenuButtonRailStartY(sh, uiS) + i * (mainBH + mainMenuGap);
-            const bool focus = i == 3;
+            const bool focus = i == kMainMenuSettingsIndex;
             const float x = mainX - 250.0f * (1.0f - oldA) - (focus ? 0.0f : 24.0f * (1.0f - oldA));
             const float a = (focus ? 0.82f : 0.34f) * oldA;
             const wchar_t* route = MainMenuRouteLabel(LangIndex(), i);
@@ -298,10 +378,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
         { L"ARCHIVE",  L"\uAE30\uB85D", L"記録" },
         { L"BACK",     L"\uB4A4\uB85C", L"戻る"       },
     };
-    if (tab >= 4) tab = 0;
+    if (tab >= 5) tab = 0;
 
     auto activateSettingsCategory = [&](int nextCategory, int nextRow) {
-        if (nextCategory < 0 || nextCategory >= 4) return;
+        if (nextCategory < 0 || nextCategory >= 5) return;
         const bool categoryChanged = tab != nextCategory;
         tab = nextCategory;
         detailRow = std::max(0, nextRow);
@@ -368,9 +448,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
         int optCount   = 0;
         int optCur     = 0;                 // 현재 선택된 인덱스
         int* volRef    = nullptr;           // isVolume 슬라이더가 편집하는 0~100 값
+        int  keyAction = -1;                // CONTROLS: GameAction this row rebinds
+        bool isKeyReset = false;            // CONTROLS: restore-defaults row
     };
-    SRow settingsRows[4][6] = {};
-    const int rowCounts[4] = { 3, 5, kDebugSettingsVisible ? 3 : 2, 2 };
+    SRow settingsRows[5][10] = {};
+    const int rowCounts[5] = { 3, 5, kDebugSettingsVisible ? 3 : 2,
+                               GAME_ACTION_COUNT + 1, 2 };
 
     static wchar_t s_volBuf[8];
 
@@ -417,10 +500,17 @@ void Scene_SettingsInline(const SceneCtx& c) {
                            { toggleOn, toggleOff }, 2, g_ShowCrosshair ? 0 : 1 };
     settingsRows[2][2] = { SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_DebugMode ? 0 : 1 };
-    settingsRows[3][0] = { SettingsText(L"언어", L"LANGUAGE", L"言語"), nullptr, false, false, false, false,
+    for (int a = 0; a < GAME_ACTION_COUNT; ++a) {
+        settingsRows[3][a].label = kKeyActionLabels[a][LangIndex()];
+        settingsRows[3][a].keyAction = a;
+    }
+    settingsRows[3][GAME_ACTION_COUNT].label = SettingsText(
+        L"기본값 복원", L"RESTORE DEFAULTS", L"初期設定に戻す");
+    settingsRows[3][GAME_ACTION_COUNT].isKeyReset = true;
+    settingsRows[4][0] = { SettingsText(L"언어", L"LANGUAGE", L"言語"), nullptr, false, false, false, false,
                            { L"한국어", L"English", L"日本語" },
                            3, allLangCur };
-    settingsRows[3][1] = { SettingsText(L"데이터 초기화", L"RESET DATA", L"データ初期化"), nullptr, false, false, true, true };
+    settingsRows[4][1] = { SettingsText(L"데이터 초기화", L"RESET DATA", L"データ初期化"), nullptr, false, false, true, true };
 
     auto settingsOptionTextLevel = [&](int category, int row) {
         const SRow& setting = settingsRows[category][row];
@@ -447,6 +537,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
             if (row == 1) return g_ShowCrosshair != savedSettings.crosshair;
             if (row == 2) return g_DebugMode != savedSettings.debugMode;
         } else if (category == 3) {
+            return row < GAME_ACTION_COUNT
+                && g_KeyBinds.key[row] != savedSettings.keyBinds.key[row];
+        } else if (category == 4) {
             return row == 0 && g_Language != savedSettings.language;
         }
         return false;
@@ -477,6 +570,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
         SettingsText(L"자동 스킬", L"AUTO SKILL", L"自動スキル"),
         SettingsText(L"조준선", L"CROSSHAIR", L"照準"),
         SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード") };
+    const wchar_t* controlsLabels[GAME_ACTION_COUNT + 1] = {};
+    for (int a = 0; a < GAME_ACTION_COUNT; ++a)
+        controlsLabels[a] = kKeyActionLabels[a][LangIndex()];
+    controlsLabels[GAME_ACTION_COUNT] = settingsRows[3][GAME_ACTION_COUNT].label;
     const wchar_t* archiveLabels[2] = {
         SettingsText(L"언어", L"LANGUAGE", L"言語"),
         SettingsText(L"데이터 초기화", L"RESET DATA", L"データ初期化") };
@@ -489,8 +586,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
     addHeader(2, SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"));
     if (tab == 2) for (int i = 0; i < (kDebugSettingsVisible ? 3 : 2); ++i)
         addItem(2, i, gameplayLabels[i]);
-    addHeader(3, SettingsText(L"기록", L"ARCHIVE", L"記録"));
-    if (tab == 3) for (int i = 0; i < 2; ++i) addItem(3, i, archiveLabels[i]);
+    addHeader(3, SettingsText(L"조작", L"CONTROLS", L"操作"));
+    if (tab == 3) for (int i = 0; i < GAME_ACTION_COUNT + 1; ++i)
+        addItem(3, i, controlsLabels[i]);
+    addHeader(4, SettingsText(L"기록", L"ARCHIVE", L"記録"));
+    if (tab == 4) for (int i = 0; i < 2; ++i) addItem(4, i, archiveLabels[i]);
 
     SettingsListEntry rightList[32] = {};
     int rightListCount = 0;
@@ -500,14 +600,15 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto addRightItem = [&](int cat, int row, const wchar_t* label) {
         rightList[rightListCount++] = { cat, row, false, label };
     };
-    const wchar_t* categoryLabels[4] = {
+    const wchar_t* categoryLabels[5] = {
         SettingsText(L"화면", L"DISPLAY", L"画面"),
         SettingsText(L"소리", L"AUDIO", L"サウンド"),
         SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"),
+        SettingsText(L"조작", L"CONTROLS", L"操作"),
         SettingsText(L"기록", L"ARCHIVE", L"記録") };
-    const wchar_t* const* categoryRows[4] = {
-        displayLabels, audioLabels, gameplayLabels, archiveLabels };
-    for (int category = 0; category < 4; ++category) {
+    const wchar_t* const* categoryRows[5] = {
+        displayLabels, audioLabels, gameplayLabels, controlsLabels, archiveLabels };
+    for (int category = 0; category < 5; ++category) {
         addRightHeader(category, categoryLabels[category]);
         for (int row = 0; row < rowCounts[category]; ++row)
             addRightItem(category, row, categoryRows[category][row]);
@@ -596,6 +697,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                                  && mx >= listX - 30.0f * uiS
                                  && mx < rpX + rpW + 24.0f * uiS
                                  && my >= listTop && my < rightListBottom;
+    if (keyCapturing) g_ScrollAccum = 0.0f;
     if (overSettingsCanvas && g_ScrollAccum != 0.0f) {
         settingsScrollTarget -= g_ScrollAccum * 0.085f;
         settingsScrollTarget = std::max(0.0f, std::min(1.0f, settingsScrollTarget));
@@ -637,8 +739,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
         prevListS = listSKey;
     }
     const int cursorBeforeKeys = listCursor;
-    if ((overList || overRightList) && listWKey && !prevListW) stepListCursor(-1);
-    if ((overList || overRightList) && listSKey && !prevListS) stepListCursor(1);
+    if (!keyCapturing && (overList || overRightList) && listWKey && !prevListW) stepListCursor(-1);
+    if (!keyCapturing && (overList || overRightList) && listSKey && !prevListS) stepListCursor(1);
     focusChanged = focusChanged || listCursor != cursorBeforeKeys;
     prevListW = listWKey;
     prevListS = listSKey;
@@ -830,6 +932,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     int hoverSettingRow = -1;
     int hoverSettingOpt = -1;
     bool resetPressed = false;
+    bool keyChipClicked = false;
     const float rightRowX = rpX + 18.0f * uiS;
     const float rightRowW = rClickW - 18.0f * uiS;
     // Controls are a left-anchored column inside the settings panel. This
@@ -845,6 +948,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         if (category == 0) { r = 0.35f; g = 0.72f; b = 1.00f; }
         else if (category == 1) { r = 1.00f; g = 0.72f; b = 0.30f; }
         else if (category == 2) { r = 0.35f; g = 0.92f; b = 0.55f; }
+        else if (category == 3) { r = 1.00f; g = 0.45f; b = 0.62f; }
         else { r = 0.72f; g = 0.52f; b = 1.00f; }
     };
 
@@ -887,7 +991,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
             }
         } else if (category == 2 && row < 3) {
             return kToggleLabels[optionLanguage][optionIndex];
-        } else if (category == 3 && row == 0) {
+        } else if (category == 4 && row == 0) {
             static const wchar_t* language[] = {
                 L"한국어", L"English", L"日本語"
             };
@@ -916,8 +1020,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float commonChipGap = 12.0f * uiS;
     float commonOptionCellW[8] = {};
     int commonOptionCount = 0;
-    for (int category = 0; category < 4; ++category) {
-        for (int row = 0; row < 6; ++row) {
+    for (int category = 0; category < 5; ++category) {
+        for (int row = 0; row < 10; ++row) {
             if (category == 0 && row == 0) continue;
             const SRow& setting = settingsRows[category][row];
             if (setting.optCount <= 0) continue;
@@ -948,8 +1052,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     if (commonOptionTotalW > rightControlW && commonOptionTotalW > 1.0f) {
         commonOptionScale *= std::max(0.55f, rightControlW / commonOptionTotalW);
         std::fill(std::begin(commonOptionCellW), std::end(commonOptionCellW), 0.0f);
-        for (int category = 0; category < 4; ++category) {
-            for (int row = 0; row < 6; ++row) {
+        for (int category = 0; category < 5; ++category) {
+            for (int row = 0; row < 10; ++row) {
                 if (category == 0 && row == 0) continue;
                 const SRow& setting = settingsRows[category][row];
                 for (int j = 0; j < setting.optCount; ++j) {
@@ -979,8 +1083,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
         float gridScale = commonOptionSc;
         auto measureGrid = [&](float scale) {
             float widest = 0.0f;
-            for (int category = 0; category < 4; ++category) {
-                for (int row = 0; row < 6; ++row) {
+            for (int category = 0; category < 5; ++category) {
+                for (int row = 0; row < 10; ++row) {
                     const SRow& setting = settingsRows[category][row];
                     for (int k = 0; k < setting.optCount; ++k)
                         widest = std::max(widest, localizedOptionWidth(
@@ -1060,7 +1164,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
         rowHover[category][row] = UpdateMenuCommandHover(
             rowHover[category][row], itemHover && !setting.readOnly, dt);
         const float focus = rowHover[category][row];
-        const float rowA = dA * categoryReveal * (0.72f + 0.28f * Smoothstep(
+        // While a key is being captured, every other row recedes (glyph alpha
+        // only, no backdrop) so the waiting row reads as the active one.
+        const bool isCaptureRow = category == 3 && setting.keyAction >= 0
+                               && setting.keyAction == captureAction;
+        const float captureDim = isCaptureRow ? 1.0f : 1.0f - 0.65f * captureBlend;
+        const float rowA = dA * categoryReveal * captureDim * (0.72f + 0.28f * Smoothstep(
             LogoClamp01((rightListTop + rightListH - y) / std::max(1.0f, rightListH))));
 
         if (changed || focus > 0.01f) {
@@ -1082,7 +1191,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         const float titleG = changed ? 0.68f : 0.86f;
         const float titleB = changed ? 0.32f : 1.0f;
         const bool compactFpsRow = category == 0 && row == 0;
-        const bool compactLanguageRow = category == 3 && row == 0;
+        const bool compactLanguageRow = category == 4 && row == 0;
         const bool compactAlignedRow = compactFpsRow || compactLanguageRow;
         const float optSc = compactFpsRow ? fpsOptionScale
             : compactLanguageRow ? languageOptionScale : commonOptionScale;
@@ -1132,7 +1241,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 && mx >= slX - knobR - 4.0f * uiS
                 && mx <= slX + slW + knobR + 4.0f * uiS
                 && my >= controlY - 24.0f * uiS && my <= controlY + 24.0f * uiS;
-            const int dragId = category * 8 + row;
+            const int dragId = category * 16 + row;
             if (inputReady && lmb && ((inBar && s_volDrag < 0) || s_volDrag == dragId)) {
                 s_volDrag = dragId;
                 const float t = std::max(0.0f, std::min(1.0f,
@@ -1186,11 +1295,13 @@ void Scene_SettingsInline(const SceneCtx& c) {
             static const wchar_t* erasingLabelVariants[] = {
                 L"삭제 중...", L"ERASING...", L"削除中..."
             };
-            const wchar_t* resetLabel = holdT > 0.01f
-                ? erasingLabelVariants[std::clamp(LangIndex(), 0, 2)]
-                : resetLabelVariants[std::clamp(LangIndex(), 0, 2)];
-            const wchar_t* const* labelVariants = holdT > 0.01f
-                ? erasingLabelVariants : resetLabelVariants;
+            static const wchar_t* doneLabelVariants[] = {
+                L"초기화 완료", L"RESET COMPLETE", L"初期化完了"
+            };
+            const bool showDone = resetDoneT > 0.0f && holdT <= 0.01f;
+            const wchar_t* const* labelVariants = showDone ? doneLabelVariants
+                : holdT > 0.01f ? erasingLabelVariants : resetLabelVariants;
+            const wchar_t* resetLabel = labelVariants[std::clamp(LangIndex(), 0, 2)];
             float resetTextScale = settingsScale(
                 g_TextL, 1.0f, UiTextLevel::Title);
             const float widestLabel = MaxLocalizedTextWidth(
@@ -1205,6 +1316,95 @@ void Scene_SettingsInline(const SceneCtx& c) {
                              controlY - resetTextH * 0.5f,
                              resetTextScale, 1.0f, 0.36f, 0.30f,
                              1.0f * rowA, 0.58f);
+        } else if (setting.keyAction >= 0 || setting.isKeyReset) {
+            // One outlined key chip (lines only). Waiting for a key swaps the
+            // key name for a prompt and breathes the outline; a fresh bind
+            // flashes it white.
+            const bool isReset = setting.isKeyReset;
+            const bool capturingThis = !isReset && captureAction == setting.keyAction;
+            static const wchar_t* promptVariants[] = {
+                L"키를 누르세요...", L"PRESS A KEY...", L"キーを押してください..." };
+            static const wchar_t* resetVariants[] = { L"복원", L"RESET", L"リセット" };
+            const float chipH = 46.0f * uiS;
+            const float chipPad = 16.0f * uiS;
+            const float chipTextScale = settingsScale(
+                g_TextL, 1.0f, UiTextLevel::Title);
+            const float chipW = std::min(rightControlW, std::max(150.0f * uiS,
+                MaxLocalizedTextWidth(g_TextL,
+                    isReset ? resetVariants : promptVariants, 3, chipTextScale)
+                + chipPad * 2.0f));
+            const float chipX = rightControlX;
+            const float chipY = controlY - chipH * 0.5f;
+            const bool chipHover = overRightList
+                && mx >= chipX && mx < chipX + chipW
+                && my >= chipY && my < chipY + chipH;
+            const float wave = 0.5f + 0.5f * std::sin(now * 5.0f);
+            const float flash = isReset ? 0.0f : keyFlash[setting.keyAction];
+            const float hoverT = rowHover[category][row];
+            // Outline colour: category pink at rest, towards white when
+            // waiting or just changed.
+            const float whiteMix = std::max(flash, capturingThis ? 0.45f * wave : 0.0f);
+            const float edgeR = catR + (1.0f - catR) * whiteMix;
+            const float edgeG = catG + (1.0f - catG) * whiteMix;
+            const float edgeB = catB + (1.0f - catB) * whiteMix;
+            const float edgeA = std::max(
+                capturingThis ? 0.55f + 0.45f * wave
+                              : 0.34f + 0.40f * (chipHover ? 1.0f : hoverT),
+                flash);
+            const float edgeW = (capturingThis ? 1.8f : 1.2f) * uiS;
+            LogoLine(chipX, chipY, chipX + chipW, chipY, edgeW,
+                     edgeR, edgeG, edgeB, edgeA * rowA);
+            LogoLine(chipX, chipY + chipH, chipX + chipW, chipY + chipH, edgeW,
+                     edgeR, edgeG, edgeB, edgeA * rowA);
+            LogoLine(chipX, chipY, chipX, chipY + chipH, edgeW,
+                     edgeR, edgeG, edgeB, edgeA * rowA);
+            LogoLine(chipX + chipW, chipY, chipX + chipW, chipY + chipH, edgeW,
+                     edgeR, edgeG, edgeB, edgeA * rowA);
+            if (capturingThis) {
+                // A second, inset outline while waiting.
+                const float inset = 5.0f * uiS;
+                const float innerA = 0.22f * wave * rowA;
+                LogoLine(chipX + inset, chipY + inset, chipX + chipW - inset,
+                         chipY + inset, 0.8f * uiS, edgeR, edgeG, edgeB, innerA);
+                LogoLine(chipX + inset, chipY + chipH - inset,
+                         chipX + chipW - inset, chipY + chipH - inset,
+                         0.8f * uiS, edgeR, edgeG, edgeB, innerA);
+            }
+            const std::wstring keyText = isReset ? std::wstring()
+                : KeyName(g_KeyBinds.key[setting.keyAction]);
+            const wchar_t* chipText = isReset
+                ? resetVariants[std::clamp(LangIndex(), 0, 2)]
+                : capturingThis ? promptVariants[std::clamp(LangIndex(), 0, 2)]
+                                : keyText.c_str();
+            float textScale = chipTextScale;
+            const float textW0 = g_TextL.Width(chipText, textScale);
+            const float textMaxW = std::max(1.0f, chipW - chipPad * 2.0f);
+            if (textW0 > textMaxW && textW0 > 0.0f) textScale *= textMaxW / textW0;
+            const float textW = g_TextL.Width(chipText, textScale);
+            const float textH = g_TextL.Height(chipText, textScale);
+            const float textA = capturingThis ? 0.55f + 0.45f * wave : 1.0f;
+            DrawShadowedText(g_TextL, chipText,
+                             chipX + (chipW - textW) * 0.5f,
+                             controlY - textH * 0.5f, textScale,
+                             0.82f + 0.18f * flash, 0.90f + 0.10f * flash,
+                             1.0f, textA * rowA, 0.58f);
+
+            if (chipHover && lmb && !g_LmbPrev) {
+                keyChipClicked = true;
+                if (isReset) {
+                    ResetKeyBindings();
+                    for (auto& f : keyFlash) f = 1.0f;
+                    keyMsgT = 0.0f;
+                    endKeyCapture();
+                } else if (capturingThis) {
+                    endKeyCapture();
+                } else {
+                    captureAction = setting.keyAction;
+                    g_CapturedKey = -1;
+                    g_KeyCaptureActive = true;
+                    keyMsgT = 0.0f;
+                }
+            }
         } else if (setting.optCount > 0) {
             // Option cells are equal width within each row family and the
             // label is centered, so spacing never depends on label length.
@@ -1270,6 +1470,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
         }
     }
     if (!lmb) s_volDrag = -1;
+    // A click anywhere other than a key chip abandons the capture.
+    if (captureAction >= 0 && lmb && !g_LmbPrev && !keyChipClicked)
+        endKeyCapture();
     BatchFlush();
     glDisable(GL_SCISSOR_TEST);
     if (rightMaxScroll > 0.0f && rightListCount > 0) {
@@ -1283,6 +1486,31 @@ void Scene_SettingsInline(const SceneCtx& c) {
                  0.7f * uiS, 0.34f, 0.72f, 1.0f, 0.12f * dA);
         LogoLine(trackX, thumbY, trackX, thumbY + thumbH,
                  1.8f * uiS, 0.34f, 0.82f, 1.0f, 0.55f * dA);
+    }
+
+    // Status line under the board: the cancel hint while waiting for a key,
+    // or the result of the last bind (swap / reserved key).
+    {
+        const wchar_t* statusLine = nullptr;
+        float sr = 1.0f, sg = 0.45f, sb = 0.62f, sa = 0.0f;
+        const float statusWave = 0.5f + 0.5f * std::sin(now * 5.0f);
+        if (keyMsgT > 0.0f) {
+            statusLine = keyMsg.c_str();
+            sr = 1.0f; sg = 0.78f; sb = 0.40f;
+            sa = std::min(1.0f, keyMsgT * 2.0f);
+        } else if (captureAction >= 0) {
+            statusLine = SettingsText(
+                L"ESC 또는 우클릭으로 취소",
+                L"ESC OR RIGHT-CLICK TO CANCEL",
+                L"ESC または右クリックでキャンセル");
+            sa = 0.55f + 0.40f * statusWave;
+        }
+        if (statusLine)
+            drawSettingsTextAtLevel(g_TextL, statusLine,
+                                    rightRowX + 20.0f * uiS,
+                                    rightListBottom + 14.0f * uiS, 1.0f,
+                                    sr, sg, sb, sa * dA,
+                                    UiTextLevel::Description, 0.60f);
     }
 
     if (focusChanged) revealFocus();
@@ -1440,19 +1668,23 @@ void Scene_SettingsInline(const SceneCtx& c) {
              if (row == 0) g_AutoSkill = option == 0;
              else if (row == 1) g_ShowCrosshair = option == 0;
              else if (row == 2) g_DebugMode = option == 0;
-         } else if (category == 3 && row == 0) {
+         } else if (category == 4 && row == 0) {
              g_Language = option == 0 ? Language::KR :
                           option == 1 ? Language::EN : Language::JP;
          }
      }
 
      // RESET DATA is armed only while the visible reset control is held.
-     if (inputReady && resetPressed) {
+     resetDoneT = std::max(0.0f, resetDoneT - dt);
+     if (!resetPressed) resetLatched = false;   // released: a new hold may start
+     if (inputReady && resetPressed && !resetLatched) {
          holdT = std::min(holdT + dt, 1.5f);
          if (holdT >= 1.5f) {
              ResetSaveProgress();
              SaveGame();
              holdT = 0.0f;
+             resetLatched = true;   // keep holding: no second fill until released
+             resetDoneT = 2.5f;
          }
      } else if (inputReady) {
          holdT = std::max(0.0f, holdT - dt * 3.0f);
@@ -1469,6 +1701,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         } else {
             g_GameManager.currentState = GameState::PAUSED;
         }
+        endKeyCapture();
         ResetSettingsUi();
         wasInline = false;
     }

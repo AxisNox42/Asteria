@@ -28,6 +28,10 @@ struct PlayerViewportBounds {
     float left = 0.0f, right = 0.0f, top = 0.0f, bottom = 0.0f;
 };
 
+// Ship size and base move speed (world px, px/s). Shared with the READY
+// practice field so it moves exactly like a run.
+inline constexpr float PLAYER_SIZE_PX = 25.0f;
+inline constexpr float PLAYER_MOVE_SPEED = 400.0f;
 // Move-speed multiplier while moveSlowTimer runs (Gravis glide shove).
 inline constexpr float GRAVIS_SLOW_MOVE_MULT = 0.75f;
 inline constexpr float DASH_CD = 2.9f;
