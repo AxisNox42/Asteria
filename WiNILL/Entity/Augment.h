@@ -117,11 +117,15 @@ enum class AugType {
     RESERVED_AUG_052, // Reserved legacy slot.
     RESERVED_AUG_041, // Reserved legacy slot.
     RESERVED_AUG_032, // Reserved legacy slot.
+    // ── Tutorial-only picks (fixed cards of the lobby tutorial; never rolled,
+    //    never listed in the Codex: see AugRemoved) ──
+    TUT_ATK_UP, TUT_HP_UP, TUT_MOVE_UP,
+    TUT_ATK_DOWN, TUT_HP_DOWN, TUT_MOVE_DOWN,
 };
 
 // (int)AugType 으로 g_TypeOwned·g_IconTex 등에 인덱싱 — enum 끝에만 추가
 static constexpr int AUG_TYPE_SLOTS = 160;
-static_assert((int)AugType::RESERVED_AUG_032 < AUG_TYPE_SLOTS,
+static_assert((int)AugType::TUT_MOVE_DOWN < AUG_TYPE_SLOTS,
               "AugType enum grew past AUG_TYPE_SLOTS — bump the constant");
 
 enum class AugRarity { COMMON, RARE, EPIC, LEGENDARY, DEBUFF, SPECIAL, COMBO, MYTHIC };
@@ -151,7 +155,7 @@ inline int CurLangIdx() {
 inline const wchar_t* AugName(const AugDef& d) { return d.locName[CurLangIdx()]; }
 inline const wchar_t* AugStat(const AugDef& d) { return (d.stat && d.stat[0]) ? d.stat : L"—"; }
 
-static constexpr int AUG_TOTAL = 125;
+static constexpr int AUG_TOTAL = 131;
 extern const AugDef ALL_AUGS[];
 
 // ── 조합 레시피 — result 는 COMBO 등급 AugType, reqs 를 모두 보유하면 등장 ──
@@ -179,6 +183,13 @@ inline int AugIndexOfType(AugType t) {
 // Retired augment slots stay addressable for save compatibility but never enter gameplay.
 inline bool AugRemoved(AugType t) {
     switch (t) {
+    // Tutorial-only cards stay out of every pool and list.
+    case AugType::TUT_ATK_UP:
+    case AugType::TUT_HP_UP:
+    case AugType::TUT_MOVE_UP:
+    case AugType::TUT_ATK_DOWN:
+    case AugType::TUT_HP_DOWN:
+    case AugType::TUT_MOVE_DOWN:
     // Reserved legacy slot.
     case AugType::RESERVED_AUG_004:
     case AugType::RESERVED_AUG_040:

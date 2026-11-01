@@ -1363,6 +1363,8 @@ bool TryEscNavigateBack() {
     case GS::AUG_SELECT:
     case GS::DEBUFF_SELECT:
     case GS::AUG_REPLACE:
+        // The tutorial's own card picks have no pause menu behind them.
+        if (ready_launch::g_TutorialMode) return true;
         // Keep the selection screen as the resume target. ESC pauses the
         // run here; it must not cancel or consume the pending choice.
         g_GameManager.pauseResumeState = st;

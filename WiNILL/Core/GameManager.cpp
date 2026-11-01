@@ -175,7 +175,7 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     waveTransitionTimer = 0.0f;
     lastWaveDebuff = -1;
     waveDebuffToast = 0.0f;
-    nextWaveDebuff = -1;
+    waveDebuffPickPending = false;
     memset(waveDebuffLog, 0, sizeof(waveDebuffLog));
     waveVictory = false;
     xp = 0;
@@ -477,6 +477,29 @@ bool GameManager::ActivateNextAugmentReward() {
     return false;
 }
 
+void GameManager::OpenFixedChoices(const AugType* types, int count, bool debuff) {
+    levelUpTransition.Cancel();
+    augChoiceCount = 0;
+    for (int i = 0; i < 3; i++) augChoices[i] = -1;
+    for (int i = 0; i < count && augChoiceCount < 3; i++) {
+        const int idx = AugIndexOfType(types[i]);
+        if (idx >= 0) augChoices[augChoiceCount++] = idx;
+    }
+    if (augChoiceCount <= 0) return;
+    if (!debuff) {
+        pendingAugmentRewards = 1;
+        augmentRewardActive = true;
+    }
+    augmentKeyboardFocus = false;
+    ++augmentSelectionSerial;
+    currentState = debuff ? GameState::DEBUFF_SELECT : GameState::AUG_SELECT;
+    g_HoveredAug = -1;
+    g_AugExitT = -1.0f;
+    g_AugExitSlot = -1;
+    g_RepExitT = -1.0f;
+    g_RepExitSlot = -3;
+}
+
 void GameManager::ClearAugmentRewardQueue() {
     pendingAugmentRewards = 0;
     levelUpTransition.Cancel();
@@ -515,9 +538,8 @@ void GameManager::Render() {
         if (currentState == GameState::GAMEOVER)     { overlayA = 0.60f; }
         if (currentState == GameState::AUG_SELECT)   { overlayA = 0.45f; }
         if (currentState == GameState::AUG_REPLACE)  { overlayA = 0.78f; }
-        // 디버프 — 적갈색 틴트. 오버레이가 너무 진하면(0.80) 하단 설명 박스(0.85)와
-        //   겹쳐 새까맣게 보여 "알파 고장"처럼 느껴짐 → 0.62 로 낮춰 가독성 확보.
-        if (currentState == GameState::DEBUFF_SELECT){ oR = 0.16f; oG = 0.05f; oB = 0.06f; overlayA = 0.62f; }
+        // 디버프 — 화면 전체 빨간 딤 없음(AUG_SELECT 와 같은 중립 오버레이).
+        if (currentState == GameState::DEBUFF_SELECT){ overlayA = 0.45f; }
         glUniform4f(colorLoc, oR, oG, oB, overlayA);
         glBindVertexArray(overlayVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);

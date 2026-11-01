@@ -15,6 +15,7 @@ static GLint  g_NGRadius = -1;
 static GLint  g_NGColor  = -1;
 static GLint  g_NGAlpha  = -1;
 static GLint  g_NGRes    = -1;
+static GLint  g_NGVp     = -1;
 static GLint  g_NGTime   = -1;
 static GLint  g_NGRainbow= -1;
 static float  g_NGResW   = 1920.0f;
@@ -34,10 +35,12 @@ static const char* kNGFrag =
     "uniform vec3  u_color;\n"
     "uniform float u_alpha;\n"
     "uniform vec2  u_res;\n"
+    "uniform vec3  u_vp;\n"   // viewport origin (x, y) and scale: see g_ViewportMap
     "uniform float u_time;\n"
     "uniform float u_rainbow;\n"
     "void main() {\n"
-    "    vec2 p = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);\n"
+    "    vec2 f = (gl_FragCoord.xy - u_vp.xy) / u_vp.z;\n"
+    "    vec2 p = vec2(f.x, u_res.y - f.y);\n"
     "    float t = length(p - u_center) / max(u_radius, 1.0);\n"
     "    if (t >= 1.0) discard;\n"
     "    float a = pow(max(0.0, 1.0 - t), 1.8) * u_alpha;\n"
@@ -80,6 +83,7 @@ void InitNebulaGlowShader(int screenW, int screenH) {
     g_NGColor   = glGetUniformLocation(g_NGProg, "u_color");
     g_NGAlpha   = glGetUniformLocation(g_NGProg, "u_alpha");
     g_NGRes     = glGetUniformLocation(g_NGProg, "u_res");
+    g_NGVp      = glGetUniformLocation(g_NGProg, "u_vp");
     g_NGTime    = glGetUniformLocation(g_NGProg, "u_time");
     g_NGRainbow = glGetUniformLocation(g_NGProg, "u_rainbow");
 
@@ -115,6 +119,7 @@ void DrawNebulaGlow(float cx, float cy, float radius,
     glUniform3f (g_NGColor,  r, g, b);
     glUniform1f (g_NGAlpha,  alpha * g_BatchAlpha);
     glUniform2f (g_NGRes,    g_NGResW, g_NGResH);
+    glUniform3f (g_NGVp,     g_ViewportMap.x, g_ViewportMap.y, g_ViewportMap.scale);
     glUniform1f (g_NGTime,   time);
     glUniform1f (g_NGRainbow, rainbow ? 1.0f : 0.0f);
 

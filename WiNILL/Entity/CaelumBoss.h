@@ -16,9 +16,10 @@
 //              generation
 //   2 Scanline (gimmick) the cursor drag-selects a stretch of the row (or
 //              column) through the player, leaving one gap to cross by
-//   3 Window   (gimmick) the cursor draws a real window, drags its edge out
-//              toward the player, then clicks its close button: everything
-//              the window covered corrupts at once
+//   3 Window   (gimmick) the cursor draws a real window, then grabs its title
+//              bar and drags it after the player: every cell it passes over
+//              corrupts, and it shrinks with every cell it travels; once small
+//              the cursor clicks it closed
 //   4 Snipe    (sniper form) single very fast shots at where the player is
 //              going (their movement led by the flight time); the cell each
 //              lands in starts to corrupt
@@ -31,6 +32,11 @@
 //              It takes turns: from the body (a ring), then from a straight
 //              line across the screen beside the player (shoved straight away
 //              from the line).
+//   5 Drag     (phase 2) the cursor grabs the body itself and drags it in
+//              fast strokes past the player; where it is dragged stays
+//              corrupted longer. Let go, it sends a ring wave
+//   - Moving   in corrupt form the body glides to a new cell every couple of
+//              seconds (it holds still sniping, changing form and when open)
 //   - Forms    corrupt form lays the board (1-3), sniper form punishes where
 //              the player stands (4); the body changes between them
 //   - Cursor   CAELUM's own pointer (drawn, never the real mouse) is the hand
@@ -62,7 +68,7 @@ constexpr float kExposeSeconds = 1.1f;      // opening after every pattern
 constexpr float kExposeDamage = 1.5f;
 constexpr int   kHealthHandles = 8;
 
-enum class Pattern { None = 0, Spread = 1, Scanline = 2, Window = 3, Shot = 4 };
+enum class Pattern { None = 0, Spread = 1, Scanline = 2, Window = 3, Shot = 4, Drag = 5 };
 // Window: a = 0 when it opens, 1 when it goes. Morph: a = the new form.
 enum class Fx { Seed, Window, Fire, Overflow, Wave, Morph, PhaseShift };
 struct Event { Fx fx; float x = 0.0f, y = 0.0f, a = 0.0f; };
@@ -103,7 +109,8 @@ inline void CellCentre(int cell, float& x, float& y) {
 enum class CellState : unsigned char { Clean, Warn, Corrupt, Heal };
 constexpr float kWarn = 0.80f, kWarnP2 = 0.60f;
 constexpr float kCorruptLife = 4.0f, kCorruptLifeP2 = 5.5f;   // +-1 s each
-constexpr float kTrailLife = 2.5f;          // the boss's own trail
+constexpr float kTrailLife = 1.5f;          // the boss's own trail (was 2.5 before it moved)
+constexpr float kDragTrailLife = 4.0f;      // ... while the cursor drags it
 constexpr float kHeal = 1.0f;
 constexpr float kCorruptDps = 20.0f;
 // Weakened: while in a corrupted cell and kWeakenLinger s after leaving it.
@@ -138,21 +145,24 @@ constexpr float kScanRate = 12.0f;          // cells per second
 constexpr int   kScanLen = 5;
 
 // ── 3 Window ────────────────────────────────────────────────
-// The cursor goes to a spot away from the player, drags out a window (a real
-// one opens when it lets go; the game opens it, see main.cpp), grabs the edge
-// facing the player and drags it out past them, then goes to the close button
-// and clicks. Every cell the window covered by kWinCover of its area corrupts
-// at once (kWinDeleteWarn), and a combo shove pushes the player toward it.
+// The cursor goes to a spot away from the player and drags out a window (a real
+// one opens when it lets go; the game opens it, see main.cpp). Then it grabs
+// the title bar and drags the window after the player at kWinDragSpeed: every
+// cell the window covers by kWinCover of its area starts to corrupt, so it
+// lays a trail. The window shrinks (about its centre) by kWinShrinkPerCell of
+// its full size for every cell's width it travels; at kWinMinScale (or after
+// kWinDragMax s) the cursor lets go, goes to the close button and clicks.
 constexpr float kWinW = 340.0f, kWinH = 230.0f;
 constexpr float kWinMinDist = 420.0f;       // the spot is this far from the player at least
 constexpr float kWinCover = 0.30f;
-constexpr float kWinDeleteWarn = 0.70f;
-constexpr float kWinStretch = 640.0f, kWinStretchP2 = 820.0f;   // most an edge is dragged
-// Seconds into the pattern: at the corner (press), let go (opens), on the edge
-// (grab), edge let go, close clicked, done.
+constexpr float kWinDragSpeed = 330.0f, kWinDragSpeedP2 = 420.0f;   // px/s
+constexpr float kWinShrinkPerCell = 0.11f;
+constexpr float kWinMinScale = 0.35f;
+constexpr float kWinDragMax = 6.0f;
+// Seconds into the pattern: at the corner (press), let go (opens), on the
+// title bar (grab). Then the drag, then kWinToClose to the close button.
 constexpr float kWinPress = 0.30f, kWinOpen = 0.85f, kWinGrab = 1.20f;
-constexpr float kWinDrag = 1.00f, kWinDragP2 = 0.75f;
-constexpr float kWinToClose = 0.95f, kWinTail = 0.70f;   // the cursor takes its time to close
+constexpr float kWinToClose = 0.70f, kWinTail = 0.50f;
 
 // ── Cursor ──────────────────────────────────────────────────
 // CAELUM's pointer, in both forms. It glides to where it is wanted (kCurFollow,
@@ -211,6 +221,23 @@ constexpr float kWavePush = kCell;          // how far the player is shoved: one
 constexpr float kLineOffset = 120.0f;
 constexpr float kLineRun = 700.0f;          // how far its front runs
 
+// ── Moving (corrupt form) ───────────────────────────────────
+// Every kMoveRest s the body picks a cell whose centre is kMoveNear..kMoveFar
+// from the player (and not its own) and glides there at up to kMoveSpeed.
+constexpr float kMoveNear = 350.0f, kMoveFar = 650.0f;
+constexpr float kMoveSpeed = 200.0f;
+constexpr float kMoveRestMin = 1.5f, kMoveRestMax = 2.5f;
+constexpr float kBodyMinX = 140.0f, kBodyMinY = 130.0f;   // kept this far inside the screen
+
+// ── 5 Drag (phase 2) ────────────────────────────────────────
+// The cursor goes to the body and presses (kDragGrab), then drags it in
+// kDragStrokes straight strokes (kDragStrokesLow under kDragLowHp of health).
+// Each stroke shows its path for kDragPreview, then takes kDragMove. Strokes
+// run past the player, not into them. Let go: a ring wave from the body.
+constexpr float kDragGrab = 0.45f, kDragPreview = 0.50f, kDragMove = 0.45f, kDragTail = 0.40f;
+constexpr int   kDragStrokes = 3, kDragStrokesLow = 4;
+constexpr float kDragLowHp = 0.20f;
+
 // ── Erode (phase 2) ─────────────────────────────────────────
 constexpr float kErodeAfter = 1.6f;         // seconds in one cell
 constexpr float kErodeShow = 0.4f;          // the meter shows from here
@@ -264,9 +291,18 @@ struct State {
     std::vector<int> seeds;         // Spread: cells to click after the first (on the player)
     int     clicked = 0;            // Spread: seeds clicked so far
 
+    float   hpRatio = 1.0f;
+    // The body: where it glides to, or (bodyExact) exactly where it is put
+    // (dragged); bodyHold: it holds still.
+    float   moveX = -1.0f, moveY = -1.0f, moveT = 0.0f;
+    bool    bodyHold = true, bodyExact = false;
+    float   bodyX = 0.0f, bodyY = 0.0f;
+    float   dragFromX = 0.0f, dragFromY = 0.0f, dragToX = 0.0f, dragToY = 0.0f;
+    bool    comboRing = false;      // the queued combo wave is a ring from the body
+
     float   winX = 0.0f, winY = 0.0f, winW = 0.0f, winH = 0.0f;   // Window: its frame
-    int     winSide = 0;            // the edge dragged: 0 left, 1 right, 2 top, 3 bottom
-    float   winFrom = 0.0f, winTo = 0.0f;   // that edge's coordinate, before and after
+    float   winMoved = 0.0f;        // px the window has been dragged
+    float   winEndT = -1.0f;        // when the drag ended (>= 0), then it is closed
     bool    winOpen = false;        // the game keeps a real window here while true
 
     float   curX = -1.0f, curY = -1.0f;   // the cursor (< 0: not placed yet)
@@ -292,6 +328,37 @@ inline State g;
 
 inline float WarnTime() { return g.phase == 2 ? kWarnP2 : kWarn; }
 inline bool Hurts(const Cell& c) { return c.state == CellState::Corrupt; }
+
+// ── Puddles ─────────────────────────────────────────────────
+// Corruption is laid out by cell, but it lies like spilled liquid: every
+// corrupted cell is a soft blob round its centre with a slowly wobbling rim,
+// the blobs of neighbouring cells run together, and the puddle's edge is where
+// their summed field reaches kPuddleEdge. It hurts inside that edge; the
+// drawing contours the same field, so what you see is what hurts. A lone
+// blob's rim sits about 0.55 of a cell from its centre (0.45..0.63 as it
+// wobbles); a scanline's gap cell stays open.
+constexpr float kBlobReach = 1.02f * kCell;
+constexpr float kPuddleEdge = 0.5f;
+inline float BlobField(int cell, float x, float y, float time) {
+    float cx, cy;
+    CellCentre(cell, cx, cy);
+    const float dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+    if (d2 >= kBlobReach * kBlobReach * 1.36f) return 0.0f;
+    const float ph = (float)g.cells[cell].glitch * 0.0246f;
+    const float a = std::atan2(dy, dx);
+    const float R = kBlobReach * (1.0f + 0.10f * std::sin(3.0f * a + ph + time * 0.8f)
+                                       + 0.06f * std::sin(5.0f * a - ph * 1.7f - time * 1.1f));
+    const float q = 1.0f - d2 / (R * R);
+    return q > 0.0f ? q * q : 0.0f;
+}
+// The field of the cells that hurt (corrupted ones) at (x, y).
+inline float HurtField(float x, float y) {
+    float f = 0.0f;
+    for (int i = 0; i < CellCount(); ++i)
+        if (Hurts(g.cells[i])) f += BlobField(i, x, y, g.time);
+    return f;
+}
+inline bool InPuddle(float x, float y) { return HurtField(x, y) >= kPuddleEdge; }
 
 // Starts a clean (or healing) cell's warning; corrupting ones are left alone.
 inline void Infect(int i, float warn = -1.0f) {
@@ -405,9 +472,9 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
         }
     }
     const int here = CellAt(px, py);
-    // Standing in corruption: steady damage and weakness.
+    // Standing in a puddle: steady damage and weakness.
     g.weaken = std::max(0.0f, g.weaken - dt);
-    if (Hurts(g.cells[here])) {
+    if (InPuddle(px, py)) {
         g.weaken = kWeakenLinger;
         Hit(playerHP, kCorruptDps * dt, 1, px, py);
     }
@@ -463,9 +530,14 @@ inline Pattern PickPattern() {
     static const Pattern p1[] = { Pattern::Spread, Pattern::Scanline, Pattern::Shot,
                                   Pattern::Window, Pattern::Spread, Pattern::Shot,
                                   Pattern::Scanline, Pattern::Window, Pattern::Shot };
-    const int n = (int)(sizeof(p1) / sizeof(p1[0]));
-    Pattern pick = p1[g.count % n];
-    if (pick == g.last) pick = p1[(g.count + 1) % n];
+    // Phase 2: the drag joins in.
+    static const Pattern p2[] = { Pattern::Spread, Pattern::Drag, Pattern::Shot,
+                                  Pattern::Window, Pattern::Scanline, Pattern::Shot,
+                                  Pattern::Drag, Pattern::Window, Pattern::Spread, Pattern::Shot };
+    const Pattern* list = g.phase == 2 ? p2 : p1;
+    const int n = g.phase == 2 ? (int)(sizeof(p2) / sizeof(p2[0])) : (int)(sizeof(p1) / sizeof(p1[0]));
+    Pattern pick = list[g.count % n];
+    if (pick == g.last) pick = list[(g.count + 1) % n];
     return pick;
 }
 
@@ -564,10 +636,11 @@ inline void StartWindow(float px, float py) {
     }
     g.winW = g.winH = 1.0f;
     g.winOpen = false;
+    g.winMoved = 0.0f;
+    g.winEndT = -1.0f;
 }
-inline float WinDragTime() { return g.phase == 2 ? kWinDragP2 : kWinDrag; }
-inline float WinLetGo() { return kWinGrab + WinDragTime(); }
-inline float WinClose() { return WinLetGo() + kWinToClose; }
+// When the cursor clicks it closed (far off while it is still being dragged).
+inline float WinClose() { return g.winEndT >= 0.0f ? g.winEndT + kWinToClose : 1.0e6f; }
 // True when the window covers kWinCover of the cell (it corrupts when deleted).
 inline bool WinCovers(int cell) {
     float x, y, w, h;
@@ -576,64 +649,41 @@ inline bool WinCovers(int cell) {
     const float oy = std::min(y + h, g.winY + g.winH) - std::max(y, g.winY);
     return ox > 0.0f && oy > 0.0f && ox * oy >= kWinCover * w * h;
 }
-// Grabs the edge facing the player; it will be dragged out a cell past them.
-inline void GrabEdge(float px, float py) {
-    const float cx = g.winX + g.winW * 0.5f, cy = g.winY + g.winH * 0.5f;
-    const float dx = (px - cx) / g.winW, dy = (py - cy) / g.winH;
-    const float most = g.phase == 2 ? kWinStretchP2 : kWinStretch, past = kCell * 0.6f;
-    if (std::fabs(dx) >= std::fabs(dy)) {
-        g.winSide = dx < 0.0f ? 0 : 1;
-        g.winFrom = dx < 0.0f ? g.winX : g.winX + g.winW;
-        g.winTo = dx < 0.0f ? std::max({ 0.0f, px - past, g.winFrom - most })
-                            : std::min({ g_W, px + past, g.winFrom + most });
-    } else {
-        g.winSide = dy < 0.0f ? 2 : 3;
-        g.winFrom = dy < 0.0f ? g.winY : g.winY + g.winH;
-        g.winTo = dy < 0.0f ? std::max({ 0.0f, py - past, g.winFrom - most })
-                            : std::min({ g_H, py + past, g.winFrom + most });
-    }
-    // Never shrink it: a player behind the edge is dragged at nonetheless.
-    if ((g.winSide == 0 || g.winSide == 2) ? g.winTo > g.winFrom : g.winTo < g.winFrom) g.winTo = g.winFrom;
-}
-// Moves the grabbed edge to `at`.
-inline void SetEdge(float at) {
-    switch (g.winSide) {
-    case 0: g.winW += g.winX - at; g.winX = at; break;
-    case 1: g.winW = at - g.winX; break;
-    case 2: g.winH += g.winY - at; g.winY = at; break;
-    default: g.winH = at - g.winY; break;
-    }
-}
-// The middle of the grabbed edge (where the cursor holds it).
-inline void EdgeSpot(float& x, float& y) {
-    x = g.winSide == 0 ? g.winX : g.winSide == 1 ? g.winX + g.winW : g.winX + g.winW * 0.5f;
-    y = g.winSide == 2 ? g.winY : g.winSide == 3 ? g.winY + g.winH : g.winY + g.winH * 0.5f;
-}
+// The middle of the title bar, where the cursor holds it.
+inline void TitleSpot(float& x, float& y) { x = g.winX + g.winW * 0.5f; y = g.winY + 14.0f; }
 // The close button, top right of the title bar.
 inline void CloseSpot(float& x, float& y) { x = g.winX + g.winW - 22.0f; y = g.winY + 15.0f; }
-inline void TickWindow(float px, float py) {
+inline void TickWindow(float dt, float px, float py) {
     const float t = g.t;
     if (t >= kWinPress && t < kWinOpen) {             // dragging it out
         const float u = Smooth((t - kWinPress) / (kWinOpen - kWinPress));
         g.winW = std::max(1.0f, kWinW * u); g.winH = std::max(1.0f, kWinH * u);
-    } else if (t >= kWinOpen && !g.winOpen && t < WinClose()) {
+    } else if (t >= kWinOpen && !g.winOpen && g.step == 0) {
         g.winW = kWinW; g.winH = kWinH;
         g.winOpen = true;
         Click(g.winX + g.winW, g.winY + g.winH);
         g_Events.push_back({ Fx::Window, g.winX + g.winW * 0.5f, g.winY + g.winH * 0.5f, 0.0f });
     }
-    if (t >= kWinGrab && g.step == 0) { GrabEdge(px, py); g.step = 1; }
-    if (g.step == 1) {                                 // dragging the edge
-        const float u = Smooth((t - kWinGrab) / WinDragTime());
-        SetEdge(g.winFrom + (g.winTo - g.winFrom) * u);
-        if (t >= WinLetGo()) g.step = 2;   // let go; RunPattern sends the combo
+    if (t >= kWinGrab && g.step == 0) g.step = 1;
+    if (g.step == 1) {                                 // dragged after the player, shrinking
+        const float cx = g.winX + g.winW * 0.5f, cy = g.winY + g.winH * 0.5f;
+        const float dx = px - cx, dy = py - cy, d = std::hypot(dx, dy);
+        const float step = std::min(d, (g.phase == 2 ? kWinDragSpeedP2 : kWinDragSpeed) * dt);
+        float nx = cx, ny = cy;
+        if (d > 1.0f) { nx += dx / d * step; ny += dy / d * step; }
+        g.winMoved += step;
+        const float sc = std::max(kWinMinScale, 1.0f - kWinShrinkPerCell * g.winMoved / kCell);
+        g.winW = kWinW * sc; g.winH = kWinH * sc;
+        g.winX = std::clamp(nx - g.winW * 0.5f, 0.0f, std::max(0.0f, g_W - g.winW));
+        g.winY = std::clamp(ny - g.winH * 0.5f, 0.0f, std::max(0.0f, g_H - g.winH));
+        for (int i = 0; i < CellCount(); ++i) if (WinCovers(i)) Infect(i);   // the trail
+        if (sc <= kWinMinScale || t >= kWinGrab + kWinDragMax) { g.step = 2; g.winEndT = t; }
     }
-    if (g.step == 2 && t >= WinClose()) {              // close: what it covered corrupts
+    if (g.step == 2 && t >= WinClose()) {              // closed
         g.step = 3;
         float cx, cy;
         CloseSpot(cx, cy);
         Click(cx, cy);
-        for (int i = 0; i < CellCount(); ++i) if (WinCovers(i)) Infect(i, kWinDeleteWarn);
         g.winOpen = false;
         g_Events.push_back({ Fx::Window, g.winX + g.winW * 0.5f, g.winY + g.winH * 0.5f, 1.0f });
     }
@@ -671,11 +721,18 @@ inline void CursorWant(float px, float py, float& tx, float& ty, bool& press, bo
             press = g.t >= SnipeFireAt(g.step) - kSnipeLock;
         }
         break;
+    case Pattern::Drag:
+        if (g.step < 100) {
+            tx = g.bossX; ty = g.bossY;
+            press = g.t >= kDragGrab - kClickHold;
+            exact = g.t >= kDragGrab;
+        }
+        break;
     case Pattern::Window:
         if (g.t < kWinPress) { tx = g.winX; ty = g.winY; }
         else if (g.t < kWinOpen) { tx = g.winX + g.winW; ty = g.winY + g.winH; press = exact = true; }
-        else if (g.step == 0) { GrabEdge(px, py); EdgeSpot(tx, ty); g.winTo = g.winFrom; }   // heading for the edge
-        else if (g.step == 1) { EdgeSpot(tx, ty); press = exact = true; }
+        else if (g.step == 0) { TitleSpot(tx, ty); }                          // heading for the title bar
+        else if (g.step == 1) { TitleSpot(tx, ty); press = exact = true; }   // dragging it
         else if (g.step == 2) { CloseSpot(tx, ty); press = g.t >= WinClose() - kClickHold; }
         break;
     default: break;
@@ -716,6 +773,61 @@ inline void TickCursor(float dt, float px, float py) {
         for (int k = kCurTrail - 1; k > 0; --k) { g.trail[k][0] = g.trail[k - 1][0]; g.trail[k][1] = g.trail[k - 1][1]; }
         g.trail[0][0] = g.curX; g.trail[0][1] = g.curY;
     }
+}
+
+// Moving: the next cell to glide to (kept as is when none fits).
+inline void PickMoveSpot(float px, float py) {
+    g.moveT = RndRange(kMoveRestMin, kMoveRestMax);
+    for (int tries = 0; tries < 40; ++tries) {
+        float x, y;
+        CellCentre(rand() % CellCount(), x, y);
+        x = std::clamp(x, kBodyMinX, g_W - kBodyMinX);
+        y = std::clamp(y, kBodyMinY, g_H - kBodyMinY);
+        const float d = std::hypot(x - px, y - py);
+        if (d < kMoveNear || d > kMoveFar) continue;
+        if (std::hypot(x - g.bossX, y - g.bossY) < kCell * 0.8f) continue;
+        g.moveX = x; g.moveY = y;
+        return;
+    }
+    if (g.moveX < 0.0f) { g.moveX = g.bossX; g.moveY = g.bossY; }
+}
+inline void TickBody(float dt, float px, float py) {
+    g.bodyExact = false;
+    g.bodyHold = g.exposed > 0.0f || g.invuln > 0.0f || g.form == Form::Sniper || g.morph >= 0.0f;
+    g.moveT -= dt;
+    // The player came close (a shove, a dash): move off at once.
+    if (!g.bodyHold && std::hypot(g.bossX - px, g.bossY - py) < kMoveNear * 0.6f &&
+        std::hypot(g.moveX - px, g.moveY - py) < kMoveNear) g.moveT = 0.0f;
+    if (g.moveX < 0.0f || g.moveT <= 0.0f) PickMoveSpot(px, py);
+}
+// Drag: where stroke k goes from the body's spot: past the player (beyond
+// them, off to one side), long enough to read, on screen.
+inline void PickDragTarget(float px, float py) {
+    float dx = px - g.dragFromX, dy = py - g.dragFromY;
+    float d = std::hypot(dx, dy);
+    if (d < 1.0f) { const float a = RndRange(0.0f, 6.2831853f); dx = std::cos(a); dy = std::sin(a); d = 1.0f; }
+    dx /= d; dy /= d;
+    const float side = rand() % 2 ? 1.0f : -1.0f;
+    float tx = px + dx * RndRange(260.0f, 420.0f) - dy * side * RndRange(140.0f, 260.0f);
+    float ty = py + dy * RndRange(260.0f, 420.0f) + dx * side * RndRange(140.0f, 260.0f);
+    tx = std::clamp(tx, kBodyMinX, g_W - kBodyMinX);
+    ty = std::clamp(ty, kBodyMinY, g_H - kBodyMinY);
+    if (std::hypot(tx - g.dragFromX, ty - g.dragFromY) < 380.0f) {   // too short: swing the other way
+        tx = std::clamp(px - dx * 380.0f + dy * side * 200.0f, kBodyMinX, g_W - kBodyMinX);
+        ty = std::clamp(py - dy * 380.0f - dx * side * 200.0f, kBodyMinY, g_H - kBodyMinY);
+    }
+    g.dragToX = tx; g.dragToY = ty;
+}
+inline int DragStrokes() { return g.hpRatio <= kDragLowHp ? kDragStrokesLow : kDragStrokes; }
+// Drag: 0..1 along stroke k right now (0 while its path shows), and k.
+inline int DragStroke(float& u) {
+    const float tt = g.t - kDragGrab, per = kDragPreview + kDragMove;
+    u = 0.0f;
+    if (tt < 0.0f) return -1;
+    const int k = (int)(tt / per);
+    const float local = tt - (float)k * per;
+    if (local >= kDragPreview) u = Smooth((local - kDragPreview) / kDragMove);
+    return k;
 }
 
 inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
@@ -809,6 +921,12 @@ inline void Snap8(float dx, float dy, float& nx, float& ny) {
 // as a line shoving along (nx, ny); (0, 0) aims it at corruption.
 inline void QueueShove(float nx = 0.0f, float ny = 0.0f) {
     g.comboQueued = true; g.comboNx = nx; g.comboNy = ny;
+    g.comboRing = false;
+    g.comboSent = true;
+}
+// A combo ring wave from where the body is when it starts.
+inline void QueueRing() {
+    g.comboQueued = true; g.comboRing = true;
     g.comboSent = true;
 }
 // The line: of eight ways to shove the player, one that lands on corruption
@@ -836,7 +954,11 @@ inline void TickWave(float dt, float bx, float by, float px, float py) {
         if (g.waveCd > 0.0f && !g.comboQueued) return;
         g.waveT = 0.0f; g.waveHit = false;
         g.combo = g.comboQueued;
-        if (g.combo) {
+        if (g.combo && g.comboRing) {
+            g.comboQueued = false;
+            g.waveLine = false;
+            g.waveX = bx; g.waveY = by;
+        } else if (g.combo) {
             g.comboQueued = false;
             g.waveLine = true;
             if (g.comboNx != 0.0f || g.comboNy != 0.0f) AimLineAt(px, py, g.comboNx, g.comboNy);
@@ -907,7 +1029,7 @@ inline void RunPattern(float dt, float px, float py) {
         break;
     }
     case Pattern::Window:
-        TickWindow(px, py);
+        TickWindow(dt, px, py);
         // Combo: as the cursor heads for close, shove the player toward the window.
         if (g.step >= 2 && !g.comboSent) {
             const float dx = g.winX + g.winW * 0.5f - px, dy = g.winY + g.winH * 0.5f - py;
@@ -916,6 +1038,26 @@ inline void RunPattern(float dt, float px, float py) {
         }
         if (g.t >= WinClose() + kWinTail) EndPattern();
         break;
+    case Pattern::Drag: {
+        g.bodyExact = true;
+        float u;
+        const int k = DragStroke(u);
+        if (k < 0) { g.bodyX = g.bossX; g.bodyY = g.bossY; break; }   // the cursor is getting a grip
+        if (k >= DragStrokes()) {                                    // let go: a ring from the body
+            if (g.step < 100) { g.step = 100; Click(g.bossX, g.bossY); QueueRing(); }
+            g.bodyX = g.bossX; g.bodyY = g.bossY;
+            if (g.t >= kDragGrab + (float)DragStrokes() * (kDragPreview + kDragMove) + kDragTail) EndPattern();
+            break;
+        }
+        if (k >= g.step) {                                           // a new stroke from here
+            g.step = k + 1;
+            g.dragFromX = g.bossX; g.dragFromY = g.bossY;
+            PickDragTarget(px, py);
+        }
+        g.bodyX = g.dragFromX + (g.dragToX - g.dragFromX) * u;
+        g.bodyY = g.dragFromY + (g.dragToY - g.dragFromY) * u;
+        break;
+    }
     case Pattern::Shot: {
         const int n = g.phase == 2 ? kSnipesP2 : kSnipes;
         // The aim follows the lead until it locks just before the shot.
@@ -949,6 +1091,8 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
     }
     g.prevX = px; g.prevY = py;
     g.bossX = bx; g.bossY = by;
+    g.hpRatio = maxHp > 0.0f ? hp / maxHp : 1.0f;
+    g.bodyHold = true; g.bodyExact = false;
     g.phaseFlash = std::max(0.0f, g.phaseFlash - dt);
     g.handleFlash = std::max(0.0f, g.handleFlash - dt);
     const int lit = norma::LitStarsFor(hp, maxHp);
@@ -978,12 +1122,14 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
             c.life = kTrailLife;
             c.glitch = (unsigned char)(rand() % 256);
         }
+        if (g.pattern == Pattern::Drag && g.acting) c.life = std::max(c.life, kDragTrailLife);
         c.t = 0.0f;
     }
     TickCells(dt, px, py, playerHP);
     TickShots(dt, px, py, playerHP);
     TickWave(dt, bx, by, px, py);
     TickCursor(dt, px, py);
+    TickBody(dt, px, py);
     if (g.pattern == Pattern::Scanline) TickScans(dt);
     if (g.exposed > 0.0f) { g.exposed = std::max(0.0f, g.exposed - dt); return; }
     if (!g.acting) {

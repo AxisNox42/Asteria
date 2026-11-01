@@ -16,6 +16,7 @@ static GLint  g_PColor  = -1;
 static GLint  g_PGlow   = -1;
 static GLint  g_PAlpha  = -1;
 static GLint  g_PRes    = -1;
+static GLint  g_PVp     = -1;
 static GLint  g_PRing   = -1;
 static float  g_PResW   = 1920.0f;
 static float  g_PResH   = 1080.0f;
@@ -35,10 +36,12 @@ static const char* kPFrag =
     "uniform float u_glow;\n"
     "uniform float u_alpha;\n"
     "uniform vec2  u_res;\n"
+    "uniform vec3  u_vp;\n"   // viewport origin (x, y) and scale: see g_ViewportMap
     "uniform float u_ring;\n"
     "void main() {\n"
     "    // gl_FragCoord is Y-up; flip to match Y-down pixel coords\n"
-    "    vec2 p = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);\n"
+    "    vec2 f = (gl_FragCoord.xy - u_vp.xy) / u_vp.z;\n"
+    "    vec2 p = vec2(f.x, u_res.y - f.y);\n"
     "    float d = length(p - u_center);\n"
     "    float edge = max(u_radius * 0.016, 1.2);\n"
     "    // core disc\n"
@@ -86,6 +89,7 @@ void InitPlanetShader(int screenW, int screenH) {
     g_PGlow   = glGetUniformLocation(g_PProg, "u_glow");
     g_PAlpha  = glGetUniformLocation(g_PProg, "u_alpha");
     g_PRes    = glGetUniformLocation(g_PProg, "u_res");
+    g_PVp     = glGetUniformLocation(g_PProg, "u_vp");
     g_PRing   = glGetUniformLocation(g_PProg, "u_ring");
 
     // 별도 VAO/VBO (pos xy only, 6 verts = 1 quad)
@@ -121,6 +125,7 @@ void DrawPlanetSDF(float cx, float cy, float radius,
     glUniform1f (g_PGlow,   glow);
     glUniform1f (g_PAlpha,  alpha * g_BatchAlpha);
     glUniform2f (g_PRes,    g_PResW, g_PResH);
+    glUniform3f (g_PVp,     g_ViewportMap.x, g_ViewportMap.y, g_ViewportMap.scale);
     glUniform1f (g_PRing,   ring);
 
     glBindVertexArray(g_PVAO);

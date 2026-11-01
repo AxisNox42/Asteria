@@ -51,11 +51,14 @@ namespace kb = keyboard_panel;
 using hud_lines::Rgb;
 
 // ── Canvas layout (1920x1080 px) ──
-constexpr float kCanvasW = 1920.0f, kCanvasH = 1080.0f;
+using ready_launch::kCanvasW;
+using ready_launch::kCanvasH;
 constexpr float kTitleY = 68.0f, kTitlePx = 56.0f;
 constexpr float kBriefY = 122.0f, kBriefPx = 24.0f;
-constexpr float kFieldW = 800.0f, kFieldH = 450.0f;
-constexpr float kFieldX = (kCanvasW - kFieldW) * 0.5f, kFieldY = 180.0f;
+using ready_launch::kFieldW;
+using ready_launch::kFieldH;
+using ready_launch::kFieldX;
+using ready_launch::kFieldY;
 constexpr float kFieldLabelPx = 20.0f, kFieldLabelGap = 18.0f;
 constexpr float kFieldCorner = 26.0f;
 constexpr float kStepLabelY = 26.0f, kStepLabelPx = 16.0f;   // inside the field, from its top
@@ -245,7 +248,11 @@ void ResetView(PracticeView& v) {
 }
 
 void TouchView(PracticeView& v) {
-    const bool reentered = glfwGetTime() - v.lastSeen > kReenterGap;
+    // Card picks (tutorial steps 5-6) leave this scene for a while; the field
+    // must come back as it was.
+    const bool inPicks = ready_launch::g_TutorialMode &&
+                         ready_launch::g_Stage != ready_launch::TutorialStage::Practice;
+    const bool reentered = glfwGetTime() - v.lastSeen > kReenterGap && !inPicks;
     if (v.lastSeen < 0.0 || reentered) ResetView(v);
     v.lastSeen = glfwGetTime();
 }
@@ -315,6 +322,8 @@ void StepNumber(rp::Objective current, bool dashOk, int& index, int& total) {
         ++total;
         if (i <= (int)current) index = total;
     }
+    // The augment and nerf picks follow the practice steps (tutorial only).
+    if (ready_launch::g_TutorialMode) total += READY_EXTRA_OBJECTIVE_COUNT;
 }
 
 // ── Field ──
@@ -349,90 +358,93 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
     Text(body, kills.c_str(), fx + fw, labelY, labelPx + cv.S(2.0f), swarmText, 0.95f, Align::Right);
     g_BatchAlpha = batchAlpha;
 
-    // Static Field: the pulse's reach flashes on each beat.
-    if (rules.fieldPulse) {
-        if (v.field.pulses != v.lastPulses) { v.lastPulses = v.field.pulses; v.pulseFlash = kPulseFlash; }
-        v.pulseFlash = std::max(0.0f, v.pulseFlash - dt);
-        const float px = toX(v.field.playerX), py = toY(v.field.playerY);
-        const float rr = rules.pulseRadius * ws;
-        hud_lines::Arc(px, py, rr, cv.S(1.2f), 0.0f, 6.2831853f, kCyan, 0.16f);
-        if (v.pulseFlash > 0.0f)
-            hud_lines::Arc(px, py, rr, cv.S(2.2f), 0.0f, 6.2831853f, kCyan,
-                           0.55f * v.pulseFlash / kPulseFlash);
-    }
-
-    // Dummies: base tick, Swarm body (gameplay renderer), hp bar, respawn ring.
-    const bool wasSuppressed = g_SuppressMobSeen;
-    g_SuppressMobSeen = true;   // practice dummies are not Codex discoveries
-    for (int i = 0; i < rp::kDummyCount; ++i) {
-        const rp::Dummy& d = v.field.dummies[i];
-        const float hx = toX(d.homeX), hy = toY(d.homeY);
-        const float base = (rules.dummyHitRadius + 14.0f) * ws;
-        Line(hx - cv.S(14), hy + base, hx + cv.S(14), hy + base, cv.S(1.6f), swarm, 0.45f, key);
-        Line(hx, hy + base - cv.S(5), hx, hy + base + cv.S(5), cv.S(1.6f), swarm, 0.45f, key);
-
-        if (v.wasAlive[i] && !d.Alive())
-            SpawnShards(v, toX(rp::DummyX(d)), toY(rp::DummyY(d)), cv.k);
-        v.wasAlive[i] = d.Alive();
-
-        Monster& mob = *v.mobs[i];
-        const float bob = std::sin(now * kBobSpeed + 1.9f * (float)i) * kBob;
-        float form = 1.0f;
-        if (d.Alive()) {
-            mob.worldX = toX(rp::DummyX(d));
-            mob.worldY = toY(rp::DummyY(d) + bob);
-            mob.hitFlashTimer = d.hitFlash / rp::kHitFlash * MOB_HIT_FLASH_TIME;
-            const float bw = kHpBarW * ws, by = hy - kHpBarY * ws;
-            const float frac = std::clamp(d.hp / std::max(1e-3f, d.maxHp), 0.0f, 1.0f);
-            Line(hx - bw * 0.5f, by, hx + bw * 0.5f, by, cv.S(2.6f), swarmText, 0.22f, key);
-            if (frac > 0.0f)
-                Line(hx - bw * 0.5f, by, hx - bw * 0.5f + bw * frac, by, cv.S(2.6f), swarmText, 0.95f, 0.0f);
-        } else {
-            const float rr = kRespawnRing * ws;
-            hud_lines::Arc(hx, hy, rr, cv.S(3.5f), 0.0f, 6.2831853f,
-                           hud_lines::KeyCol(swarm), hud_lines::kKeyA * 0.6f);
-            hud_lines::Arc(hx, hy, rr, cv.S(2.0f), 0.0f, 6.2831853f, swarm, 0.25f);
-            hud_lines::Arc(hx, hy, rr, cv.S(2.4f), -1.5707963f,
-                           6.2831853f * rp::RespawnProgress(d), swarmText, 0.9f);
-            form = rp::FormProgress(d);
-            mob.worldX = hx;
-            mob.worldY = hy;
-            mob.hitFlashTimer = 0.0f;
-            if (form <= 0.0f) {
-                const float s = cv.S(6.0f);
-                Line(hx - s, hy, hx + s, hy, cv.S(1.8f), swarmText, 0.7f, key);
-                Line(hx, hy - s, hx, hy + s, cv.S(1.8f), swarmText, 0.7f, key);
-                continue;
-            }
+    // The field stays empty while a tutorial card screen is drawn over it.
+    if (!ready_launch::g_SelectionUp) {
+        // Static Field: the pulse's reach flashes on each beat.
+        if (rules.fieldPulse) {
+            if (v.field.pulses != v.lastPulses) { v.lastPulses = v.field.pulses; v.pulseFlash = kPulseFlash; }
+            v.pulseFlash = std::max(0.0f, v.pulseFlash - dt);
+            const float px = toX(v.field.playerX), py = toY(v.field.playerY);
+            const float rr = rules.pulseRadius * ws;
+            hud_lines::Arc(px, py, rr, cv.S(1.2f), 0.0f, 6.2831853f, kCyan, 0.16f);
+            if (v.pulseFlash > 0.0f)
+                hud_lines::Arc(px, py, rr, cv.S(2.2f), 0.0f, 6.2831853f, kCyan,
+                               0.55f * v.pulseFlash / kPulseFlash);
         }
-        mob.sizeScale = v.swarmScale * ws * form;
-        const float savedAlpha = g_BatchAlpha;
-        g_BatchAlpha = savedAlpha * (d.Alive() ? 1.0f : 0.25f + 0.5f * form);
-        drawMob(&mob, now + std::sin(now * kWobbleSpin) * d.wobble);
-        g_BatchAlpha = savedAlpha;
-    }
-    g_SuppressMobSeen = wasSuppressed;
 
-    for (Shard& s : v.shards) {
-        s.x += s.vx * dt; s.y += s.vy * dt; s.ang += s.spin * dt; s.life -= dt;
-        const float hl = cv.S(8.0f), ca = std::cos(s.ang) * hl, sa = std::sin(s.ang) * hl;
-        Line(s.x - ca, s.y - sa, s.x + ca, s.y + sa, cv.S(2.2f), swarmText,
-             std::max(0.0f, s.life / kShardLife), 0.0f);
-    }
-    v.shards.erase(std::remove_if(v.shards.begin(), v.shards.end(),
-        [](const Shard& s) { return s.life <= 0.0f; }), v.shards.end());
+        // Dummies: base tick, Swarm body (gameplay renderer), hp bar, respawn ring.
+        const bool wasSuppressed = g_SuppressMobSeen;
+        g_SuppressMobSeen = true;   // practice dummies are not Codex discoveries
+        for (int i = 0; i < rp::kDummyCount; ++i) {
+            const rp::Dummy& d = v.field.dummies[i];
+            const float hx = toX(d.homeX), hy = toY(d.homeY);
+            const float base = (rules.dummyHitRadius + 14.0f) * ws;
+            Line(hx - cv.S(14), hy + base, hx + cv.S(14), hy + base, cv.S(1.6f), swarm, 0.45f, key);
+            Line(hx, hy + base - cv.S(5), hx, hy + base + cv.S(5), cv.S(1.6f), swarm, 0.45f, key);
 
-    // Bullets and ship with the gameplay renderers, at the view scale.
-    for (const rp::Bullet& b : v.field.bullets) {
-        ::Bullet shot(toX(b.x), toY(b.y), toX(b.x) + b.dirX, toY(b.y) + b.dirY);
-        shot.speed = rules.bulletSpeed * ws;
-        shot.sizeScale = ws;
-        drawBullet(shot);
+            if (v.wasAlive[i] && !d.Alive())
+                SpawnShards(v, toX(rp::DummyX(d)), toY(rp::DummyY(d)), cv.k);
+            v.wasAlive[i] = d.Alive();
+
+            Monster& mob = *v.mobs[i];
+            const float bob = std::sin(now * kBobSpeed + 1.9f * (float)i) * kBob;
+            float form = 1.0f;
+            if (d.Alive()) {
+                mob.worldX = toX(rp::DummyX(d));
+                mob.worldY = toY(rp::DummyY(d) + bob);
+                mob.hitFlashTimer = d.hitFlash / rp::kHitFlash * MOB_HIT_FLASH_TIME;
+                const float bw = kHpBarW * ws, by = hy - kHpBarY * ws;
+                const float frac = std::clamp(d.hp / std::max(1e-3f, d.maxHp), 0.0f, 1.0f);
+                Line(hx - bw * 0.5f, by, hx + bw * 0.5f, by, cv.S(2.6f), swarmText, 0.22f, key);
+                if (frac > 0.0f)
+                    Line(hx - bw * 0.5f, by, hx - bw * 0.5f + bw * frac, by, cv.S(2.6f), swarmText, 0.95f, 0.0f);
+            } else {
+                const float rr = kRespawnRing * ws;
+                hud_lines::Arc(hx, hy, rr, cv.S(3.5f), 0.0f, 6.2831853f,
+                               hud_lines::KeyCol(swarm), hud_lines::kKeyA * 0.6f);
+                hud_lines::Arc(hx, hy, rr, cv.S(2.0f), 0.0f, 6.2831853f, swarm, 0.25f);
+                hud_lines::Arc(hx, hy, rr, cv.S(2.4f), -1.5707963f,
+                               6.2831853f * rp::RespawnProgress(d), swarmText, 0.9f);
+                form = rp::FormProgress(d);
+                mob.worldX = hx;
+                mob.worldY = hy;
+                mob.hitFlashTimer = 0.0f;
+                if (form <= 0.0f) {
+                    const float s = cv.S(6.0f);
+                    Line(hx - s, hy, hx + s, hy, cv.S(1.8f), swarmText, 0.7f, key);
+                    Line(hx, hy - s, hx, hy + s, cv.S(1.8f), swarmText, 0.7f, key);
+                    continue;
+                }
+            }
+            mob.sizeScale = v.swarmScale * ws * form;
+            const float savedAlpha = g_BatchAlpha;
+            g_BatchAlpha = savedAlpha * (d.Alive() ? 1.0f : 0.25f + 0.5f * form);
+            drawMob(&mob, now + std::sin(now * kWobbleSpin) * d.wobble);
+            g_BatchAlpha = savedAlpha;
+        }
+        g_SuppressMobSeen = wasSuppressed;
+
+        for (Shard& s : v.shards) {
+            s.x += s.vx * dt; s.y += s.vy * dt; s.ang += s.spin * dt; s.life -= dt;
+            const float hl = cv.S(8.0f), ca = std::cos(s.ang) * hl, sa = std::sin(s.ang) * hl;
+            Line(s.x - ca, s.y - sa, s.x + ca, s.y + sa, cv.S(2.2f), swarmText,
+                 std::max(0.0f, s.life / kShardLife), 0.0f);
+        }
+        v.shards.erase(std::remove_if(v.shards.begin(), v.shards.end(),
+            [](const Shard& s) { return s.life <= 0.0f; }), v.shards.end());
+
+        // Bullets and ship with the gameplay renderers, at the view scale.
+        for (const rp::Bullet& b : v.field.bullets) {
+            ::Bullet shot(toX(b.x), toY(b.y), toX(b.x) + b.dirX, toY(b.y) + b.dirY);
+            shot.speed = rules.bulletSpeed * ws;
+            shot.sizeScale = ws;
+            drawBullet(shot);
+        }
+        // The ship at its spot in the field, at the run's size scaled by the view.
+        const float shipRunSize = PLAYER_SIZE_PX * g_Stats.playerSizeMult;
+        DrawPlayerWeaponShell(toX(v.field.playerX), toY(v.field.playerY),
+                              shipRunSize * ws, v.field.aim, now);
     }
-    // The ship at its spot in the field, at the run's size scaled by the view.
-    const float shipRunSize = PLAYER_SIZE_PX * g_Stats.playerSizeMult;
-    DrawPlayerWeaponShell(toX(v.field.playerX), toY(v.field.playerY),
-                          shipRunSize * ws, v.field.aim, now);
 
     // The current step's instruction, inside the field.
     if (current != v.shownStep) { v.shownStep = current; v.stepAge = 0.0f; }
@@ -440,7 +452,24 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
     const float in = std::clamp(v.stepAge / kStepFadeIn, 0.0f, 1.0f);
     const float rise = cv.S(kStepRise) * (1.0f - in);
     const float mid = fx + fw * 0.5f;
-    if (current != rp::Objective::Count) {
+    using Stage = ready_launch::TutorialStage;
+    const Stage stage = ready_launch::g_TutorialMode ? ready_launch::g_Stage : Stage::Practice;
+    const wchar_t* hint = ReadyStepHint((int)current);
+    if (stage != Stage::Practice && stage != Stage::Done) {
+        // Steps 5-6: the labels follow the practice steps.
+        int index = 0, total = 0;
+        StepNumber(rp::Objective::Count, dashOk, index, total);
+        const int step5 = total - READY_EXTRA_OBJECTIVE_COUNT + 1;
+        const bool augStep = stage == Stage::AugPick;
+        const std::wstring label = std::wstring(kReadyStepLabel) + L" " +
+            std::to_wstring(augStep ? step5 : step5 + 1) + L" / " + std::to_wstring(total);
+        Text(body, label.c_str(), mid, fy + cv.S(kStepLabelY) + rise, cv.S(kStepLabelPx), kCyan, 0.9f * in,
+             Align::Center);
+        hint = augStep ? ReadyExtraHint(0)
+             : stage == Stage::NerfWait
+                 ? ReadyExtraHint(1, (int)std::ceil(std::max(0.0f, ready_launch::g_NerfClock)))
+                 : ReadyExtraHint(2);
+    } else if (stage == Stage::Practice && current != rp::Objective::Count) {
         int index = 0, total = 0;
         StepNumber(current, dashOk, index, total);
         const std::wstring step = std::wstring(kReadyStepLabel) + L" " + std::to_wstring(index) +
@@ -448,7 +477,7 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         Text(body, step.c_str(), mid, fy + cv.S(kStepLabelY) + rise, cv.S(kStepLabelPx), kCyan, 0.9f * in,
              Align::Center);
     }
-    Text(body, ReadyStepHint((int)current), mid, fy + cv.S(kStepHintY) + rise, cv.S(kStepHintPx),
+    Text(body, hint, mid, fy + cv.S(kStepHintY) + rise, cv.S(kStepHintPx),
          kWhite, in, Align::Center);
     g_BatchAlpha = batchAlpha;
 }
@@ -488,7 +517,38 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
         }
         y += cv.S(kObjectiveRowH);
     }
-    if (current == rp::Objective::Count)
+    using Stage = ready_launch::TutorialStage;
+    const bool tutorial = ready_launch::g_TutorialMode;
+    const Stage stage = ready_launch::g_Stage;
+    if (tutorial) {
+        // Steps 5-6: the real augment and nerf picks.
+        for (int i = 0; i < READY_EXTRA_OBJECTIVE_COUNT; ++i) {
+            const bool aug = i == 0;
+            const bool done = aug ? (stage == Stage::NerfWait || stage == Stage::NerfPick || stage == Stage::Done)
+                                  : stage == Stage::Done;
+            const bool isCurrent = aug ? stage == Stage::AugPick
+                                       : (stage == Stage::NerfWait || stage == Stage::NerfPick);
+            const Rgb c = done ? kDone : kCyan;
+            const float boxA = done ? 0.95f : isCurrent ? pulse : 0.45f;
+            const float s = cv.S(kCheckSize);
+            if (isCurrent) Chevron(x - cv.S(12.0f), y, cv.S(7.0f), cv.S(2.4f), kCyan, pulse, key);
+            Box(x, y - s * 0.5f, s, s, cv.S(isCurrent ? 2.6f : 2.0f), c, boxA, key);
+            if (done) {
+                Line(x + s * 0.23f, y, x + s * 0.42f, y + s * 0.23f, cv.S(2.4f), c, 0.95f, key);
+                Line(x + s * 0.42f, y + s * 0.23f, x + s * 0.81f, y - s * 0.27f, cv.S(2.4f), c, 0.95f, key);
+            }
+            const float textA = done ? 0.95f : isCurrent ? 1.0f : 0.6f;
+            Text(body, ReadyExtraObjective(i), x + s + cv.S(14.0f), y, cv.S(kObjectivePx),
+                 done ? c : isCurrent ? kWhite : kText, textA);
+            if (!aug && stage == Stage::NerfWait) {
+                const std::wstring clock = L"0:0" + std::to_wstring(
+                    (int)std::ceil(std::max(0.0f, ready_launch::g_NerfClock)));
+                Text(body, clock.c_str(), x + cv.S(280.0f), y, cv.S(21.0f), kCyan, 0.95f, Align::Right);
+            }
+            y += cv.S(kObjectiveRowH);
+        }
+    }
+    if (tutorial ? stage == Stage::Done : current == rp::Objective::Count)
         Text(body, ReadyAllDone(), x, y + cv.S(4.0f), cv.S(kObjectivePx), kWhite, pulse);
 }
 
@@ -628,14 +688,57 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     in.aimValid = true;
     in.aimX = ((float)c.mx - cv.X(kFieldX)) / (kViewScale * cv.k);
     in.aimY = ((float)c.my - cv.Y(kFieldY)) / (kViewScale * cv.k);
-    rp::Step(v.field, rules, in, dt);
+    // While a card screen is up this scene only draws; the field stands still.
+    const bool picking = ready_launch::g_SelectionUp;
+    if (picking) in = rp::Input{};
+    rp::Step(v.field, rules, in, picking ? 0.0f : dt);
 
     const bool dashOk = rules.dashAvailable;
     const rp::Objective current = rp::CurrentObjective(v.field, dashOk);
-    // Finishing every practice step in the lobby tutorial unlocks the rest of the lobby.
-    if (ready_launch::g_TutorialMode && !g_TutorialDone && current == rp::Objective::Count) {
-        g_TutorialDone = true;
-        SaveGame();
+    if (ready_launch::g_TutorialMode && !picking) {
+        using Stage = ready_launch::TutorialStage;
+        switch (ready_launch::g_Stage) {
+        case Stage::Practice:
+            if (current == rp::Objective::Count) {
+                // The fourth kill is the level-up: open the real augment cards.
+                ready_launch::g_Stage = Stage::AugPick;
+                GameManager& gm = g_GameManager;
+                ++gm.playerLevel;
+                gm.xp = 0;
+                // The tutorial offers three fixed, simple cards.
+                static const AugType kCards[3] = {
+                    AugType::TUT_ATK_UP, AugType::TUT_HP_UP, AugType::TUT_MOVE_UP };
+                gm.OpenFixedChoices(kCards, 3, false);
+            }
+            break;
+        case Stage::AugPick:
+            // Back on this screen: the card was taken. The wave clock starts.
+            ready_launch::g_Stage = Stage::NerfWait;
+            ready_launch::g_NerfClock = ready_launch::kNerfWaitSeconds;
+            break;
+        case Stage::NerfWait:
+            ready_launch::g_NerfClock -= dt;
+            if (ready_launch::g_NerfClock <= 0.0f) {
+                // The clock ran out: judge it as a wave boundary (main opens the nerf cards).
+                ready_launch::g_NerfClock = 0.0f;
+                ready_launch::g_Stage = Stage::NerfPick;
+                ready_launch::g_RequestNerfPick = true;
+            }
+            break;
+        case Stage::NerfPick:
+            if (!ready_launch::g_RequestNerfPick) {
+                // Back on this screen: the nerf was taken. Finishing every step
+                // unlocks the rest of the lobby.
+                ready_launch::g_Stage = Stage::Done;
+                if (!g_TutorialDone) {
+                    g_TutorialDone = true;
+                    SaveGame();
+                }
+            }
+            break;
+        case Stage::Done:
+            break;
+        }
     }
     const auto targets = GuideTargets(v.field, current, dashOk);
     const float ease = 1.0f - std::exp(-dt * kGlowEase);
@@ -651,6 +754,26 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     BindMainShader();
     DrawField(v, rules, current, dashOk, cv, text.body, now, dt);
     DrawObjectives(v.field, current, dashOk, cv, text.body, pulse);
+    if (ready_launch::g_TutorialMode) {
+        // Explain the system the current step is about, under the field.
+        using Stage = ready_launch::TutorialStage;
+        const Stage stage = ready_launch::g_Stage;
+        const int block = stage == Stage::AugPick ? 0
+                        : (stage == Stage::NerfWait || stage == Stage::NerfPick) ? 1 : -1;
+        if (block >= 0) {
+            const float maxW = cv.S(kFieldW + 2.0f * 150.0f);
+            const float cx = cv.X(kCanvasW * 0.5f);
+            float y = cv.Y(kFieldY + kFieldH + 26.0f);
+            for (int l = 0; l < 2; ++l) {
+                const wchar_t* t = ReadyPickNote(block, l);
+                float px = cv.S(l == 0 ? 22.0f : 20.0f);
+                const float w = text.body.Width(t, px / text.body.LineHeightPixels());
+                if (w > maxW) px *= maxW / w;
+                Text(text.body, t, cx, y, px, l == 0 ? kWhite : kText, l == 0 ? 0.95f : 0.8f, Align::Center);
+                y += cv.S(28.0f);
+            }
+        }
+    }
     DrawKeyboard(v, current, cv, text.body, pulse, c.lmb, now);
     BatchFlush();
 }

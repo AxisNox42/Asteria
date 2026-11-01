@@ -2421,17 +2421,34 @@ static void ApplySingleAugIdx(int idx, int scrW, int scrH) {
                                       g_Stats);
 }
 
-static void ApplyWaveDebuff(int scrW, int scrH) {
-    // The wave HUD lists this wave's debuff until the wave ends, so a wave
-    // that draws none must not keep showing the previous one.
-    g_GameManager.lastWaveDebuff = -1;
-    // The preview rolled this wave's debuff ahead of time; use it so what was
-    // announced is what arrives.
-    int idx = g_GameManager.nextWaveDebuff;
-    g_GameManager.nextWaveDebuff = -1;
-    if (idx < 0 && g_GameManager.PickRandomDebuffIndices(&idx, 1) != 1) return;
-    ApplySingleAugIdx(idx, scrW, scrH);
-    g_GameManager.maxHP = g_Stats.maxHP;
+// Opens the wave-boundary debuff pick: three random debuffs, the player
+// takes one. An empty pool simply skips the pick.
+static void OpenWaveDebuffChoice() {
+    GameManager& gm = g_GameManager;
+    if (ready_launch::g_TutorialMode) {
+        // The tutorial's wave boundary offers three fixed, simple nerfs.
+        static const AugType kNerfs[3] = {
+            AugType::TUT_ATK_DOWN, AugType::TUT_HP_DOWN, AugType::TUT_MOVE_DOWN };
+        gm.OpenFixedChoices(kNerfs, 3, true);
+        return;
+    }
+    int picks[3] = { -1, -1, -1 };
+    const int got = gm.PickRandomDebuffIndices(picks, 3);
+    if (got <= 0) return;
+    gm.augChoiceCount = got;
+    for (int i = 0; i < 3; ++i) gm.augChoices[i] = i < got ? picks[i] : -1;
+    gm.augmentKeyboardFocus = false;
+    ++gm.augmentSelectionSerial;
+    gm.currentState = GameState::DEBUFF_SELECT;
+    g_HoveredAug = -1;
+    g_AugExitT = -1.0f;
+    g_AugExitSlot = -1;
+    g_RepExitT = -1.0f;
+    g_RepExitSlot = -3;
+}
+
+// The picked wave debuff is now in effect: show it on the wave HUD and log it.
+static void RecordWaveDebuffPick(int idx) {
     g_GameManager.lastWaveDebuff = idx;
     g_GameManager.waveDebuffToast = 4.0f;
     const int enteredWave = g_GameManager.currentWave;
@@ -2512,16 +2529,18 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         g_GameManager.waveTransitionFrom = g_GameManager.currentWave;
         ++g_GameManager.currentWave;
         g_GameManager.waveTransitionTimer = 2.0f;
-        ApplyWaveDebuff(scrW, scrH);
+        // The wave HUD lists this wave's debuff until the wave ends, so a wave
+        // that gets none must not keep showing the previous one.
+        g_GameManager.lastWaveDebuff = -1;
+        g_GameManager.waveDebuffPickPending = true;
     }
-    // Roll the next wave's debuff once the current wave is nearly over, so the
-    // HUD can announce it and the boundary applies exactly that one.
-    if (g_GameManager.nextWaveDebuff < 0 &&
-        g_GameManager.currentWave < FinalWaveCount(g_Difficulty) &&
-        CurrentWaveSecondsRemaining(g_GameTime, g_Difficulty) <= wave_hud::kDebuffPreviewSeconds) {
-        int idx = -1;
-        if (g_GameManager.PickRandomDebuffIndices(&idx, 1) == 1)
-            g_GameManager.nextWaveDebuff = idx;
+    // Open the pick once nothing else holds the selection screen (a level-up
+    // slow-motion or reward may be mid-flight at the boundary).
+    if (g_GameManager.waveDebuffPickPending &&
+        !g_GameManager.levelUpTransition.Active() &&
+        !g_GameManager.augmentRewardActive) {
+        g_GameManager.waveDebuffPickPending = false;
+        OpenWaveDebuffChoice();
     }
     // No timed clear: the run is won only by felling the boss (CompleteBossRun).
     // When the boss wave's clock runs out the fight simply goes on.
@@ -2629,6 +2648,12 @@ static bool IsPlayerDamageProtected() {
 
 // Every augment flow (buff, debuff, chained rewards) returns to combat here.
 static void ReturnToRunningAfterPick() {
+    if (ready_launch::g_TutorialMode) {
+        // A tutorial pick goes back to the practice screen, not into combat.
+        ready_launch::g_PicksTaken = true;
+        g_GameManager.currentState = GameState::READY;
+        return;
+    }
     g_GameManager.currentState = GameState::RUNNING;
     g_PlayerRuntime.postPickGrace = POST_PICK_GRACE;
 }
@@ -4368,7 +4393,7 @@ int main() {
                             }
                         }
                     } else if (step.rfind("CAELUMTEST=", 0) == 0) {
-                        // CAELUMTEST=SPREAD|SCAN|WINDOW|SHOT|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
+                        // CAELUMTEST=SPREAD|SCAN|WINDOW|SHOT|DRAG|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
                         // in mid-screen and start that pattern now (P2: phase 2 by
                         // health; ERODE: phase 2 rules at once; OVERFLOW: corrupt
                         // enough cells for the file to break).
@@ -4426,6 +4451,7 @@ int main() {
                                 const caelum::Pattern p = arg == "SPREAD" ? caelum::Pattern::Spread
                                                         : arg == "SCAN" ? caelum::Pattern::Scanline
                                                         : arg == "WINDOW" ? caelum::Pattern::Window
+                                                        : arg == "DRAG" ? caelum::Pattern::Drag
                                                         : arg == "SHOT" ? caelum::Pattern::Shot
                                                         : caelum::Pattern::None;
                                 if (p != caelum::Pattern::None) caelum::StartPattern(pcx, pcy, p);
@@ -4482,8 +4508,39 @@ int main() {
             g_GameManager.currentState == GameState::READY) {
             ResetForNewGame();
         }
-        // The tutorial flag only lives while the READY screen is up.
-        if (g_GameManager.currentState != GameState::READY) ready_launch::g_TutorialMode = false;
+        // The tutorial flag lives while the READY screen is up, including the
+        // card selections it opens.
+        {
+            const GameState ts = g_GameManager.currentState;
+            if (ts != GameState::READY && ts != GameState::AUG_SELECT &&
+                ts != GameState::AUG_REPLACE && ts != GameState::DEBUFF_SELECT)
+                ready_launch::g_TutorialMode = false;
+        }
+        // Tutorial step 6: the wave clock ran out. Open the nerf pick the way a
+        // real wave boundary does.
+        if (ready_launch::g_RequestNerfPick &&
+            g_GameManager.currentState == GameState::READY) {
+            ready_launch::g_RequestNerfPick = false;
+            ++g_GameManager.currentWave;
+            OpenWaveDebuffChoice();
+        }
+        // Launching from the tutorial after taking its cards: start clean with
+        // the chosen loadout (the cards and nerf were only a demonstration).
+        if (prevState == GameState::READY &&
+            g_GameManager.currentState == GameState::RUNNING &&
+            ready_launch::g_PicksTaken) {
+            ready_launch::g_PicksTaken = false;
+            const Difficulty launchDifficulty = g_Difficulty;
+            ResetForNewGame();
+            g_Difficulty = launchDifficulty;
+            const int launchWeapon = FixedWeaponForSelectedJob();
+            ApplyLoadoutStats(g_Stats, launchWeapon);
+            g_CurrentWeapon = launchWeapon;
+            fireTimer = g_Stats.fireInterval;
+            g_GameManager.maxHP    = g_Stats.maxHP;
+            g_GameManager.playerHP = g_Stats.maxHP;
+            g_PrevHP               = g_Stats.maxHP;
+        }
         // PAUSED ???�른 ?�태: 증강 ?�명 박스 ?�기
         if (prevState == GameState::PAUSED &&
             g_GameManager.currentState != GameState::PAUSED) {
@@ -4727,6 +4784,7 @@ int main() {
                 if (wasBuff) {
                     FinishAugmentEffects();
                 } else {
+                    RecordWaveDebuffPick(selectedIdx);
                     ReturnToRunningAfterPick();
                 }
             };
@@ -5811,6 +5869,16 @@ CollisionSystem::Update(pCX, pCY,
         }
         // ============================================================
         // ?�더�?        // ============================================================
+        // Tutorial card screens (augment / nerf) are drawn mini-sized inside the
+        // practice field: the rest of the frame treats the state as READY and
+        // the real state is put back at the end of the frame.
+        GameState tutRealState = g_GameManager.currentState;
+        const bool tutSelectionRender = ready_launch::g_TutorialMode &&
+            (tutRealState == GameState::AUG_SELECT ||
+             tutRealState == GameState::DEBUFF_SELECT ||
+             tutRealState == GameState::AUG_REPLACE);
+        ready_launch::g_SelectionUp = tutSelectionRender;
+        if (tutSelectionRender) g_GameManager.currentState = GameState::READY;
         glViewport(0, 0, screenWidth, screenHeight);
         // The pane prototype hides the desktop so its screen captures stay private.
         glClearColor(0.0f, 0.0f, 0.0f, g_PaneDebug ? 1.0f : 0.0f);
@@ -6373,7 +6441,40 @@ CollisionSystem::Update(pCX, pCY,
                 }
                 case GameState::CREATIVE_CONFIG:   Scene_CreativeConfig(ctx);   break;
                 case GameState::SETTINGS:          Scene_Settings(ctx);         break;
-                case GameState::READY:             Scene_Ready(ctx, sceneText); break;
+                case GameState::READY:
+                    Scene_Ready(ctx, sceneText);
+                    if (tutSelectionRender) {
+                        // The card screen keeps its full-screen layout; the
+                        // viewport squeezes it into the practice field and the
+                        // pointer is mapped into that space.
+                        float fx, fy, fw, fh;
+                        ready_launch::FieldRect(sw, sh, fx, fy, fw, fh);
+                        // The scene sees a window of field / s (16:9, like the
+                        // field) at its top-left; the viewport maps that back to
+                        // the field and everything outside it is clipped.
+                        const float s = ready_launch::kCardScreenScale;
+                        const float vglY = (float)screenHeight - (fy + sh * s);
+                        glViewport((GLint)fx, (GLint)vglY,
+                                   (GLsizei)(sw * s), (GLsizei)(sh * s));
+                        g_ViewportMap = { fx, vglY, s };
+                        glEnable(GL_SCISSOR_TEST);
+                        glScissor((GLint)fx, (GLint)((float)screenHeight - (fy + fh)),
+                                  (GLsizei)fw, (GLsizei)fh);
+                        SceneCtx mini = ctx;
+                        mini.sw = fw / s;
+                        mini.sh = fh / s;
+                        mini.mx = (mx - fx) / s;
+                        mini.my = (my - fy) / s;
+                        g_GameManager.currentState = tutRealState;
+                        if (tutRealState == GameState::AUG_REPLACE) Scene_AugReplace(mini);
+                        else                                        Scene_AugSelect(mini);
+                        tutRealState = g_GameManager.currentState;
+                        g_GameManager.currentState = GameState::READY;
+                        g_ViewportMap = ViewportMap{};
+                        glDisable(GL_SCISSOR_TEST);
+                        glViewport(0, 0, screenWidth, screenHeight);
+                    }
+                    break;
                 // Pause is drawn after the HUD and version so its veil dims
                 // the entire gameplay view, not just the world geometry.
                 case GameState::PAUSED: break;
@@ -6598,6 +6699,8 @@ CollisionSystem::Update(pCX, pCY,
         if (g_DebugToolkit.SuppressOverlayForCapture())
             g_DebugToolkit.CaptureFrameAfterRender(
                 screenWidth, screenHeight, g_GameManager.currentState);
+        if (tutSelectionRender && g_GameManager.currentState == GameState::READY)
+            g_GameManager.currentState = tutRealState;
         glfwSwapBuffers(window);
         if (debugCaptureOverride)
             g_GameManager.currentState = debugRestoreState;

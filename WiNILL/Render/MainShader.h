@@ -10,6 +10,13 @@ extern float g_BaseOrtho[16];
 extern GLint g_MainFxLoc;
 extern GLint g_MainResLoc;
 
+// Where the scene currently sits in the window when it is drawn into a
+// sub-viewport (the tutorial's mini card screens): window-pixel origin of the
+// viewport (GL, y up) and the scale from scene units to window pixels.
+// Shaders that read gl_FragCoord (planet, nebula glow) undo it with this.
+struct ViewportMap { float x = 0.0f, y = 0.0f, scale = 1.0f; };
+inline ViewportMap g_ViewportMap;
+
 // 메인 VAO/VBO + g_BaseOrtho / g_MainOrtho 초기화
 void InitMainBatchGeometry(int screenW, int screenH);
 

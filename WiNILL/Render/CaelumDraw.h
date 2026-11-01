@@ -96,53 +96,132 @@ inline unsigned Hash(unsigned a, unsigned b, unsigned c) {
     return h;
 }
 
-// A corrupted cell: a dark see-through film, noise pixels that flicker a few
-// times a second, and a couple of torn strips knocked sideways.
-inline void FillCorrupt(int cell, float time, float a) {
+// ── Puddles (marching squares) ──────────────────────────────
+// A field over the screen sampled every kStep px, built from per-cell weights
+// (a weight under 1 shrinks that cell's blob: a puddle growing in or drying
+// up). Filled, contoured and lined by marching squares.
+struct FieldGrid {
+    static constexpr float kStep = 16.0f;
+    int nx = 0, ny = 0;
+    bool any = false;
+    std::vector<float> v;
+    float at(int i, int j) const { return v[(size_t)j * nx + i]; }
+};
+inline void BuildField(FieldGrid& fg, const float* w, float time) {
     using namespace caelum;
-    float x, y, w, h;
-    CellRect(cell, x, y, w, h);
-    const Cell& c = g.cells[cell];
-    const unsigned tick = (unsigned)(time / 0.12f);
-    drawRect(x, y, w, h, 0.08f, 0.03f, 0.02f, 0.34f * a);              // the film
-    const int n = 10;                                                  // noise pixels
-    const float pw = w / (float)n, ph = h / (float)n;
-    for (int j = 0; j < n; ++j) {
-        for (int i = 0; i < n; ++i) {
-            const unsigned k = Hash((unsigned)c.glitch + (unsigned)cell * 131u, tick, (unsigned)(j * n + i));
-            const unsigned pick = k % 23u;
-            if (pick == 0)      drawRect(x + pw * i, y + ph * j, pw, ph, 1.00f, 0.80f, 0.45f, 0.30f * a);
-            else if (pick == 1) drawRect(x + pw * i, y + ph * j, pw, ph, 0.95f, 0.95f, 1.00f, 0.22f * a);
-            else if (pick == 2) drawRect(x + pw * i, y + ph * j, pw, ph, 0.00f, 0.00f, 0.00f, 0.40f * a);
+    fg.nx = (int)(g_W / FieldGrid::kStep) + 2;
+    fg.ny = (int)(g_H / FieldGrid::kStep) + 2;
+    fg.v.assign((size_t)fg.nx * fg.ny, 0.0f);
+    int list[kMaxCols * kMaxRows], n = 0;
+    for (int i = 0; i < CellCount(); ++i) if (w[i] > 0.001f) list[n++] = i;
+    fg.any = n > 0;
+    if (!fg.any) return;
+    for (int j = 0; j < fg.ny; ++j)
+        for (int i = 0; i < fg.nx; ++i) {
+            const float x = (float)i * FieldGrid::kStep, y = (float)j * FieldGrid::kStep;
+            float f = 0.0f;
+            for (int k = 0; k < n; ++k) f += w[list[k]] * BlobField(list[k], x, y, time);
+            fg.v[(size_t)j * fg.nx + i] = f;
+        }
+}
+// Walks one square of the grid: its inside polygon (corners at or above T and
+// the edge crossings) and the crossings alone.
+inline int MarchSquare(const FieldGrid& fg, int i, int j, float T, float poly[8][2], float cross[4][2], int& nc) {
+    static const int ci[4] = { 0, 1, 1, 0 }, cj[4] = { 0, 0, 1, 1 };
+    int np = 0;
+    nc = 0;
+    for (int k = 0; k < 4; ++k) {
+        const int n = (k + 1) & 3;
+        const float va = fg.at(i + ci[k], j + cj[k]), vb = fg.at(i + ci[n], j + cj[n]);
+        const float ax = (float)(i + ci[k]) * FieldGrid::kStep, ay = (float)(j + cj[k]) * FieldGrid::kStep;
+        const float bx = (float)(i + ci[n]) * FieldGrid::kStep, by = (float)(j + cj[n]) * FieldGrid::kStep;
+        if (va >= T) { poly[np][0] = ax; poly[np][1] = ay; ++np; }
+        if ((va >= T) != (vb >= T)) {
+            const float t = (T - va) / (vb - va);
+            const float x = ax + (bx - ax) * t, y = ay + (by - ay) * t;
+            poly[np][0] = x; poly[np][1] = y; ++np;
+            cross[nc][0] = x; cross[nc][1] = y; ++nc;
         }
     }
-    for (int s = 0; s < 2; ++s) {                                       // torn strips
-        const unsigned k = Hash((unsigned)c.glitch, tick / 2u, (unsigned)(cell * 3 + s));
-        const float sy = y + (float)(k % 1000u) / 1000.0f * (h - 10.0f);
-        const float sh = 3.0f + (float)((k >> 10) % 7u);
-        const float sx = x + (float)((k >> 14) % 40u) - 20.0f;
-        const float x0 = std::max(x, sx), x1 = std::min(x + w, sx + w * 0.7f);
-        if (x1 > x0) drawRect(x0, sy, x1 - x0, sh, 1.00f, 0.82f, 0.50f, 0.20f * a);
+    return np;
+}
+inline void FieldFill(const FieldGrid& fg, float T, float r, float g, float b, float a) {
+    if (!fg.any || a <= 0.001f) return;
+    float poly[8][2], cross[4][2];
+    int nc;
+    for (int j = 0; j + 1 < fg.ny; ++j)
+        for (int i = 0; i + 1 < fg.nx; ++i) {
+            const int np = MarchSquare(fg, i, j, T, poly, cross, nc);
+            for (int k = 1; k + 1 < np; ++k)
+                BatchTri(poly[0][0], poly[0][1], poly[k][0], poly[k][1], poly[k + 1][0], poly[k + 1][1], r, g, b, a);
+        }
+}
+inline void FieldContour(const FieldGrid& fg, float T, float w, float r, float g, float b, float a) {
+    if (!fg.any || a <= 0.001f) return;
+    float poly[8][2], cross[4][2];
+    int nc;
+    for (int j = 0; j + 1 < fg.ny; ++j)
+        for (int i = 0; i + 1 < fg.nx; ++i) {
+            MarchSquare(fg, i, j, T, poly, cross, nc);
+            for (int k = 0; k + 1 < nc; k += 2)
+                Seg(cross[k][0], cross[k][1], cross[k + 1][0], cross[k + 1][1], w, r, g, b, a);
+        }
+}
+// Horizontal lines across the inside, every `every` rows (a broken display).
+inline void FieldRows(const FieldGrid& fg, float T, int every, float w, float r, float g, float b, float a) {
+    if (!fg.any || a <= 0.001f) return;
+    for (int j = 1; j < fg.ny; j += every) {
+        const float y = (float)j * FieldGrid::kStep;
+        float x0 = -1.0f;
+        for (int i = 0; i + 1 < fg.nx; ++i) {
+            const float va = fg.at(i, j), vb = fg.at(i + 1, j);
+            const float xa = (float)i * FieldGrid::kStep;
+            if (va >= T && x0 < 0.0f) x0 = xa;
+            if ((va >= T) != (vb >= T)) {
+                const float x = xa + FieldGrid::kStep * (T - va) / (vb - va);
+                if (va >= T) { Seg(x0, y, x, y, w, r, g, b, a); x0 = -1.0f; }
+                else x0 = x;
+            }
+        }
     }
 }
+
+// This frame's fields: the corruption as drawn (growing in, drying up), the
+// warnings, the bad sectors, and the previews (overflow reach, a window's
+// delete).
+inline FieldGrid g_Corrupt, g_Warn, g_Bad, g_Preview;
+inline float g_WarnU = 0.0f;
 
 inline void DrawCorruptionLayer() {
     using namespace caelum;
     if (!g.active) return;
+    float wc[kMaxCols * kMaxRows] = {}, ww[kMaxCols * kMaxRows] = {}, wb[kMaxCols * kMaxRows] = {}, wp[kMaxCols * kMaxRows] = {};
+    const bool overflowing = g.overflowT >= 0.0f;
+    const bool deleting = false;   // (the window corrupts as it goes: no preview needed)
+    g_WarnU = 0.0f;
     for (int i = 0; i < CellCount(); ++i) {
         const Cell& c = g.cells[i];
-        float a = 0.0f;
-        if (c.state == CellState::Corrupt) a = std::min(1.0f, c.t / 0.15f + 0.4f);
-        else if (c.state == CellState::Heal) a = 1.0f - Smooth(c.t / kHeal);
-        else if (c.state == CellState::Warn && c.t > c.warn * 0.6f)
-            a = std::fmod(g.time * 10.0f, 1.0f) < 0.4f ? 0.5f : 0.0f;   // blinks in before it lands
-        if (a > 0.01f) FillCorrupt(i, g.time, a);
-        if (c.bad) {   // a bad sector: darker, for good
-            float x, y, w, h;
-            CellRect(i, x, y, w, h);
-            drawRect(x, y, w, h, 0.0f, 0.0f, 0.0f, 0.22f);
+        if (c.state == CellState::Corrupt) wc[i] = std::min(1.0f, 0.4f + c.t / 0.15f);
+        else if (c.state == CellState::Heal) wc[i] = 1.0f - Smooth(c.t / kHeal);
+        else if (c.state == CellState::Warn) {
+            const float u = std::clamp(c.t / c.warn, 0.0f, 1.0f);
+            ww[i] = 0.55f + 0.45f * u;        // the warning swells to the puddle's size
+            g_WarnU = std::max(g_WarnU, u);
         }
+        if (c.bad) wb[i] = 1.0f;
+        if ((overflowing && !Hurts(c) && OverflowReach(i)) || (deleting && WinCovers(i))) wp[i] = 1.0f;
     }
+    BuildField(g_Corrupt, wc, g.time);
+    BuildField(g_Warn, ww, g.time);
+    BuildField(g_Bad, wb, g.time);
+    BuildField(g_Preview, wp, g.time);
+
+    // The film (the one sanctioned fill), darker over bad sectors.
+    FieldFill(g_Corrupt, kPuddleEdge, 0.08f, 0.03f, 0.02f, 0.34f);
+    FieldFill(g_Bad, kPuddleEdge, 0.0f, 0.0f, 0.0f, 0.22f);
+    // Warnings blink in before they land.
+    if (g_WarnU > 0.6f && std::fmod(g.time * 10.0f, 1.0f) < 0.4f)
+        FieldFill(g_Warn, kPuddleEdge, 0.08f, 0.03f, 0.02f, 0.17f);
     BatchFlush();
 }
 
@@ -157,54 +236,34 @@ inline void DrawOverlay(float time) {
     const bool overflowing = g.overflowT >= 0.0f && g.overflowT < kOverflowTele;
     const bool bursting = g.overflowT >= kOverflowTele;
 
-    // Cells.
-    for (int i = 0; i < CellCount(); ++i) {
-        const Cell& c = g.cells[i];
-        float x, y, w, h;
-        CellRect(i, x, y, w, h);
-        switch (c.state) {
-        case CellState::Warn: {
-            const float u = std::clamp(c.t / c.warn, 0.0f, 1.0f);
-            const float flick = 0.6f + 0.4f * std::sin(time * 30.0f);
-            Box(x + 3.0f, y + 3.0f, w - 6.0f, h - 6.0f, 1.5f + 1.5f * u, H[0], H[1], H[2], (0.35f + 0.55f * u) * flick);
-            Hatch(x + 3.0f, y + 3.0f, w - 6.0f, h - 6.0f, 22.0f - 8.0f * u, 1.1f, A[0], A[1], A[2], 0.10f + 0.25f * u);
-            break;
-        }
-        case CellState::Corrupt: {
-            // Bad sector: a doubled outline and a cross (it never heals).
-            if (c.bad) {
-                Box(x + 1.0f, y + 1.0f, w - 2.0f, h - 2.0f, 2.6f, A[0], A[1], A[2], 0.95f);
-                Box(x + 9.0f, y + 9.0f, w - 18.0f, h - 18.0f, 1.2f, A[0], A[1], A[2], 0.6f);
-                Seg(x + 9.0f, y + 9.0f, x + w - 9.0f, y + h - 9.0f, 1.4f, A[0], A[1], A[2], 0.55f);
-                Seg(x + w - 9.0f, y + 9.0f, x + 9.0f, y + h - 9.0f, 1.4f, A[0], A[1], A[2], 0.55f);
-                break;
-            }
-            // Scanlines across it (a broken display) and a firm outline, so it
-            // reads on dark and bright wallpapers alike.
-            const float* C = overflowing ? H : A;
-            for (float sy = y + 6.0f; sy < y + h - 2.0f; sy += 10.0f)
-                Seg(x + 2.0f, sy, x + w - 2.0f, sy, 1.0f, C[0], C[1], C[2], 0.22f);
-            Box(x + 1.0f, y + 1.0f, w - 2.0f, h - 2.0f, overflowing ? 2.6f : 2.0f, C[0], C[1], C[2],
-                overflowing ? 0.6f + 0.4f * pulse : 0.9f);
-            break;
-        }
-        case CellState::Heal:
-            Box(x + 1.0f, y + 1.0f, w - 2.0f, h - 2.0f, 1.0f, A[0], A[1], A[2], 0.4f * (1.0f - c.t / kHeal));
-            break;
-        default:
-            // Overflow: the clean cells it will swell into.
-            if ((overflowing || bursting) && OverflowReach(i)) {
-                if (overflowing) {
-                    const float u = g.overflowT / kOverflowTele;
-                    Box(x + 4.0f, y + 4.0f, w - 8.0f, h - 8.0f, 1.6f, H[0], H[1], H[2], (0.3f + 0.6f * u) * pulse);
-                    Hatch(x + 4.0f, y + 4.0f, w - 8.0f, h - 8.0f, 16.0f, 1.2f, H[0], H[1], H[2], 0.15f + 0.3f * u);
-                } else {
-                    const float u = std::clamp((g.overflowT - kOverflowTele) / kOverflowBurst, 0.0f, 1.0f);
-                    Box(x, y, w, h, 3.5f * (1.0f - u) + 1.0f, H[0], H[1], H[2], 1.0f - u);
-                    Hatch(x, y, w, h, 12.0f, 1.6f, H[0], H[1], H[2], 0.5f * (1.0f - u));
-                }
-            }
-            break;
+    // Puddles: lines across them, a dark under-line and a firm rim (it reads
+    // on dark and bright desktops alike), a faint inner rim and an outer ripple.
+    {
+        const float* C = overflowing ? H : A;
+        FieldRows(g_Corrupt, kPuddleEdge, 1, 1.0f, C[0], C[1], C[2], 0.18f);
+        FieldContour(g_Corrupt, kPuddleEdge, 4.0f, D[0], D[1], D[2], 0.25f);
+        FieldContour(g_Corrupt, kPuddleEdge, overflowing ? 2.6f : 2.0f, C[0], C[1], C[2], overflowing ? 0.6f + 0.4f * pulse : 0.9f);
+        FieldContour(g_Corrupt, 1.0f, 1.0f, C[0], C[1], C[2], 0.35f);
+        FieldContour(g_Corrupt, 0.3f, 1.0f, A[0], A[1], A[2], 0.22f);
+        // Bad sectors: a doubled rim (they never dry up).
+        FieldContour(g_Bad, kPuddleEdge, 2.8f, A[0], A[1], A[2], 0.95f);
+        FieldContour(g_Bad, 0.95f, 1.3f, A[0], A[1], A[2], 0.6f);
+        // Warnings: a flickering rim that swells to the puddle's size.
+        const float flick = 0.6f + 0.4f * std::sin(time * 30.0f);
+        FieldContour(g_Warn, kPuddleEdge, 1.6f + 1.4f * g_WarnU, H[0], H[1], H[2], (0.4f + 0.5f * g_WarnU) * flick);
+        FieldContour(g_Warn, 0.85f, 1.0f, A[0], A[1], A[2], 0.25f * flick);
+        // Previews: where the overflow will swell, or a window's delete lands.
+        if (overflowing && g.overflowT < kOverflowTele) {
+            const float u = g.overflowT / kOverflowTele;
+            FieldContour(g_Preview, kPuddleEdge, 1.6f, H[0], H[1], H[2], (0.3f + 0.6f * u) * pulse);
+            FieldRows(g_Preview, kPuddleEdge, 2, 1.0f, H[0], H[1], H[2], 0.15f + 0.3f * u);
+        } else if (bursting) {
+            const float u = std::clamp((g.overflowT - kOverflowTele) / kOverflowBurst, 0.0f, 1.0f);
+            FieldContour(g_Preview, kPuddleEdge, 3.5f * (1.0f - u) + 1.0f, H[0], H[1], H[2], 1.0f - u);
+        } else if (g.pattern == Pattern::Window && g.acting && g.winOpen) {
+            const float u = std::clamp(g.t / WinClose(), 0.0f, 1.0f);
+            FieldContour(g_Preview, kPuddleEdge, 1.4f, H[0], H[1], H[2], 0.25f + 0.45f * u);
+            FieldRows(g_Preview, kPuddleEdge, 3, 1.0f, A[0], A[1], A[2], 0.10f + 0.25f * u);
         }
     }
 
@@ -232,42 +291,45 @@ inline void DrawOverlay(float time) {
         }
     }
 
-    // 3 Window: the box the cursor drags out; then on the open window its
-    // brackets, the cells it takes when closed (hatched, filling in), the
-    // grabbed edge and where it is going, and the close button once the
-    // cursor heads there.
+    // 3 Window: the box the cursor drags out; then brackets riding the open
+    // window, its title bar lit while the cursor drags it, and the close
+    // button once the cursor heads there.
     if (g.pattern == Pattern::Window && g.acting) {
         if (g.t >= kWinPress && !g.winOpen && g.step < 3) {
             Box(g.winX, g.winY, g.winW, g.winH, 1.4f, H[0], H[1], H[2], 0.85f);
             Corners(g.winX, g.winY, g.winW, g.winH, 22.0f, 2.4f, H[0], H[1], H[2], 0.9f);
         } else if (g.winOpen) {
             Corners(g.winX - 6.0f, g.winY - 6.0f, g.winW + 12.0f, g.winH + 12.0f, 34.0f, 3.0f, H[0], H[1], H[2], 0.9f);
-            const float u = std::clamp(g.t / WinClose(), 0.0f, 1.0f);
-            for (int i = 0; i < CellCount(); ++i) {
-                if (!WinCovers(i)) continue;
-                float x, y, w, h;
-                CellRect(i, x, y, w, h);
-                Box(x + 4.0f, y + 4.0f, w - 8.0f, h - 8.0f, 1.2f, H[0], H[1], H[2], 0.25f + 0.45f * u);
-                Hatch(x + 4.0f, y + 4.0f, w - 8.0f, h - 8.0f, 28.0f - 12.0f * u, 1.1f, A[0], A[1], A[2], 0.10f + 0.30f * u);
-            }
-            if (g.step == 1) {
-                const bool vert = g.winSide <= 1;
-                if (vert) {
-                    const float ex = g.winSide == 0 ? g.winX : g.winX + g.winW;
-                    Seg(ex, g.winY, ex, g.winY + g.winH, 4.0f, H[0], H[1], H[2], 1.0f);
-                    Seg(g.winTo, g.winY, g.winTo, g.winY + g.winH, 2.0f, H[0], H[1], H[2], 0.45f + 0.35f * pulse);
-                } else {
-                    const float ey = g.winSide == 2 ? g.winY : g.winY + g.winH;
-                    Seg(g.winX, ey, g.winX + g.winW, ey, 4.0f, H[0], H[1], H[2], 1.0f);
-                    Seg(g.winX, g.winTo, g.winX + g.winW, g.winTo, 2.0f, H[0], H[1], H[2], 0.45f + 0.35f * pulse);
-                }
-            }
+            // (what it takes when deleted is drawn with the puddles, as a preview)
+            if (g.step == 1)
+                Seg(g.winX + 4.0f, g.winY + 28.0f, g.winX + g.winW - 4.0f, g.winY + 28.0f, 2.4f, H[0], H[1], H[2], 0.6f + 0.4f * pulse);
             if (g.step == 2) {
                 float cx, cy;
                 CloseSpot(cx, cy);
                 Box(cx - 17.0f, cy - 12.0f, 34.0f, 24.0f, 2.0f, H[0], H[1], H[2], pulse);
                 Seg(cx - 6.0f, cy - 6.0f, cx + 6.0f, cy + 6.0f, 2.0f, H[0], H[1], H[2], pulse);
                 Seg(cx + 6.0f, cy - 6.0f, cx - 6.0f, cy + 6.0f, 2.0f, H[0], H[1], H[2], pulse);
+            }
+        }
+    }
+
+    // 5 Drag: the cursor's grip closing on the body, then each stroke's path
+    // (a line to a framed landing spot) before the body is dragged along it.
+    if (g.pattern == Pattern::Drag && g.acting && g.step < 100) {
+        if (g.t < kDragGrab) {
+            const float u = g.t / kDragGrab;
+            Ring(g.bossX, g.bossY, 150.0f - 60.0f * u, 3.4f, D[0], D[1], D[2], 0.2f + 0.2f * u, 48);
+            Ring(g.bossX, g.bossY, 150.0f - 60.0f * u, 2.0f, H[0], H[1], H[2], 0.4f + 0.6f * u, 48);
+        } else {
+            float u;
+            const int k = DragStroke(u);
+            const float local = g.t - kDragGrab - (float)k * (kDragPreview + kDragMove);
+            if (k >= 0 && k < DragStrokes() && local < kDragPreview) {
+                const float v = local / kDragPreview;
+                Seg(g.dragFromX, g.dragFromY, g.dragToX, g.dragToY, 4.0f, D[0], D[1], D[2], 0.2f + 0.2f * v);
+                Seg(g.dragFromX, g.dragFromY, g.dragToX, g.dragToY, 1.8f, H[0], H[1], H[2], 0.35f + 0.6f * v);
+                const float s2 = 46.0f;
+                Corners(g.dragToX - s2, g.dragToY - s2, s2 * 2.0f, s2 * 2.0f, 16.0f, 2.4f, H[0], H[1], H[2], 0.5f + 0.5f * v);
             }
         }
     }

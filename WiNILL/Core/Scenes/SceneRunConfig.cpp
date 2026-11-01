@@ -143,6 +143,7 @@ void FinalizeLoadout(const SceneCtx& c, int wIdx, bool tutorial) {
     g_PrevHP               = g_Stats.maxHP;
     ready_launch::g_TutorialMode = tutorial;
     if (tutorial) {
+        ready_launch::BeginTutorial();
         g_GameManager.currentState = GameState::READY;
     } else {
         // PLAY skips the practice screen.

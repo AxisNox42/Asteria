@@ -1052,11 +1052,8 @@ static void Scene_AugSelectConstellationPolished(const SceneCtx& c) {
     // Keep the gameplay scene readable underneath the selector. The former
     // near-black plate made the constellation field and surrounding context
     // disappear on darker displays.
-    drawRect(0.0f, 0.0f, sw, sh,
-             isDebuff ? 0.026f : 0.008f,
-             isDebuff ? 0.008f : 0.018f,
-             isDebuff ? 0.014f : 0.040f,
-             enterE * (isDebuff ? 0.58f : 0.52f) * sceneAlpha);
+    drawRect(0.0f, 0.0f, sw, sh, 0.008f, 0.018f, 0.040f,
+             enterE * 0.52f * sceneAlpha);
     DrawNebulaGlow(layout.orbitCX, layout.orbitCY,
                    layout.orbitR * 1.02f,
                    stateR, stateG, stateB,
@@ -1429,9 +1426,16 @@ static void Scene_AugSelectConstellationPolished(const SceneCtx& c) {
 
     if (!inExit) {
         const wchar_t* controls = L"1 / 2 / 3 FOCUS   CLICK / SPACE CONFIRM";
-        g_TextS.Draw(controls, layout.panelX, sh * 0.925f,
-                     UiTextScale(g_TextS, UiTextLevel::Supporting,
-                                 layout.textUi),
+        // Shrink the line to the room left of the screen edge (it ran off the
+        // edge on small windows, such as the tutorial's mini card screen).
+        float controlsScale = UiTextScale(g_TextS, UiTextLevel::Supporting,
+                                          layout.textUi);
+        const float controlsRoom = std::max(1.0f, sw - layout.panelX - 12.0f);
+        const float controlsW = g_TextS.Width(controls, controlsScale);
+        if (controlsW > controlsRoom) controlsScale *= controlsRoom / controlsW;
+        const float controlsX = std::min(layout.panelX,
+            sw - g_TextS.Width(controls, controlsScale) - 12.0f);
+        g_TextS.Draw(controls, controlsX, sh * 0.925f, controlsScale,
                      0.54f, 0.66f, 0.82f, panelBaseA * 0.76f);
         BatchFlush();
     }

@@ -119,6 +119,14 @@ struct PlayerStats {
             break;
         case AugType::MOVE_UP:   moveSpeedMult    *= 1.05f; break;  // +2% → +5%
         case AugType::REGEN_UP:  regenPerSec += 0.28f; break;
+
+        // ── Tutorial-only fixed cards (simple flat values) ──
+        case AugType::TUT_ATK_UP:    flatDamageBonus += 100.0f; break;
+        case AugType::TUT_HP_UP:     maxHP += 30.0f; break;
+        case AugType::TUT_MOVE_UP:   moveSpeedMult *= 1.03f; break;
+        case AugType::TUT_ATK_DOWN:  flatDamageBonus -= 120.0f; break;
+        case AugType::TUT_HP_DOWN:   maxHP *= 0.90f; break;
+        case AugType::TUT_MOVE_DOWN: moveSpeedMult *= 0.96f; break;
         case AugType::HP_UP:     maxHP += 15.0f; break;
 
         // ── 등급별 공격력 (가산) — 초반 강세. 곱연산 폭주 제거 ──
@@ -426,7 +434,7 @@ struct PlayerStats {
     float GetBaseDamage() const {
         float base = baseDamage + flatDamageBonus;   // 일반 증강 가산 데미지
         if (miniaturize) base += 6.0f * (float)totalAugs;
-        return base;
+        return base < 1.0f ? 1.0f : base;   // a heavy attack nerf never goes below 1
     }
 
     // Final damage multiplier.

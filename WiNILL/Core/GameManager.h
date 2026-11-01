@@ -32,12 +32,13 @@ public:
     float     waveTransitionTimer = 0.0f;
     int       lastWaveDebuff = -1;
     float     waveDebuffToast = 0.0f;
-    // Debuff rolled ahead for the wave about to start (-1 = not rolled yet).
-    int       nextWaveDebuff = -1;
+    // A wave began and its 3-card debuff pick has not opened yet (it waits for
+    // combat to be free of other selections).
+    bool      waveDebuffPickPending = false;
     // Debuff each wave brought, by the wave it entered; index + 1, 0 = none.
     int       waveDebuffLog[64] = {};
     // Debug console switches (not reset with a run, not saved).
-    bool      showDebuffPreview = true;   // announce the next wave's debuff early
+    bool      showDebuffPreview = true;   // announce the next wave's debuff pick early
     bool      showDebuffLog = true;       // per-wave debuff list on pause/result
     bool      waveVictory = false;
     long long score      = 0;
@@ -86,6 +87,9 @@ public:
     int  PickRandomDebuffIndices(int* outArr, int n);
     void QueueAugmentReward();
     bool ActivateNextAugmentReward();
+    // Opens the card screen with exactly these cards (the lobby tutorial's fixed
+    // augment and nerf picks); a debuff opens the nerf screen instead.
+    void OpenFixedChoices(const AugType* types, int count, bool debuff);
     void ClearAugmentRewardQueue();
     bool ShouldUpdate()   const {
         return currentState == GameState::RUNNING ||

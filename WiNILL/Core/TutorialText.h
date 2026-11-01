@@ -65,6 +65,63 @@ inline const wchar_t* kReadyObjective[LANG_COUNT][READY_OBJECTIVE_COUNT] = {
     { L"Move", L"Shoot", L"Dash", L"Defeat Swarms" },
     { L"移動する", L"射撃する", L"ダッシュする", L"スウォーム撃破" },
 };
+// Steps 5 and 6 (the real augment and wave-nerf selections; ReadyLaunch.h).
+inline constexpr int READY_EXTRA_OBJECTIVE_COUNT = 2;
+inline const wchar_t* kReadyExtraObjective[LANG_COUNT][READY_EXTRA_OBJECTIVE_COUNT] = {
+    { L"증강 선택", L"너프 선택" },
+    { L"Pick an augment", L"Pick a nerf" },
+    { L"強化を選ぶ", L"ナーフを選ぶ" },
+};
+// Hint inside the field: [0] level-up (augment cards), [1] wave clock running
+// ({N} = seconds left), [2] wave over (nerf cards).
+inline constexpr int READY_EXTRA_HINT_COUNT = 3;
+inline const wchar_t* kReadyExtraHint[LANG_COUNT][READY_EXTRA_HINT_COUNT] = {
+    { L"레벨 업! 증강 카드 3장 중 1장을 고르세요",
+      L"웨이브 종료까지 {N}초 — 끝나면 너프 3장 중 1장을 고릅니다",
+      L"웨이브 종료! 너프 카드를 고르세요" },
+    { L"Level up! Pick 1 of 3 augment cards",
+      L"{N} s left in the wave — then you pick 1 of 3 nerfs",
+      L"Wave over! Pick a nerf card" },
+    { L"レベルアップ！強化カード3枚から1枚を選ぼう",
+      L"ウェーブ終了まで{N}秒 — 終わるとナーフ3枚から1枚を選びます",
+      L"ウェーブ終了！ナーフカードを選ぼう" },
+};
+// Two-line explanation under the field: [0] augments (while picking), [1] nerfs
+// (during the wave clock and the nerf pick).
+inline constexpr int READY_PICK_NOTE_COUNT = 2;
+inline const wchar_t* kReadyPickNote[LANG_COUNT][READY_PICK_NOTE_COUNT][2] = {
+    { { L"증강 — 레벨 업마다 3장 중 1장을 얻는 강화입니다. 이번 판 내내 유지되어 빌드를 만듭니다",
+        L"별자리를 클릭하거나 1·2·3 키로 고르고 Space로 확정하세요 — 마우스를 올리면 효과가 보입니다" },
+      { L"너프 — 새 웨이브마다 하나씩 받는 불리한 효과입니다. 그 웨이브가 끝나면 사라집니다",
+        L"가장 견딜 만한 것을 고르세요 — 증강으로 상쇄하거나 플레이로 대응할 수 있습니다" } },
+    { { L"Augments — take 1 of 3 on every level-up. They last the whole run and shape your build",
+        L"Click a constellation or press 1·2·3, then confirm with Space — hover to see its effect" },
+      { L"Nerfs — a drawback you take at the start of each wave. It ends when that wave ends",
+        L"Pick the one you can live with — offset it with augments or play around it" } },
+    { { L"強化 — レベルアップごとに3枚から1枚を得ます。その回の間ずっと続き、ビルドを作ります",
+        L"星座をクリックするか1·2·3キーで選び、Spaceで確定 — マウスを重ねると効果が見えます" },
+      { L"ナーフ — 新しいウェーブごとに1つ受ける不利な効果です。そのウェーブが終わると消えます",
+        L"耐えやすいものを選びましょう — 強化で相殺するか、プレイで対応できます" } },
+};
+inline const wchar_t* ReadyPickNote(int block, int line) {
+    if (block < 0 || block >= READY_PICK_NOTE_COUNT || line < 0 || line >= 2) return L"";
+    return kReadyPickNote[LangIndexTutorial()][block][line];
+}
+inline const wchar_t* ReadyExtraObjective(int i) {
+    if (i < 0 || i >= READY_EXTRA_OBJECTIVE_COUNT) return L"";
+    return kReadyExtraObjective[LangIndexTutorial()][i];
+}
+inline const wchar_t* ReadyExtraHint(int i, int secondsLeft = 0) {
+    static std::wstring out;
+    if (i < 0 || i >= READY_EXTRA_HINT_COUNT) return L"";
+    out.clear();
+    for (const wchar_t* p = kReadyExtraHint[LangIndexTutorial()][i]; *p;) {
+        if (!std::wcsncmp(p, L"{N}", 3)) { out += std::to_wstring(secondsLeft); p += 3; }
+        else out += *p++;
+    }
+    return out.c_str();
+}
+
 // Instruction shown inside the practice field for the current step,
 // by ready_practice::Objective (Move, Shoot, Dash, Kill) and then "done".
 inline constexpr int READY_STEP_HINT_COUNT = READY_OBJECTIVE_COUNT + 1;
@@ -72,17 +129,17 @@ inline const wchar_t* kReadyStepHint[LANG_COUNT][READY_STEP_HINT_COUNT] = {
     { L"{MOVE} 키로 함선을 움직여 보세요",
       L"마우스로 조준하고, 왼쪽 버튼을 누르고 있으면 사격합니다",
       L"{DASH} 키로 대시 — 순간 무적과 함께 빠르게 피합니다",
-      L"스웜 4마리를 처치하세요 — 3초 뒤 같은 자리에 다시 나타납니다",
+      L"스웜 4마리를 처치하세요 — 레벨 업과 함께 증강을 고르게 됩니다",
       L"준비 완료! {START} 키로 쉬움 난이도에 출격하세요" },
     { L"Move your ship with {MOVE}",
       L"Aim with the mouse — hold the left button to fire",
       L"Press {DASH} to dash — a quick dodge with brief invulnerability",
-      L"Defeat 4 Swarms — they come back on the same spot after 3 s",
+      L"Defeat 4 Swarms — the fourth kill levels you up for an augment",
       L"Ready! Press {START} to launch on Easy" },
     { L"{MOVE}で艦を動かしてみましょう",
       L"マウスで照準 — 左ボタン長押しで射撃",
       L"{DASH}でダッシュ — 一瞬の無敵で素早く回避",
-      L"スウォームを4体撃破 — 3秒後に同じ場所へ再出現",
+      L"スウォームを4体撃破 — 4体目でレベルアップし強化を選びます",
       L"準備完了！{START}でイージー出撃" },
 };
 // Step counter above the instruction ("STEP 2 / 4").
@@ -160,11 +217,11 @@ inline const wchar_t* kTutorialWinTitle[LANG_COUNT] = {
 
 inline const wchar_t* kTutorialPageTitle[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
     /* KR */
-    { L"1. 세계관", L"2. 조작", L"3. 증강", L"4. 디버프", L"5. 플레이 준비", L"6. 플레이 경제", L"7. 메타·팁" },
+    { L"1. 세계관", L"2. 조작", L"3. 증강", L"4. 웨이브·너프", L"5. 플레이 준비", L"6. 플레이 경제", L"7. 메타·팁" },
     /* EN */
-    { L"1. World", L"2. Controls", L"3. Augments", L"4. Debuffs", L"5. Play setup", L"6. Play economy", L"7. Meta & tips" },
+    { L"1. World", L"2. Controls", L"3. Augments", L"4. Waves & nerfs", L"5. Play setup", L"6. Play economy", L"7. Meta & tips" },
     /* JP */
-    { L"1. 世界観", L"2. 操作", L"3. 強化", L"4. デバフ", L"5. プレイ準備", L"6. プレイ経済", L"7. メタ·コツ" },
+    { L"1. 世界観", L"2. 操作", L"3. 強化", L"4. ウェーブ・ナーフ", L"5. プレイ準備", L"6. プレイ経済", L"7. メタ·コツ" },
 };
 
 inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
@@ -189,12 +246,12 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"일부 증강은 {SKILLS} 액티브를 해금하거나 기존 스킬을 강화합니다 / "
         L"도감에서 이미 본 증강은 이름·효과를 미리 확인할 수 있습니다(미발견은 ???)",
 
-        L"레벨업마다 증강과 함께 디버프도 반드시 1개 받습니다 — 피할 수 없습니다 / "
-        L"대신 디버프 구간에서는 EXP·코인 보상이 올라가 리스크=리턴 구조입니다 / "
-        L"디버프는 이동·사격·체력·쿨다운 등에 불리한 효과를 줍니다 / "
+        L"웨이브는 약 3분마다 새로 시작합니다 / "
+        L"새 웨이브가 시작될 때마다 너프 카드 3장이 열리고, 1장을 반드시 골라야 합니다 / "
+        L"고른 너프는 그 웨이브가 끝날 때까지 적용됩니다 / "
+        L"너프는 이동·사격·체력·쿨다운 등에 불리한 효과를 줍니다 / "
         L"증강으로 상쇄하거나, 패턴에 맞춰 플레이 스타일을 바꿔 대응하세요 / "
-        L"난이도에 따라 적 출현량·체력·등장 티어가 달라집니다 / "
-        L"시련은 추가 도전을 더합니다",
+        L"난이도에 따라 적 출현량·체력·등장 티어가 달라집니다",
 
         L"플레이 준비 화면에서 난이도와 무기를 선택합니다 / "
         L"각 웨이브는 3분이며, 쉬움 10·보통 15·어려움 20웨이브를 생존하세요 / "
@@ -235,12 +292,12 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"Some unlock or upgrade {SKILLS} actives / "
         L"Codex shows discovered augments in detail; unknown ones stay hidden",
 
-        L"Every level-up also forces one debuff — cannot skip / "
-        L"Debuff periods grant more XP and coins (risk vs reward) / "
-        L"Debuffs hinder move speed, fire rate, HP, cooldowns, etc. / "
+        L"A new wave starts about every 3 minutes / "
+        L"Each new wave opens 3 nerf cards — you must pick 1 / "
+        L"The nerf you pick stays in effect until that wave ends / "
+        L"Nerfs hinder move speed, fire rate, HP, cooldowns, etc. / "
         L"Counter with augments or adapt your playstyle / "
-        L"Enemy count, health, and tiers change with difficulty / "
-        L"Trials add another challenge",
+        L"Enemy count, health, and tiers change with difficulty",
 
         L"Choose a difficulty and weapon in play setup / "
         L"Survive 10·15·20 waves on Easy·Normal·Hard; each lasts 3 minutes / "
@@ -281,11 +338,12 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"一部は{SKILLS}アクティブの解放·強化になります / "
         L"図鑑で発見済み強化の説明を確認(未発見は???)",
 
-        L"レベルアップごとにデバフも必ず1つ — 回避不可 / "
-        L"その代わりEXP·コイン報酬が増えるリスク·リターン設計 / "
-        L"デバフは移動·射撃·HP·クールダウンなどに不利 / "
-        L"強化で相殺するかプレイを変えて対応 / "
-        L"難易度が上がるほどデバフと敵密度が厳しくなります",
+        L"ウェーブは約3分ごとに切り替わります / "
+        L"新しいウェーブごとにナーフカード3枚が開き、1枚を必ず選びます / "
+        L"選んだナーフはそのウェーブが終わるまで有効です / "
+        L"ナーフは移動·射撃·HP·クールダウンなどに不利に働きます / "
+        L"強化で相殺するか、プレイを変えて対応しましょう / "
+        L"難易度が上がるほど敵の数·体力·ティアが厳しくなります",
 
         L"プレイ前: 難易度を選択 / "
         L"イージー10·ノーマル15·ハード20ウェーブ(各3分) / "

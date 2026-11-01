@@ -2412,16 +2412,30 @@ public:
             worldY += 220.0f * deltaTime;
             return;
         }
-        const float want = norma::HoverSpeedSmooth(distance) * speedMult;
-        const float wantX = distance > 1.0f ? dx / distance * want : 0.0f;
-        const float wantY = distance > 1.0f ? dy / distance * want : 0.0f;
+        // Dragged by its cursor: exactly where the rules put it.
+        if (caelum::g.bodyExact) {
+            worldX = caelum::g.bodyX; worldY = caelum::g.bodyY;
+            normaVelX = normaVelY = 0.0f;
+            TryContact(distance, playerHP, contactDmg, deltaTime);
+            return;
+        }
+        // Otherwise it glides to the cell the rules picked (or holds still).
+        float wantX = 0.0f, wantY = 0.0f;
+        if (!caelum::g.bodyHold) {
+            const float mx = caelum::g.moveX - worldX, my = caelum::g.moveY - worldY;
+            const float md = std::sqrt(mx * mx + my * my);
+            if (md > 1.0f) {
+                const float sp = std::min(caelum::kMoveSpeed, md * 3.0f) * speedMult;
+                wantX = mx / md * sp; wantY = my / md * sp;
+            }
+        }
         const float step = norma::kHoverAccel * deltaTime;
         const float ex = wantX - normaVelX, ey = wantY - normaVelY;
         const float el = std::sqrt(ex * ex + ey * ey);
         if (el > step) { normaVelX += ex / el * step; normaVelY += ey / el * step; }
         else { normaVelX = wantX; normaVelY = wantY; }
-        worldX = std::clamp(worldX + normaVelX * deltaTime, 140.0f, caelum::g_W - 140.0f);
-        worldY = std::clamp(worldY + normaVelY * deltaTime, 130.0f, caelum::g_H - 130.0f);
+        worldX = std::clamp(worldX + normaVelX * deltaTime, caelum::kBodyMinX, caelum::g_W - caelum::kBodyMinX);
+        worldY = std::clamp(worldY + normaVelY * deltaTime, caelum::kBodyMinY, caelum::g_H - caelum::kBodyMinY);
         TryContact(distance, playerHP, contactDmg, deltaTime);
     }
 

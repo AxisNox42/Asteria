@@ -224,14 +224,14 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
         HudText(g_TextS, line, cx - w * 0.5f, trackY + 30.0f * hs, sc, kDanger, a);
     }
 
-    // ── preview: the debuff the next wave will bring, in the last seconds ──
-    const int ni = gm.nextWaveDebuff;
-    if (gm.showDebuffPreview && ni >= 0 && ni < AUG_TOTAL && wave < finalWave &&
+    // ── preview: the next wave opens a 3-card debuff pick, in the last seconds ──
+    if (gm.showDebuffPreview && wave < finalWave &&
         remain <= kDebuffPreviewSeconds) {
-        static const wchar_t* const kNext[3] = { L"다음 웨이브", L"NEXT", L"次のウェーブ" };
+        static const wchar_t* const kNext[3] = {
+            L"다음 웨이브 ▷ 디버프 3택1", L"NEXT ▷ Choose 1 of 3 debuffs",
+            L"次のウェーブ ▷ デバフ3択1" };
         wchar_t line[128];
-        swprintf_s(line, L"%ls ▷ %ls", kNext[std::clamp(CurLangIdx(), 0, 2)],
-                   AugName(ALL_AUGS[ni]));
+        swprintf_s(line, L"%ls", kNext[std::clamp(CurLangIdx(), 0, 2)]);
         const float sc = UiTextScale(g_TextS, UiTextLevel::Supporting, hs);
         // Fades in over the first second and blinks gently in the last three.
         const float inA = std::clamp((kDebuffPreviewSeconds - remain) / 1.0f, 0.0f, 1.0f);
