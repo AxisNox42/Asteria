@@ -5491,6 +5491,8 @@ CollisionSystem::Update(pCX, pCY,
                     if (PlayRecordsProgress()) {
                         AddSaveValue(g_Coins, dust.value);
                         AddSaveValue(g_RunStardust, dust.value);
+                        // The first stardust ever picked up opens the lobby shop.
+                        g_ShopUnlocked = true;
                     }
                     g_StardustHudPulse = 1.0f;
                     SpawnSparks(dust.x, dust.y, dust.value >= 5 ? 6 : 3,

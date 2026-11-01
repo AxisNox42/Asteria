@@ -152,6 +152,7 @@ inline void DrawOverlay(float time) {
     if (!g.active) return;
     const float* A = kAmber;
     const float* H = kHot;
+    static const float D[3] = { 0.30f, 0.18f, 0.06f };   // dark under-line, for bright desktops
     const float pulse = 0.65f + 0.35f * std::sin(time * 9.0f);
     const bool overflowing = g.overflowT >= 0.0f && g.overflowT < kOverflowTele;
     const bool bursting = g.overflowT >= kOverflowTele;
@@ -318,11 +319,17 @@ inline void DrawOverlay(float time) {
                 }
                 lineAt(0.0f, 2.0f + 2.0f * u, H[0], H[1], H[2], 0.45f + 0.55f * u);
             } else {
+                // Three ripples closing on the body, then a ring that swells as
+                // it is about to go; a thin dark line under each keeps it
+                // readable on a bright desktop.
                 for (int k = 0; k < 3; ++k) {
                     const float f = std::fmod(u * 2.0f + (float)k / 3.0f, 1.0f);
-                    Ring(g.waveX, g.waveY, 60.0f + 220.0f * (1.0f - f), 1.6f, H[0], H[1], H[2], (0.2f + 0.6f * u) * f, 48);
+                    const float rr = 70.0f + 260.0f * (1.0f - f);
+                    Ring(g.waveX, g.waveY, rr, 3.4f, D[0], D[1], D[2], (0.12f + 0.2f * u) * f, 64);
+                    Ring(g.waveX, g.waveY, rr, 1.9f, H[0], H[1], H[2], (0.25f + 0.5f * u) * f, 64);
                 }
-                Ring(g.waveX, g.waveY, 60.0f, 2.5f, H[0], H[1], H[2], 0.4f + 0.6f * u, 40);
+                Ring(g.waveX, g.waveY, 64.0f + 14.0f * u * u, 4.2f, D[0], D[1], D[2], 0.2f + 0.2f * u, 48);
+                Ring(g.waveX, g.waveY, 64.0f + 14.0f * u * u, 2.4f + 1.0f * u, H[0], H[1], H[2], 0.45f + 0.5f * u, 48);
             }
         } else if (g.waveLine) {
             const float r = WaveRadius();
@@ -333,8 +340,9 @@ inline void DrawOverlay(float time) {
             }
         } else {
             const float r = WaveRadius();
-            Ring(g.waveX, g.waveY, r, 4.0f, H[0], H[1], H[2], 0.95f, 96);
-            Ring(g.waveX, g.waveY, std::max(0.0f, r - 40.0f), 1.5f, A[0], A[1], A[2], 0.5f, 96);
+            Ring(g.waveX, g.waveY, r, 6.0f, D[0], D[1], D[2], 0.3f, 128);
+            Ring(g.waveX, g.waveY, r, 4.0f, H[0], H[1], H[2], 0.95f, 128);
+            Ring(g.waveX, g.waveY, std::max(0.0f, r - 40.0f), 1.5f, A[0], A[1], A[2], 0.5f, 128);
         }
     }
 

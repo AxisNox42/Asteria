@@ -151,11 +151,11 @@ void Scene_MainMenu(const SceneCtx& c) {
         float reveal = Smoothstep(rawBtnPh);
         bool selected = (s_menuSelect == i);
         float exitP = SceneTransitionEase(s_menuExitT / menuExitDuration);
-        // First launch: only TUTORIAL, SETTINGS and EXIT are open until the
-        // tutorial has been completed once.
-        const bool locked = !g_TutorialDone
-                         && (i == kMainMenuPlayIndex || i == kMainMenuShopIndex
-                             || i == kMainMenuCodexIndex);
+        // First launch: only TUTORIAL, SETTINGS and EXIT are open. Clearing the
+        // tutorial opens PLAY and the codex; the first stardust opens SHOP.
+        const bool locked =
+            (!g_TutorialDone && (i == kMainMenuPlayIndex || i == kMainMenuCodexIndex))
+            || (!g_ShopUnlocked && i == kMainMenuShopIndex);
         const bool buttonReady = !booting && !introActive && !introWasActive
                               && !exitActive && !s_confirmQuit && g_FadeDir == 0
                               && !locked;

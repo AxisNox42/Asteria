@@ -162,7 +162,12 @@ constexpr float kWinToClose = 0.95f, kWinTail = 0.70f;   // the cursor takes its
 constexpr float kCurFollow = 14.0f;
 constexpr float kClickSlot = 0.32f, kClickHold = 0.08f;
 constexpr float kCurLead = 0.30f;
-constexpr float kCurHover = 190.0f;         // idle: this far from the player, toward the boss
+// Idle: it wanders the screen on its own, not after the player: it glides
+// (kIdleFollow, 1/s) to a spot kIdleHop px away, rests there a moment, picks
+// another.
+constexpr float kIdleFollow = 5.5f;
+constexpr float kIdleHopMin = 180.0f, kIdleHopMax = 650.0f;
+constexpr float kIdleRestMin = 0.6f, kIdleRestMax = 1.6f;
 constexpr int   kCurTrail = 8;
 
 // ── 4 Snipe (sniper form) ───────────────────────────────────
@@ -200,7 +205,7 @@ constexpr float kOverflowDamage = 30.0f, kOverflowCooldown = 10.0f;
 // runs out both ways and shoves the player away from it.
 constexpr float kWaveFirst = 2.0f;
 constexpr float kWaveEvery = 4.0f, kWaveEveryP2 = 3.0f;
-constexpr float kWaveTele = 0.90f;
+constexpr float kWaveTele = 1.20f;          // was 0.9: the user asked for a longer warning
 constexpr float kWaveSpeed = 1400.0f;       // px/s of the front
 constexpr float kWavePush = kCell;          // how far the player is shoved: one cell
 constexpr float kLineOffset = 120.0f;
@@ -270,6 +275,9 @@ struct State {
     float   clickX = 0.0f, clickY = 0.0f;
     float   trail[kCurTrail][2] = {};
     float   trailTick = 0.0f;
+    float   idleX = -1.0f, idleY = -1.0f;   // where the idle cursor is headed
+    float   idleT = 0.0f;           // seconds before it picks the next spot
+    bool    curIdle = true;         // nothing to do: wandering
 
     float   waveCd = kWaveFirst;    // seconds to the next warning
     float   waveT = -1.0f;          // >= 0: warning (< kWaveTele), then the front
@@ -636,11 +644,8 @@ inline void TickWindow(float px, float py) {
 // sits exactly there (a drag) rather than gliding.
 inline void CursorWant(float px, float py, float& tx, float& ty, bool& press, bool& exact) {
     press = false; exact = false;
-    // Idle: hovering beside the player, on the boss's side.
-    {
-        const float dx = g.bossX - px, dy = g.bossY - py, d = std::max(1.0f, std::hypot(dx, dy));
-        tx = px + dx / d * kCurHover; ty = py + dy / d * kCurHover;
-    }
+    // Idle: wherever it is wandering to.
+    tx = g.idleX; ty = g.idleY;
     if (!g.acting) return;
     switch (g.pattern) {
     case Pattern::Spread:
@@ -676,13 +681,31 @@ inline void CursorWant(float px, float py, float& tx, float& ty, bool& press, bo
     default: break;
     }
 }
+// The next spot the idle cursor wanders to: a hop from where it is, on screen.
+inline void PickIdleSpot() {
+    const float fx = g.curX < 0.0f ? g_W * 0.5f : g.curX, fy = g.curY < 0.0f ? g_H * 0.5f : g.curY;
+    const float a = RndRange(0.0f, 6.2831853f), d = RndRange(kIdleHopMin, kIdleHopMax);
+    g.idleX = std::clamp(fx + std::cos(a) * d, 80.0f, std::max(80.0f, g_W - 80.0f));
+    g.idleY = std::clamp(fy + std::sin(a) * d, 80.0f, std::max(80.0f, g_H - 80.0f));
+    g.idleT = RndRange(kIdleRestMin, kIdleRestMax);
+}
 inline void TickCursor(float dt, float px, float py) {
+    if (g.idleX < 0.0f) PickIdleSpot();
+    if (g.curIdle) { g.idleT -= dt; if (g.idleT <= 0.0f) PickIdleSpot(); }
     float tx, ty;
     bool press, exact;
     CursorWant(px, py, tx, ty, press, exact);
+    const bool wasIdle = g.curIdle;
+    g.curIdle = tx == g.idleX && ty == g.idleY && !press;
+    // Done with a job: it rests where it finished and wanders on from there,
+    // instead of going back to the spot it had before.
+    if (g.curIdle && !wasIdle && g.curX >= 0.0f) {
+        g.idleX = tx = g.curX; g.idleY = ty = g.curY;
+        g.idleT = RndRange(kIdleRestMin, kIdleRestMax);
+    }
     if (g.curX < 0.0f || exact) { g.curX = tx; g.curY = ty; }
     else {
-        const float k = std::min(1.0f, kCurFollow * dt);
+        const float k = std::min(1.0f, (g.curIdle ? kIdleFollow : kCurFollow) * dt);
         g.curX += (tx - g.curX) * k; g.curY += (ty - g.curY) * k;
     }
     g.curPress = press;

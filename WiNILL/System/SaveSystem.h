@@ -309,6 +309,7 @@ inline void SaveGame() {
         std::snprintf(ln, sizeof(ln), "wruns%d=%lld\n",    i, g_WeaponRunCount[i]);    buf += ln;
     }
     add("tutdone=%lld\n",    g_TutorialDone ? 1 : 0);
+    add("shopopen=%lld\n",   g_ShopUnlocked ? 1 : 0);
     add("themeowned=%lld\n", (long long)g_ThemeOwned);
     add("themesel=%lld\n",   (long long)g_ThemeSel);
     for (int i = 0; i < META_COUNT; i++) {
@@ -427,6 +428,7 @@ inline void LoadGame() {
     }
     // 줄 단위 파싱 (기존 sscanf 로직 그대로)
     bool sawTutorialKey = false;
+    bool sawShopKey = false;
     size_t pos = 0;
     char line[160];
     while (pos < content.size()) {
@@ -487,6 +489,7 @@ inline void LoadGame() {
         else if (!std::strncmp(key, "wruns",   5))  { int i = atoi(key+5); if (i>=0&&i<2) g_WeaponRunCount[i]   = ClampSaveValue(val); }
         else if (!std::strcmp(key, "coins"))       g_Coins             = ClampSaveValue(val);
         else if (!std::strcmp(key, "tutdone"))   { g_TutorialDone = (val != 0); sawTutorialKey = true; }
+        else if (!std::strcmp(key, "shopopen"))  { g_ShopUnlocked = (val != 0); sawShopKey = true; }
         else if (!std::strcmp(key, "themeowned"))  g_ThemeOwned        = (int)val | 1;
         // Ownership is checked by ApplyAccentTheme (themeowned may load later).
         else if (!std::strcmp(key, "themesel"))  { if (val >= 0 && val < ACCENT_COUNT) g_ThemeSel = (int)val; }
@@ -522,6 +525,13 @@ inline void LoadGame() {
     SanitizeKeyBindings(g_KeyBinds);
     // 튜토리얼 기록이 없는 예전 세이브는 이미 플레이한 사람의 것이라 잠그지 않는다.
     if (!sawTutorialKey) g_TutorialDone = true;
+    // 상점 기록이 없는 세이브: 예전 세이브이거나 이미 별가루를 모은 적이 있으면 연다.
+    if (!sawShopKey) {
+        bool spent = g_ThemeOwned != 1;
+        for (int i = 0; i < META_COUNT; i++) spent = spent || g_MetaLv[i] > 0;
+        for (int i = 0; i < JOB_COUNT; i++)  spent = spent || g_JobBought[i];
+        g_ShopUnlocked = !sawTutorialKey || g_Coins > 0 || spent;
+    }
 }
 
 // 세이브 진행도 초기화 — 점수/코인/메타/업적/도감/테마를 전부 리셋(설정/언어는 유지).
@@ -544,6 +554,7 @@ inline void ResetSaveProgress() {
     g_ThemeOwned = 1; g_ThemeSel = 0; ApplyAccentTheme();
     for (int i = 0; i < JOB_COUNT; i++) g_JobBought[i] = false;
     g_TutorialDone = false;
+    g_ShopUnlocked = false;
     SaveGame();
 }
 
@@ -577,6 +588,7 @@ inline bool RecordRunResult(int difficultyIdx, long long score, long long kills,
     AddSaveValue(g_Coins, earned);
     g_LastRunCoins = earned;
     AddSaveValue(g_RunStardust, earned);
+    if (earned > 0) g_ShopUnlocked = true;
     SaveGame();
     return isRecord;
 }
