@@ -205,7 +205,8 @@ public:
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
-                const float hitRadius = MONSTER_BULLET_HIT_RADIUS * monster->sizeScale;
+                const float hitRadius = (monster->kind == MobKind::NORMA
+                    ? norma::kShotHitPx : MONSTER_BULLET_HIT_RADIUS) * monster->sizeScale;
                 if (monster->worldX < minX - hitRadius || monster->worldX > maxX + hitRadius ||
                     monster->worldY < minY - hitRadius || monster->worldY > maxY + hitRadius)
                     continue;

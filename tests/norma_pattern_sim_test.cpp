@@ -21,6 +21,7 @@ static void Check(bool ok, const char* what) {
 
 struct Tally {
     int refugeShots = 0, aimShots = 0;
+    int aimOnTarget = 0;       // aimed shots whose path crosses a player standing still
     int aimTurns = 0, windowTurns = 0;
     float exposed = 0.0f;      // seconds the boss stood open after a ram
     float maxAccel = 0.0f;     // sharpest speed change (px/s^2) outside openings
@@ -51,7 +52,18 @@ static Tally Run(float seconds, bool noPane, int phase) {
         boss.Update(playerX, playerY, DT, hp, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, &bullets);
         const int fired = (int)(bullets.size() - before);
         if (boss.normaPattern == norma::Pattern::Refuge) t.refugeShots += fired;
-        if (boss.normaPattern == norma::Pattern::Aim) t.aimShots += fired;
+        if (boss.normaPattern == norma::Pattern::Aim) {
+            t.aimShots += fired;
+            // The player never moves: a shot hits if its path passes within
+            // the player's hit radius (10px, CollisionSystem.h).
+            for (size_t i = before; i < bullets.size(); ++i) {
+                const Bullet& b = bullets[i];
+                const float px = playerX - b.x, py = playerY - b.y;
+                const float along = px * b.dirX + py * b.dirY;
+                const float off = std::fabs(px * b.dirY - py * b.dirX);
+                if (along > 0.0f && off < 10.0f) ++t.aimOnTarget;
+            }
+        }
         if (boss.normaExposed > 0.0f) t.exposed += DT;
         if (boss.normaPattern != last && boss.normaPattern != norma::Pattern::None) {
             if (boss.normaPattern == norma::Pattern::Aim) ++t.aimTurns;
@@ -95,6 +107,9 @@ int main() {
                 withPanes.windowTurns, withPanes.refugeShots);
     Check(withPanes.aimTurns >= 3, "the aimed stream comes round every other turn");
     Check(withPanes.aimShots > 0, "the aimed stream fires");
+    std::printf("aimed shots on a still player: %d of %d\n", withPanes.aimOnTarget, withPanes.aimShots);
+    Check(withPanes.aimOnTarget * 3 >= withPanes.aimShots,
+          "standing still is no hiding place: at least a third of the aimed shots hit");
     Check(withPanes.windowTurns >= 3, "window patterns take their turns");
     std::printf("sharpest speed change outside openings: %.0f px/s^2\n", withPanes.maxAccel);
     Check(withPanes.maxAccel < 700.0f, "the drift never lurches (bounded acceleration)");

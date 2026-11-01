@@ -122,6 +122,7 @@ public:
         int tier = 0;
         switch (m->kind) {
         case MobKind::NORMA:    tier = 5; break;   // nothing pushes the boss
+        case MobKind::CAELUM:   tier = 5; break;
         case MobKind::GENESIS:  tier = 4; break;
         case MobKind::GRAVIS:   tier = 3; break;
         case MobKind::QUASAR:   tier = 4; break;

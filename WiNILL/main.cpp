@@ -64,6 +64,7 @@
 #include "Camera.h"
 #include "MainShader.h"
 #include "EntityDraw.h"
+#include "CaelumDraw.h"
 #include "WaveHud.h"
 #include "SkillHud.h"
 #include "VitalsHud.h"
@@ -154,6 +155,11 @@ static int  g_PaneTestId = 0;
 // Rectangles of the panes in front of the one being decorated: its brackets,
 // glow and marks are not drawn where a front pane covers them.
 static std::vector<os_pane::Rect> g_PaneCover;
+
+// CAELUM's corrupted window (caelum::g.win*): a real pane the game opens and
+// moves for it. It is no space: NORMA's rules, brackets and wear skip it.
+static int g_CaelumPaneId = 0;
+static bool IsCaelumPane(int id) { return id != 0 && id == g_CaelumPaneId; }
 
 // hud_lines::Segment minus the parts inside g_PaneCover.
 static void PaneSeg(float x0, float y0, float x1, float y1, float w, hud_lines::Rgb c, float a) {
@@ -276,15 +282,18 @@ static void DrawNormaBossBar(float sw, float scale, float topY) {
     const float ratio = std::clamp(boss->hp / std::max(1.0f, boss->normaMaxHp), 0.0f, 1.0f);
     const float w = sw * 0.36f, x0 = (sw - w) * 0.5f;
     const float y = topY + 92.0f * scale;
-    const hud_lines::Rgb ice{ 0.72f, 0.94f, 1.0f };
+    const bool caelumBoss = boss->kind == MobKind::CAELUM;
+    const hud_lines::Rgb ice = caelumBoss ? hud_lines::Rgb{ 1.0f, 0.82f, 0.50f }
+                                          : hud_lines::Rgb{ 0.72f, 0.94f, 1.0f };
     BindMainShader();
     hud_lines::Segment(x0, y, x0 + w, y, 2.0f * scale, ice, 0.22f);
     if (ratio > 0.0f)
         hud_lines::Segment(x0, y, x0 + w * ratio, y, 3.0f * scale, ice, 0.95f);
-    const float notch = x0 + w * norma::kPhase2Ratio;
+    const float notch = x0 + w * (caelumBoss ? caelum::kPhase2Ratio : norma::kPhase2Ratio);
     hud_lines::Segment(notch, y - 6.0f * scale, notch, y + 6.0f * scale, 1.4f * scale, ice, 0.7f);
     BatchFlush();
-    const wchar_t* name = boss->normaPhase == 2 ? L"NORMA  II" : L"NORMA";
+    const wchar_t* name = caelumBoss ? (boss->normaPhase == 2 ? L"CAELUM  II" : L"CAELUM")
+                        : boss->normaPhase == 2 ? L"NORMA  II" : L"NORMA";
     const float ts = 0.55f * scale;
     g_TextS.Draw(name, x0, y - 10.0f * scale - g_TextS.Height(name, ts), ts,
                  ice.r, ice.g, ice.b, 0.95f);
@@ -332,7 +341,7 @@ static void DrawPaneBrackets() {
     bool any = false;
     const hud_lines::Rgb ice{ 0.72f, 0.94f, 1.0f };
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open || p.minimized || p.covered) continue;
+        if (!p.open || p.minimized || p.covered || IsCaelumPane(p.id)) continue;
         if (!any) { BindMainShader(); any = true; }
         g_PaneCover.clear();
         for (const os_pane::Pane& q : os_pane::Panes())
@@ -510,7 +519,7 @@ float g_MuzzleX = 0.0f, g_MuzzleY = 0.0f, g_MuzzleAng = 0.0f, g_MuzzleTimer = 0.
 static void RebuildPaneSpaces(const SpatialBounds& player) {
     std::vector<const os_pane::Pane*> order;
     for (const os_pane::Pane& p : os_pane::Panes())
-        if (p.open && !p.minimized && !p.covered) order.push_back(&p);
+        if (p.open && !p.minimized && !p.covered && !IsCaelumPane(p.id)) order.push_back(&p);
     std::sort(order.begin(), order.end(),
               [](const os_pane::Pane* a, const os_pane::Pane* b) { return a->zRank < b->zRank; });
     space::g_Regions.clear();
@@ -1291,6 +1300,88 @@ static void Shake(float seconds, float magnitude) {
 
 // Turns the boss's effect cues into shockwaves, sparks and shake; and gives
 // its fall a send-off.
+// CAELUM's cues (CaelumBoss.h): shake, sparks and rings in its amber.
+static void PlayCaelumEvents() {
+    const float ar = 1.0f, ag = 0.82f, ab = 0.50f;
+    for (const caelum::Event& e : caelum::g_Events) {
+        switch (e.fx) {
+        case caelum::Fx::Seed:
+            SpawnSparks(e.x, e.y, 8, 1.0f, 0.95f, 0.82f, 300.0f);
+            Shake(0.08f, 3.0f);
+            break;
+        case caelum::Fx::Window:
+            SpawnSparks(e.x, e.y, e.a > 0.5f ? 18 : 10, 1.0f, 0.95f, 0.82f, 340.0f);
+            Shake(0.12f, 5.0f);
+            break;
+        case caelum::Fx::Fire:
+            SpawnSparks(e.x + cosf(e.a) * 70.0f, e.y + sinf(e.a) * 70.0f, 4, 1.0f, 0.95f, 0.82f, 260.0f);
+            if (g_ShakeTime < 0.05f) Shake(0.06f, 3.0f);
+            break;
+        case caelum::Fx::Wave:
+            Shake(0.22f, 10.0f);
+            SpawnSparks(e.x, e.y, 16, 1.0f, 0.95f, 0.82f, 420.0f);
+            break;
+        case caelum::Fx::Morph:
+            SpawnSparks(e.x, e.y, 14, ar, ag, ab, 360.0f);
+            Shake(0.15f, 6.0f);
+            break;
+        case caelum::Fx::Overflow:
+            SpawnSparks(e.x, e.y, 24, 1.0f, 0.95f, 0.82f, 520.0f);
+            Shake(0.35f, 14.0f);
+            TriggerHitStop(0.06f);
+            TriggerFlash(1.0f, 0.9f, 0.7f, 0.18f);
+            break;
+        case caelum::Fx::PhaseShift:
+            SpawnShockWave(e.x, e.y, 520.0f, 0.70f, ar, ag, ab);
+            SpawnShockWave(e.x, e.y, 260.0f, 0.45f, 1.0f, 1.0f, 1.0f);
+            SpawnSparks(e.x, e.y, 36, ar, ag, ab, 480.0f);
+            Shake(0.6f, 22.0f);
+            TriggerHitStop(0.10f);
+            TriggerFlash(1.0f, 0.88f, 0.6f, 0.22f);
+            break;
+        }
+    }
+    caelum::g_Events.clear();
+}
+
+// Keeps CAELUM's window where the rules have it: opens it (locked: it won't
+// close), moves it and glitches its contents; closes it once the rules let go
+// (the pattern ended, a phase change, the boss gone).
+static void TickCaelumPane() {
+    if (!caelum::g.active || !caelum::g.winOpen) {
+        if (g_CaelumPaneId != 0) { os_pane::Close(g_CaelumPaneId); g_CaelumPaneId = 0; }
+        return;
+    }
+    const float x = W2SX(caelum::g.winX), y = W2SY(caelum::g.winY);
+    const float w = W2SX(caelum::g.winX + caelum::g.winW) - x, h = W2SY(caelum::g.winY + caelum::g.winH) - y;
+    static float s_W = 0.0f, s_H = 0.0f;   // the size last given, so a resize happens only when it changes
+    if (g_CaelumPaneId == 0) {
+        g_CaelumPaneId = std::max(0, os_pane::Open(x, y, w, h));
+        if (g_CaelumPaneId != 0) os_pane::SetLocked(g_CaelumPaneId, true);
+        s_W = w; s_H = h;
+        return;
+    }
+    if (std::fabs(w - s_W) >= 1.0f || std::fabs(h - s_H) >= 1.0f) {   // the cursor is dragging an edge
+        os_pane::Resize(g_CaelumPaneId, std::round(x), std::round(y), std::round(w), std::round(h));
+        s_W = w; s_H = h;
+    } else {
+        os_pane::Place(g_CaelumPaneId, std::round(x), std::round(y));
+    }
+    os_pane::SetUnstable(g_CaelumPaneId, 0.85f);
+}
+
+// CAELUM's fall: called from the death pass (a dead mob is gone by the next frame).
+static void PlayCaelumFall(float x, float y) {
+    const float ar = 1.0f, ag = 0.82f, ab = 0.50f;
+    for (int i = 0; i < 3; ++i)
+        SpawnShockWave(x, y, 280.0f + 240.0f * (float)i, 0.5f + 0.25f * (float)i, ar, ag, ab);
+    SpawnEnemyExplosion(x, y, ar, ag, ab, true);
+    SpawnSparks(x, y, 50, 1.0f, 0.95f, 0.82f, 600.0f);
+    Shake(0.7f, 26.0f);
+    TriggerHitStop(0.16f);
+    TriggerFlash(1.0f, 0.88f, 0.6f, 0.26f);
+}
+
 static float g_NormaLastX = 0.0f, g_NormaLastY = 0.0f;
 static bool g_NormaWasAlive = false;
 static void PlayNormaEvents() {
@@ -1853,7 +1944,7 @@ static void DrawThrowAppear() {
     const Monster* boss = FindNorma();
     if (!boss) return;
     const float bx = W2SX(boss->worldX), by = W2SY(boss->worldY);
-    const float bh = 18.0f * boss->sizeScale * 1.3f * g_ViewZoom;
+    const float bh = 18.0f * boss->sizeScale * norma::kAimMuzzle * g_ViewZoom;   // the star points
     const os_pane::Rect from{ bx - bh, by - bh, bh * 2.0f, bh * 2.0f };
     const os_pane::Rect& to = g_ThrowBox.spot;
     const hud_lines::Rgb ice{ 0.72f, 0.94f, 1.0f };
@@ -1934,7 +2025,7 @@ static void ApplyPaneAbsorbs() {
     }
     space::g_Absorbed.clear();
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open) continue;
+        if (!p.open || IsCaelumPane(p.id)) continue;
         const float left = PaneDurabilityLeft(p);
         // Worn out: light the fuse once. Low: the contents start to waver.
         if (left <= 0.0f) LightPaneFuse(p.id);
@@ -3150,7 +3241,13 @@ int main() {
             if (FindNorma()) return 0;
             const float debugHp = g_Stats.monsterHpMult *
                                   GetDifficultyParams(g_Difficulty).enemyHpMultiplier;
-            (void)boss;
+            if (boss == 1) {
+                // CAELUM, the mid-run boss.
+                for (const Monster* cm : g_MonsterManager.monsters)
+                    if (cm->kind == MobKind::CAELUM && cm->alive) return 0;
+                DebugSpawnCaelum(g_MonsterManager, screenWidth, debugHp, g_Difficulty);
+                return 1;
+            }
             DebugSpawnNorma(g_MonsterManager, screenWidth, debugHp, g_Difficulty);
             return FindNorma() ? 1 : 0;
         },
@@ -3294,6 +3391,12 @@ int main() {
         }
         ServeNormaAsks(playerWin);
         PlayNormaEvents();
+        PlayCaelumEvents();
+        TickCaelumPane();
+        if (caelum::g.pushX != 0.0f || caelum::g.pushY != 0.0f) {   // CAELUM's wave shoves the player
+            ApplyPlayerKnockback(caelum::g.pushX, caelum::g.pushY);
+            caelum::g.pushX = caelum::g.pushY = 0.0f;
+        }
         if (g_GameManager.currentState == GameState::RUNNING) {
             TickNormaCountdown(delta);
             TickPaneFuses(delta);
@@ -4264,6 +4367,70 @@ int main() {
                                 if (p != norma::Pattern::None) boss->StartNormaPattern(p);
                             }
                         }
+                    } else if (step.rfind("CAELUMTEST=", 0) == 0) {
+                        // CAELUMTEST=SPREAD|SCAN|WINDOW|SHOT|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
+                        // in mid-screen and start that pattern now (P2: phase 2 by
+                        // health; ERODE: phase 2 rules at once; OVERFLOW: corrupt
+                        // enough cells for the file to break).
+                        const std::string arg = step.substr(11);
+                        if (gm.currentState == GameState::AUG_SELECT && gm.augChoiceCount > 0) {
+                            g_AugEffectQueue.push_back(gm.augChoices[0]);
+                            g_AugEffectProcessing = true;
+                            ProcessAugEffectQueue(screenWidth, screenHeight);
+                            g_AugEffectProcessing = false;
+                            gm.maxHP = g_Stats.maxHP;
+                            FinishAugmentEffects();
+                        }
+                        const auto findCaelum = [&]() -> Monster* {
+                            for (Monster* cm : g_MonsterManager.monsters)
+                                if (cm->kind == MobKind::CAELUM && cm->alive) return cm;
+                            return nullptr;
+                        };
+                        if (!findCaelum())
+                            DebugSpawnCaelum(g_MonsterManager, screenWidth,
+                                             g_Stats.monsterHpMult *
+                                             GetDifficultyParams(g_Difficulty).enemyHpMultiplier,
+                                             g_Difficulty);
+                        for (Monster* m : g_MonsterManager.monsters)
+                            if (m->alive && m->kind != MobKind::CAELUM) m->alive = false;
+                        gm.maxHP = g_Stats.maxHP = 100000.0f;
+                        gm.playerHP = gm.maxHP;
+                        if (Monster* boss = findCaelum()) {
+                            boss->worldX = (float)screenWidth * 0.5f;
+                            boss->worldY = 220.0f;
+                            const float pcx = playerWin.x + playerWin.width * 0.5f;
+                            const float pcy = playerWin.y + playerWin.height * 0.5f;
+                            if (arg == "P2") {
+                                boss->hp = boss->normaMaxHp * 0.35f;
+                            } else if (arg == "BAD") {
+                                for (int k = 0; k < 4; ++k) caelum::AddBadSector(pcx, pcy);   // four handles' worth
+                                caelum::g.exposed = 4.0f;
+                            } else if (arg == "WAVE" || arg == "LINE") {
+                                caelum::g.waveCd = 0.0f;   // the shockwave's warning starts now
+                                caelum::g.waves = arg == "LINE" ? 1 : 0;   // which kind comes next
+                                caelum::g.exposed = 4.0f;  // and no pattern gets in the way
+                            } else if (arg == "ERODE") {
+                                caelum::g.phase = 2;
+                                caelum::g.exposed = 6.0f;   // hold the patterns off to watch erosion alone
+                            } else if (arg == "OVERFLOW") {
+                                const int here = caelum::CellAt(pcx, pcy);
+                                for (int i = 0, n = 0; i < caelum::CellCount() &&
+                                     n < (int)(caelum::kOverflowShare * caelum::CellCount()) + 1; ++i) {
+                                    const int k = (i * 7) % caelum::CellCount();
+                                    if (k == here) continue;
+                                    caelum::g.cells[k].state = caelum::CellState::Corrupt;
+                                    caelum::g.cells[k].life = 8.0f;
+                                    ++n;
+                                }
+                            } else {
+                                const caelum::Pattern p = arg == "SPREAD" ? caelum::Pattern::Spread
+                                                        : arg == "SCAN" ? caelum::Pattern::Scanline
+                                                        : arg == "WINDOW" ? caelum::Pattern::Window
+                                                        : arg == "SHOT" ? caelum::Pattern::Shot
+                                                        : caelum::Pattern::None;
+                                if (p != caelum::Pattern::None) caelum::StartPattern(pcx, pcy, p);
+                            }
+                        }
                     } else if (step.rfind("HP=", 0) == 0) {
                         // HP=<0..1>: set the player's health fraction.
                         const float f = std::clamp(
@@ -4737,7 +4904,8 @@ int main() {
                     ActionHeld(GameAction::MoveUp), ActionHeld(GameAction::MoveDown),
                     ActionHeld(GameAction::MoveLeft), ActionHeld(GameAction::MoveRight),
                     playerControl, MOVE_SPEED * g_Stats.GetMoveMultiplier(lmb) *
-                        (g_PlayerRuntime.moveSlowTimer > 0.0f ? GRAVIS_SLOW_MOVE_MULT : 1.0f),
+                        (g_PlayerRuntime.moveSlowTimer > 0.0f ? GRAVIS_SLOW_MOVE_MULT : 1.0f) *
+                        caelum::MoveFactor(),   // weakened by CAELUM's corruption
                     FIXED_DT, g_PlayerRuntime.dashActive, mvX, mvY);
                 if (playerControl && mlen > 0.001f && !g_PlayerRuntime.dashActive) {
                     // ?�동 ?�상(afterimage) ???�정 간격?�로 ?�레?�어 중심???��? ?�안 ?�상
@@ -5072,6 +5240,8 @@ CollisionSystem::Update(pCX, pCY,
                 for (auto m : g_MonsterManager.monsters) {
                     if (!m->alive && !m->exploded) {
                         CollectMonsterKill(killSink, *m);
+                        // A CAELUM that withdrew for NORMA still has health: no send-off.
+                        if (m->kind == MobKind::CAELUM && m->hp <= 0.0f) PlayCaelumFall(m->worldX, m->worldY);
                         m->SpawnDeathEffect((float)now);
                         TriggerEliteKillHitStop(*m);
                         // ??��???�리????죽을 ???�져 ?�레?�어?�게 광역 ?�해
@@ -5824,6 +5994,14 @@ CollisionSystem::Update(pCX, pCY,
 
         // Rear and front sight fields stay before entity bodies to preserve
         // the existing combat render order.
+        // CAELUM's corrupted cells lie under everything else it draws.
+        {
+            bool caelumAlive = false;
+            for (const Monster* cm : g_MonsterManager.monsters)
+                if (cm->kind == MobKind::CAELUM && cm->alive) { caelumAlive = true; break; }
+            caelum_draw::BeginFrame(caelumAlive, (float)screenWidth, (float)screenHeight);
+            caelum_draw::DrawCorruptionLayer();
+        }
         const float sightPlayerX = playerWin.x + playerWin.width * 0.5f;
         const float sightPlayerY = playerWin.y + playerWin.height * 0.5f;
         const float sightPlayerSize = PLAYER_SIZE * g_Stats.playerSizeMult;
@@ -5856,6 +6034,7 @@ CollisionSystem::Update(pCX, pCY,
             drawRangedMob(r, g_GameTime);
         }
         g_BatchAlpha = spaceBaseAlpha;
+        caelum_draw::DrawOverlay(g_GameTime);
         DrawBulletHalos(g_Bullets);
         for (auto& b : g_Bullets) {
             if (b.active) drawBullet(b);
@@ -5925,6 +6104,7 @@ CollisionSystem::Update(pCX, pCY,
                              g_GameManager.levelUpTransition.Progress());
             BatchFlush();
         }
+        caelum_draw::DrawCursor(g_GameTime);   // over the player
 
         // (c) player playfield signal. The rectangular region itself remains
         // available to gameplay/scissor code, but no opaque fake window is drawn.

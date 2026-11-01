@@ -37,7 +37,7 @@ struct DebugToolkitContext {
     std::function<void()> advanceWave;
     const std::vector<int>* ownedAugments = nullptr;
     std::function<bool(DebugAugmentAction, int)> editAugment;
-    // Boss category of the spawn tab: 0 NORMA (returns how many came in).
+    // Boss category of the spawn tab: 0 NORMA, 1 CAELUM (returns how many came in).
     std::function<int(int boss)> spawnBoss;
     // NORMA's test window (Boss category); true when one opened.
     std::function<bool()> openTestPane;

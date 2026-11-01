@@ -112,8 +112,15 @@ static void TrackScheduledElite(const MonsterManager& monsters) {
 // boss decides the run.
 static void PlaceNormaBoss(MonsterManager& monsters, int screenWidth,
                            float hpMultiplier, bool finalBoss) {
+    // A CAELUM still standing when the final boss arrives withdraws (no reward):
+    // the last wave is NORMA's duel alone.
+    if (finalBoss)
+        for (Monster* mob : monsters.monsters)
+            if (mob->kind == MobKind::CAELUM && mob->alive) { mob->alive = false; mob->scored = true; }
     Monster* boss = new Monster((float)screenWidth * 0.5f, -160.0f, hpMultiplier);
-    boss->MakeKind(MobKind::NORMA);
+    // The run's last boss is NORMA; a boss wave in the middle of a run (NIGHTMARE
+    // wave 9) belongs to CAELUM.
+    boss->MakeKind(finalBoss ? MobKind::NORMA : MobKind::CAELUM);
     monsters.monsters.push_back(boss);
     g_EnemySpawnState.normaAlive = true;
     if (finalBoss) g_EnemySpawnState.normaSpawned = true;
@@ -136,12 +143,32 @@ void DebugSpawnNorma(MonsterManager& monsters, int screenWidth, float hpMultipli
     PlaceNormaBoss(monsters, screenWidth, hpMultiplier * ramp.hpMultiplier, true);
 }
 
+void DebugSpawnCaelum(MonsterManager& monsters, int screenWidth, float hpMultiplier,
+                      Difficulty difficulty) {
+    for (const Monster* mob : monsters.monsters)
+        if (mob->kind == MobKind::CAELUM && mob->alive) return;
+    // Scaled like the mid-run boss wave (NIGHTMARE 9), or the final one where
+    // the schedule has no mid-run boss.
+    const WaveSchedule& schedule = WaveScheduleFor(difficulty);
+    int bossWave = FinalWaveCount(difficulty);
+    for (int i = 0; i < schedule.bossCount; ++i)
+        if (!IsFinalBossWave(schedule.bossWaves[i], difficulty)) { bossWave = schedule.bossWaves[i]; break; }
+    const float bossWaveStart = WaveStartTimeSeconds(bossWave, difficulty);
+    const EnemyProgression ramp = EvaluateEnemyProgression(bossWaveStart, 0, 0);
+    PlaceNormaBoss(monsters, screenWidth, hpMultiplier * ramp.hpMultiplier, false);
+}
+
 // Looked up by kind rather than by pointer: dead mobs are freed elsewhere.
 static void TrackNormaBoss(const MonsterManager& monsters) {
-    bool alive = false;
-    for (const Monster* mob : monsters.monsters)
-        if (mob->kind == MobKind::NORMA && mob->alive) { alive = true; break; }
-    g_EnemySpawnState.normaAlive = alive;
+    // normaAlive covers any boss (CAELUM too) so nothing spawns into its duel;
+    // only NORMA's fall decides the run.
+    bool alive = false, anyBoss = false;
+    for (const Monster* mob : monsters.monsters) {
+        if (!mob->alive || !IsBossMob(mob->kind)) continue;
+        anyBoss = true;
+        if (mob->kind == MobKind::NORMA) alive = true;
+    }
+    g_EnemySpawnState.normaAlive = anyBoss;
     if (!g_EnemySpawnState.normaSpawned || g_EnemySpawnState.normaDefeated || alive) return;
     g_EnemySpawnState.normaDefeated = true;
 }

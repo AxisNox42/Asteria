@@ -49,6 +49,10 @@ constexpr float kHoverAccel = 150.0f;
 constexpr float kCoastDecay = 5.0f;         // 1/s: how fast a loose drift dies out
 constexpr float kSizeScale = 3.0f;
 constexpr float kContactDps = 12.0f;
+// Player shots hit the star's inner body (its inner corners sit at ~1.38
+// base), the same reach as contact (26 px per sizeScale, Monster::TryContact):
+// what can touch you is what you can hit.
+constexpr float kShotHitPx = 26.0f;         // px per sizeScale
 // How long the phase-change flash lasts.
 constexpr float kPhaseFlashSeconds = 1.2f;
 

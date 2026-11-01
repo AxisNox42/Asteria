@@ -121,9 +121,11 @@ void GameManager::HandleInput(GLFWwindow* window) {
 
     if (sp == GLFW_PRESS && spaceReleased) {
         if (currentState == GameState::READY) {
-            // Lobby tutorial: Space leaves the practice field.
+            // Lobby tutorial: Space launches an Easy run with the loadout the
+            // TUTORIAL button already set up (ESC still goes back to the lobby).
             ready_launch::g_TutorialMode = false;
-            currentState = GameState::MAIN_MENU;
+            g_Difficulty = Difficulty::EASY;
+            currentState = GameState::RUNNING;
         } else if (currentState == GameState::RUNNING) {
             // Augment selection opens by itself after a level-up.
             pauseResumeState = GameState::RUNNING;

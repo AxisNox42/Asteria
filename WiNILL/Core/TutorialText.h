@@ -39,9 +39,9 @@ inline const wchar_t* kReadyTitle[LANG_COUNT] = {
     L"チュートリアル",
 };
 inline const wchar_t* kReadyBrief[LANG_COUNT] = {
-    L"연습장에서 조작을 익히세요 — {START} 또는 ESC로 로비로 돌아갑니다",
-    L"Learn the controls in the practice field — press {START} or ESC to return to the lobby",
-    L"練習場で操作に慣れましょう — {START}またはESCでロビーに戻ります",
+    L"연습장에서 조작을 익히세요 — {START}로 쉬움 난이도 출격, ESC로 로비 복귀",
+    L"Learn the controls in the practice field — {START} launches an Easy run, ESC returns to the lobby",
+    L"練習場で操作に慣れましょう — {START}でイージー出撃、ESCでロビーに戻ります",
 };
 
 inline const wchar_t* ReadyTitle()  { return kReadyTitle[LangIndexTutorial()]; }
@@ -73,32 +73,32 @@ inline const wchar_t* kReadyStepHint[LANG_COUNT][READY_STEP_HINT_COUNT] = {
       L"마우스로 조준하고, 왼쪽 버튼을 누르고 있으면 사격합니다",
       L"{DASH} 키로 대시 — 순간 무적과 함께 빠르게 피합니다",
       L"스웜 4마리를 처치하세요 — 3초 뒤 같은 자리에 다시 나타납니다",
-      L"준비 완료! {START} 키로 출격하세요" },
+      L"준비 완료! {START} 키로 쉬움 난이도에 출격하세요" },
     { L"Move your ship with {MOVE}",
       L"Aim with the mouse — hold the left button to fire",
       L"Press {DASH} to dash — a quick dodge with brief invulnerability",
       L"Defeat 4 Swarms — they come back on the same spot after 3 s",
-      L"Ready! Press {START} to launch" },
+      L"Ready! Press {START} to launch on Easy" },
     { L"{MOVE}で艦を動かしてみましょう",
       L"マウスで照準 — 左ボタン長押しで射撃",
       L"{DASH}でダッシュ — 一瞬の無敵で素早く回避",
       L"スウォームを4体撃破 — 3秒後に同じ場所へ再出現",
-      L"準備完了！{START}で出撃" },
+      L"準備完了！{START}でイージー出撃" },
 };
 // Step counter above the instruction ("STEP 2 / 4").
 inline const wchar_t* kReadyStepLabel = L"STEP";
 
 // Under the dash objective when the dash is bound to the start key.
 inline const wchar_t* kReadyDashOnStart[LANG_COUNT] = {
-    L"{DASH}는 로비 복귀 키 — 전투에서 사용",
-    L"{DASH} returns to the lobby here — use it in combat",
-    L"{DASH}はロビー復帰キー — 戦闘で使用",
+    L"{DASH}는 출격 키 — 전투에서 사용",
+    L"{DASH} launches the run here — use it in combat",
+    L"{DASH}は出撃キー — 戦闘で使用",
 };
 // Under the checklist once every step is done.
 inline const wchar_t* kReadyAllDone[LANG_COUNT] = {
-    L"완료 — {START}로 로비 복귀",
-    L"Done — return to the lobby with {START}",
-    L"完了 — {START}でロビーに戻る",
+    L"완료 — {START}로 쉬움 난이도 출격",
+    L"Done — launch an Easy run with {START}",
+    L"完了 — {START}でイージー出撃",
 };
 inline const wchar_t* kReadyAim[LANG_COUNT] = {
     L"조준 · 좌클릭 유지 사격",
@@ -108,17 +108,17 @@ inline const wchar_t* kReadyAim[LANG_COUNT] = {
 // Legend beside the keyboard, one line per key group (keys follow the bindings).
 inline constexpr int READY_LEGEND_COUNT = 5;
 inline const wchar_t* kReadyLegend[LANG_COUNT][READY_LEGEND_COUNT] = {
-    { L"{MOVE}  이동", L"{DASH}  대시", L"{SKILLS}  스킬 (증강 후)", L"{START}  로비로", L"{QUIT}  나가기" },
-    { L"{MOVE}  move", L"{DASH}  dash", L"{SKILLS}  skills (from augments)", L"{START}  lobby", L"{QUIT}  leave" },
-    { L"{MOVE}  移動", L"{DASH}  ダッシュ", L"{SKILLS}  スキル (強化後)", L"{START}  ロビー", L"{QUIT}  戻る" },
+    { L"{MOVE}  이동", L"{DASH}  대시", L"{SKILLS}  스킬 (증강 후)", L"{START}  출격 (쉬움)", L"{QUIT}  나가기" },
+    { L"{MOVE}  move", L"{DASH}  dash", L"{SKILLS}  skills (from augments)", L"{START}  launch (Easy)", L"{QUIT}  leave" },
+    { L"{MOVE}  移動", L"{DASH}  ダッシュ", L"{SKILLS}  スキル (強化後)", L"{START}  出撃 (イージー)", L"{QUIT}  戻る" },
 };
 // Small caption under a single-action key cap, by keyboard_panel::KeyRole
 // (None, Move, Dash, Skill, Start, Quit). Empty = no caption.
 inline constexpr int READY_KEY_ROLE_COUNT = 6;
 inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
-    { L"", L"", L"대시", L"", L"로비로", L"나가기" },
-    { L"", L"", L"dash", L"", L"lobby", L"leave" },
-    { L"", L"", L"ダッシュ", L"", L"ロビー", L"戻る" },
+    { L"", L"", L"대시", L"", L"출격", L"나가기" },
+    { L"", L"", L"dash", L"", L"launch", L"leave" },
+    { L"", L"", L"ダッシュ", L"", L"出撃", L"戻る" },
 };
 
 inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }

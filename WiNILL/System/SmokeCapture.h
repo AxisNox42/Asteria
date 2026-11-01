@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // ─────────────────────────────────────────────────────────────
 // 스모크 캡처 — UI QA 검증용 자동 장면 캡처.
 //   ASTERIA_SMOKE      = "STEP;STEP;..."   (필수, 없으면 비활성)
@@ -17,6 +17,9 @@
 //   GENESISCYCLE=<초> : SWARM 조준부터 로터 대기·준비까지 전체 실제 전환 재현
 //   SKILLHUD=MIX|EMPTY|PULSE : 새 런에서 스킬 HUD 상태 프리셋 (쿨다운·지속·패시브)
 //   NORMATEST=AIM|DASH|RAM|HIDE|P2 : NORMA를 불러 그 패턴을 바로 시작 (P2: 2페이즈로)
+//   CAELUMTEST=SPREAD|SCAN|WINDOW|SHOT|WAVE|LINE|BAD|P2|ERODE|OVERFLOW : CAELUM을 불러 그 패턴을 바로 시작
+//     (ERODE: 2페이즈 침식 규칙만 켬, OVERFLOW: 파일 손상이 터질 만큼 칸을 오염)
+//     (스모크 중에는 다른 창을 최소화하지 않음. ASTERIA_CAELUM_MINIMIZE=1 이면 최소화)
 //   @fx,fy  마우스 위치(화면 비율 0~1). 없으면 화면 밖으로 치움.
 //   !       유지 시간 절반 시점에 한 번 클릭.
 //   *       단계 내내 왼쪽 버튼을 누른 상태 유지(조준 사격 등).

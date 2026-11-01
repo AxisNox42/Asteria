@@ -109,7 +109,7 @@ float Clamp01(float v) {
 int SpawnEntries(int category, const int*& ids) {
     static const int kRegular[] = { 0, 2, 3, 5, 6, 9 };
     static const int kElite[] = { 1, 4, 7, 8 };
-    static const int kBoss[] = { 10, 11 };
+    static const int kBoss[] = { 10, 12, 11 };
     switch (category) {
     case 1: ids = kElite; return (int)(sizeof(kElite) / sizeof(kElite[0]));
     case 2: ids = kBoss;  return (int)(sizeof(kBoss) / sizeof(kBoss[0]));
@@ -431,7 +431,7 @@ const wchar_t* DebugToolkit::MobLabel(int index) {
     static const wchar_t* labels[] = {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
         L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR",
-        L"NORMA", L"NORMA 테스트 창"
+        L"NORMA", L"NORMA 테스트 창", L"CAELUM"
     };
     if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
         return L"알 수 없음";
@@ -981,6 +981,9 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                     break;
                 case 10:
                     if (context_.spawnBoss) spawned = context_.spawnBoss(0);
+                    break;
+                case 12:
+                    if (context_.spawnBoss) spawned = context_.spawnBoss(1);
                     break;
                 case 11:
                     if (context_.openTestPane && context_.openTestPane()) {

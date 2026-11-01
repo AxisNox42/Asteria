@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "NormaBoss.h"
+#include "CaelumBoss.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -76,11 +77,12 @@ enum class MobKind {
     ANTARES,
     MAGNETAR,
     NORMA,      // window boss (NormaBoss.h); keep last so XP slots stay put
+    CAELUM,     // wallpaper boss (CaelumBoss.h): the mid-run boss, after NORMA
 };
 
 // The run-deciding bosses: no stun, no crowding, no regular-mob buffs.
 inline constexpr bool IsBossMob(MobKind kind) {
-    return kind == MobKind::NORMA;
+    return kind == MobKind::NORMA || kind == MobKind::CAELUM;
 }
 
 // Elite mobs carry a second ability and an elite frame.
@@ -105,6 +107,7 @@ inline void MobKillReward(MobKind kind, float& xpBase, float& scoreBase) {
     case MobKind::REGULUS: xpBase = 6.0f;  scoreBase = 260.0f; break;
     case MobKind::ANTARES: xpBase = 8.0f;  scoreBase = 350.0f; break;
     case MobKind::MAGNETAR: xpBase = 10.0f; scoreBase = 520.0f; break;
+    case MobKind::CAELUM:  xpBase = 40.0f; scoreBase = 2500.0f; break;   // the mid-run boss
     default: break;
     }
 }
@@ -120,6 +123,7 @@ inline int StardustRewardFor(MobKind kind) {
     case MobKind::REGULUS: return 3;
     case MobKind::ANTARES: return 4;
     case MobKind::MAGNETAR: return 6;
+    case MobKind::CAELUM:  return 30;
     default:               return 0;
     }
 }
@@ -712,6 +716,11 @@ public:
     float ApplyDamage(float damage) {
         if (kind == MobKind::NORMA && (normaHidden || normaInvuln > 0.0f)) return 0.0f;
         if (kind == MobKind::NORMA && normaExposed > 0.0f) damage *= norma::kExposeDamage;
+        if (kind == MobKind::CAELUM) {
+            if (caelum::g.invuln > 0.0f) return 0.0f;
+            if (caelum::g.exposed > 0.0f) damage *= caelum::kExposeDamage;
+            damage *= caelum::DealtFactor();   // the player is weakened by corruption
+        }
         const bool hadShield = regulusShield.hp > 0.0f;
         const float dealt = ApplyEnemyDamageWithShield(
             hp, alive, hitFlashTimer, regulusShield, damage,
@@ -733,6 +742,17 @@ public:
             speed = norma::kMoveSpeed;
             sizeScale = norma::kSizeScale;
             contactDmg = norma::kContactDps;
+            return;
+        }
+        if (kind == MobKind::CAELUM) {
+            caelum::Reset();
+            color = glm::vec3(1.0f, 0.82f, 0.50f);
+            hp = caelum::kBaseHp * (hp / 90.0f);   // keeps the run's HP scaling
+            normaMaxHp = hp;                       // the boss bar reads these two
+            normaPhase = 1;
+            speed = norma::kMoveSpeed;
+            sizeScale = caelum::kSizeScale;
+            contactDmg = caelum::kContactDps;
             return;
         }
         if (kind == MobKind::GENESIS) {
@@ -2371,6 +2391,40 @@ public:
             HurtPlayer(playerHP, dps * deltaTime);
     }
 
+    // CAELUM (CaelumBoss.h): drifts at a distance like NORMA and lets the
+    // pattern state machine in caelum::Step do the rest. It holds still while
+    // phase-changing and while open (after each pattern).
+    void UpdateCaelum(float dx, float dy, float distance, float deltaTime,
+                      float& playerHP, float speedMult) {
+        const float px = worldX + dx, py = worldY + dy;
+        caelum::Step(deltaTime, hp, normaMaxHp, worldX, worldY, px, py, playerHP);
+        normaPhase = caelum::g.phase;
+        normaVisualAngle += deltaTime * (normaPhase == 2 ? 0.8f : 0.3f);
+        if (caelum::g.invuln > 0.0f || caelum::g.exposed > 0.0f) {
+            const float settle = std::exp(-8.0f * deltaTime);
+            normaVelX *= settle;
+            normaVelY *= settle;
+            worldX += normaVelX * deltaTime;
+            worldY += normaVelY * deltaTime;
+            return;
+        }
+        if (worldY < 130.0f) {          // coming in from above the screen
+            worldY += 220.0f * deltaTime;
+            return;
+        }
+        const float want = norma::HoverSpeedSmooth(distance) * speedMult;
+        const float wantX = distance > 1.0f ? dx / distance * want : 0.0f;
+        const float wantY = distance > 1.0f ? dy / distance * want : 0.0f;
+        const float step = norma::kHoverAccel * deltaTime;
+        const float ex = wantX - normaVelX, ey = wantY - normaVelY;
+        const float el = std::sqrt(ex * ex + ey * ey);
+        if (el > step) { normaVelX += ex / el * step; normaVelY += ey / el * step; }
+        else { normaVelX = wantX; normaVelY = wantY; }
+        worldX = std::clamp(worldX + normaVelX * deltaTime, 140.0f, caelum::g_W - 140.0f);
+        worldY = std::clamp(worldY + normaVelY * deltaTime, 130.0f, caelum::g_H - 130.0f);
+        TryContact(distance, playerHP, contactDmg, deltaTime);
+    }
+
     // NORMA (NormaBoss.h): hovers at a distance, switches to phase 2 at
     // norma::kPhase2Ratio of its max HP, and runs its patterns in turn.
     void UpdateNorma(float dx, float dy, float distance, float deltaTime,
@@ -2584,10 +2638,14 @@ public:
                 normaFireTimer += deltaTime;
                 while (normaFireTimer >= norma::kAimStreamInterval) {
                     normaFireTimer -= norma::kAimStreamInterval;
-                    const float jitter = (normaAimShot++ % 2 == 0 ? 1.0f : -1.0f) * norma::kAimJitter;
-                    // From the muzzle star, the corner the cube holds on the aim.
+                    // Centre, left, centre, right: every other shot runs dead on
+                    // the aim, so a player who stands still is hit (an even
+                    // +/- split left a gap round them, like a double shot).
+                    static constexpr float kSpread[4] = { 0.0f, 1.0f, 0.0f, -1.0f };
+                    const float jitter = kSpread[normaAimShot++ % 4] * norma::kAimJitter;
+                    // From the muzzle star, the star point the body holds on the aim.
                     const float muzzle = 18.0f * sizeScale * norma::kAimMuzzle;
-                    FireNormaShot(bullets, normaAimAngle + jitter, norma::kAimStreamSpeed, muzzle);
+                    FireNormaShot(bullets, normaAimAngle, norma::kAimStreamSpeed, muzzle, jitter);
                     normaRecoil = norma::kRecoilSeconds * 0.6f;
                     norma::g_Events.push_back({ norma::Fx::Muzzle, worldX + cosf(normaAimAngle) * muzzle,
                                                 worldY + sinf(normaAimAngle) * muzzle, normaAimAngle });
@@ -2759,11 +2817,13 @@ public:
     }
 
     // muzzle: how far out along `angle` the shot appears (world px).
+    // Leaves `muzzle` px out along `angle`, heading `angle + spread`.
     void FireNormaShot(std::vector<Bullet>* bullets, float angle, float shotSpeed,
-                       float muzzle = 0.0f) const {
+                       float muzzle = 0.0f, float spread = 0.0f) const {
         if (!bullets) return;
         const float ox = worldX + cosf(angle) * muzzle, oy = worldY + sinf(angle) * muzzle;
-        Bullet shot(ox, oy, ox + cosf(angle) * 100.0f, oy + sinf(angle) * 100.0f);
+        const float heading = angle + spread;
+        Bullet shot(ox, oy, ox + cosf(heading) * 100.0f, oy + sinf(heading) * 100.0f);
         shot.isEnemy = true;
         shot.homing = false;
         shot.speed = shotSpeed * (normaPhase == 2 ? norma::kPhase2ShotSpeed : 1.0f);
@@ -3041,6 +3101,10 @@ public:
 
         if (kind == MobKind::NORMA) {
             UpdateNorma(dx, dy, distance, deltaTime, playerHP, speedMult, bullets);
+            return;
+        }
+        if (kind == MobKind::CAELUM) {
+            UpdateCaelum(dx, dy, distance, deltaTime, playerHP, speedMult);
             return;
         }
 

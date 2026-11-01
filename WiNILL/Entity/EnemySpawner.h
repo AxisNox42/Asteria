@@ -29,3 +29,6 @@ bool NormaDefeated();
 // wave is added here so a debug boss matches the real one.
 void DebugSpawnNorma(MonsterManager& monsters, int screenWidth, float hpMultiplier,
                      Difficulty difficulty);
+// Hand testing: brings CAELUM (the mid-run boss) in now.
+void DebugSpawnCaelum(MonsterManager& monsters, int screenWidth, float hpMultiplier,
+                      Difficulty difficulty);

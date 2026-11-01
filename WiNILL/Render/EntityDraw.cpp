@@ -4,6 +4,7 @@
 #include "Camera.h"
 #include "DrawPrim.h"
 #include "IconSystem.h"
+#include "CaelumDraw.h"
 #include "Codex.h"
 #include "RangedMob.h"
 #include "TextRenderer.h"
@@ -468,8 +469,9 @@ static float MonsterSightRearScale(MobKind kind) {
     switch (kind) {
     case MobKind::GRAVIS:  return 3.35f;
     case MobKind::QUASAR:  return 3.30f;
-    // NORMA's dark field reaches past its orbiting bracket ring (2.6 base).
-    case MobKind::NORMA:   return 3.20f;
+    // NORMA's dark field reaches past its ring brackets and orbiting pane
+    // brackets (2.75 base).
+    case MobKind::NORMA:   return 3.30f;
     // Genesis' shells, plates and orbit frame reach 2.6 base; the field must
     // keep its dark core over all of them, not only the core.
     case MobKind::GENESIS: return 3.40f;
@@ -2458,119 +2460,44 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
     }
 }
 
-// NORMA placeholder body (design pending): a square outline and centre point
-// in ice blue. Phase 2 adds a turning inner square; entering it flashes white.
-// NORMA's tesseract: a wire cube turning in 3D with a smaller cube inside it
-// (turning the other way), drawn like the mobs: edges split short of each
-// vertex over a faint glow, star nodes on the vertices (dimmer at the back),
-// thin links between the two cubes' matching vertices.
-struct NormaCube {
-    float sx[8], sy[8], depth[8];   // projected points, depth -1 (back) .. 1 (front)
-};
-
-// drill: a turn about the diagonal through corner `axisCorner` and its
-// opposite. A whole number of thirds of a turn maps the cube onto itself.
-static NormaCube ProjectNormaCube(float x, float y, float radius, float yaw, float pitch, float roll,
-                                  float drill = 0.0f, int axisCorner = 6) {
-    const auto& kCorner = norma::kCubeCorner;
-    NormaCube c{};
-    const float cy = cosf(yaw), sy = sinf(yaw), cp = cosf(pitch), sp = sinf(pitch);
-    const float cr = cosf(roll), sr = sinf(roll);
-    const float cdr = cosf(drill), sdr = sinf(drill);
-    static constexpr float kAxis = 0.57735027f;   // 1 / sqrt(3)
-    const float ax = kCorner[axisCorner][0] * kAxis, ay = kCorner[axisCorner][1] * kAxis,
-                az = kCorner[axisCorner][2] * kAxis;
-    for (int i = 0; i < 8; ++i) {
-        float px = kCorner[i][0], py = kCorner[i][1], pz = kCorner[i][2];
-        if (drill != 0.0f) {
-            // Rodrigues' turn about the diagonal.
-            const float dot = px * ax + py * ay + pz * az;
-            const float qx = ay * pz - az * py, qy = az * px - ax * pz, qz = ax * py - ay * px;
-            const float k = dot * (1.0f - cdr);
-            const float nx = px * cdr + qx * sdr + ax * k, ny = py * cdr + qy * sdr + ay * k,
-                        nz = pz * cdr + qz * sdr + az * k;
-            px = nx; py = ny; pz = nz;
-        }
-        const float x1 = px * cy + pz * sy, z1 = -px * sy + pz * cy;
-        const float y2 = py * cp - z1 * sp, z2 = py * sp + z1 * cp;
-        const float rx = x1 * cr - y2 * sr, ry = x1 * sr + y2 * cr;
-        c.sx[i] = x + rx * radius;
-        c.sy[i] = y + ry * radius;
-        c.depth[i] = z2 / 1.7320508f;
-    }
-    return c;
+// NORMA's body, design F1 "octagram seal" (Docs/Concepts/Norma_Body_Design_F_v1.png),
+// in the elites' language (Quasar, Genesis, Antares): two big window frames
+// crossed into an eight-point star, each a double contour (glow, bright line,
+// inset line) whose edges stop short of the vertices; a broken ring round it
+// with a window's corner bracket in each gap; a turned square heart round a
+// glowing core. The eight star points carry the health (one per eighth).
+// All sizes are in units of base; the star points sit on the muzzle radius.
+namespace norma_body {
+constexpr float kStar = norma::kAimMuzzle;   // star point radius
+constexpr float kRing = kStar * 1.16f;       // the broken ring
+constexpr float kHeart = kStar * 0.43f;      // the square heart (circumradius)
+constexpr float kInset = kStar * 0.10f;      // inset contour depth
 }
 
-// Just the outer edges, thin: afterimages.
-static void DrawNormaCubeOutline(const NormaCube& c, float r, float g, float b, float alpha) {
-    static constexpr int kEdge[12][2] = {
-        { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 },
-        { 6, 7 }, { 7, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
-    for (const auto& e : kEdge)
-        drawLineQuad(c.sx[e[0]], c.sy[e[0]], c.sx[e[1]], c.sy[e[1]], 1.1f, r, g, b, alpha);
-}
-
-// How a cube's edges are drawn: split short of the stars by `gap`, pushed
-// out from (cx, cy) by `spread` (phase 2's loosened shell), with or without
-// the faint glow under them.
-struct NormaEdgeStyle {
-    float gap = 0.16f;
-    float spread = 0.0f;
-    float cx = 0.0f, cy = 0.0f;
-    bool glow = true;
-};
-
-static void DrawNormaCubeEdges(const NormaCube& c, float r, float g, float b,
-                               float alpha, float width, const NormaEdgeStyle& st) {
-    static constexpr int kEdge[12][2] = {
-        { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 }, { 4, 5 }, { 5, 6 },
-        { 6, 7 }, { 7, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
-    for (const auto& e : kEdge) {
-        const int i = e[0], j = e[1];
-        const float front = 0.5f + 0.25f * (c.depth[i] + c.depth[j]);   // 0 back .. 1 front
-        const float a = alpha * (0.40f + 0.55f * front);
-        float ax = c.sx[i] + (c.sx[j] - c.sx[i]) * st.gap, ay = c.sy[i] + (c.sy[j] - c.sy[i]) * st.gap;
-        float bx = c.sx[j] + (c.sx[i] - c.sx[j]) * st.gap, by = c.sy[j] + (c.sy[i] - c.sy[j]) * st.gap;
-        if (st.spread != 0.0f) {
-            const float mx = (ax + bx) * 0.5f - st.cx, my = (ay + by) * 0.5f - st.cy;
-            const float len = std::max(1.0f, std::sqrt(mx * mx + my * my));
-            ax += mx / len * st.spread; bx += mx / len * st.spread;
-            ay += my / len * st.spread; by += my / len * st.spread;
-        }
-        if (st.glow) drawLineQuad(ax, ay, bx, by, width + 2.4f, r, g, b, a * 0.14f);
-        drawLineQuad(ax, ay, bx, by, width, r, g, b, a);
+// One closed outline whose edges stop short of the vertices.
+static void DrawNormaOutline(const float* vx, const float* vy, int n, float gap, float w,
+                             float r, float g, float b, float a, bool glow) {
+    for (int i = 0; i < n; ++i) {
+        const int j = (i + 1) % n;
+        const float ax = vx[i] + (vx[j] - vx[i]) * gap, ay = vy[i] + (vy[j] - vy[i]) * gap;
+        const float bx = vx[j] + (vx[i] - vx[j]) * gap, by = vy[j] + (vy[i] - vy[j]) * gap;
+        if (glow) drawLineQuad(ax, ay, bx, by, w + 2.4f, r, g, b, a * 0.14f);
+        drawLineQuad(ax, ay, bx, by, w, r, g, b, a);
     }
 }
 
-// The cube's stars. `lit` of them shine (norma::kStarOutOrder decides which
-// go dark first); a dark one keeps only its outline and a faint point. The
-// star that just went dark (`outStar`) flares as it fades (`outFlash` 1..0).
-static void DrawNormaCubeStars(const NormaCube& c, float r, float g, float b, float alpha,
-                               float nodeR, int lit = 8, int outStar = -1, float outFlash = 0.0f) {
-    bool dark[8] = {};
-    for (int k = lit; k < norma::kHealthStars; ++k) dark[norma::kStarOutOrder[k]] = true;
-    for (int i = 0; i < 8; ++i) {
-        const float front = 0.5f + 0.5f * c.depth[i];
-        const float rr = nodeR * (0.8f + 0.3f * front);
-        if (!dark[i]) {
-            DrawEnemyNode({ c.sx[i], c.sy[i], rr, 0.55f + 0.45f * front }, r, g, b, alpha);
-            continue;
-        }
-        DrawEnemyArc(c.sx[i], c.sy[i], rr * 0.72f, 0.0f, 6.2831853f, 16, r, g, b, 0.45f * alpha, 1.1f, false);
-        drawCircle(c.sx[i], c.sy[i], rr * 0.16f, r, g, b, 0.30f * alpha);
-        if (i == outStar && outFlash > 0.0f) {
-            const float t = 1.0f - outFlash;
-            DrawEnemyArc(c.sx[i], c.sy[i], rr * (0.8f + 2.2f * t), 0.0f, 6.2831853f, 24,
-                         1.0f, 1.0f, 1.0f, 0.9f * outFlash, 2.0f, false);
-            drawCircle(c.sx[i], c.sy[i], rr * 0.9f * outFlash, 1.0f, 1.0f, 1.0f, 0.8f * outFlash);
-        }
+// A square frame (circumradius R, a corner at angle ang) with its inset line.
+static void DrawNormaFrame(float x, float y, float R, float ang, float inset, float w,
+                           float r, float g, float b, float a, bool glow, bool insetLine) {
+    float vx[4], vy[4], ix[4], iy[4];
+    for (int k = 0; k < 4; ++k) {
+        const float c = cosf(ang + 1.5707963f * (float)k), s = sinf(ang + 1.5707963f * (float)k);
+        vx[k] = x + c * R; vy[k] = y + s * R;
+        ix[k] = x + c * (R - inset); iy[k] = y + s * (R - inset);
     }
-}
-
-static void DrawNormaCube(const NormaCube& c, float r, float g, float b,
-                          float alpha, float width, float nodeR) {
-    DrawNormaCubeEdges(c, r, g, b, alpha, width, NormaEdgeStyle{});
-    DrawNormaCubeStars(c, r, g, b, alpha, nodeR);
+    DrawNormaOutline(vx, vy, 4, 0.05f, w, r, g, b, a, glow);
+    if (insetLine)
+        DrawNormaOutline(ix, iy, 4, 0.09f, std::max(0.8f, w * 0.4f), r, g, b, a * 0.5f, false);
 }
 
 static void DrawNormaBody(const Monster* m, float base, float visualTime) {
@@ -2582,7 +2509,7 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
     const float flash = std::clamp(m->normaPhaseFlash / norma::kPhaseFlashSeconds, 0.0f, 1.0f);
     const float hit = std::clamp(m->hitFlashTimer / MOB_HIT_FLASH_TIME, 0.0f, 1.0f);
     const float recoil = std::clamp(m->normaRecoil / norma::kRecoilSeconds, 0.0f, 1.0f);
-    // Charging (telegraph): the square tightens and brightens as it gathers.
+    // Charging (telegraph): the seal tightens and brightens as it gathers.
     float charge = 0.0f;
     if (m->normaStage == norma::Stage::Telegraph) {
         const float span = m->normaPattern == norma::Pattern::Refuge ? norma::kRefugeTelegraph
@@ -2595,7 +2522,8 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
                          : 1.0f;
         charge = std::clamp(m->normaTimer / span, 0.0f, 1.0f);
     }
-    const float half = base * 1.3f * (1.0f - 0.14f * charge + 0.10f * recoil);
+    const float scale = 1.0f - 0.10f * charge + 0.08f * recoil;
+    const float half = base * norma_body::kStar * scale;   // reach of the star points
     const float lift = std::max({ flash, hit * 0.6f, recoil * 0.5f, charge * 0.35f });
     const bool p2 = m->normaPhase == 2;
     // One fixed colour through every motion and both phases; only a hit
@@ -2605,25 +2533,38 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
     const float b = m->color.b;
     const float pulse = 0.85f + 0.15f * sinf(visualTime * 2.0f);
 
-    // Body: the tesseract, turned as the boss keeps it (Monster::TurnNormaCube:
-    // the aimed stream rolls the nearest corner onto its direction, the short
-    // way); that star is the muzzle.
+    // Aiming, the star turns a point onto the target (the muzzle) and the
+    // ring turns a gap onto it: it fires out through the gap.
     const float va = m->normaVisualAngle;
-    const float yaw = m->normaCubeYaw, pitch = m->normaCubePitch, roll = m->normaCubeRoll;
-    const int lead = m->normaCubeLead;
-    float hold = 0.0f;   // 0..1 how far the cube has settled onto its corner
+    float hold = 0.0f;   // 0..1 how far the seal has settled onto the aim
     if (m->normaPattern == norma::Pattern::Aim) {
+        // Unfolds slowly over the whole warning and folds back as slowly.
+        const auto ease = [](float t) { t = std::clamp(t, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); };
         if (m->normaStage == norma::Stage::Telegraph)
-            hold = std::min(1.0f, m->normaTimer / 0.25f);
+            hold = ease(m->normaTimer / norma::kAimTelegraph);
         else if (m->normaStage == norma::Stage::Act)
             hold = 1.0f;
         else if (m->normaStage == norma::Stage::Recover)
-            hold = std::max(0.0f, 1.0f - m->normaTimer / 0.3f);
+            hold = ease(1.0f - m->normaTimer / 0.6f);
     }
-    float drill = 0.0f;
-    // Firing the aimed stream, the cube turns slowly about its muzzle corner.
-    if (m->normaPattern == norma::Pattern::Aim && m->normaStage == norma::Stage::Act)
-        drill = m->normaTimer * norma::kAimDrill;
+    // Nearest-step turn of `from` so that from + k*step lands on `to`.
+    const auto settle = [](float to, float from, float step) {
+        float d = fmodf(to - from, step);
+        if (d > step * 0.5f) d -= step;
+        if (d < -step * 0.5f) d += step;
+        return d;
+    };
+    float spin = va;
+    if (hold > 0.0f) spin += settle(m->normaAimAngle, spin, 0.7853982f) * hold;
+    // The ring turns slower and the other way; its gaps sit at +45deg + k*90deg.
+    float ringSpin = -va * 0.4f;
+    if (hold > 0.0f) ringSpin += settle(m->normaAimAngle - 0.7853982f, ringSpin, 1.5707963f) * hold;
+    // Phase 2 unlocks the two frames: the second one sways +/-15deg about its
+    // 45deg seat, so the star keeps reshaping but never folds into one square
+    // (it locks back while aiming).
+    const float unlock = p2 ? (1.0f - hold) : 0.0f;
+    const float spinB = spin + 0.7853982f + unlock * 0.26f * sinf(va * 1.6f);
+
     // Controlling a pane (the ram): the whole body runs red.
     float red = 0.0f;
     if (m->normaPattern == norma::Pattern::Ram) {
@@ -2635,17 +2576,13 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
     // once so the opening reads in its own colour.
     if (m->normaExposed > 0.0f) red = 0.0f;
     const float br = r + (1.0f - r) * red, bg = g + (0.30f - g) * red, bb = b + (0.26f - b) * red;
-    const float outerR = base * 1.29f * (1.0f - 0.10f * charge + 0.08f * recoil);   // +12% on 1.15
-    // Exposed (an opening after a charge or a ram): the inner cube swells out
-    // to the outer one, the core flares and the brackets drift wide and dim.
+    // Exposed (an opening after a charge or a ram): the frames lift off the
+    // heart, the heart swells and the core flares.
     const float exposed = std::min(1.0f, m->normaExposed / 0.2f);
-    const float innerShare = (p2 ? 0.62f : 0.45f) * (1.0f - exposed) +
-                             0.96f * exposed;
-    NormaCube outer = ProjectNormaCube(x, y, outerR, yaw, pitch, roll, drill, lead);
-    NormaCube inner = ProjectNormaCube(x, y, outerR * innerShare,
-                                       -yaw * 1.3f + 0.4f, pitch * 0.6f + (p2 ? va * 1.4f : 0.0f), roll,
-                                       -drill, lead);
-    // Afterimages of a glide: thin outlines of the cube as it is.
+    const float starR = half * (1.0f + 0.10f * hold * (1.0f - 0.4f * recoil) + 0.08f * exposed);
+    const float inset = base * norma_body::kInset;
+
+    // Afterimages of a glide: thin outlines of the two frames.
     if (m->normaGhostLife > 0.0f) {
         const float life = m->normaGhostLife / 0.25f;
         for (int i = 0; i < norma::kGhostCount; ++i) {
@@ -2653,43 +2590,97 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
             const float gx = m->normaGhostX[idx], gy = m->normaGhostY[idx];
             if (gx == 0.0f && gy == 0.0f) continue;
             const float a = life * 0.40f * (1.0f - (float)i / norma::kGhostCount);
-            const NormaCube ghost = ProjectNormaCube(gx, gy, outerR, yaw, pitch, roll,
-                                                     drill * (1.0f - 0.08f * (float)(i + 1)), lead);
-            DrawNormaCubeOutline(ghost, br, bg, bb, a);
+            DrawNormaFrame(gx, gy, starR, spin, inset, 1.1f, br, bg, bb, a, false, false);
+            DrawNormaFrame(gx, gy, starR, spinB, inset, 1.1f, br, bg, bb, a, false, false);
         }
     }
-    // Hierarchy: the outer shell carries the silhouette (bold, big stars);
-    // the inner cube and the links stay quiet. In phase 2 the shell comes
-    // apart (edges split wider, pushed out, dimmer) and the inner cube takes
-    // over, bold and bright. The outer stars are the health (one per eighth).
-    for (int i = 0; i < 8; ++i)
-        drawLineQuad(outer.sx[i], outer.sy[i], inner.sx[i], inner.sy[i], 0.7f, br, bg, bb, p2 ? 0.10f : 0.16f);
-    const float punch = 1.2f * flash + 0.8f * recoil;
-    const int lit = m->normaLitStars;
-    const int outStar = lit < norma::kHealthStars ? norma::kStarOutOrder[lit] : -1;
-    const float outFlash = m->normaStarFlash / norma::kStarOutFlash;
-    if (p2) {
-        NormaEdgeStyle shell;
-        shell.gap = 0.30f;
-        shell.spread = base * 0.32f;
-        shell.cx = x;
-        shell.cy = y;
-        DrawNormaCubeEdges(outer, br, bg, bb, 0.55f * pulse, 1.6f + punch, shell);
-        DrawNormaCubeEdges(inner, br, bg, bb, pulse, 2.2f + punch, NormaEdgeStyle{});
-        DrawNormaCubeStars(inner, br, bg, bb, pulse, base * 0.15f);
-        DrawNormaCubeStars(outer, br, bg, bb, pulse, base * 0.20f * (1.0f + 0.4f * lift), lit, outStar, outFlash);
-    } else {
-        NormaEdgeStyle quiet;
-        quiet.glow = false;
-        DrawNormaCubeEdges(inner, br, bg, bb, 0.45f * pulse, 0.9f, quiet);
-        DrawNormaCubeEdges(outer, br, bg, bb, pulse, 2.6f + punch, NormaEdgeStyle{});
-        DrawNormaCubeStars(inner, br, bg, bb, 0.6f * pulse, base * 0.08f);
-        DrawNormaCubeStars(outer, br, bg, bb, pulse, base * 0.22f * (1.0f + 0.4f * lift), lit, outStar, outFlash);
+
+    // The broken ring: four arcs; in phase 2 they shorten, push out and dim
+    // (the seal is coming apart). A frame corner sits in each gap.
+    {
+        const float ringR = base * norma_body::kRing * scale + (p2 ? base * 0.12f : 0.0f);
+        const float span = (p2 ? 0.90f : 1.24f) - 0.20f * hold;
+        const float ra = (p2 ? 0.60f : 0.85f) * pulse;
+        for (int k = 0; k < 4; ++k) {
+            const float mid = ringSpin + 1.5707963f * (float)k;
+            DrawEnemyArc(x, y, ringR, mid - span * 0.5f, span, 28, br, bg, bb, ra * 0.14f, 4.4f, false);
+            DrawEnemyArc(x, y, ringR, mid - span * 0.5f, span, 28, br, bg, bb, ra, 2.0f, false);
+            DrawEnemyArc(x, y, ringR - inset * 0.75f, mid - span * 0.4f, span * 0.8f, 22,
+                         br, bg, bb, ra * 0.45f, 0.9f, false);
+            // The bracket: two arms folding back toward the body.
+            const float ga = mid + 0.7853982f;
+            const float bx = x + cosf(ga) * (ringR + base * 0.04f), by = y + sinf(ga) * (ringR + base * 0.04f);
+            const float arm = base * 0.36f;
+            for (int s = -1; s <= 1; s += 2) {
+                const float d = ga + 3.14159265f + 0.7853982f * (float)s;
+                drawLineQuad(bx, by, bx + cosf(d) * arm, by + sinf(d) * arm, 2.0f, br, bg, bb, 0.95f * ra);
+            }
+        }
     }
-    if (hold > 0.0f)   // the aimed stream's muzzle star (it stays put while drilling)
-        DrawEnemyNode({ outer.sx[lead], outer.sy[lead], base * 0.30f, 1.0f }, br, bg, bb, hold);
+
+    // The star: two crossed window frames, the silhouette (bold, glowing).
+    const float punch = 1.2f * flash + 0.8f * recoil;
+    const float frameW = (p2 ? 2.3f : 2.6f) + punch;
+    DrawNormaFrame(x, y, starR, spin, inset, frameW, br, bg, bb, pulse, true, true);
+    DrawNormaFrame(x, y, starR, spinB, inset, frameW, br, bg, bb, pulse, true, true);
+
+    // Struts from the heart out to the star's inner corners (quiet).
+    const float heartR = base * norma_body::kHeart * (p2 ? 1.18f : 1.0f) * (1.0f + 0.35f * exposed) * scale;
+    const float heartSpin = -va * 1.3f + 0.7853982f - hold * visualTime * 3.0f;
+    for (int k = 0; k < 8; ++k) {
+        const float a = spin + 0.3926991f + 0.7853982f * (float)k;
+        const float r0 = heartR * 0.8f, r1 = starR * 0.92f * 0.76f;
+        drawLineQuad(x + cosf(a) * r0, y + sinf(a) * r0, x + cosf(a) * r1, y + sinf(a) * r1,
+                     0.8f, br, bg, bb, p2 ? 0.18f : 0.28f);
+    }
+
+    // Health: one node on each star point (frame A's corners are 0,2,4,6,
+    // frame B's 1,3,5,7, going round). A spent point keeps an empty ring;
+    // the one just lost flashes white.
+    {
+        const int lit = m->normaLitStars;
+        const int outStar = lit < norma::kHealthStars ? norma::kStarOutOrder[lit] : -1;
+        const float outFlash = m->normaStarFlash / norma::kStarOutFlash;
+        bool dark[8] = {};
+        for (int k = lit; k < norma::kHealthStars; ++k) dark[norma::kStarOutOrder[k]] = true;
+        const float nodeR = base * 0.13f * (1.0f + 0.4f * lift);
+        for (int i = 0; i < 8; ++i) {
+            const float a = (i % 2 == 0 ? spin : spinB) + 1.5707963f * (float)(i / 2);
+            const float tx = x + cosf(a) * starR, ty = y + sinf(a) * starR;
+            if (!dark[i]) {
+                DrawEnemyNode({ tx, ty, nodeR, 1.0f }, br, bg, bb, pulse);
+                continue;
+            }
+            DrawEnemyArc(tx, ty, nodeR * 0.72f, 0.0f, 6.2831853f, 16, br, bg, bb, 0.45f, 1.1f, false);
+            drawCircle(tx, ty, nodeR * 0.16f, br, bg, bb, 0.30f);
+            if (i == outStar && outFlash > 0.0f) {
+                const float t = 1.0f - outFlash;
+                DrawEnemyArc(tx, ty, nodeR * (0.8f + 2.2f * t), 0.0f, 6.2831853f, 24,
+                             1.0f, 1.0f, 1.0f, 0.9f * outFlash, 2.0f, false);
+                drawCircle(tx, ty, nodeR * 0.9f * outFlash, 1.0f, 1.0f, 1.0f, 0.8f * outFlash);
+            }
+        }
+    }
+
+    if (hold > 0.0f) {   // the muzzle: a bright node on the star point facing the aim
+        const float md = starR + hold * base * 0.12f;
+        DrawEnemyNode({ x + cosf(m->normaAimAngle) * md, y + sinf(m->normaAimAngle) * md,
+                        base * (0.24f + 0.26f * recoil), 1.0f }, br, bg, bb, hold);
+        if (recoil > 0.0f) {   // a short flare out of the gap with each shot
+            const float ux = cosf(m->normaAimAngle), uy = sinf(m->normaAimAngle);
+            drawLineQuad(x + ux * md, y + uy * md, x + ux * (md + base * 1.6f * recoil), y + uy * (md + base * 1.6f * recoil),
+                         2.4f, 1.0f, 1.0f, 1.0f, 0.8f * recoil);
+        }
+    }
+    // The square heart, counter-turning; in phase 2 a second square turned
+    // 45deg joins it (a small star: the heart takes over from the shell).
+    DrawNormaFrame(x, y, heartR, heartSpin, base * 0.08f, 1.8f + 0.6f * exposed, br, bg, bb,
+                   0.9f * pulse, true, true);
+    if (p2)
+        DrawNormaFrame(x, y, heartR, heartSpin + 0.7853982f, base * 0.08f, 1.4f, br, bg, bb,
+                       0.75f * pulse, false, false);
     const float flare = exposed * (0.5f + 0.5f * sinf(visualTime * 18.0f));
-    DrawEnemyCore(x, y, base * ((p2 ? 0.48f : 0.40f) + 0.20f * exposed), br, bg, bb,
+    DrawEnemyCore(x, y, base * ((p2 ? 0.44f : 0.38f) + 0.20f * exposed + 0.12f * hold), br, bg, bb,
                   0.85f + 0.15f * pulse + 0.3f * flare, false);
 
     // The panes' corner brackets orbit the body only while it handles panes
@@ -2697,11 +2688,10 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
     // out from the body as they appear and fold back in as they go.
     const float ring = m->normaRingShow;
     if (ring > 0.01f) {
-        const float orbit = base * 2.9f * (0.6f + 0.4f * ring);
+        const float orbit = base * 2.75f * (0.6f + 0.4f * ring);
         const float arm = base * 0.45f;
-        const float spin = va;
         for (int k = 0; k < 4; ++k) {
-            const float a = spin + 0.7853982f + 1.5707963f * (float)k;
+            const float a = va + 0.7853982f + 1.5707963f * (float)k;
             const float bx = x + cosf(a) * orbit, by = y + sinf(a) * orbit;
             const float ia = a + 3.14159265f;   // arms point back toward the body
             const float a1 = ia - 0.7853982f, a2 = ia + 0.7853982f;
@@ -2716,7 +2706,8 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
         for (int i = 0; i < 12; ++i) {
             const float a = 6.2831853f * (float)i / 12.0f + 0.13f * (float)i;
             const float phase = fmodf(visualTime * 1.8f + (float)i * 0.37f, 1.0f);
-            const float r0 = half * (2.6f - 1.4f * phase), r1 = r0 - half * 0.35f;
+            // From well outside the ring in to just past it (ring: 1.16 half).
+            const float r0 = half * (2.0f - 0.8f * phase), r1 = r0 - half * 0.25f;
             const float al = charge * (1.0f - phase) * 0.8f;
             drawLineQuad(x + cosf(a) * r0, y + sinf(a) * r0, x + cosf(a) * r1, y + sinf(a) * r1,
                          1.4f, r, g, b, al);
@@ -2827,6 +2818,8 @@ void drawMob(const Monster* m, float visualTime) {
     }
     if (m->kind == MobKind::NORMA) {
         DrawNormaBody(m, base, visualTime);
+    } else if (m->kind == MobKind::CAELUM) {
+        caelum_draw::DrawBody(m, base, visualTime);
     } else if (m->kind == MobKind::GENESIS) {
         DrawGenesisLauncher(m, base, visualTime);
     } else if (m->kind == MobKind::GRAVIS) {

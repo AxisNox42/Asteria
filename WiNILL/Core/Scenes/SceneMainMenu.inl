@@ -256,7 +256,7 @@ void Scene_MainMenu(const SceneCtx& c) {
             s_MainMenuSettingsPanel = true;
             break;
         case kMainMenuTutorialIndex:
-            // Practice field straight from the lobby; Space/ESC come back.
+            // Practice field straight from the lobby; Space starts an Easy run, ESC comes back.
             c.reset();
             FinalizeLoadout(c, FixedWeaponForSelectedJob(), true);
             break;
