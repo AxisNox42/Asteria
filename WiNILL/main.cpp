@@ -156,10 +156,6 @@ static int  g_PaneTestId = 0;
 // glow and marks are not drawn where a front pane covers them.
 static std::vector<os_pane::Rect> g_PaneCover;
 
-// CAELUM's corrupted window (caelum::g.win*): a real pane the game opens and
-// moves for it. It is no space: NORMA's rules, brackets and wear skip it.
-static int g_CaelumPaneId = 0;
-static bool IsCaelumPane(int id) { return id != 0 && id == g_CaelumPaneId; }
 
 // hud_lines::Segment minus the parts inside g_PaneCover.
 static void PaneSeg(float x0, float y0, float x1, float y1, float w, hud_lines::Rgb c, float a) {
@@ -341,7 +337,7 @@ static void DrawPaneBrackets() {
     bool any = false;
     const hud_lines::Rgb ice{ 0.72f, 0.94f, 1.0f };
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open || p.minimized || p.covered || IsCaelumPane(p.id)) continue;
+        if (!p.open || p.minimized || p.covered) continue;
         if (!any) { BindMainShader(); any = true; }
         g_PaneCover.clear();
         for (const os_pane::Pane& q : os_pane::Panes())
@@ -519,7 +515,7 @@ float g_MuzzleX = 0.0f, g_MuzzleY = 0.0f, g_MuzzleAng = 0.0f, g_MuzzleTimer = 0.
 static void RebuildPaneSpaces(const SpatialBounds& player) {
     std::vector<const os_pane::Pane*> order;
     for (const os_pane::Pane& p : os_pane::Panes())
-        if (p.open && !p.minimized && !p.covered && !IsCaelumPane(p.id)) order.push_back(&p);
+        if (p.open && !p.minimized && !p.covered) order.push_back(&p);
     std::sort(order.begin(), order.end(),
               [](const os_pane::Pane* a, const os_pane::Pane* b) { return a->zRank < b->zRank; });
     space::g_Regions.clear();
@@ -1344,32 +1340,6 @@ static void PlayCaelumEvents() {
     caelum::g_Events.clear();
 }
 
-// Keeps CAELUM's window where the rules have it: opens it (locked: it won't
-// close), moves it and glitches its contents; closes it once the rules let go
-// (the pattern ended, a phase change, the boss gone).
-static void TickCaelumPane() {
-    if (!caelum::g.active || !caelum::g.winOpen) {
-        if (g_CaelumPaneId != 0) { os_pane::Close(g_CaelumPaneId); g_CaelumPaneId = 0; }
-        return;
-    }
-    const float x = W2SX(caelum::g.winX), y = W2SY(caelum::g.winY);
-    const float w = W2SX(caelum::g.winX + caelum::g.winW) - x, h = W2SY(caelum::g.winY + caelum::g.winH) - y;
-    static float s_W = 0.0f, s_H = 0.0f;   // the size last given, so a resize happens only when it changes
-    if (g_CaelumPaneId == 0) {
-        g_CaelumPaneId = std::max(0, os_pane::Open(x, y, w, h));
-        if (g_CaelumPaneId != 0) os_pane::SetLocked(g_CaelumPaneId, true);
-        s_W = w; s_H = h;
-        return;
-    }
-    if (std::fabs(w - s_W) >= 1.0f || std::fabs(h - s_H) >= 1.0f) {   // the cursor is dragging an edge
-        os_pane::Resize(g_CaelumPaneId, std::round(x), std::round(y), std::round(w), std::round(h));
-        s_W = w; s_H = h;
-    } else {
-        os_pane::Place(g_CaelumPaneId, std::round(x), std::round(y));
-    }
-    os_pane::SetUnstable(g_CaelumPaneId, 0.85f);
-}
-
 // CAELUM's fall: called from the death pass (a dead mob is gone by the next frame).
 static void PlayCaelumFall(float x, float y) {
     const float ar = 1.0f, ag = 0.82f, ab = 0.50f;
@@ -2025,7 +1995,7 @@ static void ApplyPaneAbsorbs() {
     }
     space::g_Absorbed.clear();
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open || IsCaelumPane(p.id)) continue;
+        if (!p.open) continue;
         const float left = PaneDurabilityLeft(p);
         // Worn out: light the fuse once. Low: the contents start to waver.
         if (left <= 0.0f) LightPaneFuse(p.id);
@@ -3417,7 +3387,6 @@ int main() {
         ServeNormaAsks(playerWin);
         PlayNormaEvents();
         PlayCaelumEvents();
-        TickCaelumPane();
         if (caelum::g.pushX != 0.0f || caelum::g.pushY != 0.0f) {   // CAELUM's wave shoves the player
             ApplyPlayerKnockback(caelum::g.pushX, caelum::g.pushY);
             caelum::g.pushX = caelum::g.pushY = 0.0f;
@@ -4393,7 +4362,7 @@ int main() {
                             }
                         }
                     } else if (step.rfind("CAELUMTEST=", 0) == 0) {
-                        // CAELUMTEST=SPREAD|SCAN|WINDOW|SHOT|DRAG|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
+                        // CAELUMTEST=SPREAD|SCAN|SMEAR|SHOT|DRAG|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
                         // in mid-screen and start that pattern now (P2: phase 2 by
                         // health; ERODE: phase 2 rules at once; OVERFLOW: corrupt
                         // enough cells for the file to break).
@@ -4450,7 +4419,7 @@ int main() {
                             } else {
                                 const caelum::Pattern p = arg == "SPREAD" ? caelum::Pattern::Spread
                                                         : arg == "SCAN" ? caelum::Pattern::Scanline
-                                                        : arg == "WINDOW" ? caelum::Pattern::Window
+                                                        : arg == "SMEAR" ? caelum::Pattern::Smear
                                                         : arg == "DRAG" ? caelum::Pattern::Drag
                                                         : arg == "SHOT" ? caelum::Pattern::Shot
                                                         : caelum::Pattern::None;

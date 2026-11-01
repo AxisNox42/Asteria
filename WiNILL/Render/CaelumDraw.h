@@ -107,19 +107,20 @@ struct FieldGrid {
     std::vector<float> v;
     float at(int i, int j) const { return v[(size_t)j * nx + i]; }
 };
-inline void BuildField(FieldGrid& fg, const float* w, float time) {
+inline void BuildField(FieldGrid& fg, const float* w, float time, bool carry = false) {
     using namespace caelum;
     fg.nx = (int)(g_W / FieldGrid::kStep) + 2;
     fg.ny = (int)(g_H / FieldGrid::kStep) + 2;
     fg.v.assign((size_t)fg.nx * fg.ny, 0.0f);
     int list[kMaxCols * kMaxRows], n = 0;
     for (int i = 0; i < CellCount(); ++i) if (w[i] > 0.001f) list[n++] = i;
-    fg.any = n > 0;
+    carry = carry && g.carrying;
+    fg.any = n > 0 || carry;
     if (!fg.any) return;
     for (int j = 0; j < fg.ny; ++j)
         for (int i = 0; i < fg.nx; ++i) {
             const float x = (float)i * FieldGrid::kStep, y = (float)j * FieldGrid::kStep;
-            float f = 0.0f;
+            float f = carry ? CarryField(x, y, time) : 0.0f;
             for (int k = 0; k < n; ++k) f += w[list[k]] * BlobField(list[k], x, y, time);
             fg.v[(size_t)j * fg.nx + i] = f;
         }
@@ -197,7 +198,6 @@ inline void DrawCorruptionLayer() {
     if (!g.active) return;
     float wc[kMaxCols * kMaxRows] = {}, ww[kMaxCols * kMaxRows] = {}, wb[kMaxCols * kMaxRows] = {}, wp[kMaxCols * kMaxRows] = {};
     const bool overflowing = g.overflowT >= 0.0f;
-    const bool deleting = false;   // (the window corrupts as it goes: no preview needed)
     g_WarnU = 0.0f;
     for (int i = 0; i < CellCount(); ++i) {
         const Cell& c = g.cells[i];
@@ -209,9 +209,9 @@ inline void DrawCorruptionLayer() {
             g_WarnU = std::max(g_WarnU, u);
         }
         if (c.bad) wb[i] = 1.0f;
-        if ((overflowing && !Hurts(c) && OverflowReach(i)) || (deleting && WinCovers(i))) wp[i] = 1.0f;
+        if (overflowing && !Hurts(c) && OverflowReach(i)) wp[i] = 1.0f;
     }
-    BuildField(g_Corrupt, wc, g.time);
+    BuildField(g_Corrupt, wc, g.time, true);
     BuildField(g_Warn, ww, g.time);
     BuildField(g_Bad, wb, g.time);
     BuildField(g_Preview, wp, g.time);
@@ -252,7 +252,7 @@ inline void DrawOverlay(float time) {
         const float flick = 0.6f + 0.4f * std::sin(time * 30.0f);
         FieldContour(g_Warn, kPuddleEdge, 1.6f + 1.4f * g_WarnU, H[0], H[1], H[2], (0.4f + 0.5f * g_WarnU) * flick);
         FieldContour(g_Warn, 0.85f, 1.0f, A[0], A[1], A[2], 0.25f * flick);
-        // Previews: where the overflow will swell, or a window's delete lands.
+        // Preview: where the overflow will swell.
         if (overflowing && g.overflowT < kOverflowTele) {
             const float u = g.overflowT / kOverflowTele;
             FieldContour(g_Preview, kPuddleEdge, 1.6f, H[0], H[1], H[2], (0.3f + 0.6f * u) * pulse);
@@ -260,10 +260,6 @@ inline void DrawOverlay(float time) {
         } else if (bursting) {
             const float u = std::clamp((g.overflowT - kOverflowTele) / kOverflowBurst, 0.0f, 1.0f);
             FieldContour(g_Preview, kPuddleEdge, 3.5f * (1.0f - u) + 1.0f, H[0], H[1], H[2], 1.0f - u);
-        } else if (g.pattern == Pattern::Window && g.acting && g.winOpen) {
-            const float u = std::clamp(g.t / WinClose(), 0.0f, 1.0f);
-            FieldContour(g_Preview, kPuddleEdge, 1.4f, H[0], H[1], H[2], 0.25f + 0.45f * u);
-            FieldRows(g_Preview, kPuddleEdge, 3, 1.0f, A[0], A[1], A[2], 0.10f + 0.25f * u);
         }
     }
 
@@ -291,26 +287,13 @@ inline void DrawOverlay(float time) {
         }
     }
 
-    // 3 Window: the box the cursor drags out; then brackets riding the open
-    // window, its title bar lit while the cursor drags it, and the close
-    // button once the cursor heads there.
-    if (g.pattern == Pattern::Window && g.acting) {
-        if (g.t >= kWinPress && !g.winOpen && g.step < 3) {
-            Box(g.winX, g.winY, g.winW, g.winH, 1.4f, H[0], H[1], H[2], 0.85f);
-            Corners(g.winX, g.winY, g.winW, g.winH, 22.0f, 2.4f, H[0], H[1], H[2], 0.9f);
-        } else if (g.winOpen) {
-            Corners(g.winX - 6.0f, g.winY - 6.0f, g.winW + 12.0f, g.winH + 12.0f, 34.0f, 3.0f, H[0], H[1], H[2], 0.9f);
-            // (what it takes when deleted is drawn with the puddles, as a preview)
-            if (g.step == 1)
-                Seg(g.winX + 4.0f, g.winY + 28.0f, g.winX + g.winW - 4.0f, g.winY + 28.0f, 2.4f, H[0], H[1], H[2], 0.6f + 0.4f * pulse);
-            if (g.step == 2) {
-                float cx, cy;
-                CloseSpot(cx, cy);
-                Box(cx - 17.0f, cy - 12.0f, 34.0f, 24.0f, 2.0f, H[0], H[1], H[2], pulse);
-                Seg(cx - 6.0f, cy - 6.0f, cx + 6.0f, cy + 6.0f, 2.0f, H[0], H[1], H[2], pulse);
-                Seg(cx + 6.0f, cy - 6.0f, cx - 6.0f, cy + 6.0f, 2.0f, H[0], H[1], H[2], pulse);
-            }
-        }
+    // 3 Smear: the cursor's grip closing on the puddle it will lift.
+    if (g.pattern == Pattern::Smear && g.acting && g.step == 0 && g.t >= kSmearReach * 0.5f) {
+        float x, y;
+        CellCentre(g.smearCell, x, y);
+        const float u = std::clamp((g.t - kSmearReach * 0.5f) / (kSmearGrab - kSmearReach * 0.5f), 0.0f, 1.0f);
+        Ring(x, y, 170.0f - 80.0f * u, 3.4f, D[0], D[1], D[2], 0.2f + 0.2f * u, 48);
+        Ring(x, y, 170.0f - 80.0f * u, 2.0f, H[0], H[1], H[2], 0.4f + 0.6f * u, 48);
     }
 
     // 5 Drag: the cursor's grip closing on the body, then each stroke's path

@@ -16,10 +16,10 @@
 //              generation
 //   2 Scanline (gimmick) the cursor drag-selects a stretch of the row (or
 //              column) through the player, leaving one gap to cross by
-//   3 Window   (gimmick) the cursor draws a real window, then grabs its title
-//              bar and drags it after the player: every cell it passes over
-//              corrupts, and it shrinks with every cell it travels; once small
-//              the cursor clicks it closed
+//   3 Smear    (gimmick) the cursor grabs a puddle far from the player, lifts
+//              it and drags it after the player: it hurts as it goes, smears
+//              corruption along its way and shrinks with every cell it
+//              travels; once small the cursor lets go
 //   4 Snipe    (sniper form) single very fast shots at where the player is
 //              going (their movement led by the flight time); the cell each
 //              lands in starts to corrupt
@@ -68,8 +68,8 @@ constexpr float kExposeSeconds = 1.1f;      // opening after every pattern
 constexpr float kExposeDamage = 1.5f;
 constexpr int   kHealthHandles = 8;
 
-enum class Pattern { None = 0, Spread = 1, Scanline = 2, Window = 3, Shot = 4, Drag = 5 };
-// Window: a = 0 when it opens, 1 when it goes. Morph: a = the new form.
+enum class Pattern { None = 0, Spread = 1, Scanline = 2, Smear = 3, Shot = 4, Drag = 5 };
+// Window: a = 0 when a puddle is lifted, 1 when it is dropped. Morph: a = the new form.
 enum class Fx { Seed, Window, Fire, Overflow, Wave, Morph, PhaseShift };
 struct Event { Fx fx; float x = 0.0f, y = 0.0f, a = 0.0f; };
 inline std::vector<Event> g_Events;
@@ -144,25 +144,21 @@ constexpr float kGenStep = 0.55f;
 constexpr float kScanRate = 12.0f;          // cells per second
 constexpr int   kScanLen = 5;
 
-// ── 3 Window ────────────────────────────────────────────────
-// The cursor goes to a spot away from the player and drags out a window (a real
-// one opens when it lets go; the game opens it, see main.cpp). Then it grabs
-// the title bar and drags the window after the player at kWinDragSpeed: every
-// cell the window covers by kWinCover of its area starts to corrupt, so it
-// lays a trail. The window shrinks (about its centre) by kWinShrinkPerCell of
-// its full size for every cell's width it travels; at kWinMinScale (or after
-// kWinDragMax s) the cursor lets go, goes to the close button and clicks.
-constexpr float kWinW = 340.0f, kWinH = 230.0f;
-constexpr float kWinMinDist = 420.0f;       // the spot is this far from the player at least
-constexpr float kWinCover = 0.30f;
-constexpr float kWinDragSpeed = 330.0f, kWinDragSpeedP2 = 420.0f;   // px/s
-constexpr float kWinShrinkPerCell = 0.11f;
-constexpr float kWinMinScale = 0.35f;
-constexpr float kWinDragMax = 6.0f;
-// Seconds into the pattern: at the corner (press), let go (opens), on the
-// title bar (grab). Then the drag, then kWinToClose to the close button.
-constexpr float kWinPress = 0.30f, kWinOpen = 0.85f, kWinGrab = 1.20f;
-constexpr float kWinToClose = 0.70f, kWinTail = 0.50f;
+// ── 3 Smear ─────────────────────────────────────────────────
+// The cursor goes to a corrupted cell kSmearFar or more from the player (or a
+// clean one there, which it clicks corrupt first), presses, and lifts that
+// cell and up to two corrupted neighbours as one free puddle (they dry up
+// where they were). It drags the puddle after the player at kSmearSpeed: the
+// puddle hurts like any other, and every cell it passes over starts to corrupt
+// (a smear). It shrinks by kSmearShrinkPerCell for every cell's width it
+// travels; at kSmearMinScale (or after kSmearMax s) the cursor lets go and the
+// rest soaks into the cell below.
+constexpr float kSmearFar = 420.0f;
+constexpr float kSmearSpeed = 330.0f, kSmearSpeedP2 = 420.0f;   // px/s
+constexpr float kSmearShrinkPerCell = 0.11f;
+constexpr float kSmearMinScale = 0.35f;
+constexpr float kSmearMax = 6.0f;
+constexpr float kSmearReach = 0.35f, kSmearGrab = 0.75f, kSmearTail = 0.50f;   // seconds in
 
 // ── Cursor ──────────────────────────────────────────────────
 // CAELUM's pointer, in both forms. It glides to where it is wanted (kCurFollow,
@@ -300,10 +296,11 @@ struct State {
     float   dragFromX = 0.0f, dragFromY = 0.0f, dragToX = 0.0f, dragToY = 0.0f;
     bool    comboRing = false;      // the queued combo wave is a ring from the body
 
-    float   winX = 0.0f, winY = 0.0f, winW = 0.0f, winH = 0.0f;   // Window: its frame
-    float   winMoved = 0.0f;        // px the window has been dragged
-    float   winEndT = -1.0f;        // when the drag ended (>= 0), then it is closed
-    bool    winOpen = false;        // the game keeps a real window here while true
+    int     smearCell = 0;          // Smear: the cell it lifts
+    bool    carrying = false;       // a puddle is being dragged
+    float   carryX = 0.0f, carryY = 0.0f, carryScale = 1.0f, carryBase = 1.0f;
+    float   carryMoved = 0.0f;      // px it has been dragged
+    float   carryEndT = 0.0f;       // when the cursor let go
 
     float   curX = -1.0f, curY = -1.0f;   // the cursor (< 0: not placed yet)
     bool    curPress = false;
@@ -351,12 +348,13 @@ inline float BlobField(int cell, float x, float y, float time) {
     const float q = 1.0f - d2 / (R * R);
     return q > 0.0f ? q * q : 0.0f;
 }
-// The field of the cells that hurt (corrupted ones) at (x, y).
+inline float CarryField(float x, float y, float time);
+// The field of the cells that hurt (corrupted ones, and a dragged puddle) at (x, y).
 inline float HurtField(float x, float y) {
     float f = 0.0f;
     for (int i = 0; i < CellCount(); ++i)
         if (Hurts(g.cells[i])) f += BlobField(i, x, y, g.time);
-    return f;
+    return f + CarryField(x, y, g.time);
 }
 inline bool InPuddle(float x, float y) { return HurtField(x, y) >= kPuddleEdge; }
 
@@ -407,7 +405,7 @@ inline void ClearHazards() {
     g.frontier.clear(); g.scans.clear(); g.shots.clear();
     g.overflowT = -1.0f; g.dwell = 0.0f;
     g.waveT = -1.0f; g.waveCd = kWaveEvery; g.comboQueued = false;
-    g.winOpen = false;
+    g.carrying = false;
     g.morph = -1.0f;
 }
 
@@ -528,12 +526,12 @@ inline Form FormFor(Pattern p) { return p == Pattern::Shot ? Form::Sniper : Form
 // Two board patterns (corrupt form), then a snipe (sniper form), and again.
 inline Pattern PickPattern() {
     static const Pattern p1[] = { Pattern::Spread, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Window, Pattern::Spread, Pattern::Shot,
-                                  Pattern::Scanline, Pattern::Window, Pattern::Shot };
+                                  Pattern::Smear, Pattern::Spread, Pattern::Shot,
+                                  Pattern::Scanline, Pattern::Smear, Pattern::Shot };
     // Phase 2: the drag joins in.
     static const Pattern p2[] = { Pattern::Spread, Pattern::Drag, Pattern::Shot,
-                                  Pattern::Window, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Drag, Pattern::Window, Pattern::Spread, Pattern::Shot };
+                                  Pattern::Smear, Pattern::Scanline, Pattern::Shot,
+                                  Pattern::Drag, Pattern::Smear, Pattern::Spread, Pattern::Shot };
     const Pattern* list = g.phase == 2 ? p2 : p1;
     const int n = g.phase == 2 ? (int)(sizeof(p2) / sizeof(p2[0])) : (int)(sizeof(p1) / sizeof(p1[0]));
     Pattern pick = list[g.count % n];
@@ -623,69 +621,80 @@ inline bool TickScans(float dt) {
     return running;
 }
 
-// Window: a spot away from the player, inside the screen (its top-left; the
-// cursor drags the rest out from there).
-inline void StartWindow(float px, float py) {
-    float best = -1.0f;
-    for (int tries = 0; tries < 24; ++tries) {
-        const float x = RndRange(20.0f, std::max(20.0f, g_W - kWinW - 20.0f));
-        const float y = RndRange(20.0f, std::max(20.0f, g_H - kWinH - 20.0f));
-        const float d = std::hypot(x + kWinW * 0.5f - px, y + kWinH * 0.5f - py);
-        if (d > best) { best = d; g.winX = x; g.winY = y; }
-        if (d >= kWinMinDist) break;
+// Smear: a corrupted cell far from the player to lift (a clean one there if
+// none is corrupted).
+inline void StartSmear(float px, float py) {
+    g.carrying = false;
+    g.carryMoved = 0.0f;
+    int best = -1;
+    float bestD = -1.0f;
+    for (int pass = 0; pass < 2 && best < 0; ++pass) {
+        for (int i = 0; i < CellCount(); ++i) {
+            const Cell& c = g.cells[i];
+            if (c.bad || (pass == 0 ? !Hurts(c) : c.state != CellState::Clean)) continue;
+            float x, y;
+            CellCentre(i, x, y);
+            const float d = std::hypot(x - px, y - py);
+            if (d < kSmearFar) continue;
+            const float score = d + RndRange(0.0f, kCell);   // some variety
+            if (score > bestD) { bestD = score; best = i; }
+        }
     }
-    g.winW = g.winH = 1.0f;
-    g.winOpen = false;
-    g.winMoved = 0.0f;
-    g.winEndT = -1.0f;
+    g.smearCell = best >= 0 ? best : rand() % CellCount();
 }
-// When the cursor clicks it closed (far off while it is still being dragged).
-inline float WinClose() { return g.winEndT >= 0.0f ? g.winEndT + kWinToClose : 1.0e6f; }
-// True when the window covers kWinCover of the cell (it corrupts when deleted).
-inline bool WinCovers(int cell) {
-    float x, y, w, h;
-    CellRect(cell, x, y, w, h);
-    const float ox = std::min(x + w, g.winX + g.winW) - std::max(x, g.winX);
-    const float oy = std::min(y + h, g.winY + g.winH) - std::max(y, g.winY);
-    return ox > 0.0f && oy > 0.0f && ox * oy >= kWinCover * w * h;
+// The free puddle's field: a wobbling blob round the cursor, sloshing faster
+// than the still ones.
+inline float CarryField(float x, float y, float time) {
+    if (!g.carrying) return 0.0f;
+    const float dx = x - g.carryX, dy = y - g.carryY, d2 = dx * dx + dy * dy;
+    const float R0 = kBlobReach * g.carryScale;
+    if (d2 >= R0 * R0 * 1.45f) return 0.0f;
+    const float a = std::atan2(dy, dx);
+    const float R = R0 * (1.0f + 0.12f * std::sin(3.0f * a + time * 2.4f) + 0.07f * std::sin(5.0f * a - time * 1.9f));
+    const float q = 1.0f - d2 / (R * R);
+    return q > 0.0f ? 1.1f * q * q : 0.0f;
 }
-// The middle of the title bar, where the cursor holds it.
-inline void TitleSpot(float& x, float& y) { x = g.winX + g.winW * 0.5f; y = g.winY + 14.0f; }
-// The close button, top right of the title bar.
-inline void CloseSpot(float& x, float& y) { x = g.winX + g.winW - 22.0f; y = g.winY + 15.0f; }
-inline void TickWindow(float dt, float px, float py) {
+inline void TickSmear(float dt, float px, float py) {
     const float t = g.t;
-    if (t >= kWinPress && t < kWinOpen) {             // dragging it out
-        const float u = Smooth((t - kWinPress) / (kWinOpen - kWinPress));
-        g.winW = std::max(1.0f, kWinW * u); g.winH = std::max(1.0f, kWinH * u);
-    } else if (t >= kWinOpen && !g.winOpen && g.step == 0) {
-        g.winW = kWinW; g.winH = kWinH;
-        g.winOpen = true;
-        Click(g.winX + g.winW, g.winY + g.winH);
-        g_Events.push_back({ Fx::Window, g.winX + g.winW * 0.5f, g.winY + g.winH * 0.5f, 0.0f });
+    if (t >= kSmearGrab && g.step == 0) {               // lift it
+        g.step = 1;
+        Cell& c = g.cells[g.smearCell];
+        if (!Hurts(c)) { c.state = CellState::Corrupt; c.t = 0.0f; c.life = 1.0f; }   // clicked corrupt
+        int lifted = 0;
+        int nb[4];
+        const int n = Neighbours(g.smearCell, nb);
+        for (int k = 0; k < n && lifted < 2; ++k) {
+            Cell& o = g.cells[nb[k]];
+            if (Hurts(o) && !o.bad) { o.state = CellState::Heal; o.t = 0.0f; ++lifted; }
+        }
+        c.state = CellState::Heal; c.t = 0.0f;
+        CellCentre(g.smearCell, g.carryX, g.carryY);
+        g.carryBase = g.carryScale = 1.0f + 0.2f * (float)lifted;
+        g.carrying = true;
+        Click(g.carryX, g.carryY);
+        g_Events.push_back({ Fx::Window, g.carryX, g.carryY, 0.0f });
     }
-    if (t >= kWinGrab && g.step == 0) g.step = 1;
-    if (g.step == 1) {                                 // dragged after the player, shrinking
-        const float cx = g.winX + g.winW * 0.5f, cy = g.winY + g.winH * 0.5f;
-        const float dx = px - cx, dy = py - cy, d = std::hypot(dx, dy);
-        const float step = std::min(d, (g.phase == 2 ? kWinDragSpeedP2 : kWinDragSpeed) * dt);
-        float nx = cx, ny = cy;
-        if (d > 1.0f) { nx += dx / d * step; ny += dy / d * step; }
-        g.winMoved += step;
-        const float sc = std::max(kWinMinScale, 1.0f - kWinShrinkPerCell * g.winMoved / kCell);
-        g.winW = kWinW * sc; g.winH = kWinH * sc;
-        g.winX = std::clamp(nx - g.winW * 0.5f, 0.0f, std::max(0.0f, g_W - g.winW));
-        g.winY = std::clamp(ny - g.winH * 0.5f, 0.0f, std::max(0.0f, g_H - g.winH));
-        for (int i = 0; i < CellCount(); ++i) if (WinCovers(i)) Infect(i);   // the trail
-        if (sc <= kWinMinScale || t >= kWinGrab + kWinDragMax) { g.step = 2; g.winEndT = t; }
-    }
-    if (g.step == 2 && t >= WinClose()) {              // closed
-        g.step = 3;
-        float cx, cy;
-        CloseSpot(cx, cy);
-        Click(cx, cy);
-        g.winOpen = false;
-        g_Events.push_back({ Fx::Window, g.winX + g.winW * 0.5f, g.winY + g.winH * 0.5f, 1.0f });
+    if (g.step == 1) {                                 // dragged after the player
+        const float dx = px - g.carryX, dy = py - g.carryY, d = std::hypot(dx, dy);
+        const float step = std::min(d, (g.phase == 2 ? kSmearSpeedP2 : kSmearSpeed) * dt);
+        if (d > 1.0f) { g.carryX += dx / d * step; g.carryY += dy / d * step; }
+        g.carryMoved += step;
+        g.carryScale = std::max(kSmearMinScale, g.carryBase - kSmearShrinkPerCell * g.carryMoved / kCell);
+        // The smear: cells whose centre the puddle's rim reaches start to corrupt.
+        const float rim = kBlobReach * 0.54f * g.carryScale;
+        for (int i = 0; i < CellCount(); ++i) {
+            float x, y;
+            CellCentre(i, x, y);
+            if (std::hypot(x - g.carryX, y - g.carryY) < rim + kCell * 0.25f) Infect(i);
+        }
+        if (g.carryScale <= kSmearMinScale || t >= kSmearGrab + kSmearMax) {   // let go
+            g.step = 2;
+            g.carrying = false;
+            Infect(CellAt(g.carryX, g.carryY), 0.3f);
+            Click(g.carryX, g.carryY);
+            g_Events.push_back({ Fx::Window, g.carryX, g.carryY, 1.0f });
+            g.carryEndT = t;
+        }
     }
 }
 
@@ -728,12 +737,11 @@ inline void CursorWant(float px, float py, float& tx, float& ty, bool& press, bo
             exact = g.t >= kDragGrab;
         }
         break;
-    case Pattern::Window:
-        if (g.t < kWinPress) { tx = g.winX; ty = g.winY; }
-        else if (g.t < kWinOpen) { tx = g.winX + g.winW; ty = g.winY + g.winH; press = exact = true; }
-        else if (g.step == 0) { TitleSpot(tx, ty); }                          // heading for the title bar
-        else if (g.step == 1) { TitleSpot(tx, ty); press = exact = true; }   // dragging it
-        else if (g.step == 2) { CloseSpot(tx, ty); press = g.t >= WinClose() - kClickHold; }
+    case Pattern::Smear:
+        if (g.step == 0) {
+            CellCentre(g.smearCell, tx, ty);
+            press = g.t >= kSmearReach;
+        } else if (g.step == 1) { tx = g.carryX; ty = g.carryY; press = exact = true; }
         break;
     default: break;
     }
@@ -846,7 +854,7 @@ inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
         AddScan(rand() % 2 == 0, px, py);
         if (g.phase == 2) AddScan(!g.scans[0].horiz, px, py);
         break;
-    case Pattern::Window: StartWindow(px, py); break;
+    case Pattern::Smear: StartSmear(px, py); break;
     default: break;
     }
 }
@@ -1028,15 +1036,11 @@ inline void RunPattern(float dt, float px, float py) {
         if (g.t >= g.scanDoneAt + WarnTime() + 0.3f) { g.scans.clear(); EndPattern(); }
         break;
     }
-    case Pattern::Window:
-        TickWindow(dt, px, py);
-        // Combo: as the cursor heads for close, shove the player toward the window.
-        if (g.step >= 2 && !g.comboSent) {
-            const float dx = g.winX + g.winW * 0.5f - px, dy = g.winY + g.winH * 0.5f - py;
-            if (std::fabs(dx) < g.winW * 0.5f && std::fabs(dy) < g.winH * 0.5f) QueueShove();
-            else { float nx, ny; Snap8(dx, dy, nx, ny); QueueShove(nx, ny); }
-        }
-        if (g.t >= WinClose() + kWinTail) EndPattern();
+    case Pattern::Smear:
+        TickSmear(dt, px, py);
+        // Combo: let go, a shove toward whatever corruption is near.
+        if (g.step == 2 && !g.comboSent) QueueShove();
+        if (g.step == 2 && g.t >= g.carryEndT + kSmearTail) EndPattern();
         break;
     case Pattern::Drag: {
         g.bodyExact = true;
