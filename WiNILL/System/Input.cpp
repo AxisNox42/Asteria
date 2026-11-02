@@ -53,12 +53,11 @@ static bool CodexTextInputActive() {
 }
 
 static bool TextInputActive() {
-    return CodexTextInputActive() || g_DebugToolkit.IsAugmentSearchActive();
+    return CodexTextInputActive();
 }
 
 static void ClearTextComposition() {
     CodexSearchClearComposition();
-    g_DebugToolkit.SetAugmentSearchComposition(L"");
 }
 
 #ifdef _WIN32
@@ -107,18 +106,14 @@ static void ReadCodexImeComposition(HWND hwnd, LPARAM flags) {
     if (flags & GCS_RESULTSTR) {
         const std::wstring result = ReadImeString(context, GCS_RESULTSTR);
         ClearTextComposition();
-        if (g_DebugToolkit.IsAugmentSearchActive()) g_DebugToolkit.InsertAugmentSearchText(result);
-        else {
-            CodexSearchInsertText(result.c_str());
-            CodexCheckDevPhrase();
-        }
+        CodexSearchInsertText(result.c_str());
+        CodexCheckDevPhrase();
     }
     if (flags & (GCS_COMPSTR | GCS_CURSORPOS)) {
         const std::wstring composition = ReadImeString(context, GCS_COMPSTR);
         const LONG cursorPos = ImmGetCompositionStringW(
             context, GCS_CURSORPOS, nullptr, 0);
-        if (g_DebugToolkit.IsAugmentSearchActive()) g_DebugToolkit.SetAugmentSearchComposition(composition);
-        else CodexSearchSetComposition(composition.c_str(), (int)cursorPos);
+        CodexSearchSetComposition(composition.c_str(), (int)cursorPos);
     } else if (!flags) {
         ClearTextComposition();
     }
@@ -265,17 +260,6 @@ static void InputKeyCallback(GLFWwindow* window, int key, int, int action, int m
         if (action == GLFW_PRESS && g_CapturedKey < 0) g_CapturedKey = key;
         return;
     }
-    if (g_DebugToolkit.IsAugmentSearchActive()) {
-        if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
-#ifdef _WIN32
-        if (s_imeComposing) return;
-#endif
-        const bool ctrl = (mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER)) != 0;
-        if (ctrl && key == GLFW_KEY_V)
-            g_DebugToolkit.InsertAugmentSearchText(CodexUtf8ToWide(glfwGetClipboardString(window)));
-        else g_DebugToolkit.EditAugmentSearch(key, ctrl && key == GLFW_KEY_A);
-        return;
-    }
     if (!CodexTextInputActive() || (action != GLFW_PRESS && action != GLFW_REPEAT)) return;
     if (g_CodexSearchCompositionLen > 0) return;
 
@@ -306,10 +290,6 @@ static void InputKeyCallback(GLFWwindow* window, int key, int, int action, int m
 }
 
 static void InputCharCallback(GLFWwindow*, unsigned int cp) {
-    if (g_DebugToolkit.IsAugmentSearchActive()) {
-        if (cp >= 32 && cp <= 0xFFFF) g_DebugToolkit.InsertAugmentSearchText(std::wstring(1, (wchar_t)cp));
-        return;
-    }
     if (g_VolEdit && g_GameManager.currentState == GameState::SETTINGS) {
         if (cp >= L'0' && cp <= L'9' && g_VolLen < 3) {
             g_VolBuf[g_VolLen++] = (wchar_t)cp;

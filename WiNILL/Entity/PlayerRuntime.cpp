@@ -1,50 +1,30 @@
 #include "PlayerRuntime.h"
 
-#include "../Core/Scenes/SceneSkills.h"
 #include "PlayerStats.h"
 #include <algorithm>
 #include <cmath>
 
 PlayerRuntimeState g_PlayerRuntime;
 
-float PlayerSkillCooldownMax(SkillType type) {
-    switch (type) {
-    case SkillType::CLOSE_WINDOW: return 16.0f;
-    case SkillType::HYPER_FOCUS:  return 20.0f;
-    case SkillType::TIME_STOP:    return 28.0f;
-    default:                      return 0.0f;
-    }
-}
-
 void ResetPlayerSkills() {
-    for (int i = 0; i < 3; i++) g_Skills[i] = { SkillType::NONE, 0.0f };
-    g_SkillReplaceIdx = 0;
     g_PlayerRuntime.dashCooldown = 0.0f;
     g_PlayerRuntime.dashCooldownMax = 0.0f;
     g_PlayerRuntime.dashInvulnerability = 0.0f;
     g_PlayerRuntime.dashActive = false;
     g_PlayerRuntime.dashProgress = 0.0f;
-    g_PlayerRuntime.dashBoostShotsLeft = 0;
     g_PlayerRuntime.knockbackVX = g_PlayerRuntime.knockbackVY = 0.0f;
     g_PlayerShield = 0.0f;
     g_PlayerShieldTimer = 0.0f;
-    g_PlayerRuntime.timeStopTimer = 0.0f;
-    g_PlayerRuntime.hyperFocusTimer = 0.0f;
 }
 
 void ResetPlayerInputEdges() {
     g_PlayerRuntime.dashInputHeld = false;
-    for (bool& held : g_PlayerRuntime.skillInputHeld) held = false;
 }
 
 void UpdatePlayerRuntimeTimers(float delta, float dashRecoveryMult) {
     if (g_PlayerRuntime.dashCooldown > 0.0f) g_PlayerRuntime.dashCooldown -= delta * dashRecoveryMult;
     if (g_PlayerRuntime.dashInvulnerability > 0.0f) g_PlayerRuntime.dashInvulnerability -= delta;
     if (g_PlayerRuntime.postPickGrace > 0.0f) g_PlayerRuntime.postPickGrace -= delta;
-    if (g_PlayerRuntime.timeStopTimer > 0.0f) g_PlayerRuntime.timeStopTimer -= delta;
-    if (g_PlayerRuntime.hyperFocusTimer > 0.0f) g_PlayerRuntime.hyperFocusTimer -= delta;
-    for (int i = 0; i < 3; i++)
-        if (g_Skills[i].cd > 0.0f) g_Skills[i].cd -= delta;
 }
 
 float UpdatePlayerMovement(float& playerX, float& playerY,
@@ -97,12 +77,8 @@ void ClampPlayerToViewport(float& playerX, float& playerY,
 }
 
 void ApplyPlayerDamageProtection(float hpBefore, float& hpAfter,
-                                 bool invulnerable, bool lightStep,
-                                 float lightStepHitLock,
-                                 float& lightStepDisableTimer) {
+                                 bool invulnerable) {
     if (invulnerable && hpAfter < hpBefore) hpAfter = hpBefore;
-    if (lightStep && hpAfter < hpBefore)
-        lightStepDisableTimer = lightStepHitLock;
 }
 
 void BeginPlayerDash(float playerX, float playerY,
@@ -118,8 +94,7 @@ void BeginPlayerDash(float playerX, float playerY,
     if (g_PlayerRuntime.dashToY > maxY) g_PlayerRuntime.dashToY = maxY;
     g_PlayerRuntime.dashActive = true;
     g_PlayerRuntime.dashProgress = 0.0f;
-    g_PlayerRuntime.dashCooldown = g_PlayerRuntime.hyperFocusTimer > 0.0f
-        ? HYPER_FOCUS_DASH_CD : DASH_CD;
+    g_PlayerRuntime.dashCooldown = DASH_CD;
     g_PlayerRuntime.dashCooldownMax = g_PlayerRuntime.dashCooldown;
     g_PlayerRuntime.dashInvulnerability = DASH_INVULN;
 }

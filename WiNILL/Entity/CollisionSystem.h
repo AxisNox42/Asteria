@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <unordered_map>
 #include <glm/glm.hpp>
 
 #include "MonsterManager.h"
@@ -30,11 +31,10 @@ inline void SpawnKillStardust(Monster& m, int value, float playerCX, float playe
 }
 
 // A thrown Genesis Swarm's kill, on every kill path: the combo and the codex
-// only — no score, XP/stardust, lifesteal, run kill count (warlord), vampire
-// streak, or 무한 세례 kill.
+// only — no score, XP/stardust or run kill count.
 inline void CreditThrownSwarmKill(Monster& m) {
     m.scored = true;
-    AddKillCombo(/*countsForRain=*/false);
+    AddKillCombo();
     RegisterCodexMobKill(m.kind);
 }
 
@@ -54,8 +54,37 @@ inline void CreditRegularKill(KillRewardSink& s, CodexMobId mobId, float scoreBa
     RegisterCodexMobKill(mobId);
     s.scoreAccum += scoreBase;
     s.score = (long long)s.scoreAccum;
-    s.playerHP = s.stats.ApplyKillLifesteal(s.playerHP);
-    s.playerHP = s.stats.ApplyVampireKill(s.playerHP);
+    if (passive_hooks::kill) passive_hooks::kill();
+}
+
+// An Antares pays nothing until its whole family (the first body and every
+// split fragment) is down: each body's share is held, then the sum drops at
+// the last fragment.
+struct AntaresFamilyReward {
+    int outstanding = 1;      // bodies of the family still to fall
+    XpAmount xp = 0;
+    float score = 0.0f;
+    int stardust = 0;
+};
+inline std::unordered_map<int, AntaresFamilyReward> g_AntaresFamilies;
+
+// Adds this body's share to its family. True (with the family's totals in the
+// arguments) when this was the family's last body.
+inline bool HoldAntaresReward(const Monster& m, XpAmount& xp, float& score, int& stardust) {
+    AntaresFamilyReward& f = g_AntaresFamilies[m.antaresFamily];
+    f.xp += xp;
+    f.score += score;
+    f.stardust += stardust;
+    --f.outstanding;
+    // Same rule as MonsterManager::SpawnAntaresSplits: this body splits.
+    if (!m.noBlast && m.antaresGen < Monster::ANTARES_MAX_GEN)
+        f.outstanding += Monster::ANTARES_SPLIT_COUNT;
+    if (f.outstanding > 0) return false;
+    xp = f.xp;
+    score = f.score;
+    stardust = f.stardust;
+    g_AntaresFamilies.erase(m.antaresFamily);
+    return true;
 }
 
 inline void CollectMonsterKill(KillRewardSink& s, Monster& m) {
@@ -77,8 +106,12 @@ inline void CollectMonsterKill(KillRewardSink& s, Monster& m) {
         pickupXp /= 2;
         scoreBase *= 0.5f;
     }
-    SpawnKillStardust(m, StardustRewardFor(m.kind),
-                      s.playerCX, s.playerCY, pickupXp);
+    int stardust = StardustRewardFor(m.kind);
+    if (m.kind == MobKind::ANTARES && !HoldAntaresReward(m, pickupXp, scoreBase, stardust)) {
+        CreditRegularKill(s, CodexMobIdForKind(m.kind), 0.0f);   // counts as a kill; pays later
+        return;
+    }
+    SpawnKillStardust(m, stardust, s.playerCX, s.playerCY, pickupXp);
     CreditRegularKill(s, CodexMobIdForKind(m.kind), scoreBase);
 }
 
@@ -128,48 +161,6 @@ static inline float SegDist(float px, float py, float ax, float ay,
     return std::sqrt(SegDistSq(px, py, ax, ay, bx, by));
 }
 
-static inline bool RicochetTo(Bullet& bullet, float fromX, float fromY,
-                              MonsterManager& manager) {
-    float bestD2 = 200.0f * 200.0f;
-    float targetX = 0.0f;
-    float targetY = 0.0f;
-    bool found = false;
-    auto consider = [&](float x, float y) {
-        const float dx = x - fromX;
-        const float dy = y - fromY;
-        const float d2 = dx * dx + dy * dy;
-        if (d2 > 4.0f && d2 < bestD2) {
-            bestD2 = d2;
-            targetX = x;
-            targetY = y;
-            found = true;
-        }
-    };
-    for (auto* monster : manager.monsters)
-        if (monster->alive) consider(monster->worldX, monster->worldY);
-    for (auto* ranged : manager.rangedMobs)
-        if (ranged->alive) consider(ranged->worldX, ranged->worldY);
-    if (!found) return false;
-    const float dx = targetX - bullet.x;
-    const float dy = targetY - bullet.y;
-    const float length = std::sqrt(dx * dx + dy * dy);
-    if (length < 1.0f) return false;
-    bullet.dirX = dx / length;
-    bullet.dirY = dy / length;
-    bullet.prevX = bullet.x;
-    bullet.prevY = bullet.y;
-    return true;
-}
-
-static inline float CritRoll(const PlayerStats& stats, bool& isCrit) {
-    if (stats.critChance > 0 && (rand() % 100) < stats.critChance) {
-        isCrit = true;
-        return stats.critMult;
-    }
-    isCrit = false;
-    return 1.0f;
-}
-
 class CollisionSystem {
 public:
     static bool Update(float playerCX, float playerCY,
@@ -189,7 +180,7 @@ public:
                               bullet.x, bullet.y) < hitRadius * hitRadius) {
                     const float damage = bullet.enemyDmg > 0.0f
                         ? bullet.enemyDmg : 10.0f;
-                    HurtPlayer(playerHP, damage * stats.rmobDmgMult *
+                    HurtPlayer(playerHP, damage *
                                          BalanceFor((int)g_Difficulty).rangedDmg);
                     bullet.active = false;
                     playerHit = true;
@@ -204,12 +195,13 @@ public:
             bool consumed = false;
 
             const int shotSpace = bullet.space >= 0 ? bullet.space : space::kPlayerSource;
+            const float shotScale = std::max(1.0f, bullet.sizeScale);
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
-                if (bullet.HasHit(monster)) continue;
+                if (bullet.piercing && bullet.HasHit(monster)) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
                 const float hitRadius = (monster->kind == MobKind::NORMA
-                    ? norma::kShotHitPx : MONSTER_BULLET_HIT_RADIUS) * monster->sizeScale;
+                    ? norma::kShotHitPx : MONSTER_BULLET_HIT_RADIUS) * monster->sizeScale * shotScale;
                 if (monster->worldX < minX - hitRadius || monster->worldX > maxX + hitRadius ||
                     monster->worldY < minY - hitRadius || monster->worldY > maxY + hitRadius)
                     continue;
@@ -218,41 +210,33 @@ public:
                     hitRadius * hitRadius)
                     continue;
 
-                bool isCrit = bullet.lockedDmg > 0.0f && bullet.lockedCrit;
-                const float baseDamage = bullet.lockedDmg > 0.0f
-                    ? bullet.lockedDmg
-                    : stats.GetBaseDamage() * stats.GetDamageMultiplier() *
-                      bullet.dmgMult * CritRoll(stats, isCrit);
+                bool crit = false;
+                const float passiveMult = passive_hooks::bulletDamageMult
+                    ? passive_hooks::bulletDamageMult(bullet, monster, monster->worldX,
+                                                      monster->worldY, crit)
+                    : 1.0f;
+                const float baseDamage = stats.GetBaseDamage() *
+                    stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
                 const float dealt = manager.ApplyDamage(*monster, baseDamage, shotSpace);
-                SpawnDamageNumber(monster->worldX, monster->worldY, dealt,
-                                  isCrit);
+                SpawnDamageNumber(monster->worldX, monster->worldY, dealt, crit);
+                const bool regular = !IsBossMob(monster->kind) && !IsEliteMob(monster->kind);
+                if (monster->alive && passive_hooks::executes &&
+                    passive_hooks::executes(monster, monster->hp, regular))
+                    manager.ApplyDamage(*monster, monster->hp + 1.0f, shotSpace);
                 if (monster->alive && !IsBossMob(monster->kind) && !IsEliteMob(monster->kind) &&
                     !monster->genesisThrown && monster->genesisRotorPhase == 0 &&
                     monster->thrownPhase == 0) {
                     monster->TryHitStun(bullet.dirX, bullet.dirY);
                 }
-                SpawnSparks(bullet.x, bullet.y, isCrit ? 6 : 3,
-                            isCrit ? 1.0f : bullet.color.r,
-                            isCrit ? 0.85f : bullet.color.g,
-                            isCrit ? 0.3f : bullet.color.b);
+                SpawnSparks(bullet.x, bullet.y, crit ? 6 : 3,
+                            bullet.color.r, bullet.color.g, bullet.color.b);
+                if (passive_hooks::bulletHit)
+                    passive_hooks::bulletHit(bullet, monster, monster->worldX,
+                                             monster->worldY, dealt, crit, !monster->alive);
                 if (!monster->alive) CollectMonsterKill(rewards, *monster);
 
-                bool keepAlive = stats.pierce &&
-                    (rand() % 100) < (stats.pierceChance + bullet.pierceBonusPct);
-                if (!keepAlive && bullet.bouncesLeft > 0 &&
-                    (rand() % 100) < stats.ricochetChance &&
-                    RicochetTo(bullet, monster->worldX, monster->worldY, manager)) {
-                    if (bullet.lockedDmg <= 0.0f) {
-                        bullet.lockedDmg = baseDamage;
-                        bullet.lockedCrit = isCrit;
-                    }
-                    --bullet.bouncesLeft;
-                    keepAlive = true;
-                    bullet.ResetHits(monster);  // 튕긴 뒤에는 직전 대상만 제외
-                } else if (keepAlive) {
-                    bullet.RememberHit(monster);
-                }
-                if (!keepAlive) bullet.active = false;
+                if (bullet.piercing) bullet.RememberHit(monster);
+                else                 bullet.active = false;
                 consumed = true;
                 break;
             }
@@ -260,9 +244,9 @@ public:
             if (consumed) continue;
             for (auto* ranged : manager.rangedMobs) {
                 if (!ranged->alive) continue;
-                if (bullet.HasHit(ranged)) continue;
+                if (bullet.piercing && bullet.HasHit(ranged)) continue;
                 if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) continue;
-                constexpr float HIT_RADIUS = 20.0f;
+                const float HIT_RADIUS = 20.0f * shotScale;
                 if (ranged->worldX < minX - HIT_RADIUS || ranged->worldX > maxX + HIT_RADIUS ||
                     ranged->worldY < minY - HIT_RADIUS || ranged->worldY > maxY + HIT_RADIUS)
                     continue;
@@ -271,58 +255,31 @@ public:
                     HIT_RADIUS * HIT_RADIUS)
                     continue;
 
-                bool isCrit = bullet.lockedDmg > 0.0f && bullet.lockedCrit;
-                const float baseDamage = bullet.lockedDmg > 0.0f
-                    ? bullet.lockedDmg
-                    : stats.GetBaseDamage() * stats.GetDamageMultiplier() *
-                      bullet.dmgMult * CritRoll(stats, isCrit);
+                bool crit = false;
+                const float passiveMult = passive_hooks::bulletDamageMult
+                    ? passive_hooks::bulletDamageMult(bullet, ranged, ranged->worldX,
+                                                      ranged->worldY, crit)
+                    : 1.0f;
+                const float baseDamage = stats.GetBaseDamage() *
+                    stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
                 const float dealt = manager.ApplyDamage(*ranged, baseDamage, shotSpace);
-                SpawnDamageNumber(ranged->worldX, ranged->worldY, dealt,
-                                  isCrit);
+                SpawnDamageNumber(ranged->worldX, ranged->worldY, dealt, crit);
+                if (ranged->alive && passive_hooks::executes &&
+                    passive_hooks::executes(ranged, ranged->hp, true))
+                    manager.ApplyDamage(*ranged, ranged->hp + 1.0f, shotSpace);
                 if (ranged->alive) {
                     ranged->TryHitStun(bullet.dirX, bullet.dirY, Monster::HIT_STUN_TIME,
                                        Monster::HIT_STUN_COOLDOWN, Monster::HIT_KNOCK_SPEED);
                 }
-                SpawnSparks(bullet.x, bullet.y, isCrit ? 6 : 3,
-                            isCrit ? 1.0f : bullet.color.r,
-                            isCrit ? 0.85f : bullet.color.g,
-                            isCrit ? 0.3f : bullet.color.b);
-                if (!ranged->alive) {
-                    CollectScopeKill(rewards, *ranged);
-                    if (stats.hackRanged && (rand() % 100) < 20) {
-                        constexpr int COUNT = 5;
-                        for (int i = 0; i < COUNT; ++i) {
-                            const float angle = (float)i / (float)COUNT * 6.2831853f +
-                                ((float)(rand() % 100) - 50.0f) * 0.01f;
-                            Bullet shard(ranged->worldX, ranged->worldY,
-                                         ranged->worldX + cosf(angle) * 100.0f,
-                                         ranged->worldY + sinf(angle) * 100.0f);
-                            shard.speed = stats.bulletSpeed * 0.9f;
-                            shard.homing = true;
-                            shard.homingTurn = 5.5f;
-                            shard.dmgMult = 0.6f;
-                            shard.color = glm::vec3(0.2f, 1.0f, 0.6f);
-                            bullets.push_back(shard);
-                        }
-                    }
-                }
+                SpawnSparks(bullet.x, bullet.y, crit ? 6 : 3,
+                            bullet.color.r, bullet.color.g, bullet.color.b);
+                if (passive_hooks::bulletHit)
+                    passive_hooks::bulletHit(bullet, ranged, ranged->worldX,
+                                             ranged->worldY, dealt, crit, !ranged->alive);
+                if (!ranged->alive) CollectScopeKill(rewards, *ranged);
 
-                bool keepAlive = stats.pierce &&
-                    (rand() % 100) < (stats.pierceChance + bullet.pierceBonusPct);
-                if (!keepAlive && bullet.bouncesLeft > 0 &&
-                    (rand() % 100) < stats.ricochetChance &&
-                    RicochetTo(bullet, ranged->worldX, ranged->worldY, manager)) {
-                    if (bullet.lockedDmg <= 0.0f) {
-                        bullet.lockedDmg = baseDamage;
-                        bullet.lockedCrit = isCrit;
-                    }
-                    --bullet.bouncesLeft;
-                    keepAlive = true;
-                    bullet.ResetHits(ranged);  // 튕긴 뒤에는 직전 대상만 제외
-                } else if (keepAlive) {
-                    bullet.RememberHit(ranged);
-                }
-                if (!keepAlive) bullet.active = false;
+                if (bullet.piercing) bullet.RememberHit(ranged);
+                else                 bullet.active = false;
                 break;
             }
         }

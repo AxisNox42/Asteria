@@ -22,7 +22,7 @@ enum class Kind { None, Memo, Code, Image };
 // A pattern's pane shows a system dialog for its job instead of its own
 // contents, and gets them back when the job ends: the wall's error windows,
 // the countdown's closing notice, the shot box's copy progress.
-enum class Role { None, Error, Shutdown, Copy };
+enum class Role { None, Error, Shutdown, Copy, Safe };
 
 // A worn pane's glitch timer (see Glitch below).
 struct GlitchBurst {
@@ -42,6 +42,13 @@ struct Content {
     int lang = 0;                       // 0 KR, 1 EN, 2 JP (role dialogs)
     std::wstring status;                // title suffix: worn / not responding
     std::wstring windowTitle;           // what the title bar shows now
+    // Decor panes (the blue screen's storm) paint once into `cache` and
+    // glitch by shifting bands of it with BitBlt (GlitchFast), so dozens of
+    // them cost little. OsPane owns the bitmap.
+    bool fast = false;
+    HBITMAP cache = nullptr;
+    int cacheW = 0, cacheH = 0;
+    bool cacheDirty = true;
     std::shared_ptr<const pane_images::Picture> picture;   // image kind; null = line-art chart
 };
 
@@ -367,10 +374,12 @@ inline std::wstring RoleTitle(const Content& c, const wchar_t* base) {
                                               L".exe - アプリケーション エラー" };
     static const wchar_t* const kShut[3] = { L" - 창 닫는 중", L" - Closing window", L" - ウィンドウを閉じています" };
     static const wchar_t* const kCopy[3] = { L" - 탄 복사 중", L" - Copying shots", L" - 弾をコピー中" };
+    static const wchar_t* const kSafe[3] = { L" - 안전 모드", L" - Safe Mode", L" - セーフ モード" };
     switch (c.role) {
     case Role::Error: return std::wstring(base) + kError[l];
     case Role::Shutdown: return std::wstring(base) + kShut[l];
     case Role::Copy: return std::wstring(base) + kCopy[l];
+    case Role::Safe: return std::wstring(base) + kSafe[l];
     default: return c.title;
     }
 }
@@ -524,6 +533,31 @@ inline void PaintCopy(HDC dc, const RECT& r, const Content& c) {
     DeleteObject(font);
 }
 
+// The blue screen's one shelter: "restart in safe mode", with the seconds
+// left before the crash and a bar draining toward it.
+inline void PaintSafe(HDC dc, const RECT& r, const Content& c) {
+    HFONT font = nullptr;
+    HGDIOBJ old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+    const DialogFrame f = BeginDialog(dc, r, c, font);
+    DialogIcon(dc, r.left + 44, r.top + 44, 18, RGB(0, 120, 212), false);
+    const int l = std::clamp(c.lang, 0, 2);
+    static const wchar_t* const kHead[3] = { L"안전 모드로 다시 시작하는 중", L"Restarting in safe mode",
+                                             L"セーフ モードで再起動しています" };
+    Text(dc, f.textX, f.textY, kHead[l], f.ink);
+    static const wchar_t* const kBody[3] = { L"이 창 안에 있으면 오류에서 보호됩니다.",
+        L"Stay inside this window to be protected.", L"このウィンドウの中にいれば保護されます。" };
+    Text(dc, f.textX, f.textY + f.lineH, kBody[l], f.faint);
+    wchar_t line[96];
+    static const wchar_t* const kFmt[3] = { L"남은 시간: %d초", L"Time left: %d s", L"残り時間: %d 秒" };
+    swprintf_s(line, kFmt[l], std::max(0, (int)std::ceil(c.roleA - 0.001f)));
+    Text(dc, f.textX, f.textY + f.lineH * 2 + 6, line, f.ink);
+    const int bw = std::max(40, (int)r.right - f.textX - 24);
+    Progress(dc, f.textX, f.textY + f.lineH * 3 + 14, bw, 14,
+             c.roleB > 0.0f ? c.roleA / c.roleB : 0.0f, Mix(f.paper, f.ink, 0.35f), RGB(0, 120, 212));
+    SelectObject(dc, old);
+    DeleteObject(font);
+}
+
 // ---------------------------------------------------------------- glitch
 // A worn pane glitches in short bursts (the user's band-shift shader, run on
 // the CPU over the client's pixels). Between bursts the pane is clean.
@@ -607,6 +641,35 @@ inline void Glitch(unsigned* px, int w, int h, float u, const GlitchBurst& g) {
     }
 }
 
+// The cheap glitch for decor panes: the same bursts and band rolls as
+// Glitch, but each sliding band is copied from the cached picture with two
+// BitBlts (wrapping round) and edged with a red line above and a cyan line
+// below instead of splitting channels per pixel.
+inline void GlitchFast(HDC dst, HDC src, int w, int h, float u, const GlitchBurst& g) {
+    BitBlt(dst, 0, 0, w, h, src, 0, 0, SRCCOPY);
+    if (u <= 0.0f || w < 16 || h < 16 || !GlitchActive(g)) return;
+    const float fill = std::min(0.85f, 0.15f + u * 0.16f);
+    const float shift = std::min(0.22f, 0.02f + u * 0.05f);
+    const float vshift = std::min(0.09f, 0.01f + u * 0.025f);
+    const int bands = std::max(1, (int)g.bands);
+    for (int row = 0; row < bands; ++row) {
+        const float fr = (float)row;
+        if (GlitchHash(fr * 12.9898f + g.seed) > fill) continue;
+        const float dir = GlitchHash(fr * 78.233f + g.seed) >= 0.5f ? 1.0f : -1.0f;
+        const float mag = 0.3f + 0.7f * GlitchHash(fr * 37.719f + g.seed);
+        const float vdir = GlitchHash(fr * 91.345f + g.seed) >= 0.5f ? 1.0f : -1.0f;
+        const int y0 = h * row / bands, y1 = h * (row + 1) / bands, bh = y1 - y0;
+        int dx = (int)(dir * shift * mag * w) % w;
+        if (dx < 0) dx += w;
+        const int sy = std::clamp(y0 - (int)(vdir * vshift * mag * h), 0, h - bh);
+        // The band read from x - dx: its right part lands at dx, the rest wraps to 0.
+        BitBlt(dst, dx, y0, w - dx, bh, src, 0, sy, SRCCOPY);
+        if (dx > 0) BitBlt(dst, 0, y0, dx, bh, src, w - dx, sy, SRCCOPY);
+        Fill(dst, 0, y0, w, y0 + 1, RGB(232, 40, 52));
+        Fill(dst, 0, y1 - 1, w, y1, RGB(40, 210, 214));
+    }
+}
+
 // The whole client: paper, then the content, then the glitch. Double-buffered
 // in a 32-bit DIB so the glitch can work on the pixels and a worn pane's
 // repaint does not flash.
@@ -632,6 +695,7 @@ inline void Paint(HDC target, const RECT& r, const Content* c, bool darkIfNone) 
         if (c->role == Role::Error) PaintError(dc, local, *c);
         else if (c->role == Role::Shutdown) PaintShutdown(dc, local, *c);
         else if (c->role == Role::Copy) PaintCopy(dc, local, *c);
+        else if (c->role == Role::Safe) PaintSafe(dc, local, *c);
         else if (c->kind == Kind::Memo) PaintMemo(dc, local, *c);
         else if (c->kind == Kind::Code) PaintCode(dc, local, *c);
         else if (c->kind == Kind::Image) PaintImage(dc, local, *c);

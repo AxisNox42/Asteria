@@ -22,7 +22,6 @@
 #include "TextRenderer.h"
 #include "Settings.h"
 #include "Input.h"
-#include "AugmentSlots.h"
 
 extern TextRenderer g_TextS;
 extern TextRenderer g_TextL;
@@ -39,14 +38,6 @@ constexpr float TAB_W = 142.0f;
 constexpr float TAB_GAP = 8.0f;
 constexpr float TAB_H = 32.0f;
 constexpr float CONTENT_Y = 112.0f;
-constexpr float AUG_SEARCH_Y = 118.0f;
-constexpr float AUG_FILTER_Y = 160.0f;
-constexpr float AUG_ROWS_Y = 224.0f;
-constexpr float AUG_BOTTOM = 156.0f;
-const wchar_t* AUG_FILTERS[] = {
-    L"전체", L"보유", L"일반", L"희귀", L"에픽", L"전설",
-    L"디버프", L"특수", L"조합", L"신화"
-};
 constexpr float STATS_RUNTIME_Y = 132.0f;
 constexpr float STATS_RUNTIME_W = 166.0f;
 constexpr float STATS_RUNTIME_GAP = 13.0f;
@@ -56,9 +47,6 @@ constexpr float STATS_CLEAR_W = 96.0f;
 constexpr float STATS_HELP_Y = 198.0f;
 constexpr float STATS_ROWS_Y = 220.0f;
 constexpr float ROW_H = 32.0f;
-int AugmentVisibleRows(float h) {
-    return std::max(1, (int)((h - AUG_ROWS_Y - AUG_BOTTOM) / ROW_H));
-}
 constexpr float SPAWN_COUNT_Y = 136.0f;
 constexpr float SPAWN_CATEGORY_Y = 178.0f;
 constexpr float SPAWN_GRID_Y = 222.0f;
@@ -71,11 +59,10 @@ constexpr float FOOTER_BUTTON_H = 32.0f;
 constexpr float FOOTER_BUTTON_GAP = 12.0f;
 // Stats 탭 푸터 버튼 폭. 입력과 그리기가 같은 표로 위치를 계산한다.
 enum FooterButton { FOOTER_SYNC, FOOTER_BALANCE, FOOTER_HITSTOP, FOOTER_NEXT_WAVE,
-                    FOOTER_ORBIT, FOOTER_DEBUFF_PREVIEW, FOOTER_DEBUFF_LOG, FOOTER_COUNT };
-constexpr float FOOTER_BUTTON_W[FOOTER_COUNT] = { 140.0f, 130.0f, 140.0f, 140.0f, 128.0f,
-                                                  170.0f, 170.0f };
-// Buttons from FOOTER_DEBUFF_PREVIEW on sit in a second row above the first.
-constexpr int FOOTER_ROW2_FIRST = FOOTER_DEBUFF_PREVIEW;
+                    FOOTER_ORBIT, FOOTER_COUNT };
+constexpr float FOOTER_BUTTON_W[FOOTER_COUNT] = { 140.0f, 130.0f, 140.0f, 140.0f, 128.0f };
+// Buttons from FOOTER_ROW2_FIRST on sit in a second row above the first (none now).
+constexpr int FOOTER_ROW2_FIRST = FOOTER_COUNT;
 constexpr float FOOTER_ROW2_LIFT = FOOTER_BUTTON_H + 8.0f;
 inline float FooterButtonX(float panelX, int index) {
     float x = panelX + 16.0f;
@@ -277,70 +264,11 @@ const wchar_t* LocalizedFieldName(const wchar_t* raw) {
         { L"windowSize", L"플레이어 크기" },
         { L"moveSpeedMult", L"이동 속도 배율" },
         { L"regenPerSec", L"초당 회복" },
-        { L"damageReduction", L"피해 감소" },
-        { L"regenLowHpMult", L"저체력 회복 배율" },
-        { L"vampireKillNeed", L"흡혈 필요 처치 수" },
-        { L"lightStepHitLock", L"라이트스텝 피격 잠금" },
         { L"playerSizeMult", L"플레이어 크기 배율" },
         { L"xpMult", L"경험치 배율" },
         { L"bulletSpread", L"탄 퍼짐" },
-        { L"pierceChance", L"관통 확률" },
-        { L"rmobSpawnDelayBonus", L"원거리 생성 지연 보너스" },
-        { L"mobCapBonus", L"웨이브 소환 수 보너스" },
-        { L"totalAugs", L"총 증강 수" },
-        { L"sizeAugTaken", L"크기 증강 획득" },
-        { L"lightStep", L"라이트스텝" },
-        { L"lightStepDisableTimer", L"라이트스텝 비활성 타이머" },
-        { L"vampire", L"흡혈" },
-        { L"vampireKillStreak", L"흡혈 처치 연속" },
-        { L"miniaturize", L"소형화" },
-        { L"gigantify", L"거대화" },
-        { L"pierce", L"관통" },
-        { L"twin", L"트윈" },
-        { L"twinCount", L"트윈 수" },
-        { L"chakram", L"차크람" },
-        { L"ricochetMax", L"도탄 최대 횟수" },
-        { L"ricochetChance", L"도탄 확률" },
-        { L"ricochetDmgMult", L"도탄 피해 배율" },
-        { L"mk2", L"MK2" },
-        { L"mk2Used", L"MK2 사용" },
-        { L"hackRanged", L"해킹 원거리" },
-        { L"dashUpgrade", L"대시 강화" },
-        { L"powerSurgeStacks", L"파워 서지 스택" },
-        { L"commonMultBoosts", L"일반 증폭 수" },
-        { L"critChance", L"치명타 확률" },
-        { L"critMult", L"치명타 배율" },
-        { L"lifestealPerKill", L"처치당 흡혈" },
-        { L"lifestealStacks", L"흡혈 스택" },
-        { L"lifesteal2", L"흡혈 II" },
-        { L"berserk", L"광전사" },
-        { L"deathBlast", L"죽음의 폭발" },
-        { L"deathBlastMult", L"죽음의 폭발 배율" },
-        { L"deathBlastDmgPct", L"죽음의 폭발 피해 비율" },
-        { L"drone", L"드론" },
-        { L"droneCount", L"드론 수" },
-        { L"droneRapid", L"드론 연사" },
-        { L"laser", L"레이저" },
-        { L"laserTier", L"레이저 단계" },
-        { L"bulletRain", L"탄환 비" },
-        { L"bulletRainCooldown", L"탄환 비 쿨다운" },
-        { L"rainKillReduce", L"탄환 비 처치 쿨다운 감소" },
-        { L"chakramCount", L"차크람 수" },
-        { L"chakramSingularity", L"차크람 특이점" },
         { L"killCount", L"처치 수" },
-        { L"baseFireInterval", L"기본 발사 간격" },
-        { L"rmobMaxBonus", L"웨이브 소환 수 보너스(원거리)" },
-        { L"rmobHpMult", L"원거리 체력 배율" },
-        { L"rmobDmgMult", L"원거리 피해 배율" },
-        { L"rmobDelayMult", L"원거리 지연 배율" },
-        { L"rmobDelayStacks", L"원거리 지연 스택" },
-        { L"mobSpawnMult", L"몬스터 생성 배율" },
-        { L"mobSpeedMult", L"몬스터 속도 배율" },
-        { L"approachingDeath", L"죽음 접근" },
-        { L"approachStacks", L"접근 스택" },
-        { L"monsterHpMult", L"몬스터 체력 배율" },
-        { L"rotorHpMult", L"로터 체력 배율" },
-        { L"flatDamageBonus", L"고정 피해 보너스" }
+        { L"baseFireInterval", L"기본 발사 간격" }
     };
     for (const FieldNamePair& pair : names) {
         if (std::wcscmp(pair.raw, raw) == 0) return pair.localized;
@@ -363,29 +291,9 @@ const std::vector<DebugToolkit::Field>& DebugToolkit::Fields() {
 
         ADD_FLOAT(damageMultiplier); ADD_FLOAT(baseDamage); ADD_FLOAT(maxHP);
         ADD_FLOAT(bulletSpeed); ADD_FLOAT(fireInterval); ADD_FLOAT(windowSize);
-        ADD_FLOAT(moveSpeedMult); ADD_FLOAT(regenPerSec); ADD_FLOAT(damageReduction);
-        ADD_FLOAT(regenLowHpMult); ADD_INT(vampireKillNeed);
-        ADD_FLOAT(lightStepHitLock); ADD_FLOAT(playerSizeMult); ADD_FLOAT(xpMult);
-        ADD_FLOAT(bulletSpread); ADD_INT(pierceChance);
-        ADD_FLOAT(rotorHpMult);
-
-
-        ADD_FLOAT(rmobSpawnDelayBonus);
-        ADD_INT(mobCapBonus); ADD_INT(totalAugs);
-        ADD_BOOL(sizeAugTaken);
-        ADD_BOOL(vampire); ADD_INT(vampireKillStreak);
-        ADD_BOOL(pierce); ADD_BOOL(twin); ADD_INT(twinCount); ADD_BOOL(chakram);
-        ADD_INT(ricochetMax); ADD_INT(ricochetChance); ADD_FLOAT(ricochetDmgMult);
-        ADD_BOOL(mk2); ADD_BOOL(mk2Used);
-        ADD_INT(commonMultBoosts); ADD_INT(critChance); ADD_FLOAT(critMult);
-        ADD_FLOAT(lifestealPerKill); ADD_INT(lifestealStacks); ADD_BOOL(lifesteal2);
-        ADD_BOOL(berserk); ADD_BOOL(deathBlast); ADD_FLOAT(deathBlastMult);
-        ADD_BOOL(drone); ADD_INT(droneCount); ADD_BOOL(droneRapid); ADD_BOOL(laser);
-        ADD_INT(laserTier); ADD_BOOL(bulletRain);
-        ADD_FLOAT(bulletRainCooldown); ADD_BOOL(rainKillReduce); ADD_INT(chakramCount);
+        ADD_FLOAT(moveSpeedMult); ADD_FLOAT(regenPerSec);
+        ADD_FLOAT(playerSizeMult); ADD_FLOAT(xpMult); ADD_FLOAT(bulletSpread);
         ADD_LL(killCount); ADD_FLOAT(baseFireInterval);
-        ADD_INT(rmobMaxBonus); ADD_FLOAT(rmobHpMult);
-        ADD_FLOAT(rmobDmgMult); ADD_FLOAT(rmobDelayMult); ADD_INT(rmobDelayStacks);
 
 #undef ADD_FLOAT
 #undef ADD_INT
@@ -410,9 +318,7 @@ const std::vector<GameState>& DebugToolkit::CaptureStates() {
         GameState::PAUSED,
         GameState::DYING,
         GameState::GAMEOVER,
-        GameState::AUG_SELECT,
-        GameState::DEBUFF_SELECT,
-        GameState::AUG_REPLACE
+        GameState::AUG_SELECT
     };
     return states;
 }
@@ -450,9 +356,7 @@ const wchar_t* DebugToolkit::SceneLabel(GameState state) {
     case GameState::PAUSED:          return L"일시정지";
     case GameState::DYING:           return L"사망 처리";
     case GameState::GAMEOVER:        return L"게임 오버";
-    case GameState::AUG_SELECT:      return L"증강 선택";
-    case GameState::DEBUFF_SELECT:   return L"디버프 선택";
-    case GameState::AUG_REPLACE:     return L"증강 교체";
+    case GameState::AUG_SELECT:      return L"카드 선택";
     default:                         return L"장면";
     }
 }
@@ -466,79 +370,10 @@ void DebugToolkit::Configure(const DebugToolkitContext& context) {
 }
 
 void DebugToolkit::ResetTransientInput() {
-    augmentSearchFocused_ = false;
-    augmentComposition_.clear();
-    augmentSearchSelectAll_ = false;
     editing_ = false;
     replaceEditBuffer_ = false;
     editBuffer_.clear();
     editingRuntime_ = -1;
-}
-
-bool DebugToolkit::IsAugmentSearchActive() const {
-    return g_DebugMode && visible_ && tab_ == 3 && augmentSearchFocused_;
-}
-
-void DebugToolkit::InsertAugmentSearchText(const std::wstring& text) {
-    if (!IsAugmentSearchActive()) return;
-    if (augmentSearchSelectAll_) augmentSearch_.clear();
-    augmentSearchSelectAll_ = false;
-    for (wchar_t c : text)
-        if (c >= L' ' && augmentSearch_.size() < 48) augmentSearch_ += c;
-    augmentComposition_.clear();
-    augmentOffset_ = 0;
-}
-
-void DebugToolkit::EditAugmentSearch(int key, bool selectAll) {
-    if (selectAll) { augmentSearchSelectAll_ = true; return; }
-    if (key == GLFW_KEY_BACKSPACE) {
-        if (augmentSearchSelectAll_) augmentSearch_.clear();
-        else if (!augmentSearch_.empty()) augmentSearch_.pop_back();
-        augmentSearchSelectAll_ = false;
-    } else if (key == GLFW_KEY_DELETE) augmentSearch_.clear();
-    else if (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_ENTER)
-        augmentSearchFocused_ = false;
-    augmentOffset_ = 0;
-}
-
-int DebugToolkit::AugmentCount(int index) const {
-    return context_.ownedAugments ? (int)std::count(context_.ownedAugments->begin(),
-        context_.ownedAugments->end(), index) : 0;
-}
-
-std::vector<int> DebugToolkit::FilteredAugments() const {
-    auto lower = [](std::wstring text) {
-        for (auto& c : text) c = (wchar_t)std::towlower(c);
-        return text;
-    };
-    const std::wstring query = lower(augmentSearch_);
-    std::vector<int> result;
-    for (int i = 0; i < AUG_TOTAL; ++i) {
-        const AugDef& def = ALL_AUGS[i];
-        if (AugRemoved(def.type)) continue;
-        if (augmentFilter_ == 1 && AugmentCount(i) == 0) continue;
-        if (augmentFilter_ >= 2 && (int)def.rarity != augmentFilter_ - 2) continue;
-        std::wstring text(def.name, def.name + std::strlen(def.name));
-        for (const auto* name : def.locName) { text += L' '; text += name; }
-        if (!query.empty() && lower(text).find(query) == std::wstring::npos) continue;
-        result.push_back(i);
-    }
-    return result;
-}
-
-bool DebugToolkit::CanEditAugments() const {
-    if (!context_.game || !context_.editAugment) return false;
-    const GameState state = context_.game->currentState;
-    return state == GameState::RUNNING || state == GameState::READY || state == GameState::PAUSED;
-}
-
-void DebugToolkit::ApplyAugmentAction(DebugAugmentAction action, int index) {
-    if (!CanEditAugments()) return;
-    const bool applied = context_.editAugment(action, index);
-    SetMessage(applied ? L"증강 적용 완료" : L"적용할 수 없습니다. 일회성 증강은 바로 얻기를 사용하세요.");
-    if (applied && (action == DebugAugmentAction::Draw ||
-                    action == DebugAugmentAction::OpenSelection ||
-                    !CanEditAugments())) SetVisible(false);
 }
 
 void DebugToolkit::SetMessage(const std::wstring& message) {
@@ -783,8 +618,6 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
             const int maxOffset = std::max(0,
                                            (int)Fields().size() - visibleRows);
             fieldOffset_ = std::max(0, std::min(maxOffset, fieldOffset_));
-        } else if (tab_ == 3) {
-            augmentOffset_ -= (int)std::round(g_ScrollAccum * 2.0f);
         }
         g_ScrollAccum = 0.0f;
     }
@@ -795,7 +628,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         return true;
     }
 
-    for (int t = 0; t < 4; ++t) {
+    for (int t = 0; t < 3; ++t) {
         if (click && Hit(p.x + 16.0f + t * (TAB_W + TAB_GAP),
                         p.y + TAB_Y, TAB_W, TAB_H, mx, my)) {
             tab_ = t;
@@ -870,16 +703,6 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 ? L"마지막 웨이브 완료 - 승리"
                 : L"다음 웨이브로 이동했습니다");
             if (context_.game->waveVictory) SetVisible(false);
-        }
-        if (click && footerHit(FOOTER_DEBUFF_PREVIEW) && context_.game) {
-            context_.game->showDebuffPreview = !context_.game->showDebuffPreview;
-            SetMessage(context_.game->showDebuffPreview
-                ? L"디버프 예고 켜짐" : L"디버프 예고 꺼짐");
-        }
-        if (click && footerHit(FOOTER_DEBUFF_LOG) && context_.game) {
-            context_.game->showDebuffLog = !context_.game->showDebuffLog;
-            SetMessage(context_.game->showDebuffLog
-                ? L"디버프 기록 켜짐" : L"디버프 기록 꺼짐");
         }
         if (click && footerHit(FOOTER_ORBIT) && context_.constellationOrbits) {
             *context_.constellationOrbits = !*context_.constellationOrbits;
@@ -1026,40 +849,6 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 }
             }
         }
-    } else if (tab_ == 3) {
-        const float filterW = (p.w - 68.0f) / 10.0f;
-        if (click) {
-            augmentSearchFocused_ = Hit(p.x + 16, p.y + AUG_SEARCH_Y, p.w - 136, 32, mx, my);
-            if (Hit(p.x + p.w - 112, p.y + AUG_SEARCH_Y, 96, 32, mx, my)) {
-                augmentSearch_.clear(); augmentOffset_ = 0;
-            }
-            for (int i = 0; i < 10; ++i)
-                if (Hit(p.x + 16 + i * (filterW + 4), p.y + AUG_FILTER_Y,
-                        filterW, 28, mx, my)) { augmentFilter_ = i; augmentOffset_ = 0; }
-        }
-        const auto list = FilteredAugments();
-        const int rows = AugmentVisibleRows(p.h);
-        if (click && Hit(p.x + p.w - 112, p.y + 195, 44, 24, mx, my)) augmentOffset_ -= rows;
-        if (click && Hit(p.x + p.w - 60, p.y + 195, 44, 24, mx, my)) augmentOffset_ += rows;
-        augmentOffset_ = std::max(0, std::min(std::max(0, (int)list.size() - rows), augmentOffset_));
-        if (click) {
-            for (int row = 0; row < rows && augmentOffset_ + row < (int)list.size(); ++row) {
-                const int idx = list[augmentOffset_ + row];
-                const float ry = p.y + AUG_ROWS_Y + row * ROW_H;
-                if (!Hit(p.x + 16, ry, p.w - 32, ROW_H - 2, mx, my)) continue;
-                selectedAugment_ = idx;
-                if (Hit(p.x + p.w - 182, ry, 68, 28, mx, my)) ApplyAugmentAction(DebugAugmentAction::Toggle, idx);
-                else if (Hit(p.x + p.w - 108, ry, 40, 28, mx, my)) ApplyAugmentAction(DebugAugmentAction::Remove, idx);
-                else if (Hit(p.x + p.w - 60, ry, 44, 28, mx, my)) ApplyAugmentAction(DebugAugmentAction::Add, idx);
-            }
-            const float actionW = (p.w - 64) / 5;
-            const DebugAugmentAction actions[] = { DebugAugmentAction::Draw, DebugAugmentAction::Grant, DebugAugmentAction::OpenSelection,
-                DebugAugmentAction::FillSlots, DebugAugmentAction::Clear };
-            for (int i = 0; i < 5; ++i)
-                if (Hit(p.x + 16 + i * (actionW + 8), p.y + p.h - 76,
-                        actionW, 32, mx, my) && (i >= 2 || selectedAugment_ >= 0))
-                    ApplyAugmentAction(actions[i], selectedAugment_);
-        }
     }
 
     HandleNumericKeys(window);
@@ -1199,12 +988,6 @@ void DebugToolkit::RenderStatsTab(float x, float y, float w, float h,
                context_.advanceWave && context_.game->currentState == GameState::RUNNING);
     drawFooter(FOOTER_ORBIT, orbitActive ? L"궤도: 켜짐" : L"궤도: 꺼짐",
                orbitActive, context_.constellationOrbits != nullptr);
-    const bool previewOn = context_.game && context_.game->showDebuffPreview;
-    const bool logOn = context_.game && context_.game->showDebuffLog;
-    drawFooter(FOOTER_DEBUFF_PREVIEW, previewOn ? L"디버프 예고: 켜짐" : L"디버프 예고: 꺼짐",
-               previewOn, context_.game != nullptr);
-    drawFooter(FOOTER_DEBUFF_LOG, logOn ? L"디버프 기록: 켜짐" : L"디버프 기록: 꺼짐",
-               logOn, context_.game != nullptr);
     wchar_t page[64] = {};
     std::swprintf(page, sizeof(page) / sizeof(page[0]),
                   L"필드 %d-%d / %d", fieldOffset_ + 1,
@@ -1328,75 +1111,15 @@ void DebugToolkit::Render(float screenW, float screenH, GameState sceneState) {
     DrawButton(p.x + p.w - 52.0f, p.y + 12.0f, 36.0f, 28.0f,
                L"X", false, true);
 
-    const wchar_t* tabs[] = { L"능력치", L"소환", L"캡처", L"증강" };
-    for (int t = 0; t < 4; ++t)
+    const wchar_t* tabs[] = { L"능력치", L"소환", L"캡처" };
+    for (int t = 0; t < 3; ++t)
         DrawButton(p.x + 16.0f + t * (TAB_W + TAB_GAP),
                    p.y + TAB_Y, TAB_W, TAB_H, tabs[t], tab_ == t, true);
 
     if (tab_ == 0) RenderStatsTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
     else if (tab_ == 1) RenderSpawnTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
-    else if (tab_ == 2) RenderCaptureTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
-    else RenderAugmentTab(p.x, p.y, p.w, p.h);
+    else RenderCaptureTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
     g_BatchAlpha = oldAlpha;
-}
-
-void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
-    const bool enabled = CanEditAugments();
-    auto text = [&](const std::wstring& label, float tx, float ty, float maxWidth, float scale = 0.46f) {
-        const float width = g_TextS.Width(label.c_str(), scale);
-        if (width > maxWidth) scale *= maxWidth / width;
-        g_TextS.Draw(label.c_str(), tx, ty, scale, 0.80f, 0.92f, 1.0f, 0.96f);
-    };
-    const std::wstring query = augmentSearch_ + augmentComposition_;
-    const std::wstring search = query.empty() ? L"검색: 증강 이름 / 영문 ID" : query;
-    DrawButton(x + 16, y + AUG_SEARCH_Y, w - 136, 32, search.c_str(), augmentSearchFocused_);
-    DrawButton(x + w - 112, y + AUG_SEARCH_Y, 96, 32, L"검색 지우기");
-    if (IsAugmentSearchActive()) {
-        // Keep Korean IME candidates beside this search box.
-        InputSetCodexImeAnchor(x + 24, x + 24, y + AUG_SEARCH_Y + 4, 24);
-    }
-    const float filterW = (w - 68) / 10;
-    for (int i = 0; i < 10; ++i)
-        DrawButton(x + 16 + i * (filterW + 4), y + AUG_FILTER_Y, filterW, 28,
-                   AUG_FILTERS[i], augmentFilter_ == i);
-    const auto list = FilteredAugments();
-    const int rows = AugmentVisibleRows(h);
-    augmentOffset_ = std::max(0, std::min(std::max(0, (int)list.size() - rows), augmentOffset_));
-    const std::wstring status = L"슬롯 " + FormatInt(CountIdentitySlotsUsed()) + L" / " + FormatInt(IdentitySlotMax()) +
-        L"   |   " + FormatInt((int)list.size()) + L"개   |   선택 화면: 확인 후 획득 · 바로 얻기: 즉시 적용";
-    text(status, x + 20, y + 201, w - 140, 0.40f);
-    DrawButton(x + w - 112, y + 195, 44, 24, L"<");
-    DrawButton(x + w - 60, y + 195, 44, 24, L">");
-    for (int row = 0; row < rows && augmentOffset_ + row < (int)list.size(); ++row) {
-        const int idx = list[augmentOffset_ + row];
-        const auto& def = ALL_AUGS[idx];
-        const int count = AugmentCount(idx);
-        const float ry = y + AUG_ROWS_Y + row * ROW_H;
-        const bool instant = def.type == AugType::RANDOM_AUG || def.type == AugType::S_CHAOS || def.type == AugType::S_PANDORA;
-        BindMainShader();
-        drawRect(x + 16, ry, w - 32, ROW_H - 2, selectedAugment_ == idx ? 0.10f : 0.025f,
-                 count > 0 ? 0.20f : 0.07f, 0.19f, 0.9f);
-        text(std::wstring(AugName(def)), x + 24, ry + 7, w - 380);
-        text(std::wstring(GetRarityKR(def.rarity)), x + w - 350, ry + 8, 84, 0.40f);
-        text(L"x" + FormatInt(count), x + w - 252, ry + 8, 62);
-        DrawButton(x + w - 182, ry, 68, 28, count > 0 ? L"ON" : L"OFF", count > 0, enabled && !instant);
-        DrawButton(x + w - 108, ry, 40, 28, L"-", false, enabled && count > 0 && !instant);
-        DrawButton(x + w - 60, ry, 44, 28, L"+", false, enabled && !instant);
-    }
-    if (list.empty()) text(L"검색 결과가 없습니다", x + 24, y + AUG_ROWS_Y + 8, w - 48);
-    if (selectedAugment_ >= 0 && selectedAugment_ < AUG_TOTAL) {
-        const auto& def = ALL_AUGS[selectedAugment_];
-        text(std::wstring(AugName(def)) + L"  [" + std::wstring(def.name, def.name + std::strlen(def.name)) + L"]",
-             x + 20, y + h - 148, w - 40);
-        text(AugStat(def), x + 20, y + h - 122, w - 40, 0.42f);
-    } else text(L"행을 선택한 뒤 선택 화면에 띄우거나 바로 얻을 수 있습니다", x + 20, y + h - 140, w - 40);
-    const float actionW = (w - 64) / 5;
-    const wchar_t* actions[] = { L"선택 화면에 띄우기", L"바로 얻기", L"랜덤 선택 화면", L"슬롯 채우기", L"전체 OFF" };
-    for (int i = 0; i < 5; ++i)
-        DrawButton(x + 16 + i * (actionW + 8), y + h - 76, actionW, 32, actions[i], false,
-                   enabled && (i >= 2 || selectedAugment_ >= 0));
-    text(enabled ? lastMessage_ : L"전투 / 준비 / 일시정지에서 사용 가능 · 선택/교체 화면을 먼저 완료하세요",
-         x + 20, y + h - 28, w - 40, 0.40f);
 }
 
 void DebugToolkit::RequestCurrentScreenshot() {

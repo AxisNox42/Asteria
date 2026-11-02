@@ -34,6 +34,12 @@
     <ClCompile Include="Entity\AugmentCatalog.cpp">
       <Filter>Entity</Filter>
     </ClCompile>
+    <ClCompile Include="Entity\PassiveAugments.cpp">
+      <Filter>Entity</Filter>
+    </ClCompile>
+    <ClCompile Include="Entity\ActiveSkills.cpp">
+      <Filter>Entity</Filter>
+    </ClCompile>
     <ClCompile Include="Entity\EnemySpawner.cpp">
       <Filter>Entity</Filter>
     </ClCompile>
@@ -204,13 +210,24 @@
     <ClInclude Include="Entity\Augment.h">
       <Filter>Entity</Filter>
     </ClInclude>
+    <ClInclude Include="Entity\PassiveAugments.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
+    <ClInclude Include="Entity\PassiveHooks.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
+    <ClInclude Include="Entity\ActiveSkills.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
+    <ClInclude Include="Entity\AugmentCombat.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
     <ClInclude Include="Entity\Bullet.h">
       <Filter>Entity</Filter>
     </ClInclude>
     <ClInclude Include="Entity\CollisionSystem.h">
       <Filter>Entity</Filter>
     </ClInclude>
-    <ClInclude Include="Entity\KillRewards.h">
       <Filter>Entity</Filter>
     </ClInclude>
     <ClInclude Include="Entity\RunStats.h">

@@ -246,6 +246,38 @@ constexpr float kWarpBurstShare = 0.5f;     // share of a thrown box's load
 constexpr float kPhaseInvuln = 1.6f;
 constexpr float kPhaseSprayStagger = 0.1f;
 
+// 16 Crash (phase 2, the blue screen): the sky fails. The boss's other panes
+// and boxes fold away quietly, a storm of error windows (decor panes,
+// os_pane::Open(..., true): no space, cheap to paint) pops open all over the
+// screen over kCrashSpawn, and one "safe mode" pane opens within the player's
+// reach (it stays put). After kCrashCount the game itself crashes: the whole
+// screen turns into a blue screen for kCrashBlue (the safe pane cut out of
+// it), and everything outside the safe pane is hit as it falls (the player
+// kCrashDamage and thrown, mobs kCrashMobDamage, error windows close). Play
+// freezes (hit-stop) while white cracks spread from the boss for kCrashCrack,
+// then the blue breaks into shards that fly off over kCrashShatter and the
+// game shows again; the boss is open for kCrashExpose from the shattering
+// (the game loop raises g_CrashOver). No shots, no laser.
+constexpr float kCrashBuild = 1.4f;         // the boss holds still while the storm opens
+constexpr float kCrashSpawn = 1.2f;         // the storm's panes all open within this
+constexpr float kCrashCount = 3.0f;         // then the countdown
+constexpr float kCrashBlue = 1.1f;          // the blue screen, with its progress count
+constexpr float kCrashCrack = 0.45f;        // cracks spreading over it
+constexpr float kCrashShatter = 0.55f;      // its shards flying off
+constexpr float kCrashSafeLinger = 0.8f;
+constexpr float kCrashExpose = 2.0f;
+constexpr float kCrashDamage = 45.0f;
+constexpr float kCrashMobDamage = 300.0f;
+constexpr float kCrashKnock = 260.0f;       // world px of shove, away from the safe pane
+constexpr int   kCrashPanes[4] = { 14, 14, 14, 14 };   // EASY, NORMAL, HARD, NIGHTMARE
+constexpr int   kCrashOpenPerFrame = 4;     // OS window creation is spread over frames
+constexpr float kCrashMinW = 240.0f, kCrashMaxW = 420.0f;
+constexpr float kCrashMinH = 150.0f, kCrashMaxH = 260.0f;
+constexpr float kCrashSafeW = 400.0f, kCrashSafeH = 250.0f;
+inline int CrashPanesFor(int difficulty) { return kCrashPanes[difficulty < 0 ? 0 : difficulty > 3 ? 3 : difficulty]; }
+// Raised by the game loop as the blue screen shatters: the boss turns open.
+inline bool g_CrashOver = false;
+
 // Panes belong to patterns: Detonate blows the boss's panes and opens
 // fresh ones, and Refuge opens one when none is near; nothing opens them on a clock. The
 // others (Refuge, Ram, Throw) use whatever is open. At most this many stand.
@@ -275,14 +307,14 @@ constexpr float kSnapGrow = 0.6f;           // brackets start 1.6x and close in
 
 enum class Pattern { None = 0, Refuge = 2, CloseWindow = 3, Aim = 7,
                      Throw = 8, Ram = 10, Detonate = 12, Wall = 13, Warp = 14,
-                     Reinforce = 15 };
+                     Reinforce = 15, Crash = 16 };
 enum class Stage { Recover, Wait, Telegraph, Act, Exit };
 
 // Requests from the boss to the game loop, served once per frame.
 enum class Ask { OpenRefuges, ClosePlayerWindow, ReleaseWindows,
                  ThrowBox, RamWindow, DetonatePanes,
                  ReopenPanes, BuildWall, WarpPlan, WarpSmash,
-                 PhaseBlow, PhaseSpray };
+                 PhaseBlow, PhaseSpray, CrashStart };
 inline std::vector<Ask> g_Asks;
 
 // Effect cues from the boss; the game loop turns them into shockwaves,
@@ -378,6 +410,7 @@ inline float HoverSpeedSmooth(float distance) {
 // joins the window pool in phase 2.
 inline Pattern NextPattern(int count, int phase, int roll, Pattern last = Pattern::None) {
     const int r = roll < 0 ? -roll : roll;
+    if (phase >= 2 && count % 9 == 6) return Pattern::Crash;   // the blue screen, now and then
     if (count % 4 == 3) return Pattern::Aim;   // the stream is the exception, not every other turn
     const int windowKinds = phase >= 2 ? 7 : 5;
     const auto kind = [&](int k) {

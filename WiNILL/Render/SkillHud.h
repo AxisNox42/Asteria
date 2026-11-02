@@ -1,12 +1,11 @@
 #pragma once
 // ─────────────────────────────────────────────────────────────
-// Skill HUD (bottom centre): four keys (SHIFT/Q/E/R) as circles with a
-// line icon, and owned cooldown passives (RAIN) as triangles above them.
-//   circle = pressed by the player, triangle = runs by itself
-//   cooldown / charge = clockwise wedge filling the shape from 12 o'clock,
-//   the same reading as the wave track's current node
-// Icons are plain line pictograms (no dots). Text is only the key letter
-// and the seconds left on a cooldown.
+// Skill HUD (bottom centre): four keys (dash + three skill slots) as circles
+// with a line icon.
+//   cooldown = clockwise wedge filling the circle from 12 o'clock, the same
+//   reading as the wave track's current node
+// Icons are plain line pictograms (no dots), one per skill group. Text is
+// only the key letter and the seconds left on a cooldown.
 // State comes from SkillHudModel.h (BuildSkillHudView).
 // ─────────────────────────────────────────────────────────────
 #include <cmath>
@@ -29,16 +28,23 @@ namespace skill_hud {
 
 using hud_lines::Rgb;
 
-inline Rgb ColorRgb(HudColor c) {
-    switch (c) {
-    case HudColor::Dash:      return { 0.40f, 1.00f, 1.00f };
-    case HudColor::Time:      return { 0.40f, 0.90f, 1.00f };
-    case HudColor::Close:     return { 0.50f, 0.80f, 1.00f };
-    case HudColor::Focus:     return { 0.59f, 0.94f, 0.86f };
-    case HudColor::Rain:      return { 1.00f, 0.50f, 0.20f };
-    default:                  return { 0.36f, 0.41f, 0.53f };
+inline Rgb GlyphColor(SkillGlyph g) {
+    switch (g) {
+    case SkillGlyph::Dash:       return { 0.40f, 1.00f, 1.00f };
+    case SkillGlyph::Projectile: return { 1.00f, 0.80f, 0.45f };
+    case SkillGlyph::Area:       return { 1.00f, 0.55f, 0.35f };
+    case SkillGlyph::Install:    return { 0.85f, 0.75f, 0.55f };
+    case SkillGlyph::Summon:     return { 0.70f, 0.60f, 1.00f };
+    case SkillGlyph::Move:       return { 0.55f, 0.90f, 1.00f };
+    case SkillGlyph::Heal:       return { 0.55f, 1.00f, 0.60f };
+    case SkillGlyph::Link:       return { 0.85f, 0.75f, 1.00f };
+    case SkillGlyph::Channel:    return { 0.65f, 1.00f, 0.85f };
+    case SkillGlyph::Random:     return { 1.00f, 0.85f, 0.40f };
+    case SkillGlyph::Form:       return { 1.00f, 0.92f, 0.65f };
     }
+    return { 0.36f, 0.41f, 0.53f };
 }
+inline constexpr Rgb kEmptyCol = { 0.36f, 0.41f, 0.53f };
 inline constexpr Rgb kKeyText = { 0.86f, 0.91f, 1.00f };
 
 // One stroke style, drawn in two passes so every keyline sits under every
@@ -66,10 +72,10 @@ struct Pen {
     }
 };
 
-// Chevrons centred on (x, y): two for Dash, three for Flash.
-inline void GlyphDash(const Pen& p, float x, float y, float r, bool flash) {
-    const float pitch = flash ? 0.40f : 0.56f, half = flash ? 0.20f : 0.26f;
-    const int n = flash ? 3 : 2;
+// Two chevrons centred on (x, y).
+inline void GlyphDash(const Pen& p, float x, float y, float r) {
+    const float pitch = 0.56f, half = 0.26f;
+    const int n = 2;
     for (int k = 0; k < n; ++k) {
         const float c = (k - (n - 1) * 0.5f) * pitch;
         const float backX = x + (c - half) * r, tipX = x + (c + half) * r;
@@ -78,65 +84,69 @@ inline void GlyphDash(const Pen& p, float x, float y, float r, bool flash) {
     }
 }
 
-inline void GlyphBurst(const Pen& p, float x, float y, float r) {
-    p.Circle(x, y, 0.42f * r);
-    for (int k = 0; k < 4; ++k) {
-        const float t = hud_lines::kPi * (0.25f + 0.5f * k);
-        const float c = std::cos(t), s = std::sin(t);
-        p.Line(x + 0.62f * r * c, y + 0.62f * r * s, x + 0.98f * r * c, y + 0.98f * r * s);
-    }
-}
-
-inline void GlyphFocus(const Pen& p, float x, float y, float r) {
-    p.Circle(x, y, 0.62f * r);
-    p.Circle(x, y, 0.20f * r, 1.0f, 0.8f);
-    for (int k = 0; k < 4; ++k) {
-        const float t = hud_lines::kPi * 0.5f * k;
-        const float c = std::cos(t), s = std::sin(t);
-        p.Line(x + 0.78f * r * c, y + 0.78f * r * s, x + 1.0f * r * c, y + 1.0f * r * s);
-    }
-}
-
-inline void GlyphTimeStop(const Pen& p, float x, float y, float r) {
-    const float h = 0.85f * r, s = 0.55f * r;
-    p.Line(x - s, y - h, x + s, y - h);
-    p.Line(x - s, y + h, x + s, y + h);
-    p.Line(x - s * 0.8f, y - h, x + s * 0.8f, y + h);
-    p.Line(x + s * 0.8f, y - h, x - s * 0.8f, y + h);
-    p.Line(x - s * 0.35f, y + h * 0.62f, x + s * 0.35f, y + h * 0.62f);
-}
-
-// Three slanted arrows; the set is symmetric about (x, y) so the icon sits
-// on the triangle's centroid.
-inline void GlyphRain(const Pen& p, float x, float y, float r) {
-    for (float dx : { -0.50f, 0.0f, 0.50f }) {
-        const float x0 = x + dx * r - 0.20f * r, y0 = y - 0.52f * r;
-        const float x1 = x + dx * r + 0.20f * r, y1 = y + 0.52f * r;
-        p.Line(x0, y0, x1, y1);
-        const float ang = std::atan2(y1 - y0, x1 - x0);
-        for (float d : { 2.6f, -2.6f })
-            p.Line(x1, y1, x1 + 0.24f * r * std::cos(ang + d), y1 + 0.24f * r * std::sin(ang + d));
+inline void GlyphPoly(const Pen& p, float x, float y, float r, int n, float rot) {
+    for (int k = 0; k < n; ++k) {
+        const float a0 = rot + 2.0f * hud_lines::kPi * k / n;
+        const float a1 = rot + 2.0f * hud_lines::kPi * (k + 1) / n;
+        p.Line(x + std::cos(a0) * r, y + std::sin(a0) * r,
+               x + std::cos(a1) * r, y + std::sin(a1) * r);
     }
 }
 
 inline void DrawSkillGlyph(Pen p, SkillGlyph g, float x, float y, float r) {
+    using hud_lines::kPi;
     for (int pass = p.keyline > 0.0f ? 0 : 1; pass < 2; ++pass) {
         p.keyPass = pass == 0;
         switch (g) {
-        case SkillGlyph::Dash:     GlyphDash(p, x, y, r, false); break;
-        case SkillGlyph::Flash:    GlyphDash(p, x, y, r, true); break;
-        case SkillGlyph::Burst:    GlyphBurst(p, x, y, r); break;
-        case SkillGlyph::Focus:    GlyphFocus(p, x, y, r); break;
-        case SkillGlyph::TimeStop: GlyphTimeStop(p, x, y, r); break;
-        }
-    }
-}
-
-inline void DrawPassiveGlyph(Pen p, const PassiveView& v, float x, float y, float r) {
-    for (int pass = p.keyline > 0.0f ? 0 : 1; pass < 2; ++pass) {
-        p.keyPass = pass == 0;
-        switch (v.glyph) {
-        case PassiveGlyph::Rain: GlyphRain(p, x, y, r); break;
+        case SkillGlyph::Dash: GlyphDash(p, x, y, r); break;
+        case SkillGlyph::Projectile:          // an arrow
+            p.Line(x - 0.8f * r, y + 0.8f * r, x + 0.8f * r, y - 0.8f * r);
+            p.Line(x + 0.8f * r, y - 0.8f * r, x + 0.2f * r, y - 0.8f * r);
+            p.Line(x + 0.8f * r, y - 0.8f * r, x + 0.8f * r, y - 0.2f * r);
+            break;
+        case SkillGlyph::Area:                // a ring with rays
+            p.Circle(x, y, 0.40f * r);
+            for (int k = 0; k < 4; ++k) {
+                const float t = kPi * (0.25f + 0.5f * k);
+                const float c = std::cos(t), s = std::sin(t);
+                p.Line(x + 0.62f * r * c, y + 0.62f * r * s, x + 0.98f * r * c, y + 0.98f * r * s);
+            }
+            break;
+        case SkillGlyph::Install:             // a square on a base line
+            GlyphPoly(p, x, y - 0.1f * r, 0.6f * r, 4, kPi * 0.25f);
+            p.Line(x - 0.9f * r, y + 0.75f * r, x + 0.9f * r, y + 0.75f * r);
+            break;
+        case SkillGlyph::Summon:              // a figure inside a ring
+            p.Circle(x, y, 0.85f * r, 1.0f, 0.8f);
+            p.Circle(x, y - 0.25f * r, 0.22f * r);
+            p.Line(x - 0.4f * r, y + 0.5f * r, x + 0.4f * r, y + 0.5f * r);
+            break;
+        case SkillGlyph::Move:                // a jump arc with an arrow head
+            hud_lines::Arc(x, y + 0.3f * r, 0.75f * r, p.Width(), kPi, kPi, p.Col(), p.Alpha());
+            p.Line(x + 0.75f * r, y + 0.3f * r, x + 0.45f * r, y - 0.05f * r);
+            p.Line(x + 0.75f * r, y + 0.3f * r, x + 1.0f * r, y - 0.05f * r);
+            break;
+        case SkillGlyph::Heal:                // a cross
+            p.Line(x, y - 0.75f * r, x, y + 0.75f * r);
+            p.Line(x - 0.75f * r, y, x + 0.75f * r, y);
+            break;
+        case SkillGlyph::Link:                // two linked rings
+            p.Circle(x - 0.32f * r, y, 0.45f * r);
+            p.Circle(x + 0.32f * r, y, 0.45f * r);
+            break;
+        case SkillGlyph::Channel:             // nested rings
+            p.Circle(x, y, 0.80f * r, 1.0f, 0.8f);
+            p.Circle(x, y, 0.45f * r);
+            p.Circle(x, y, 0.12f * r);
+            break;
+        case SkillGlyph::Random:              // a die face (diamond)
+            GlyphPoly(p, x, y, 0.85f * r, 4, 0.0f);
+            p.Circle(x, y, 0.15f * r);
+            break;
+        case SkillGlyph::Form:                // a half-filled moon: sun and night
+            p.Circle(x, y, 0.75f * r);
+            p.Line(x, y - 0.75f * r, x, y + 0.75f * r);
+            break;
         }
     }
 }
@@ -170,30 +180,11 @@ inline void DrawCooldownCircle(float cx, float cy, float r, float frac, Rgb col,
     hud_lines::Polyline(hx, hy, 2, 1.4f * hs, col, 0.95f, keyline);
 }
 
-// Same reading on the downward triangle; the fill fans over the perimeter
-// prefix, so wedge, progress line and hand end at the same point.
-inline void DrawChargeTriangle(float cx, float cy, float r, float frac, Rgb col,
-                               float hs, float keyline) {
-    float px[5], py[5], ox[5], oy[5];
-    hud_lines::TriangleDownOutline(cx, cy, r, 1.0f * hs, col, kTrackA, keyline);
-    hud_lines::TriangleDownPath(cx, cy, r - 2.0f * (0.7f * hs + 1.5f * hs), px, py);
-    int m = hud_lines::PathPrefix(px, py, 5, frac, ox, oy);
-    hud_lines::FanFill(cx, cy, ox, oy, m, hud_lines::KeyCol(col), kWedgeA);
-    hud_lines::TriangleDownPath(cx, cy, r, px, py);
-    m = hud_lines::PathPrefix(px, py, 5, frac, ox, oy);
-    hud_lines::Polyline(ox, oy, m, 2.0f * hs, col, 1.0f, keyline);
-    const float ex = ox[m - 1], ey = oy[m - 1];
-    const float hx[2] = { cx + (ex - cx) * 0.45f, ex };
-    const float hy[2] = { cy + (ey - cy) * 0.45f, ey };
-    hud_lines::Polyline(hx, hy, 2, 1.4f * hs, col, 0.95f, keyline);
-}
-
 }  // namespace skill_hud
 
 inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
                          float sw, float sh) {
     using namespace skill_hud;
-    using hud_lines::FillShape;
     const float hs = hudScale;
     const float keyline = 3.2f * hs * CombatKeylineStrength();
     const float radius = 30.0f * hs, gap = 10.0f * hs, pitch = 2.0f * radius + gap;
@@ -212,16 +203,21 @@ inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
     for (int i = 0; i < 4; ++i) {
         const SkillSlotView& s = view.slots[i];
         const float cx = keyX(i);
-        const Rgb col = ColorRgb(s.color);
         if (s.empty) {
-            hud_lines::Ring(cx, cy, radius, 1.0f * hs, col, 0.35f, keyline);
+            hud_lines::Ring(cx, cy, radius, 1.0f * hs, kEmptyCol, 0.35f, keyline);
             for (int pass = keyline > 0.0f ? 0 : 1; pass < 2; ++pass) {
-                const Pen plus{ col, 0.55f, 1.2f * hs, keyline, pass == 0 };
-                plus.Line(cx - 7.0f * hs, cy, cx + 7.0f * hs, cy);
-                plus.Line(cx, cy - 7.0f * hs, cx, cy + 7.0f * hs);
+                const Pen mark{ kEmptyCol, 0.55f, 1.2f * hs, keyline, pass == 0 };
+                if (s.sealed) {   // a sealed slot: an X
+                    mark.Line(cx - 7.0f * hs, cy - 7.0f * hs, cx + 7.0f * hs, cy + 7.0f * hs);
+                    mark.Line(cx - 7.0f * hs, cy + 7.0f * hs, cx + 7.0f * hs, cy - 7.0f * hs);
+                } else {          // an open slot: a plus
+                    mark.Line(cx - 7.0f * hs, cy, cx + 7.0f * hs, cy);
+                    mark.Line(cx, cy - 7.0f * hs, cx, cy + 7.0f * hs);
+                }
             }
             continue;
         }
+        const Rgb col = GlyphColor(s.glyph);
         const bool ready = s.elapsedFrac >= 1.0f;
         if (ready)
             hud_lines::Ring(cx, cy, radius, 2.0f * hs, col, 1.0f, keyline);
@@ -236,31 +232,6 @@ inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
         }
         const Pen pen{ col, s.iconBright ? 1.0f : 0.30f, 1.8f * hs, keyline, false };
         DrawSkillGlyph(pen, s.glyph, cx, cy, radius * 0.55f);
-    }
-
-    // Passive triangles point down, centred above the key row; the bottom
-    // vertex keeps 8·hs clear of the key letters.
-    const float tr = 22.0f * hs;                          // circumradius
-    const float triW = tr * 1.7320508f, triGap = 12.0f * hs;
-    const float passW = view.passiveCount * triW + (view.passiveCount - 1) * triGap;
-    const float pcy = keyTop - 8.0f * hs - tr;
-    for (int i = 0; i < view.passiveCount; ++i) {
-        const PassiveView& p = view.passives[i];
-        const float pcx = sw * 0.5f - passW * 0.5f + triW * 0.5f + i * (triW + triGap);
-        const Rgb col = ColorRgb(p.color);
-        const bool charging = p.chargeFrac < 1.0f;
-        if (charging)
-            DrawChargeTriangle(pcx, pcy, tr, p.chargeFrac, col, hs, keyline);
-        else
-            hud_lines::TriangleDownOutline(pcx, pcy, tr, 1.4f * hs, col, 1.0f, keyline);
-        if (p.pulse > 0.0f) {
-            const float t = PulseT(p.pulse);
-            hud_lines::TriangleDownOutline(pcx, pcy, tr + 14.0f * hs * t, 1.4f * hs, col,
-                                           0.9f * (1.0f - t), 0.0f);
-        }
-        // Centred on the centroid, sized to the inscribed circle (r/2).
-        const Pen pen{ col, charging ? 0.55f : 1.0f, 1.6f * hs, keyline, false };
-        DrawPassiveGlyph(pen, p, pcx, pcy, tr * 0.48f);
     }
     BatchFlush();
 

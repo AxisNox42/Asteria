@@ -11,8 +11,6 @@ void Scene_CreativeConfig(const SceneCtx& c);
 void Scene_Settings(const SceneCtx& c);
 void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state);
 void Scene_AugSelect(const SceneCtx& c);
-void Scene_AugReplace(const SceneCtx& c);
-void Scene_OwnedAugPanel(const SceneCtx& c);
 // Smoke capture: open a main-menu panel directly
 // (-1 none, 0 play, 1 shop, 2 codex, 3 settings).
 void SmokeOpenMenuPanel(int panel);

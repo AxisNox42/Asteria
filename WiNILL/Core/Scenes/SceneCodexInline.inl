@@ -329,14 +329,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
 
         groupStart = itemCount;
         addGroup(1, ROOTS[1].label[rootLanguage], 0.62f, 0.52f, 1.00f);
-        int sorted[AUG_TOTAL], n = 0;
-        for (int i = 0; i < AUG_TOTAL; ++i)
-            if (!AugRemoved(ALL_AUGS[i].type)) sorted[n++] = i;
-        std::sort(sorted, sorted + n, [](int a, int b) { return AugTierIndexLess(a, b); });
-        for (int k = 0; k < n; ++k) {
-            int i = sorted[k];
-            AugRarity rar = ALL_AUGS[i].rarity;
-            float rr, rg, rb; GetRarityColor(rar, rr, rg, rb);
+        for (int i = 0; i < AUG_TOTAL; ++i) {
+            float rr, rg, rb; GetRarityColor(ALL_AUGS[i].rarity, rr, rg, rb);
             addItem(1, i, CodexAugSeen(i) ? AugName(ALL_AUGS[i]) : L"???",
                     CodexAugSeen(i), ALL_AUGS[i].locName, LANG_COUNT, rr, rg, rb);
         }
@@ -351,19 +345,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
                     0.48f, 0.82f, 1.00f);
         });
     } else if (s_cat == 1) {
-        int sorted[AUG_TOTAL], n = 0;
-        for (int i = 0; i < AUG_TOTAL; ++i)
-            if (!AugRemoved(ALL_AUGS[i].type)) sorted[n++] = i;
-        std::sort(sorted, sorted + n, [](int a, int b) { return AugTierIndexLess(a, b); });
-        AugRarity prevR = (AugRarity)-1;
-        for (int k = 0; k < n; ++k) {
-            int i = sorted[k];
-            AugRarity rar = ALL_AUGS[i].rarity;
-            float rr, rg, rb; GetRarityColor(rar, rr, rg, rb);
-            if (rar != prevR) {
-                addGroup(1, GetRarityKR(rar), rr, rg, rb);
-                prevR = rar;
-            }
+        for (int i = 0; i < AUG_TOTAL; ++i) {
+            float rr, rg, rb; GetRarityColor(ALL_AUGS[i].rarity, rr, rg, rb);
             addItem(1, i, CodexAugSeen(i) ? AugName(ALL_AUGS[i]) : L"???",
                     CodexAugSeen(i), ALL_AUGS[i].locName, LANG_COUNT, rr, rg, rb);
         }
@@ -378,7 +361,6 @@ static void Scene_CodexInline(const SceneCtx& c) {
         if (CodexMobNameUnlocked(id)) ++unlockSeen[0];
     });
     for (int i = 0; i < AUG_TOTAL; ++i) {
-        if (AugRemoved(ALL_AUGS[i].type)) continue;
         ++unlockTotal[1];
         if (CodexAugSeen(i)) ++unlockSeen[1];
     }
@@ -413,7 +395,6 @@ static void Scene_CodexInline(const SceneCtx& c) {
     } else {
         int seenBy[8] = {}, totalBy[8] = {};
         for (int i = 0; i < AUG_TOTAL; ++i) {
-            if (AugRemoved(ALL_AUGS[i].type)) continue;
             const int r = std::max(0, std::min(7, (int)ALL_AUGS[i].rarity));
             ++totalBy[r];
             if (CodexAugSeen(i)) ++seenBy[r];
@@ -1158,7 +1139,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
         swprintf_s(statBuf, mobDataStage > 0 ? L"TIER : %ls" : L"TIER : LOCKED",
                    mobDataStage > 0 ? MobTierLabel(selKey) : L"");
     else if (selectedCategory == 1)
-        swprintf_s(statBuf, L"TYPE : %ls", GetRarityKR(ALL_AUGS[selKey].rarity));
+        swprintf_s(statBuf, L"TYPE : %ls", GetRarityLabel(ALL_AUGS[selKey].rarity));
     else
         swprintf_s(statBuf, L"CLASS : APEX_ENTITY | STATUS : %ls", seen ? L"OBSERVED" : L"NO_DATA");
 

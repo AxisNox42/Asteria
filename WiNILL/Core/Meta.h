@@ -6,9 +6,9 @@
 #include "PlayerStats.h"
 #include "Settings.h"   // CurLangIdx 는 Augment.h 에 있지만 언어 인덱스만 필요
 
-// META_RESERVED_VISION and META_RESERVED_STARTAUG preserve saved meta indices after removing the
-// obsolete start-vision and start-augment upgrades. META_ID_SLOT therefore stays at index 5.
-enum MetaId { META_HP, META_DMG, META_MOVE, META_RESERVED_VISION, META_RESERVED_STARTAUG, META_ID_SLOT, META_COUNT };
+// The META_RESERVED_* slots preserve saved meta indices after removing the
+// obsolete start-vision, start-augment and identity-slot upgrades.
+enum MetaId { META_HP, META_DMG, META_MOVE, META_RESERVED_VISION, META_RESERVED_STARTAUG, META_RESERVED_IDSLOT, META_COUNT };
 
 struct MetaDef {
     const wchar_t* name[3];   // KR / EN / JP
@@ -21,7 +21,7 @@ inline const MetaDef META_DEFS[META_COUNT] = {
     { { L"이동속도 +5%",   L"Move Speed +5%",   L"移動速度 +5%" }, 3, 120 },
     { { L"REMOVED", L"REMOVED", L"REMOVED" }, 0, 0 },
     { { L"REMOVED", L"REMOVED", L"REMOVED" }, 0, 0 },
-    { { L"식별 슬롯 +1",   L"Identity Slot +1", L"識別スロット +1" }, 3, 350 },
+    { { L"REMOVED", L"REMOVED", L"REMOVED" }, 0, 0 },
 };
 
 inline long long g_Coins = 0;

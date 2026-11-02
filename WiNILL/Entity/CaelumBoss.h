@@ -32,9 +32,14 @@
 //              It takes turns: from the body (a ring), then from a straight
 //              line across the screen beside the player (shoved straight away
 //              from the line).
-//   5 Drag     (phase 2) the cursor grabs the body itself and drags it in
-//              fast strokes past the player; where it is dragged stays
-//              corrupted longer. Let go, it sends a ring wave
+//   6 Siphon   (both phases) the cursor presses the body's core and the body
+//              drinks the board: every puddle stretches into a thin stream
+//              that spirals into it (near ones first), hurting as it passes,
+//              while the player is drawn toward the body. The board ends
+//              clean. Then it spouts it back: the body swells while cells
+//              round the player warn, streams unwind out of it onto them
+//              and a ring wave shoves the player out over the fresh
+//              puddles; after that the body stays open longer
 //   - Moving   in corrupt form the body glides to a new cell every couple of
 //              seconds (it holds still sniping, changing form and when open)
 //   - Forms    corrupt form lays the board (1-3), sniper form punishes where
@@ -70,9 +75,9 @@ constexpr float kExposeSeconds = 1.1f;      // opening after every pattern
 constexpr float kExposeDamage = 1.5f;
 constexpr int   kHealthHandles = 8;
 
-enum class Pattern { None = 0, Spread = 1, Scanline = 2, Smear = 3, Shot = 4, Drag = 5 };
+enum class Pattern { None = 0, Spread = 1, Scanline = 2, Smear = 3, Shot = 4, Siphon = 6 };
 // Window: a = 0 when a puddle is lifted, 1 when it is dropped. Morph: a = the new form.
-enum class Fx { Seed, Window, Fire, Overflow, Wave, Morph, PhaseShift };
+enum class Fx { Seed, Window, Fire, Overflow, Wave, Morph, PhaseShift, Plug, Swallow, Spout };
 struct Event { Fx fx; float x = 0.0f, y = 0.0f, a = 0.0f; };
 inline std::vector<Event> g_Events;
 
@@ -112,7 +117,6 @@ enum class CellState : unsigned char { Clean, Warn, Corrupt, Heal };
 constexpr float kWarn = 0.80f, kWarnP2 = 0.60f;
 constexpr float kCorruptLife = 4.0f, kCorruptLifeP2 = 5.5f;   // +-1 s each
 constexpr float kTrailLife = 1.5f;          // the boss's own trail (was 2.5 before it moved)
-constexpr float kDragTrailLife = 4.0f;      // ... while the cursor drags it
 constexpr float kHeal = 1.0f;
 constexpr float kCorruptDps = 20.0f;
 // Weakened: while in a corrupted cell and kWeakenLinger s after leaving it.
@@ -235,18 +239,46 @@ constexpr float kMoveSpeed = 200.0f;
 constexpr float kMoveRestMin = 1.5f, kMoveRestMax = 2.5f;
 constexpr float kBodyMinX = 140.0f, kBodyMinY = 130.0f;   // kept this far inside the screen
 
-// ── 5 Drag (phase 2) ────────────────────────────────────────
-// The cursor goes to the body and presses (kDragGrab), then drags it in
-// kDragStrokes straight strokes (kDragStrokesLow under kDragLowHp of health).
-// Each stroke shows its path for kDragPreview, then takes kDragMove. Strokes
-// run past the player, not into them. Let go: a ring wave from the body.
-constexpr float kDragGrab = 0.45f, kDragPreview = 0.50f, kDragMove = 0.45f, kDragTail = 0.40f;
-constexpr int   kDragStrokes = 3, kDragStrokesLow = 4;
-constexpr float kDragLowHp = 0.20f;
-
 // ── Erode (phase 2) ─────────────────────────────────────────
 constexpr float kErodeAfter = 1.6f;         // seconds in one cell
 constexpr float kErodeShow = 0.4f;          // the meter shows from here
+
+// ── 6 Siphon ────────────────────────────────────────────────
+// The cursor reaches the core and presses it (kSiphonPlug), then from
+// kSiphonStart every puddle (not the bad sectors) is drawn in. A puddle's
+// pull starts later the farther it is (up to kSiphonStagger); its head runs
+// to the body over kSiphonHead (accelerating), its tail follows kSiphonLag
+// behind over kSiphonTail, so it stretches into a stream that thins, spirals
+// kSiphonSwirl round the body and is gone. Only with kSiphonMin puddles out.
+constexpr float kSiphonPlug = 0.35f, kSiphonStart = 0.70f;
+constexpr float kSiphonStagger = 0.40f;
+constexpr float kSiphonHead = 0.80f, kSiphonLag = 0.30f, kSiphonTail = 1.00f;
+constexpr float kSiphonSwirl = 1.10f;       // radians it turns on the way in
+constexpr float kSiphonTailEnd = 0.30f;     // seconds after the last drop
+constexpr float kSiphonExpose = 2.0f;       // open this long after (others: kExposeSeconds)
+constexpr int   kSiphonMin = 3;
+constexpr float kSiphonPull = 130.0f;       // px/s the player is drawn in
+constexpr float kSiphonPullNear = 140.0f, kSiphonPullFull = 280.0f;   // no pull this close
+constexpr int   kSiphonBalls = 28;          // per stream, at most
+// ── 6b Spout (the siphon goes on into it) ───────────────────
+// What it drank comes back out. On the swallow the body swells for the
+// tune's spoutSwell while the landing cells warn: round the player, one or
+// two cells off, more on the far side from the body, never the player's own
+// cell nor more than kSpoutNear of its eight neighbours, and (if it can) not
+// where a stream would run over the player getting there. Then one stream per
+// cell leaves the body (kSpoutGap apart), unwinding the drinking spiral: its
+// head flies out over kSpoutFly (slowing as it lands), its tail kSpoutLag
+// behind; when the tail lands the cell is a puddle. A ring wave is queued as
+// the streams leave, so its front shoves the player out over the fresh
+// puddles. As many streams as puddles drunk, at most the tune's spoutMax.
+constexpr float kSpoutSwell = 0.50f;
+constexpr float kSpoutGap = 0.08f, kSpoutFly = 0.45f, kSpoutLag = 0.15f;
+constexpr float kSpoutTail = 0.25f;         // after the last one lands
+constexpr int   kSpoutMax = 5, kSpoutNear = 5;
+// A puddle drunk (in: from sx, sy) or spouted (out: to sx, sy, started once
+// it has landed).
+struct Drop { float sx = 0.0f, sy = 0.0f, delay = 0.0f; unsigned char glitch = 0; int cell = -1; bool started = false, out = false; };
+struct Ball { float x, y, r, w, wob, ph; };   // wob: how much its rim wobbles like a puddle's
 
 // ── Difficulty ──────────────────────────────────────────────
 // The numbers above are HARD (the fight as designed). EASY and NORMAL ease it,
@@ -262,9 +294,11 @@ struct Tune {
     int   maxBad = kMaxBad;
     bool  leaks = true;
     float erodeAfter = kErodeAfter;         // 0: no erosion
-    int   dragStrokes = kDragStrokes, dragStrokesLow = kDragStrokesLow;   // 0: no drag
     float overflowDamage = kOverflowDamage;
     float smearSpeed = kSmearSpeed;
+    float siphonPull = kSiphonPull;
+    int   spoutMax = kSpoutMax;
+    float spoutSwell = kSpoutSwell;
 };
 inline Tune g_Tune;
 inline void SetDifficulty(int d) {
@@ -273,20 +307,23 @@ inline void SetDifficulty(int d) {
         t.warn = 1.0f; t.warnP2 = 0.75f; t.corruptDps = 10.0f; t.badDps = 20.0f;
         t.seeds = 1; t.seedsP2 = 2; t.snipes = 3; t.snipesP2 = 4; t.shotSpeed = 1300.0f;
         t.waveEvery = 5.0f; t.waveEveryP2 = 4.0f; t.maxBad = 2; t.leaks = false;
-        t.erodeAfter = 0.0f; t.dragStrokes = t.dragStrokesLow = 0;
-        t.overflowDamage = 15.0f; t.smearSpeed = 270.0f;
+        t.erodeAfter = 0.0f;
+        t.overflowDamage = 15.0f; t.smearSpeed = 270.0f; t.siphonPull = 70.0f;
+        t.spoutMax = 3; t.spoutSwell = 0.70f;
     } else if (d == 1) {   // NORMAL
         t.warn = 0.9f; t.warnP2 = 0.7f; t.corruptDps = 15.0f; t.badDps = 30.0f;
         t.seeds = 2; t.seedsP2 = 2; t.snipes = 4; t.snipesP2 = 5; t.shotSpeed = 1500.0f;
         t.waveEvery = 4.5f; t.waveEveryP2 = 3.5f; t.maxBad = 3;
-        t.erodeAfter = 2.4f; t.dragStrokes = 2; t.dragStrokesLow = 2;
-        t.overflowDamage = 20.0f; t.smearSpeed = 300.0f;
+        t.erodeAfter = 2.4f;
+        t.overflowDamage = 20.0f; t.smearSpeed = 300.0f; t.siphonPull = 100.0f;
+        t.spoutMax = 4; t.spoutSwell = 0.60f;
     } else if (d >= 3) {   // NIGHTMARE
         t.warn = 0.7f; t.warnP2 = 0.5f; t.corruptDps = 25.0f; t.badDps = 50.0f;
         t.seeds = 3; t.seedsP2 = 3; t.snipes = 6; t.snipesP2 = 8; t.shotSpeed = 1900.0f;
         t.waveEvery = 3.5f; t.waveEveryP2 = 2.6f;
-        t.erodeAfter = 1.3f; t.dragStrokes = 4; t.dragStrokesLow = 5;
-        t.overflowDamage = 35.0f; t.smearSpeed = 360.0f;
+        t.erodeAfter = 1.3f;
+        t.overflowDamage = 35.0f; t.smearSpeed = 360.0f; t.siphonPull = 165.0f;
+        t.spoutMax = 6; t.spoutSwell = 0.40f;
     }
     g_Tune = t;
 }
@@ -347,7 +384,6 @@ struct State {
     float   moveX = -1.0f, moveY = -1.0f, moveT = 0.0f;
     bool    bodyHold = true, bodyExact = false;
     float   bodyX = 0.0f, bodyY = 0.0f;
-    float   dragFromX = 0.0f, dragFromY = 0.0f, dragToX = 0.0f, dragToY = 0.0f;
     bool    comboRing = false;      // the queued combo wave is a ring from the body
 
     int     smearCell = 0;          // Smear: the cell it lifts
@@ -355,6 +391,13 @@ struct State {
     float   carryX = 0.0f, carryY = 0.0f, carryScale = 1.0f, carryBase = 1.0f;
     float   carryMoved = 0.0f;      // px it has been dragged
     float   carryEndT = 0.0f;       // when the cursor let go
+
+    std::vector<Drop> drops;        // Siphon: the puddles being drunk
+    float   swirl = 1.0f;           // Siphon: +1 / -1, which way the streams turn
+    float   siphonEndAt = -1.0f;    // Siphon: when the last stream was gone
+    float   spoutAt = -1.0f;        // Spout: when it swallowed (< 0: no spout)
+    float   spoutEndAt = -1.0f;     // Spout: when the last stream landed
+    float   pullX = 0.0f, pullY = 0.0f;   // px/s drawing the player in (the game moves them)
 
     float   curX = -1.0f, curY = -1.0f;   // the cursor (< 0: not placed yet)
     bool    curPress = false;
@@ -403,12 +446,33 @@ inline float BlobField(int cell, float x, float y, float time) {
     return q > 0.0f ? q * q : 0.0f;
 }
 inline float CarryField(float x, float y, float time);
-// The field of the cells that hurt (corrupted ones, and a dragged puddle) at (x, y).
+// Siphon: this tick's streams as metaballs (UpdateDropBalls), summed like the
+// cells' blobs, so a stream hurts exactly where it is drawn.
+inline std::vector<Ball> g_DropBalls;
+inline float DropField(float x, float y) {
+    float f = 0.0f;
+    for (const Ball& b : g_DropBalls) {
+        const float dx = x - b.x, dy = y - b.y, d2 = dx * dx + dy * dy;
+        const float rMax = b.r * (1.0f + 0.16f * b.wob);
+        if (d2 >= rMax * rMax) continue;
+        float r = b.r;
+        if (b.wob > 0.01f) {   // the same wobbling rim as a puddle's blob (BlobField)
+            const float a = std::atan2(dy, dx);
+            r *= 1.0f + b.wob * (0.10f * std::sin(3.0f * a + b.ph + g.time * 0.8f) +
+                                 0.06f * std::sin(5.0f * a - b.ph * 1.7f - g.time * 1.1f));
+        }
+        const float q = 1.0f - d2 / (r * r);
+        if (q > 0.0f) f += b.w * q * q;
+    }
+    return f;
+}
+// The field of the cells that hurt (corrupted ones, a dragged puddle and the
+// siphon's streams) at (x, y).
 inline float HurtField(float x, float y) {
     float f = 0.0f;
     for (int i = 0; i < CellCount(); ++i)
         if (Hurts(g.cells[i])) f += BlobField(i, x, y, g.time);
-    return f + CarryField(x, y, g.time);
+    return f + CarryField(x, y, g.time) + DropField(x, y);
 }
 inline bool InPuddle(float x, float y) { return HurtField(x, y) >= kPuddleEdge; }
 // The bad sectors' own field: inside it is the stronger zone.
@@ -467,6 +531,7 @@ inline void ClearHazards() {
     g.overflowT = -1.0f; g.dwell = 0.0f;
     g.waveT = -1.0f; g.waveCd = g_Tune.waveEvery; g.comboQueued = false;
     g.carrying = false;
+    g.drops.clear(); g_DropBalls.clear(); g.pullX = g.pullY = 0.0f;
     g.morph = -1.0f;
 }
 
@@ -499,7 +564,7 @@ inline void AddBadSector(float px, float py) {
         }
     }
 }
-inline void Reset() { g = State{}; }
+inline void Reset() { g = State{}; g_DropBalls.clear(); }
 
 // Player's movement and damage to CAELUM while weakened.
 inline float MoveFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? kBadMove : kWeakMove) : 1.0f; }
@@ -602,17 +667,22 @@ inline Form FormFor(Pattern p) { return p == Pattern::Shot ? Form::Sniper : Form
 
 // Two board patterns (corrupt form), then a snipe (sniper form), and again.
 inline Pattern PickPattern() {
+    // The siphon comes after the board has filled (it needs kSiphonMin
+    // puddles, else the next one runs).
     static const Pattern p1[] = { Pattern::Spread, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Smear, Pattern::Spread, Pattern::Shot,
-                                  Pattern::Scanline, Pattern::Smear, Pattern::Shot };
-    // Phase 2: the drag joins in.
-    static const Pattern p2[] = { Pattern::Spread, Pattern::Drag, Pattern::Shot,
+                                  Pattern::Smear, Pattern::Siphon, Pattern::Shot,
+                                  Pattern::Spread, Pattern::Scanline, Pattern::Shot,
+                                  Pattern::Smear, Pattern::Siphon, Pattern::Shot };
+    // Phase 2: the same patterns in another order.
+    static const Pattern p2[] = { Pattern::Spread, Pattern::Scanline, Pattern::Shot,
+                                  Pattern::Smear, Pattern::Siphon, Pattern::Shot,
                                   Pattern::Smear, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Drag, Pattern::Smear, Pattern::Spread, Pattern::Shot };
+                                  Pattern::Spread, Pattern::Siphon, Pattern::Shot };
     const Pattern* list = g.phase == 2 ? p2 : p1;
     const int n = g.phase == 2 ? (int)(sizeof(p2) / sizeof(p2[0])) : (int)(sizeof(p1) / sizeof(p1[0]));
     Pattern pick = list[g.count % n];
-    if (pick == g.last || (pick == Pattern::Drag && g_Tune.dragStrokes <= 0)) pick = list[(g.count + 1) % n];
+    if (pick == g.last || (pick == Pattern::Siphon && CorruptCount() < kSiphonMin))
+        pick = list[(g.count + 1) % n];
     return pick;
 }
 
@@ -774,6 +844,218 @@ inline void TickSmear(float dt, float px, float py) {
     }
 }
 
+// Siphon: the puddles to drink (all but the bad sectors and the body's own),
+// the near ones first.
+inline void StartSiphon() {
+    g.drops.clear();
+    g.siphonEndAt = g.spoutAt = g.spoutEndAt = -1.0f;
+    g.swirl = rand() % 2 ? 1.0f : -1.0f;
+    const int boss = CellAt(g.bossX, g.bossY);
+    float maxD = 1.0f;
+    for (int i = 0; i < CellCount(); ++i) {
+        const Cell& c = g.cells[i];
+        if (!Hurts(c) || c.bad || i == boss) continue;
+        Drop d;
+        CellCentre(i, d.sx, d.sy);
+        d.cell = i; d.glitch = c.glitch;
+        d.delay = std::hypot(d.sx - g.bossX, d.sy - g.bossY);   // distance for now
+        maxD = std::max(maxD, d.delay);
+        g.drops.push_back(d);
+    }
+    for (Drop& d : g.drops) d.delay = kSiphonStagger * d.delay / maxD + RndRange(0.0f, 0.06f);
+}
+// How far along its way in a drop's head and tail are (0 at its puddle, 1 in
+// the body). Both accelerate, like water finding the drain.
+inline void DropSpan(const Drop& d, float& head, float& tail) {
+    const float tau = g.t - kSiphonStart - d.delay;
+    const float h = std::clamp(tau / kSiphonHead, 0.0f, 1.0f);
+    const float l = std::clamp((tau - kSiphonLag) / kSiphonTail, 0.0f, 1.0f);
+    head = h * h; tail = l * l;
+}
+// Spout: how far out a stream's head and tail are (0 in the body, 1 landed),
+// slowing as they land.
+inline void SpoutSpan(const Drop& d, float& head, float& tail) {
+    const float tau = g.t - g.spoutAt - d.delay;
+    const float h = std::clamp(tau / kSpoutFly, 0.0f, 1.0f);
+    const float l = std::clamp((tau - kSpoutLag) / kSpoutFly, 0.0f, 1.0f);
+    head = 1.0f - (1.0f - h) * (1.0f - h); tail = 1.0f - (1.0f - l) * (1.0f - l);
+}
+// A point on a drop's way in: straight at the body, turning kSiphonSwirl as
+// it closes in (a whirlpool).
+inline void DropPath(const Drop& d, float s, float& x, float& y) {
+    const float rx = d.sx - g.bossX, ry = d.sy - g.bossY;
+    const float rho = std::hypot(rx, ry) * (1.0f - s);
+    const float th = std::atan2(ry, rx) + g.swirl * kSiphonSwirl * s * s;
+    x = g.bossX + std::cos(th) * rho; y = g.bossY + std::sin(th) * rho;
+}
+// The streams as metaballs, from each drop's tail (its fat body) to its head
+// (thin, reaching the body). The longer a stream, the thinner (its water is
+// spread out); nearer the body, the narrower; and it carries less as its tail
+// drains. A drop that has only just started is one ball the size of its
+// puddle's blob, so the puddle turns into the stream without a jump.
+// A spouted stream is the same shape run backwards along the same path: its
+// fat end is its head, landing as one ball the size of the puddle it becomes.
+inline void UpdateDropBalls(float time) {
+    g_DropBalls.clear();
+    if (!g.acting || g.pattern != Pattern::Siphon) return;
+    for (const Drop& d : g.drops) {
+        float sh, st;   // the stream lies from st (its far, fat end) to sh (the body's side)
+        if (d.out) {
+            float head, tail;
+            SpoutSpan(d, head, tail);
+            if (head <= 0.0f || tail >= 1.0f) continue;
+            st = 1.0f - head; sh = 1.0f - tail;
+        } else {
+            if (!d.started) continue;
+            DropSpan(d, sh, st);
+            if (st >= 1.0f) continue;
+        }
+        const float rho0 = std::max(1.0f, std::hypot(d.sx - g.bossX, d.sy - g.bossY));
+        const float stretch = (sh - st) * rho0 / kCell;
+        const float thin = 1.0f / std::sqrt(1.0f + 1.2f * stretch);
+        const float w = 1.0f - 0.55f * std::clamp(stretch / 0.6f, 0.0f, 1.0f);
+        // Still a puddle at first: its rim wobbles as it did, calming as it stretches.
+        const float wob = 1.0f - std::clamp(stretch / 0.5f, 0.0f, 1.0f);
+        const float ph = (float)d.glitch * 0.0246f;
+        const auto radius = [&](float s) {
+            const float f = sh > st ? (s - st) / (sh - st) : 0.0f;     // 0 tail .. 1 head
+            const float ripple = 1.0f + 0.07f * (1.0f - wob) * std::sin(time * 7.0f + s * 9.0f + (float)d.glitch * 0.05f);
+            return kBlobReach * thin * (0.25f + 0.75f * std::pow(1.0f - s, 0.7f)) * (1.0f - 0.55f * f) * ripple;
+        };
+        const float dsMin = (sh - st) / (float)(kSiphonBalls - 1);
+        float s = st;
+        for (int k = 0; k < kSiphonBalls; ++k) {
+            const bool last = s >= sh || k == kSiphonBalls - 1;
+            const float at = last ? sh : s;
+            float x, y;
+            DropPath(d, at, x, y);
+            const float r = radius(at);
+            g_DropBalls.push_back({ x, y, r, w, k == 0 ? wob : 0.0f, ph });
+            if (last) break;
+            s = std::min(sh, s + std::max(dsMin, 0.45f * r / rho0));
+        }
+    }
+}
+inline void TickSiphon(float px, float py) {
+    if (g.step >= 3) return;                             // spouting it back
+    const float t = g.t;
+    if (g.step == 0 && t >= kSiphonPlug) {               // the cursor presses the core
+        g.step = 1;
+        Click(g.bossX, g.bossY);
+        g_Events.push_back({ Fx::Plug, g.bossX, g.bossY, 0.0f });
+    }
+    if (t < kSiphonStart) return;
+    if (g.step == 1) {                                   // it drinks: what was about to land goes too
+        g.step = 2;
+        for (int i = 0; i < CellCount(); ++i) {
+            Cell& c = g.cells[i];
+            if (c.state == CellState::Warn && !c.bad) c = Cell{};
+        }
+    }
+    bool left = false;
+    for (Drop& d : g.drops) {
+        if (!d.started && t >= kSiphonStart + d.delay) {   // the puddle lets go of its cell
+            d.started = true;
+            Cell& c = g.cells[d.cell];
+            if (!c.bad) c = Cell{};
+        }
+        float sh, st;
+        DropSpan(d, sh, st);
+        if (st < 1.0f) left = true;
+    }
+    if (!left && g.siphonEndAt < 0.0f) {
+        g.siphonEndAt = t;
+        g_Events.push_back({ Fx::Swallow, g.bossX, g.bossY, (float)g.drops.size() });
+    }
+    // The pull: the player is drawn toward the body while it drinks (not
+    // right up against it).
+    if (g.siphonEndAt < 0.0f) {
+        const float dx = g.bossX - px, dy = g.bossY - py, d = std::hypot(dx, dy);
+        if (d > 1.0f) {
+            const float k = Smooth((t - kSiphonStart) / 0.3f) *
+                            Smooth((d - kSiphonPullNear) / (kSiphonPullFull - kSiphonPullNear));
+            g.pullX = dx / d * g_Tune.siphonPull * k;
+            g.pullY = dy / d * g_Tune.siphonPull * k;
+        }
+    }
+}
+
+// Spout: the cells it will land on, and a stream for each (the drunk ones go).
+inline void StartSpout(float px, float py) {
+    const int n = std::min((int)g.drops.size(), g_Tune.spoutMax);
+    g.drops.clear();
+    g.spoutAt = g.t; g.spoutEndAt = -1.0f;
+    const int cols = Cols(), rows = Rows();
+    const int here = CellAt(px, py), boss = CellAt(g.bossX, g.bossY);
+    const int hx = here % cols, hy = here / cols;
+    float ax = px - g.bossX, ay = py - g.bossY;          // away from the body
+    const float al = std::hypot(ax, ay);
+    if (al > 1.0f) { ax /= al; ay /= al; } else { ax = 0.0f; ay = 1.0f; }
+    struct Spot { int cell; float score; bool adj; };
+    std::vector<Spot> spots;
+    for (int dy = -2; dy <= 2; ++dy)
+        for (int dx = -2; dx <= 2; ++dx) {
+            const int x = hx + dx, y = hy + dy;
+            if ((dx == 0 && dy == 0) || x < 0 || y < 0 || x >= cols || y >= rows) continue;
+            const int i = y * cols + x;
+            const Cell& c = g.cells[i];
+            if (i == boss || c.bad || c.state != CellState::Clean) continue;
+            float cx, cy;
+            CellCentre(i, cx, cy);
+            const float d = std::max(1.0f, std::hypot(cx - px, cy - py));
+            const bool adj = std::abs(dx) <= 1 && std::abs(dy) <= 1;
+            // Not one whose stream would run over the player on its way.
+            Drop way; way.sx = cx; way.sy = cy;
+            float clear = 1.0e9f;
+            for (int k = 1; k < 10; ++k) {
+                float wx, wy;
+                DropPath(way, (float)k / 10.0f, wx, wy);
+                clear = std::min(clear, std::hypot(wx - px, wy - py));
+            }
+            spots.push_back({ i, ((cx - px) * ax + (cy - py) * ay) / d + RndRange(0.0f, 1.2f) - (adj ? 0.0f : 0.3f) -
+                                 (clear < kCell * 0.75f ? 3.0f : 0.0f), adj });
+        }
+    std::sort(spots.begin(), spots.end(), [](const Spot& a, const Spot& b) { return a.score > b.score; });
+    int taken = 0, nearTaken = 0;
+    for (const Spot& s : spots) {
+        if (taken >= n) break;
+        if (s.adj && nearTaken >= kSpoutNear) continue;
+        nearTaken += s.adj ? 1 : 0;
+        Drop d;
+        CellCentre(s.cell, d.sx, d.sy);
+        d.cell = s.cell; d.out = true;
+        d.delay = g_Tune.spoutSwell + kSpoutGap * (float)taken + RndRange(0.0f, 0.03f);
+        Infect(s.cell, d.delay + kSpoutLag + kSpoutFly);   // it corrupts as the stream lands
+        d.glitch = g.cells[s.cell].glitch;
+        g.drops.push_back(d);
+        ++taken;
+    }
+}
+inline void QueueRing();
+inline void TickSpout() {
+    if (g.step == 3 && g.t - g.spoutAt >= g_Tune.spoutSwell) {   // it lets go: out they come
+        g.step = 4;
+        Click(g.bossX, g.bossY);
+        g_Events.push_back({ Fx::Spout, g.bossX, g.bossY, (float)g.drops.size() });
+        QueueRing();                                     // its front comes as they land
+    }
+    bool flying = false;
+    for (Drop& d : g.drops) {
+        float head, tail;
+        SpoutSpan(d, head, tail);
+        if (tail < 1.0f) { flying = true; continue; }
+        if (d.started) continue;
+        d.started = true;                                // landed: the cell is a puddle now
+        Cell& c = g.cells[d.cell];
+        if (!c.bad) {
+            if (c.state != CellState::Corrupt) { c.state = CellState::Corrupt; c.t = 0.0f; }
+            c.glitch = d.glitch;
+        }
+        g_Events.push_back({ Fx::Seed, d.sx, d.sy, 0.0f });
+    }
+    if (!flying && g.step == 4 && g.spoutEndAt < 0.0f) g.spoutEndAt = g.t;
+}
+
 // ── Cursor ──────────────────────────────────────────────────
 // Where the cursor wants to be this frame, whether it presses, and whether it
 // sits exactly there (a drag) rather than gliding.
@@ -806,11 +1088,11 @@ inline void CursorWant(float px, float py, float& tx, float& ty, bool& press, bo
             press = g.t >= SnipeFireAt(g.step) - kSnipeLock;
         }
         break;
-    case Pattern::Drag:
-        if (g.step < 100) {
+    case Pattern::Siphon:                                // it holds the core down while it drinks (and swells)
+        if (g.siphonEndAt < 0.0f || g.step == 3) {
             tx = g.bossX; ty = g.bossY;
-            press = g.t >= kDragGrab - kClickHold;
-            exact = g.t >= kDragGrab;
+            press = g.t >= kSiphonPlug - kClickHold;
+            exact = g.t >= kSiphonPlug;
         }
         break;
     case Pattern::Smear:
@@ -877,43 +1159,14 @@ inline void PickMoveSpot(float px, float py) {
 }
 inline void TickBody(float dt, float px, float py) {
     g.bodyExact = false;
-    g.bodyHold = g.exposed > 0.0f || g.invuln > 0.0f || g.form == Form::Sniper || g.morph >= 0.0f;
+    g.bodyHold = g.exposed > 0.0f || g.invuln > 0.0f || g.form == Form::Sniper || g.morph >= 0.0f ||
+                 (g.acting && g.pattern == Pattern::Siphon);
     g.moveT -= dt;
     // The player came close (a shove, a dash): move off at once.
     if (!g.bodyHold && std::hypot(g.bossX - px, g.bossY - py) < kMoveNear * 0.6f &&
         std::hypot(g.moveX - px, g.moveY - py) < kMoveNear) g.moveT = 0.0f;
     if (g.moveX < 0.0f || g.moveT <= 0.0f) PickMoveSpot(px, py);
 }
-// Drag: where stroke k goes from the body's spot: past the player (beyond
-// them, off to one side), long enough to read, on screen.
-inline void PickDragTarget(float px, float py) {
-    float dx = px - g.dragFromX, dy = py - g.dragFromY;
-    float d = std::hypot(dx, dy);
-    if (d < 1.0f) { const float a = RndRange(0.0f, 6.2831853f); dx = std::cos(a); dy = std::sin(a); d = 1.0f; }
-    dx /= d; dy /= d;
-    const float side = rand() % 2 ? 1.0f : -1.0f;
-    float tx = px + dx * RndRange(260.0f, 420.0f) - dy * side * RndRange(140.0f, 260.0f);
-    float ty = py + dy * RndRange(260.0f, 420.0f) + dx * side * RndRange(140.0f, 260.0f);
-    tx = std::clamp(tx, kBodyMinX, g_W - kBodyMinX);
-    ty = std::clamp(ty, kBodyMinY, g_H - kBodyMinY);
-    if (std::hypot(tx - g.dragFromX, ty - g.dragFromY) < 380.0f) {   // too short: swing the other way
-        tx = std::clamp(px - dx * 380.0f + dy * side * 200.0f, kBodyMinX, g_W - kBodyMinX);
-        ty = std::clamp(py - dy * 380.0f - dx * side * 200.0f, kBodyMinY, g_H - kBodyMinY);
-    }
-    g.dragToX = tx; g.dragToY = ty;
-}
-inline int DragStrokes() { return g.hpRatio <= kDragLowHp ? g_Tune.dragStrokesLow : g_Tune.dragStrokes; }
-// Drag: 0..1 along stroke k right now (0 while its path shows), and k.
-inline int DragStroke(float& u) {
-    const float tt = g.t - kDragGrab, per = kDragPreview + kDragMove;
-    u = 0.0f;
-    if (tt < 0.0f) return -1;
-    const int k = (int)(tt / per);
-    const float local = tt - (float)k * per;
-    if (local >= kDragPreview) u = Smooth((local - kDragPreview) / kDragMove);
-    return k;
-}
-
 inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
     g.pattern = force != Pattern::None ? force : PickPattern();
     ++g.count;
@@ -931,6 +1184,7 @@ inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
         if (g.phase == 2) AddScan(!g.scans[0].horiz, px, py);
         break;
     case Pattern::Smear: StartSmear(px, py); break;
+    case Pattern::Siphon: StartSiphon(); break;
     default: break;
     }
 }
@@ -1118,27 +1372,21 @@ inline void RunPattern(float dt, float px, float py) {
         if (g.step == 2 && !g.comboSent) QueueShove();
         if (g.step == 2 && g.t >= g.carryEndT + kSmearTail) EndPattern();
         break;
-    case Pattern::Drag: {
-        g.bodyExact = true;
-        float u;
-        const int k = DragStroke(u);
-        if (k < 0) { g.bodyX = g.bossX; g.bodyY = g.bossY; break; }   // the cursor is getting a grip
-        if (k >= DragStrokes()) {                                    // let go: a ring from the body
-            if (g.step < 100) { g.step = 100; Click(g.bossX, g.bossY); QueueRing(); }
-            g.bodyX = g.bossX; g.bodyY = g.bossY;
-            if (g.t >= kDragGrab + (float)DragStrokes() * (kDragPreview + kDragMove) + kDragTail) EndPattern();
-            break;
+    case Pattern::Siphon:
+        TickSiphon(px, py);
+        if (g.siphonEndAt >= 0.0f && g.step == 2) {      // swallowed: it spouts it back
+            g.step = 3;
+            StartSpout(px, py);
         }
-        if (k >= g.step) {                                           // a new stroke from here
-            g.step = k + 1;
-            g.dragFromX = g.bossX; g.dragFromY = g.bossY;
-            PickDragTarget(px, py);
+        if (g.step >= 3) {
+            TickSpout();
+            if (g.spoutEndAt >= 0.0f && g.t >= g.spoutEndAt + kSpoutTail) {   // all out: wide open
+                g.drops.clear();
+                EndPattern();
+                g.exposed = kSiphonExpose;
+            }
         }
-        g.bodyX = g.dragFromX + (g.dragToX - g.dragFromX) * u;
-        g.bodyY = g.dragFromY + (g.dragToY - g.dragFromY) * u;
-        g.curX = g.bodyX; g.curY = g.bodyY;   // the hand holding it, this frame (not the last)
         break;
-    }
     case Pattern::Shot: {
         const int n = g.phase == 2 ? g_Tune.snipesP2 : g_Tune.snipes;
         // The aim follows the lead until it locks just before the shot.
@@ -1172,6 +1420,8 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
     }
     g.prevX = px; g.prevY = py;
     g.bossX = bx; g.bossY = by;
+    g.pullX = g.pullY = 0.0f;
+    if (!g.acting || g.pattern != Pattern::Siphon) g_DropBalls.clear();
     g.hpRatio = maxHp > 0.0f ? hp / maxHp : 1.0f;
     g.bodyHold = true; g.bodyExact = false;
     g.phaseFlash = std::max(0.0f, g.phaseFlash - dt);
@@ -1203,7 +1453,6 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
             c.life = kTrailLife;
             c.glitch = (unsigned char)(rand() % 256);
         }
-        if (g.pattern == Pattern::Drag && g.acting) c.life = std::max(c.life, kDragTrailLife);
         c.t = 0.0f;
     }
     TickCells(dt, px, py, playerHP);
@@ -1232,6 +1481,7 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
     }
     g.t += dt;
     RunPattern(dt, px, py);
+    UpdateDropBalls(g.time);
 }
 
 } // namespace caelum

@@ -41,14 +41,14 @@
 #include "EnemySpawner.h"
 #include "BalanceTuning.h"
 #include "ProjectileSystem.h"
-#include "AugmentSlots.h"
 #include "GameplayTime.h"
 #include "Codex.h"
 #include "CollisionSystem.h"
-#include "KillRewards.h"      // main.cpp kill paths (common collection, laser)
 #include "RunStats.h"         // stat builds: new run, rebuild, restart, Chaos
 #include "RunResult.h"        // run result commit: abandon, game over
 #include "Augment.h"
+#include "PassiveAugments.h"
+#include "ActiveSkills.h"
 #include "PlayerStats.h"
 #include "TextRenderer.h"
 #include "PlanetShader.h"
@@ -68,6 +68,7 @@
 #include "CaelumDraw.h"
 #include "WaveHud.h"
 #include "SkillHud.h"
+#include "AugCardModel.h"
 #include "VitalsHud.h"
 #include "PlayerWeaponShell.h"
 #include "GameFonts.h"
@@ -76,7 +77,6 @@
 #include "ReadyLaunch.h"
 #include "SceneContext.h"
 #include "SceneInternal.h"
-#include "SceneSkills.h"
 #include "Input.h"
 #include "DebugToolkit.h"
 #include "SmokeCapture.h"
@@ -120,10 +120,9 @@ int     g_VolLen = 0;
 PlayerStats    g_Stats;
 GameplayTelemetry g_GameplayTelemetry;
 bool g_aug1Released = true, g_aug2Released = true, g_aug3Released = true;
+bool g_aug4Released = true, g_aug5Released = true;
 float g_AugExitT    = -1.0f;
 int   g_AugExitSlot = -1;
-float g_RepExitT    = -1.0f;
-int   g_RepExitSlot = -3;
 TextRenderer   g_TextL;   // ??글??(증강 ?�름, ?�태 ?�?��?)
 TextRenderer   g_TextS;   // ?��? 글??(?�명, ?�트)
 TextRenderer   g_TextXL;  // 초�????�?��?(?�작�?로고) ?�용 ??고해?�도 ?�스??
@@ -131,15 +130,6 @@ TextRenderer   g_TextXL;  // 초�????�?��?(?�작�?로고) ?�용 ??
 HANDLE         g_FontMemHandle   = nullptr;
 #endif
 
-struct ApproachOrb {
-    float x = 0, y = 0;
-};
-std::vector<ApproachOrb> g_ApproachOrbs;
-
-struct DroneState {
-    float angle     = 0.0f;
-    float fireTimer = 0.0f;
-};
 // Game speed while Ctrl-arranging windows mid-fight.
 constexpr float kArrangeSlow = 0.18f;
 
@@ -681,6 +671,8 @@ static void DrawPaneHits(const os_pane::Pane& p, const os_pane::Rect& box, hud_l
     }
 }
 
+static void DrawCrashCharge();
+static bool CrashActive();
 static void DrawPaneBrackets() {
     g_PaneHits.erase(std::remove_if(g_PaneHits.begin(), g_PaneHits.end(), [](const PaneHitMark& m) {
         if (g_GameTime - m.at >= kPaneHitSeconds) return true;
@@ -694,11 +686,11 @@ static void DrawPaneBrackets() {
     bool any = false;
     const hud_lines::Rgb ice{ 0.72f, 0.94f, 1.0f };
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open || p.minimized || p.covered) continue;
+        if (!p.open || p.minimized || p.covered || p.decor) continue;
         if (!any) { BindMainShader(); any = true; }
         g_PaneCover.clear();
         for (const os_pane::Pane& q : os_pane::Panes())
-            if (q.open && !q.minimized && q.zRank < p.zRank) g_PaneCover.push_back(q.shown);
+            if (q.open && !q.minimized && !q.decor && q.zRank < p.zRank) g_PaneCover.push_back(q.shown);
         os_pane::Rect box = p.shown;
         if (const NormaFlash* flash = FlashFor(p.id)) {
             const float age = FlashAge(*flash);
@@ -785,6 +777,10 @@ static void DrawPaneBrackets() {
     }
     if (DrawWallWarning() && !any) { BindMainShader(); any = true; }
     g_PaneCover.clear();
+    if (CrashActive()) {
+        if (!any) { BindMainShader(); any = true; }
+        DrawCrashCharge();
+    }
     // While arranging: the window a drag would grab glows, pulsing.
     os_pane::Rect target;
     if (os_pane::ArrangeTarget(target)) {
@@ -822,31 +818,13 @@ static void DumpPaneState(const char* label, GLFWwindow* window) {
     std::fclose(f);
 }
 
-static const int MAX_DRONES = 4;
-DroneState g_Drones[MAX_DRONES] = {};
-
 //   1초마???�레?�어 ?�치??1개씩 배치, �?5�?지????맵에 ~5�??�시
 // Window sizes for active ranged and signal frames.
 float GENESIS_WIN_W = 300.0f;
 float SWARM_WIN_W = 210.0f;
 float g_RfwW = 500.0f, g_RfwH = 500.0f;
 
-struct ChakramState {
-    float angle        = 0.0f;
-    float hp           = 150.0f;
-    float maxHp        = 150.0f;
-    bool  alive        = false;
-    float respawnTimer = 0.0f;
-};
-static const int   MAX_CHAKRAMS    = 3;
-ChakramState g_Chakrams[MAX_CHAKRAMS] = {};
-static const float CHAKRAM_RADIUS = 130.0f;   // 버프: ?��? 공전 (공전�??�격)
-static const float CHAKRAM_SIZE   = 30.0f;    // 버프: ??칼날
-
-float g_BulletRainTimer = 0.0f;
-
 // LIGHT_STEP ?�격 감�????�전 HP 기록
-float g_PrevHP = 100.0f;
 
 // 초당 EXP ?�적??(?�버?????��??�는 죽음, ?�몹 가??
 
@@ -890,7 +868,7 @@ float g_MuzzleX = 0.0f, g_MuzzleY = 0.0f, g_MuzzleAng = 0.0f, g_MuzzleTimer = 0.
 static void RebuildPaneSpaces(const SpatialBounds& player) {
     std::vector<const os_pane::Pane*> order;
     for (const os_pane::Pane& p : os_pane::Panes())
-        if (p.open && !p.minimized && !p.covered) order.push_back(&p);
+        if (p.open && !p.minimized && !p.covered && !p.decor) order.push_back(&p);
     std::sort(order.begin(), order.end(),
               [](const os_pane::Pane* a, const os_pane::Pane* b) { return a->zRank < b->zRank; });
     space::g_Regions.clear();
@@ -1198,6 +1176,56 @@ static bool PaneWarpBusy(int id) { return id != 0 && (g_Warp.srcId == id || g_Wa
 struct PhaseSpray { int left = 0; float timer = 0.0f; };
 static PhaseSpray g_Spray;
 
+// The blue screen (norma::Pattern::Crash): the storm of decor error panes,
+// the one safe-mode pane, and the timeline from CrashStart (see NormaBoss.h).
+struct CrashState {
+    bool active = false;
+    float t = 0.0f;              // seconds since CrashStart
+    int toOpen = 0;              // storm panes still to open
+    int total = 0;
+    std::vector<int> storm;      // decor pane ids
+    int safeId = 0;
+    bool blue = false;           // the blue screen has fallen
+    bool shattered = false;      // and broken
+    float ix = 0.0f, iy = 0.0f;  // where the glass was hit (random, screen px)
+    std::vector<float> px, py;   // the crack web's points (BuildCrashCracks)
+    std::vector<int> rayLen;     // the ring each ray's crack stops at
+    std::vector<char> ringVis;   // which ring cracks show
+    std::vector<float> branches; // side cracks, 4 floats each
+};
+static CrashState g_Crash;
+static bool CrashActive() { return g_Crash.active; }
+static bool CrashScreenUp() { return g_Crash.active && g_Crash.blue && !g_Crash.shattered; }
+static bool CrashSafePane(int id) { return g_Crash.active && id != 0 && id == g_Crash.safeId; }
+
+// Opens the safe-mode pane within the player's reach (the Refuge reach), its
+// near edge a little short of it, at a random bearing that stays on screen.
+static int OpenCrashSafe(const Monster& boss, float psx, float psy) {
+    const float sw = (float)screenWidth, sh = (float)screenHeight;
+    const float reach = std::clamp(norma::kRefugeReach * g_Stats.moveSpeedMult,
+                                   norma::kRefugeReachMin, norma::kRefugeReachMax) * g_ViewZoom;
+    const float w = std::min(sw * 0.45f, norma::kCrashSafeW), h = std::min(sh * 0.45f, norma::kCrashSafeH);
+    float x = psx - w * 0.5f, y = psy - h * 0.5f;
+    for (int tries = 0; tries < 12; ++tries) {
+        const float a = RandRange(0.0f, 6.2831853f);
+        const float along = reach * RandRange(0.45f, 0.8f) + std::fabs(cosf(a)) * w * 0.5f +
+                            std::fabs(sinf(a)) * h * 0.5f;
+        const float cx = psx + cosf(a) * along, cy = psy + sinf(a) * along;
+        x = cx - w * 0.5f;
+        y = cy - h * 0.5f;
+        if (x >= 0.0f && y >= 0.0f && x + w <= sw && y + h <= sh) break;
+    }
+    x = std::clamp(x, 0.0f, std::max(0.0f, sw - w));
+    y = std::clamp(y, 0.0f, std::max(0.0f, sh - h));
+    const int id = os_pane::Open(x, y, w, h);
+    if (id <= 0) return 0;
+    os_pane::SetRole(id, os_pane::PaneRole::Safe, norma::kCrashCount, norma::kCrashCount);
+    os_pane::RaiseToFront(id);
+    FlashNormaPane(id, boss);
+    return id;
+}
+
+
 // The wall's footprints, red brackets that sharpen until the panes pop open.
 // True when anything was queued (the caller binds the shader first).
 static bool DrawWallWarning() {
@@ -1268,7 +1296,7 @@ static void SpawnNormaShot(float x, float y, float angle, float speed) {
 static float PaneOverlapScore(float x, float y, float w, float h, int selfId) {
     float score = 0.0f;
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open || p.minimized || p.id == selfId) continue;
+        if (!p.open || p.minimized || p.decor || p.id == selfId) continue;
         float px = p.frame.x, py = p.frame.y;
         for (const PaneDrift& d : g_PaneDrifts) {
             if (d.id != p.id) continue;
@@ -1600,6 +1628,23 @@ static void ServeNormaAsks(const SpatialBounds& player) {
         case norma::Ask::PhaseSpray:
             g_Spray = { norma::MaxBossPanesFor(boss->normaPhase), 0.0f };
             break;
+        case norma::Ask::CrashStart: {
+            if (g_Crash.active) break;
+            g_Crash = {};
+            g_Crash.active = true;
+            g_Crash.total = g_Crash.toOpen = norma::CrashPanesFor((int)g_Difficulty);
+            g_Crash.storm.reserve((size_t)g_Crash.total);
+            norma::g_CrashOver = false;
+            // Nothing else may shelter or fire: the boss's own panes, its shot
+            // box and rams fold away quietly (no bursts), the countdown ends.
+            ReleaseNormaPanes();
+            if (g_ThrowBox.id != 0) os_pane::Close(g_ThrowBox.id);
+            g_ThrowBox = {};
+            g_PaneRams.clear();
+            g_NormaCountdown = {};
+            g_Crash.safeId = OpenCrashSafe(*boss, psx, psy);
+            break;
+        }
         case norma::Ask::BuildWall: {
             if (g_Wall.active) { boss->normaPaneId = -1; break; }
             // A cascade of big panes over the ground between the boss and the
@@ -1719,6 +1764,21 @@ static void PlayCaelumEvents() {
             Shake(0.35f, 14.0f);
             TriggerHitStop(0.06f);
             TriggerFlash(1.0f, 0.9f, 0.7f, 0.18f);
+            break;
+        case caelum::Fx::Plug:       // the cursor presses the core: the drinking starts
+            SpawnShockWave(e.x, e.y, 160.0f, 0.30f, 1.0f, 0.95f, 0.82f);
+            Shake(0.10f, 4.0f);
+            break;
+        case caelum::Fx::Swallow:    // the last stream is in: a gulp, then it is wide open
+            SpawnShockWave(e.x, e.y, 300.0f, 0.45f, ar, ag, ab);
+            SpawnSparks(e.x, e.y, 12 + 2 * (int)e.a, 1.0f, 0.95f, 0.82f, 380.0f);
+            Shake(0.25f, 9.0f);
+            TriggerHitStop(0.04f);
+            break;
+        case caelum::Fx::Spout:      // phase 2: what it drank bursts back out
+            SpawnShockWave(e.x, e.y, 240.0f, 0.35f, 1.0f, 0.95f, 0.82f);
+            SpawnSparks(e.x, e.y, 10 + 2 * (int)e.a, ar, ag, ab, 420.0f);
+            Shake(0.20f, 8.0f);
             break;
         case caelum::Fx::PhaseShift:
             SpawnShockWave(e.x, e.y, 520.0f, 0.70f, ar, ag, ab);
@@ -2366,6 +2426,329 @@ static void DrawPaneCollapses(float dt) {
 struct PaneFuse { int id = 0; float timer = 0.0f; };
 static std::vector<PaneFuse> g_PaneFuses;
 
+// The blue screen's timeline (norma::Pattern::Crash, started by CrashStart),
+// in real time so it runs through its own hit-stop: the storm opens a few
+// panes a frame over kCrashSpawn and glitches harder through the countdown;
+// then the game crashes to a blue screen (everything outside the safe pane is
+// hit, the storm closes, play freezes), cracks spread over it from the boss,
+// and it shatters back to the game; the safe pane closes after a moment.
+static void EndCrash() {
+    for (int id : g_Crash.storm) os_pane::Close(id);
+    if (g_Crash.safeId != 0) os_pane::Close(g_Crash.safeId);
+    g_Crash = {};
+}
+
+// The crack web over the blue screen, like glass hit by a stone: from a random
+// impact point, kCrashRays jagged rays wander outward (each stops at its own
+// length), crossed near the impact by many short ring cracks and farther out
+// by few, with short side branches. Point (i, k) is ray i at ring k; the
+// cells between rays and rings are the shards (the inner ones fall first).
+static constexpr int kCrashRays = 22, kCrashRings = 11;
+static void BuildCrashCracks() {
+    const float sw = (float)screenWidth, sh = (float)screenHeight;
+    const float diag = std::sqrt(sw * sw + sh * sh);
+    static const float kRing[kCrashRings] = { 0.0f, 0.022f, 0.045f, 0.075f, 0.115f, 0.17f,
+                                              0.25f, 0.37f, 0.55f, 0.85f, 1.4f };
+    const float ix = RandRange(sw * 0.28f, sw * 0.72f), iy = RandRange(sh * 0.3f, sh * 0.7f);
+    g_Crash.ix = ix;
+    g_Crash.iy = iy;
+    g_Crash.px.assign(kCrashRays * kCrashRings, 0.0f);
+    g_Crash.py.assign(kCrashRays * kCrashRings, 0.0f);
+    g_Crash.ringVis.assign(kCrashRays * kCrashRings, 0);
+    g_Crash.rayLen.assign(kCrashRays, kCrashRings - 1);
+    g_Crash.branches.clear();
+    // Uneven spokes: random gaps between the rays' bearings.
+    float gaps[kCrashRays], sum = 0.0f;
+    for (float& g : gaps) { g = RandRange(0.4f, 1.6f); sum += g; }
+    float bearing = RandRange(0.0f, 6.2831853f);
+    for (int i = 0; i < kCrashRays; ++i) {
+        float a = bearing;
+        bearing += 6.2831853f * gaps[i] / sum;
+        for (int k = 0; k < kCrashRings; ++k) {
+            if (k > 0) a += RandRange(-0.07f, 0.07f);   // the ray wanders as it goes
+            const float r = kRing[k] * diag * (k > 0 ? RandRange(0.82f, 1.18f) : 0.0f);
+            g_Crash.px[i * kCrashRings + k] = ix + cosf(a) * r;
+            g_Crash.py[i * kCrashRings + k] = iy + sinf(a) * r;
+        }
+        // Most rays run off the screen; some stop short.
+        g_Crash.rayLen[i] = RandRange(0.0f, 1.0f) < 0.35f ? (int)RandRange(4.0f, 8.0f) : kCrashRings - 1;
+        // Ring cracks: dense near the impact, rare far out.
+        for (int k = 1; k < kCrashRings - 1; ++k) {
+            const float p = k <= 3 ? 0.9f : k <= 5 ? 0.55f : k <= 7 ? 0.25f : 0.08f;
+            g_Crash.ringVis[i * kCrashRings + k] = RandRange(0.0f, 1.0f) < p ? 1 : 0;
+        }
+        // A side branch or two off the ray.
+        const int nb = (int)RandRange(0.0f, 2.99f);
+        for (int b = 0; b < nb; ++b) {
+            const int k = (int)RandRange(2.0f, 7.0f);
+            const float x0 = g_Crash.px[i * kCrashRings + k], y0 = g_Crash.py[i * kCrashRings + k];
+            const float ba = atan2f(y0 - iy, x0 - ix) + (RandRange(0.0f, 1.0f) < 0.5f ? -1.0f : 1.0f) * RandRange(0.3f, 0.7f);
+            const float bl = RandRange(0.04f, 0.12f) * diag;
+            const float mx = x0 + cosf(ba) * bl * 0.5f + RandRange(-6.0f, 6.0f), my = y0 + sinf(ba) * bl * 0.5f + RandRange(-6.0f, 6.0f);
+            g_Crash.branches.insert(g_Crash.branches.end(), { x0, y0, mx, my });
+            g_Crash.branches.insert(g_Crash.branches.end(), { mx, my, x0 + cosf(ba + 0.15f) * bl, y0 + sinf(ba + 0.15f) * bl });
+        }
+    }
+}
+
+static void TickCrash(float dt) {
+    if (!g_Crash.active) return;
+    Monster* boss = FindNorma();
+    if (!boss) { EndCrash(); return; }
+    g_Crash.t += dt;
+    const float sw = (float)screenWidth, sh = (float)screenHeight;
+    const float countAt = norma::kCrashBuild, blueAt = norma::kCrashBuild + norma::kCrashCount;
+    const float shatterAt = blueAt + norma::kCrashBlue + norma::kCrashCrack;
+    // The storm: as many panes as the time asks for, at most a few a frame.
+    if (g_Crash.toOpen > 0) {
+        const int due = (int)std::ceil(g_Crash.total * std::min(1.0f, g_Crash.t / norma::kCrashSpawn));
+        int opened = g_Crash.total - g_Crash.toOpen;
+        for (int k = 0; k < norma::kCrashOpenPerFrame && opened < due; ++k, ++opened) {
+            const float w = std::min(sw * 0.4f, RandRange(norma::kCrashMinW, norma::kCrashMaxW));
+            const float h = std::min(sh * 0.4f, RandRange(norma::kCrashMinH, norma::kCrashMaxH));
+            const int id = os_pane::Open(RandRange(0.0f, std::max(0.0f, sw - w)),
+                                         RandRange(0.0f, std::max(0.0f, sh - h)), w, h, true);
+            --g_Crash.toOpen;
+            if (id > 0) g_Crash.storm.push_back(id);
+        }
+        if (g_Crash.safeId != 0) os_pane::RaiseToFront(g_Crash.safeId);   // the shelter stays on top
+    }
+    // The glitch grows through the countdown, in steps so panes repaint only on a change.
+    if (!g_Crash.blue) {
+        float u = g_Crash.t < countAt ? 0.35f * g_Crash.t / countAt
+                                      : 0.35f + 0.65f * (g_Crash.t - countAt) / norma::kCrashCount;
+        u = std::round(std::clamp(u, 0.0f, 1.0f) * 20.0f) / 20.0f;
+        for (int id : g_Crash.storm) os_pane::SetUnstable(id, u);
+    }
+    if (g_Crash.safeId != 0)
+        os_pane::SetRole(g_Crash.safeId, os_pane::PaneRole::Safe, std::max(0.0f, blueAt - g_Crash.t),
+                         norma::kCrashCount);
+    // The crash: the blue screen falls.
+    if (!g_Crash.blue && g_Crash.t >= blueAt) {
+        g_Crash.blue = true;
+        const os_pane::Pane* safe = PaneById(g_Crash.safeId);
+        const float scx = safe ? safe->frame.x + safe->frame.w * 0.5f : sw * 0.5f;
+        const float scy = safe ? safe->frame.y + safe->frame.h * 0.5f : sh * 0.5f;
+        if (!(safe && space::g_PlayerSpace == g_Crash.safeId)) {
+            HurtPlayer(g_GameManager.playerHP, norma::kCrashDamage);
+            float kx = W2SX(g_NormaPlayerX) - scx, ky = W2SY(g_NormaPlayerY) - scy;
+            const float len = std::max(1.0f, std::sqrt(kx * kx + ky * ky));
+            ApplyPlayerKnockback(kx / len * norma::kCrashKnock, ky / len * norma::kCrashKnock);
+        }
+        for (int id : g_Crash.storm) os_pane::Close(id);   // hidden under the blue anyway
+        g_Crash.storm.clear();
+        BuildCrashCracks();
+        TriggerHitStop(norma::kCrashBlue + norma::kCrashCrack);
+    }
+    // The shattering: the game shows again and the boss turns open.
+    if (g_Crash.blue && !g_Crash.shattered && g_Crash.t >= shatterAt) {
+        g_Crash.shattered = true;
+        norma::g_CrashOver = true;
+        // Mobs outside the safe pane are hit as the screen breaks, not when it
+        // falls: kills (and a level-up's card) wait until the game shows again.
+        for (Monster* m : g_MonsterManager.monsters)
+            if (m->alive && m->kind != MobKind::NORMA && space::SpaceAt(m->worldX, m->worldY) != g_Crash.safeId)
+                g_MonsterManager.ApplyDamage(*m, norma::kCrashMobDamage, space::kUntracked);
+        for (RangedMob* r : g_MonsterManager.rangedMobs)
+            if (r->alive && space::SpaceAt(r->worldX, r->worldY) != g_Crash.safeId)
+                g_MonsterManager.ApplyDamage(*r, norma::kCrashMobDamage, space::kUntracked);
+        Shake(0.45f, 22.0f);
+    }
+    if (g_Crash.shattered && g_Crash.t >= shatterAt + norma::kCrashShatter + norma::kCrashSafeLinger) {
+        if (const os_pane::Pane* p = PaneById(g_Crash.safeId)) CollapsePane(*p);
+        EndCrash();
+    }
+}
+
+// The charge before the crash: rings closing in on the boss (drawn with the
+// pane brackets, in screen space).
+static void DrawCrashCharge() {
+    if (!g_Crash.active || g_Crash.blue || g_Crash.t <= norma::kCrashBuild) return;
+    const Monster* boss = FindNorma();
+    if (!boss) return;
+    const hud_lines::Rgb ice{ 0.72f, 0.94f, 1.0f };
+    const float k = std::clamp((g_Crash.t - norma::kCrashBuild) / norma::kCrashCount, 0.0f, 1.0f);
+    const float bx = W2SX(boss->worldX), by = W2SY(boss->worldY);
+    for (int ring = 0; ring < 3; ++ring) {
+        const float f = std::fmod(g_GameTime * 1.6f + ring / 3.0f, 1.0f);
+        const float rad = (60.0f + 260.0f * (1.0f - f)) * (1.0f - 0.4f * k);
+        constexpr int kSeg = 40;
+        for (int i = 0; i < kSeg; ++i) {
+            const float q0 = 6.2831853f * i / kSeg, q1 = 6.2831853f * (i + 1) / kSeg;
+            hud_lines::Segment(bx + cosf(q0) * rad, by + sinf(q0) * rad, bx + cosf(q1) * rad, by + sinf(q1) * rad,
+                               1.4f + 1.6f * k, ice, (0.15f + 0.6f * k) * f);
+        }
+    }
+}
+
+// The blue screen over the whole game (HUD and the safe pane included): its
+// text, then the cracks spreading from the impact, then the shards falling
+// out, the inner ones first.
+static void DrawCrashScreen(float sw, float sh, float scale) {
+    if (!g_Crash.active || !g_Crash.blue) return;
+    const float blueAt = norma::kCrashBuild + norma::kCrashCount;
+    const float since = g_Crash.t - blueAt;
+    const float crackAt = norma::kCrashBlue, shatterAt = norma::kCrashBlue + norma::kCrashCrack;
+    if (since > shatterAt + norma::kCrashShatter) return;
+    const float br = 0.0f, bg = 0.47f, bb = 0.84f;   // the blue
+    const hud_lines::Rgb white{ 0.97f, 0.99f, 1.0f };
+    const auto P = [&](int i, int k, float& x, float& y) {
+        x = g_Crash.px[i * kCrashRings + k];
+        y = g_Crash.py[i * kCrashRings + k];
+    };
+    // The cracks, grown to `k` (0..1): rays first, then their rings and branches.
+    const auto cracks = [&](float k, float alpha) {
+        const float reach = 1.0f + k * 1.6f * (kCrashRings - 1);   // in rings, rays race ahead
+        for (int i = 0; i < kCrashRays; ++i)
+            for (int r = 0; r < g_Crash.rayLen[i] && (float)r < reach; ++r) {
+                float x0, y0, x1, y1;
+                P(i, r, x0, y0);
+                P(i, r + 1, x1, y1);
+                const float part = std::min(1.0f, reach - (float)r);
+                const float w = (r < 3 ? 2.2f : r < 6 ? 1.6f : 1.1f) * scale;
+                hud_lines::Segment(x0, y0, x0 + (x1 - x0) * part, y0 + (y1 - y0) * part, w, white, 0.95f * alpha);
+            }
+        const float ringReach = k * (kCrashRings - 1);
+        for (int i = 0; i < kCrashRays; ++i)
+            for (int r = 1; r < kCrashRings - 1 && (float)r < ringReach; ++r) {
+                if (!g_Crash.ringVis[i * kCrashRings + r]) continue;
+                const int j = (i + 1) % kCrashRays;
+                if (r > g_Crash.rayLen[i] && r > g_Crash.rayLen[j]) continue;
+                float x0, y0, x1, y1;
+                P(i, r, x0, y0);
+                P(j, r, x1, y1);
+                // A slight kink mid-way, so rings are not straight chords.
+                const float mx = (x0 + x1) * 0.5f + (y1 - y0) * 0.06f, my = (y0 + y1) * 0.5f - (x1 - x0) * 0.06f;
+                const float w = (r < 4 ? 1.5f : 1.0f) * scale;
+                hud_lines::Segment(x0, y0, mx, my, w, white, 0.85f * alpha);
+                hud_lines::Segment(mx, my, x1, y1, w, white, 0.85f * alpha);
+            }
+        if (k > 0.5f)
+            for (size_t b = 0; b + 3 < g_Crash.branches.size(); b += 4)
+                hud_lines::Segment(g_Crash.branches[b], g_Crash.branches[b + 1], g_Crash.branches[b + 2],
+                                   g_Crash.branches[b + 3], 1.0f * scale, white, 0.8f * alpha * std::min(1.0f, (k - 0.5f) * 4.0f));
+    };
+    BindMainShader();
+    if (since < shatterAt) {
+        const float a = std::min(1.0f, since / 0.06f);
+        if (since < crackAt) {
+            BatchTri(0.0f, 0.0f, sw, 0.0f, sw, sh, br, bg, bb, a);
+            BatchTri(0.0f, 0.0f, sw, sh, 0.0f, sh, br, bg, bb, a);
+        } else {
+            // Cracked: the blue is its shards (they tile all but the hole at the impact).
+            for (int i = 0; i < kCrashRays; ++i)
+                for (int r = 1; r + 1 < kCrashRings; ++r) {
+                    float x[4], y[4];
+                    P(i, r, x[0], y[0]);
+                    P((i + 1) % kCrashRays, r, x[1], y[1]);
+                    P((i + 1) % kCrashRays, r + 1, x[2], y[2]);
+                    P(i, r + 1, x[3], y[3]);
+                    BatchTri(x[0], y[0], x[1], y[1], x[2], y[2], br, bg, bb, 1.0f);
+                    BatchTri(x[0], y[0], x[2], y[2], x[3], y[3], br, bg, bb, 1.0f);
+                }
+        }
+        BatchFlush();
+        // The text, under the cracks.
+        const int li = std::max(0, std::min(2, LangIndex()));
+        static const wchar_t* const kLine1[3] = { L"하늘에 문제가 발생하여 다시 시작해야 합니다.",
+            L"Your sky ran into a problem and needs to restart.", L"空に問題が発生したため、再起動する必要があります。" };
+        static const wchar_t* const kLine2[3] = { L"오류 정보를 수집하는 중입니다. %d%% 완료",
+            L"We're just collecting some error info. %d%% complete", L"エラー情報を収集しています。%d%% 完了" };
+        static const wchar_t* const kLine3[3] = { L"중지 코드: SEAL_BREACH", L"Stop code: SEAL_BREACH",
+                                                  L"停止コード: SEAL_BREACH" };
+        static const wchar_t* const kLine4[3] = { L"실패한 항목: octans.sys", L"What failed: octans.sys",
+                                                  L"失敗した内容: octans.sys" };
+        const float x = sw * 0.1f, y = sh * 0.18f;
+        float body = 1.45f * scale;
+        const float room = sw - x - 24.0f * scale, w1 = g_TextS.Width(kLine1[li], body);
+        if (w1 > room && w1 > 0.0f) body *= room / w1;
+        const float big = 6.0f * scale, fine = std::min(0.85f * scale, body * 0.6f);
+        g_TextS.Draw(L":(", x, y, big, white.r, white.g, white.b, a);
+        float yy = y + g_TextS.Height(L":(", big) + 44.0f * scale;
+        g_TextS.Draw(kLine1[li], x, yy, body, white.r, white.g, white.b, a);
+        yy += g_TextS.Height(kLine1[li], body) + 34.0f * scale;
+        wchar_t line2[128];
+        swprintf_s(line2, kLine2[li], std::min(100, (int)(100.0f * since / norma::kCrashBlue)));
+        g_TextS.Draw(line2, x, yy, body, white.r, white.g, white.b, a);
+        yy += g_TextS.Height(line2, body) + 56.0f * scale;
+        g_TextS.Draw(kLine3[li], x, yy, fine, white.r, white.g, white.b, 0.9f * a);
+        yy += g_TextS.Height(kLine3[li], fine) + 10.0f * scale;
+        g_TextS.Draw(kLine4[li], x, yy, fine, white.r, white.g, white.b, 0.9f * a);
+        BindMainShader();
+        if (since >= crackAt) {
+            // The impact: the cracks race out in the first fifth of the crack time.
+            const float k = std::clamp((since - crackAt) / (norma::kCrashCrack * 0.2f), 0.0f, 1.0f);
+            cracks(k, 1.0f);
+            // The hole: the innermost ring of shards is already gone, its rim a ragged line.
+            for (int i = 0; i < kCrashRays; ++i) {
+                float x0, y0, x1, y1;
+                P(i, 1, x0, y0);
+                P((i + 1) % kCrashRays, 1, x1, y1);
+                hud_lines::Segment(x0, y0, x1, y1, 2.4f * scale, white, k);
+            }
+            BatchFlush();
+        }
+        return;
+    }
+    // Shards: each cell falls out from the impact, the inner ones first,
+    // turning, dropping and fading; their edges are the cracks.
+    const float diag = std::sqrt(sw * sw + sh * sh);
+    const float tShatter = since - shatterAt;
+    for (int i = 0; i < kCrashRays; ++i)
+        for (int r = 1; r + 1 < kCrashRings; ++r) {
+            float x[4], y[4];
+            P(i, r, x[0], y[0]);
+            P((i + 1) % kCrashRays, r, x[1], y[1]);
+            P((i + 1) % kCrashRays, r + 1, x[2], y[2]);
+            P(i, r + 1, x[3], y[3]);
+            const float cx = (x[0] + x[1] + x[2] + x[3]) * 0.25f, cy = (y[0] + y[1] + y[2] + y[3]) * 0.25f;
+            float dx = cx - g_Crash.ix, dy = cy - g_Crash.iy;
+            const float len = std::max(1.0f, std::sqrt(dx * dx + dy * dy));
+            dx /= len;
+            dy /= len;
+            // Inner shards let go first; each a little different (from its cell index).
+            const float jitter = std::fmod((float)(i * 37 + r * 91) * 0.6180339f, 1.0f);
+            const float delay = 0.35f * norma::kCrashShatter * std::min(1.0f, len / (diag * 0.6f)) + 0.05f * jitter;
+            const float u = std::clamp((tShatter - delay) / (norma::kCrashShatter - delay), 0.0f, 1.0f);
+            const float fade = 1.0f - u * u;
+            const float speed = 260.0f + 0.5f * len, spin = (jitter - 0.5f) * 2.4f * u;
+            const float ox = dx * speed * u, oy = dy * speed * u + 1400.0f * u * u;
+            const float cs = cosf(spin), sn = sinf(spin), shrink = 1.0f - 0.3f * u;
+            for (int c = 0; c < 4; ++c) {
+                const float lx = (x[c] - cx) * shrink, ly = (y[c] - cy) * shrink;
+                x[c] = cx + lx * cs - ly * sn + ox;
+                y[c] = cy + lx * sn + ly * cs + oy;
+            }
+            if (fade <= 0.0f) continue;
+            BatchTri(x[0], y[0], x[1], y[1], x[2], y[2], br, bg, bb, fade);
+            BatchTri(x[0], y[0], x[2], y[2], x[3], y[3], br, bg, bb, fade);
+            for (int c = 0; c < 4; ++c)
+                hud_lines::Segment(x[c], y[c], x[(c + 1) % 4], y[(c + 1) % 4], 1.2f * scale, white, 0.85f * fade);
+        }
+    BatchFlush();
+}
+
+// The countdown over the storm: "fatal error" and the seconds left, centred
+// near the top (text only, no plate).
+static void DrawCrashCountdown(float sw, float scale, float topY) {
+    if (!g_Crash.active || g_Crash.blue || g_Crash.t < norma::kCrashBuild * 0.5f) return;
+    const float left = norma::kCrashBuild + norma::kCrashCount - g_Crash.t;
+    const int li = std::max(0, std::min(2, LangIndex()));
+    static const wchar_t* const kHead[3] = { L"치명적인 오류", L"FATAL ERROR", L"致命的なエラー" };
+    static const wchar_t* const kHint[3] = { L"안전 모드 창으로 피하세요", L"Get inside the Safe Mode window",
+                                             L"セーフ モードのウィンドウへ" };
+    const float beat = 0.6f + 0.4f * sinf(g_GameTime * (left < 1.0f ? 26.0f : 12.0f));
+    const float ts = 1.1f * scale, ts2 = 0.5f * scale;
+    wchar_t head[64];
+    swprintf_s(head, L"%ls  %d", kHead[li], std::max(1, (int)std::ceil(std::min(left, norma::kCrashCount))));
+    const float y = topY + 150.0f * scale;
+    const float hw = g_TextS.Width(head, ts);
+    g_TextS.Draw(head, (sw - hw) * 0.5f, y, ts, 1.0f, 0.36f, 0.40f, 0.95f * beat);
+    const float iw = g_TextS.Width(kHint[li], ts2);
+    g_TextS.Draw(kHint[li], (sw - iw) * 0.5f, y + g_TextS.Height(head, ts) + 10.0f * scale, ts2,
+                 0.72f, 0.94f, 1.0f, 0.9f);
+}
+
 static const PaneFuse* FuseOf(int id) {
     for (const PaneFuse& f : g_PaneFuses) if (f.id == id) return &f;
     return nullptr;
@@ -2392,7 +2775,7 @@ static void ApplyPaneAbsorbs() {
     }
     space::g_Absorbed.clear();
     for (const os_pane::Pane& p : os_pane::Panes()) {
-        if (!p.open) continue;
+        if (!p.open || p.decor) continue;   // the blue screen's storm sets its own glitch
         const float left = PaneDurabilityLeft(p);
         // Worn out: light the fuse once. Low: the contents start to waver.
         if (left <= 0.0f) LightPaneFuse(p.id);
@@ -2406,7 +2789,9 @@ static void ApplyPaneAbsorbs() {
         // The job a pattern gives this pane shows as a system dialog.
         bool wall = false;
         for (const WallPane& w : g_Wall.panes) wall = wall || (g_Wall.active && w.id == p.id);
-        if (g_NormaCountdown.id == p.id && p.id != 0) {
+        if (CrashSafePane(p.id)) {
+            // TickCrash keeps the safe-mode dialog's count.
+        } else if (g_NormaCountdown.id == p.id && p.id != 0) {
             os_pane::SetRole(p.id, os_pane::PaneRole::Shutdown, g_NormaCountdown.left, norma::kCloseCountdown);
         } else if (g_ThrowBox.id == p.id && p.id != 0) {
             const float total = (float)(norma::kThrowRing + norma::kThrowInner);
@@ -2485,10 +2870,6 @@ float g_ShakeMag  = 0.0f;
 // 보스 보상 ???��? 버프 ????(?�버???�이지 skip)
 // ?�?�?배드 ?�터 ?�망 ?�류�????�시 감속 구역(?�상 ?�역). ?�에 ?�으�??�동?�도 -10% ?�?�?
 //   즉시 ?�기지 ?�고 ZONE_OPEN(0.7�???걸쳐 ?�점 부?�되???�짐(grow factor = age/OPEN).
-struct LaserBeam { float ox, oy, ex, ey, life, maxLife; float width = 1.0f; };
-std::vector<LaserBeam> g_LaserBeams;
-float          g_LaserTimer = 0.0f;
-constexpr float LASER_INT   = 0.85f;  // 발사 주기(�? ???�프: 0.7
 
 
 // ?�?�?백신 ?�캔 (증강) ??주기?�으�??�레?�어 주�????�화 ?�스(범위 ?�소) ?�?�?
@@ -2592,8 +2973,7 @@ static void DrawGameplayCrosshair(float x, float y) {
 void SyncPlayerBoundsSize(SpatialBounds& pw, float delta, bool animate) {
     if (g_Stats.windowSize < 64.0f)
         g_Stats.windowSize = std::max(400.0f * g_Scale, 64.0f);
-    float targetWin = g_Stats.windowSize *
-        ((g_PlayerRuntime.hyperFocusTimer > 0.0f) ? 1.5f : 1.0f);
+    float targetWin = g_Stats.windowSize;
     if (g_WindowSizeCur < 64.0f) g_WindowSizeCur = g_Stats.windowSize;
     if (animate) {
         float winStep = std::min(1.0f, delta * 5.5f);
@@ -2631,12 +3011,8 @@ double g_FpsLastTime = 0.0;
 int    g_FpsFrames   = 0;
 
 // ���� ���� �ε��� ���?(���� �������? �ߺ� ���� ����)
-std::vector<int> g_OwnedAugs;
 
 // ũ������Ƽ�� ���?���� ���� ���� ���� (�ε���). ���� ���� �� �ϰ� ����.
-bool g_CreativeStartPending = false;   // ?�용 ?��?(main 루프가 applyByIdx �?처리)
-std::deque<int> g_AugEffectQueue;
-bool g_AugEffectProcessing = false;
 
 // 증강 ?�택 hover state (-1 = 미선?? 0/1/2 = 카드 ?�덱??
 int  g_HoveredAug    = -1;
@@ -2646,8 +3022,6 @@ bool g_LmbPrev = false;
 bool g_RmbPrev = false;
 
 // PAUSED ?�태 ??보유 증강 ?�릭 ???�명 ?�시 (-1 = ?�음, 0..AUG_TOTAL-1 = ?�덱??
-int g_PauseSelectedAug = -1;
-bool g_ShowPauseInventory = false;
 
 // ?�정 ?�면 진입 ???�전 ?�태 (?�로 가�???복�?)
 GameState g_SettingsReturnTo = GameState::MAIN_MENU;
@@ -2657,7 +3031,6 @@ int g_CurrentWeapon = -1;
 // 변??카드 ??AUG_SELECT ??25% ?�률�?4번째 카드 ?�장
 // ?�재 무기�??�른 StartWeapon ?�로 ?�환 (기존 무기 ?�과 ?�거 ????무기 ?�용)
 // �?= ?�환??StartWeapon ?�덱?? -1 = ?�번 ?�운?�는 변??카드 ?�음
-int g_ConversionWeapon = -1;
 
 // DYING ?�망 ?�출 ?�태
 float g_DyingTimer    = 0.0f;
@@ -2682,165 +3055,6 @@ wchar_t g_DeathReason[96] = {0};   // ?�망 ?�인 ("?�○ ???�해 종료
 
 static SpatialBounds* s_PlayerBoundsRef = nullptr;
 
-static void InitChakramsFromStats() {
-    if (!g_Stats.chakram || g_Stats.chakramCount <= 0) return;
-    for (int c = 0; c < g_Stats.chakramCount && c < MAX_CHAKRAMS; c++) {
-        g_Chakrams[c].maxHp = 150.0f;
-        if (!g_Chakrams[c].alive && g_Chakrams[c].respawnTimer <= 0) {
-            g_Chakrams[c].alive        = true;
-            g_Chakrams[c].hp           = 150.0f;
-            g_Chakrams[c].respawnTimer = 0.0f;
-        }
-        g_Chakrams[c].angle =
-            (float)c / (float)g_Stats.chakramCount * 6.2831853f;
-    }
-}
-
-void ApplyAugmentSideEffects(AugType atype, int scrW, int scrH) {
-    float oldWS  = s_PlayerBoundsRef ? s_PlayerBoundsRef->width : g_Stats.windowSize;
-    float oldPCX = s_PlayerBoundsRef
-        ? s_PlayerBoundsRef->x + s_PlayerBoundsRef->width  * 0.5f
-        : (float)scrW * 0.5f;
-    float oldPCY = s_PlayerBoundsRef
-        ? s_PlayerBoundsRef->y + s_PlayerBoundsRef->height * 0.5f
-        : (float)scrH * 0.5f;
-
-    if (atype == AugType::CHAKRAM || atype == AugType::CHAKRAM_2 ||
-        atype == AugType::CHAKRAM_3 || atype == AugType::CHAKRAM_SINGULARITY) {
-        InitChakramsFromStats();
-    }
-    if (atype == AugType::D_APPROACH && g_ApproachOrbs.empty()) {
-        ApproachOrb orb;
-        int edge = rand() % 4;
-        if      (edge == 0) { orb.x = (float)(rand() % scrW);  orb.y = -40.0f; }
-        else if (edge == 1) { orb.x = (float)(rand() % scrW);  orb.y = scrH + 40.0f; }
-        else if (edge == 2) { orb.x = -40.0f;                  orb.y = (float)(rand() % scrH); }
-        else                { orb.x = (float)scrW + 40.0f;     orb.y = (float)(rand() % scrH); }
-        g_ApproachOrbs.push_back(orb);
-    }
-    if (g_Stats.windowSize != oldWS && s_PlayerBoundsRef) {
-        s_PlayerBoundsRef->width  = g_Stats.windowSize;
-        s_PlayerBoundsRef->height = g_Stats.windowSize;
-        s_PlayerBoundsRef->x = oldPCX - g_Stats.windowSize * 0.5f;
-        s_PlayerBoundsRef->y = oldPCY - g_Stats.windowSize * 0.5f;
-        g_WindowSizeCur = g_Stats.windowSize;
-    }
-}
-
-static void RebuildPlayerStatsFromOwned(int scrW, int scrH, bool preserveRuntime = true) {
-    int weapon = g_CurrentWeapon;
-    std::vector<int> owned = g_OwnedAugs;
-    // Stats first (RunStats.h), then the runtime objects. The loop below
-    // reads g_Stats only through ApplyAugmentSideEffects (window size,
-    // chakram count), which ends in the same state with the final stats.
-    const PlayerStats before = g_Stats;
-    const PlayerRuntimeState runtimeBefore = g_PlayerRuntime;
-    const SkillSlot skillsBefore[3] = { g_Skills[0], g_Skills[1], g_Skills[2] };
-    const float shieldBefore = g_PlayerShield;
-    const float shieldTimerBefore = g_PlayerShieldTimer;
-    g_Stats = RebuildStats(weapon, owned, g_Scale, preserveRuntime ? &before : nullptr);
-
-    memset(g_TypeOwned, 0, sizeof(g_TypeOwned));
-    // takenOnce is a per-run acquisition ledger.  Rebuilding derived stats
-    // must not reopen cards that were already selected earlier in this run.
-
-    g_OwnedAugs.clear();
-    for (int d = 0; d < MAX_DRONES;   d++) g_Drones[d]   = DroneState{};
-    for (int c = 0; c < MAX_CHAKRAMS; c++) g_Chakrams[c] = ChakramState{};
-    g_LaserBeams.clear();
-    g_ApproachOrbs.clear();
-    ResetPlayerSkills();
-
-    for (int idx : owned) {
-        if (idx < 0 || idx >= AUG_TOTAL) continue;
-        AugType atype = ALL_AUGS[idx].type;
-        g_OwnedAugs.push_back(idx);
-        g_TypeOwned[(int)atype] = true;
-        EquipSkill(SkillForAug(atype));
-        if (AugOnceOnly(atype, ALL_AUGS[idx].rarity))
-            g_GameManager.takenOnce[idx] = true;
-        ApplyAugmentSideEffects(atype, scrW, scrH);
-    }
-    if (g_Stats.chakram) InitChakramsFromStats();
-    ReequipSkillsFromOwned(g_OwnedAugs.data(), (int)g_OwnedAugs.size());
-    if (preserveRuntime) {
-        g_PlayerRuntime = runtimeBefore;
-        g_PlayerShield = shieldBefore;
-        g_PlayerShieldTimer = shieldTimerBefore;
-        bool keepTimeStop = false, keepHyperFocus = false;
-        for (SkillSlot& skill : g_Skills) {
-            if (skill.type == SkillType::TIME_STOP) keepTimeStop = true;
-            if (skill.type == SkillType::HYPER_FOCUS) keepHyperFocus = true;
-            for (const SkillSlot& old : skillsBefore)
-                if (skill.type != SkillType::NONE && skill.type == old.type)
-                    skill.cd = old.cd;
-        }
-        if (!keepTimeStop) g_PlayerRuntime.timeStopTimer = 0.0f;
-        if (!keepHyperFocus) g_PlayerRuntime.hyperFocusTimer = 0.0f;
-        if (!g_Stats.dashUpgrade) g_PlayerRuntime.dashBoostShotsLeft = 0;
-    }
-
-    g_GameManager.maxHP = g_Stats.maxHP;
-    if (g_GameManager.playerHP > g_Stats.maxHP)
-        g_GameManager.playerHP = g_Stats.maxHP;
-}
-
-static void ApplySingleAugIdx(int idx, int scrW, int scrH) {
-    if (idx < 0 || idx >= AUG_TOTAL) return;
-    AugType atype = ALL_AUGS[idx].type;
-    const PlayerStats statsBefore = g_Stats;
-    ApplyAugStats(g_Stats, idx);
-    g_OwnedAugs.push_back(idx);
-    g_TypeOwned[(int)atype] = true;
-    MarkAugSeen(idx);
-    EquipSkill(SkillForAug(atype));
-    if (AugOnceOnly(atype, ALL_AUGS[idx].rarity))
-        g_GameManager.takenOnce[idx] = true;
-    if (g_GameManager.playerHP > g_Stats.maxHP)
-        g_GameManager.playerHP = g_Stats.maxHP;
-    ApplyAugmentSideEffects(atype, scrW, scrH);
-    g_GameplayTelemetry.RecordAugment(g_GameTime,
-                                      g_GameManager.playerLevel,
-                                      idx,
-                                      statsBefore,
-                                      g_Stats);
-}
-
-// Opens the wave-boundary debuff pick: three random debuffs, the player
-// takes one. An empty pool simply skips the pick.
-static void OpenWaveDebuffChoice() {
-    GameManager& gm = g_GameManager;
-    if (ready_launch::g_TutorialMode) {
-        // The tutorial's wave boundary offers three fixed, simple nerfs.
-        static const AugType kNerfs[3] = {
-            AugType::TUT_ATK_DOWN, AugType::TUT_HP_DOWN, AugType::TUT_MOVE_DOWN };
-        gm.OpenFixedChoices(kNerfs, 3, true);
-        return;
-    }
-    int picks[3] = { -1, -1, -1 };
-    const int got = gm.PickRandomDebuffIndices(picks, 3);
-    if (got <= 0) return;
-    gm.augChoiceCount = got;
-    for (int i = 0; i < 3; ++i) gm.augChoices[i] = i < got ? picks[i] : -1;
-    gm.augmentKeyboardFocus = false;
-    ++gm.augmentSelectionSerial;
-    gm.currentState = GameState::DEBUFF_SELECT;
-    g_HoveredAug = -1;
-    g_AugExitT = -1.0f;
-    g_AugExitSlot = -1;
-    g_RepExitT = -1.0f;
-    g_RepExitSlot = -3;
-}
-
-// The picked wave debuff is now in effect: show it on the wave HUD and log it.
-static void RecordWaveDebuffPick(int idx) {
-    g_GameManager.lastWaveDebuff = idx;
-    g_GameManager.waveDebuffToast = 4.0f;
-    const int enteredWave = g_GameManager.currentWave;
-    if (enteredWave >= 0 && enteredWave < 64)
-        g_GameManager.waveDebuffLog[enteredWave] = idx + 1;
-}
-
 // Ends the run as a win. reason holds the KR/EN/JP line shown with the
 // final wave number.
 static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
@@ -2863,11 +3077,7 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
     // snapshot of the last wave's mobs, shots and summons.
     g_MonsterManager.Clear();
     g_Bullets.clear();
-    g_ApproachOrbs.clear();
-    g_LaserBeams.clear();
     g_StardustPickups.clear();
-    for (int d = 0; d < MAX_DRONES;   d++) g_Drones[d]   = DroneState{};
-    for (int c = 0; c < MAX_CHAKRAMS; c++) g_Chakrams[c] = ChakramState{};
     for (int i = 0; i < MAX_SHOCKS; i++) g_ShockWaves[i].active = false;
     g_GameManager.currentState = GameState::GAMEOVER;
 }
@@ -2906,21 +3116,21 @@ static void TickNormaJudgment(float dt) {
     if (g_NormaJudgment > 0.0f) return;
     g_NormaJudgment = -1.0f;
     g_NormaDoom = true;
-    g_Stats.mk2Used = true;                    // the verdict cannot be revived
     g_GameManager.playerHP = 0.0f;
     g_ShakeTime = 0.6f; g_ShakeMag = 26.0f;
     TriggerFlash(1.0f, 0.3f, 0.32f, 0.9f);
 }
 
 // Boss rush: a wave ends only when its elite (or mid-run boss) falls. The
-// clear queues a wave reward tiered by the kill time and starts the next wave.
+// clear queues a reward pick and starts the next wave.
 static void ProcessWaveTransitions(int scrW, int scrH) {
     if (g_GameManager.currentState != GameState::RUNNING) return;
     GameManager& gm = g_GameManager;
     const WaveClearInfo clear = ConsumeWaveClear();
     if (clear.cleared && clear.wave == gm.currentWave &&
         gm.currentWave < FinalWaveCount(g_Difficulty)) {
-        gm.QueueWaveReward(clear.killSeconds, clear.boss);
+        gm.QueueAugmentReward();
+        passive::OnWaveCleared();
         gm.waveTransitionFrom = gm.currentWave;
         ++gm.currentWave;
         gm.waveStartTime = g_GameTime;
@@ -2928,70 +3138,32 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     }
     // The reward opens a beat after the kill, once nothing else holds the
     // selection screen (a level-up slow-motion may be mid-flight).
-    if (gm.pendingWaveRewards > 0 && gm.waveTransitionTimer <= 1.2f &&
-        !gm.levelUpTransition.Active() && !gm.augmentRewardActive)
+    // Not while OCTANS' blue screen is up either (the cards would open hidden under it).
+    if (gm.PendingRewards() > 0 && gm.waveTransitionTimer <= 1.2f &&
+        !gm.levelUpTransition.Active() && !gm.augmentRewardActive && !CrashScreenUp())
         gm.ActivateNextAugmentReward();
     // The run is won only by felling the final boss (CompleteBossRun).
 }
 
-static void BeginAugReplaceFlow(int newIdx) {
-    g_GameManager.pendingAugIdx      = newIdx;
-    g_GameManager.replaceChoiceCount = 0;
-    for (int oi : g_OwnedAugs) {
-        if (!AugIdxUsesIdentitySlot(oi)) continue;
-        if (g_GameManager.replaceChoiceCount >= 32) break;
-        g_GameManager.replaceChoices[g_GameManager.replaceChoiceCount++] = oi;
-    }
-    g_HoveredAug = -1;
-    g_GameManager.augmentKeyboardFocus = false;
-    g_GameManager.currentState = GameState::AUG_REPLACE;
-    ++g_GameManager.augmentSelectionSerial;
-}
-
-static void ProcessAugEffectQueue(int scrW, int scrH);
-static void FinishAugmentEffects();
-
-static void PushAugEffectsFront(const int* effects, int count) {
-    for (int i = count - 1; i >= 0; --i) {
-        if (effects[i] >= 0 && effects[i] < AUG_TOTAL)
-            g_AugEffectQueue.push_front(effects[i]);
-    }
-}
-
 // Plain values the skill HUD reads each frame (SkillHudModel.h).
 static skill_hud::SkillHudInputs GatherSkillHudInputs() {
-    using skill_hud::SkillGlyph;
     skill_hud::SkillHudInputs in{};
-    for (int i = 0; i < 3; ++i) {
-        const SkillSlot& s = g_Skills[i];
-        in.equipped[i] = s.type != SkillType::NONE;
-        in.glyph[i] = s.type == SkillType::HYPER_FOCUS ? SkillGlyph::Focus
-                    : s.type == SkillType::TIME_STOP   ? SkillGlyph::TimeStop
-                                                       : SkillGlyph::Burst;
-        in.cd[i] = s.cd;
-        in.cdMax[i] = PlayerSkillCooldownMax(s.type);
-    }
     in.dashCd = g_PlayerRuntime.dashCooldown;
     in.dashCdMax = g_PlayerRuntime.dashCooldownMax;
     in.dashActive = g_PlayerRuntime.dashActive;
     in.dashProgress = g_PlayerRuntime.dashProgress;
-    in.dashUpgrade = g_Stats.dashUpgrade;
-    in.hyperFocusTimer = g_PlayerRuntime.hyperFocusTimer;
-    in.hyperFocusDur = HYPER_FOCUS_DUR;
-    in.timeStopTimer = g_PlayerRuntime.timeStopTimer;
-    in.timeStopDur = TIMESTOP_DUR;
-    in.rainOwned = g_Stats.bulletRain;
-    in.rainTimer = g_BulletRainTimer;
-    in.rainCooldown = g_Stats.bulletRainCooldown;
+    in.dashSealed = passive::DashSealed();
+    for (int i = 0; i < 3; ++i) {
+        const active::Slot& slot = active::GetSlot(i);
+        in.sealed[i] = active::SlotSealed(i);
+        in.equipped[i] = slot.aug >= 0;
+        in.glyph[i] = slot.aug >= 0
+            ? (skill_hud::SkillGlyph)(int)ALL_AUGS[slot.aug].kind
+            : skill_hud::SkillGlyph::Projectile;
+        in.cd[i] = slot.cd;
+        in.cdMax[i] = slot.cdMax;
+    }
     return in;
-}
-
-static void ResetAugmentDerivedRuntime() {
-    g_ApproachOrbs.clear();
-    for (int d = 0; d < MAX_DRONES; d++) g_Drones[d] = DroneState{};
-    for (int c = 0; c < MAX_CHAKRAMS; c++) g_Chakrams[c] = ChakramState{};
-    g_LaserBeams.clear();
-    ResetPlayerSkills();
 }
 
 enum class LevelUpSource {
@@ -3000,15 +3172,14 @@ enum class LevelUpSource {
 };
 
 // Records one level gained (playerLevel/xp already advanced) and queues a
-// three-card buff selection. Wave boundaries own automatic debuffs.
+// reward pick.
 static void GrantLevelUpReward(int oldLevel, XpAmount need, XpAmount oldXp,
                                LevelUpSource source) {
     const bool manual = source == LevelUpSource::MANUAL;
     g_GameplayTelemetry.RecordLevelUp(g_GameTime, oldLevel,
                                       g_GameManager.playerLevel, need,
                                       oldXp, g_GameManager.xp, manual);
-    // Level-ups grant buffs only; wave boundaries own automatic debuffs.
-    g_GameManager.QueueAugmentReward();
+    g_GameManager.QueueStatReward();
 
     // XP level-ups play a short full-speed signal and then open the
     // selection on their own. Extra levels gained meanwhile only queue;
@@ -3034,7 +3205,7 @@ static bool IsPlayerDamageProtected() {
            g_GameManager.levelUpTransition.Active();
 }
 
-// Every augment flow (buff, debuff, chained rewards) returns to combat here.
+// Every reward pick returns to combat here.
 static void ReturnToRunningAfterPick() {
     if (ready_launch::g_TutorialMode) {
         // A tutorial pick goes back to the practice screen, not into combat.
@@ -3063,204 +3234,6 @@ static void FinishAugmentEffects() {
     ReturnToRunningAfterPick();
 }
 
-static void ProcessAugEffectQueue(int scrW, int scrH) {
-    while (!g_AugEffectQueue.empty()) {
-        const int idx = g_AugEffectQueue.front();
-        g_AugEffectQueue.pop_front();
-        if (idx < 0 || idx >= AUG_TOTAL) continue;
-
-        const AugType atype = ALL_AUGS[idx].type;
-        MarkAugSeen(idx);
-
-        if (atype == AugType::S_CHAOS) {
-            const int prevAugs = std::min((int)g_OwnedAugs.size(), 60);
-            const PlayerStats before = g_Stats;
-            const float oldWindowSize = g_Stats.windowSize;
-
-            ResetAugmentDerivedRuntime();
-            g_Stats = ChaosStats(before, g_CurrentWeapon, g_Scale);
-
-            g_OwnedAugs.clear();
-            // Preserve takenOnce: this is a run-wide acquisition ledger.
-            memset(g_TypeOwned, 0, sizeof(g_TypeOwned));
-            g_GameManager.maxHP = g_Stats.maxHP;
-            if (g_GameManager.playerHP > g_Stats.maxHP)
-                g_GameManager.playerHP = g_Stats.maxHP;
-            if (s_PlayerBoundsRef && oldWindowSize != g_Stats.windowSize) {
-                const float cx = s_PlayerBoundsRef->x + s_PlayerBoundsRef->width * 0.5f;
-                const float cy = s_PlayerBoundsRef->y + s_PlayerBoundsRef->height * 0.5f;
-                s_PlayerBoundsRef->width = g_Stats.windowSize;
-                s_PlayerBoundsRef->height = g_Stats.windowSize;
-                s_PlayerBoundsRef->x = cx - g_Stats.windowSize * 0.5f;
-                s_PlayerBoundsRef->y = cy - g_Stats.windowSize * 0.5f;
-            }
-            g_WindowSizeCur = g_Stats.windowSize;
-
-            const int nDebuffs = std::max(0, (prevAugs * 2 + 2) / 5);
-            const int nBuffs = prevAugs - nDebuffs;
-            int buffs[64] = {}, debuffs[64] = {};
-            const int gotBuffs = g_GameManager.PickRandomAugIndices(
-                buffs, nBuffs, false, true, false, false);
-            const int gotDebuffs = g_GameManager.PickRandomDebuffIndices(
-                debuffs, nDebuffs);
-            PushAugEffectsFront(debuffs, gotDebuffs);
-            PushAugEffectsFront(buffs, gotBuffs);
-            continue;
-        }
-
-        if (atype == AugType::S_PANDORA) {
-            int buffs[3] = {}, debuffs[2] = {};
-            const int gotBuffs = g_GameManager.PickRandomAugIndices(
-                buffs, 3, g_Stats.sizeAugTaken,
-                true, false, false);
-            const int gotDebuffs = g_GameManager.PickRandomDebuffIndices(
-                debuffs, 2);
-            PushAugEffectsFront(debuffs, gotDebuffs);
-            PushAugEffectsFront(buffs, gotBuffs);
-            continue;
-        }
-
-        if (atype == AugType::RANDOM_AUG) {
-            int picks[3] = {};
-            const int got = g_GameManager.PickRandomAugIndices(
-                picks, 3, g_Stats.sizeAugTaken,
-                true, false, false);
-            PushAugEffectsFront(picks, got);
-            continue;
-        }
-
-        if (NeedsReplaceForAug(idx)) {
-            BeginAugReplaceFlow(idx);
-            return;
-        }
-        ApplySingleAugIdx(idx, scrW, scrH);
-    }
-}
-
-static void CompleteAugReplaceFlow(int replaceSlot, int scrW, int scrH) {
-    if (replaceSlot < 0 || replaceSlot >= g_GameManager.replaceChoiceCount) return;
-    int oldIdx = g_GameManager.replaceChoices[replaceSlot];
-    int newIdx = g_GameManager.pendingAugIdx;
-
-    for (auto it = g_OwnedAugs.begin(); it != g_OwnedAugs.end(); ++it) {
-        if (*it == oldIdx) { g_OwnedAugs.erase(it); break; }
-    }
-    // Keep the acquisition ledger latched.  Replacing a card removes its
-    // current effect, but a one-time card must never return in this run.
-    g_TypeOwned[(int)ALL_AUGS[oldIdx].type] = false;
-
-    RebuildPlayerStatsFromOwned(scrW, scrH);
-    ApplySingleAugIdx(newIdx, scrW, scrH);
-    g_GameManager.maxHP = g_Stats.maxHP;
-    g_GameManager.pendingAugIdx = -1;
-    g_GameManager.replaceChoiceCount = 0;
-
-    if (g_AugEffectProcessing) {
-        ProcessAugEffectQueue(scrW, scrH);
-        // The scene state still names the completed picker. Only a new
-        // pending card means the queue opened another replacement.
-        if (g_GameManager.pendingAugIdx >= 0) return;
-        g_AugEffectProcessing = false;
-    }
-    FinishAugmentEffects();
-}
-
-static void CancelAugReplaceFlow() {
-    g_GameManager.pendingAugIdx = -1;
-    g_GameManager.replaceChoiceCount = 0;
-    if (g_AugEffectProcessing) {
-        ProcessAugEffectQueue(g_GameManager.screenW, g_GameManager.screenH);
-        if (g_GameManager.pendingAugIdx >= 0) return;
-        g_AugEffectProcessing = false;
-    }
-    FinishAugmentEffects();
-}
-
-static bool DebugEditAugment(DebugAugmentAction action, int idx) {
-    const GameState state = g_GameManager.currentState;
-    if (state != GameState::RUNNING && state != GameState::PAUSED &&
-        state != GameState::READY) return false;
-    if (action == DebugAugmentAction::OpenSelection) {
-        g_GameManager.QueueAugmentReward();
-        g_GameManager.ActivateNextAugmentReward();
-        return true;
-    }
-    if (action == DebugAugmentAction::Clear) {
-        g_OwnedAugs.clear();
-        memset(g_GameManager.takenOnce, 0, sizeof(g_GameManager.takenOnce));
-        RebuildPlayerStatsFromOwned(g_GameManager.screenW, g_GameManager.screenH);
-        return true;
-    }
-    if (action == DebugAugmentAction::FillSlots) {
-        for (int i = 0; i < AUG_TOTAL && !IdentitySlotsFull(); ++i) {
-            if (!AugIdxUsesIdentitySlot(i) || AugRemoved(ALL_AUGS[i].type) ||
-                ALL_AUGS[i].type == AugType::RANDOM_AUG ||
-                std::find(g_OwnedAugs.begin(), g_OwnedAugs.end(), i) != g_OwnedAugs.end())
-                continue;
-            ApplySingleAugIdx(i, g_GameManager.screenW, g_GameManager.screenH);
-        }
-        g_GameManager.maxHP = g_Stats.maxHP;
-        return IdentitySlotsFull();
-    }
-    if (idx < 0 || idx >= AUG_TOTAL || AugRemoved(ALL_AUGS[idx].type)) return false;
-    const AugType type = ALL_AUGS[idx].type;
-    const bool instant = type == AugType::RANDOM_AUG || type == AugType::S_CHAOS ||
-                         type == AugType::S_PANDORA;
-    if (action == DebugAugmentAction::Draw) {
-        g_GameManager.QueueAugmentReward();
-        if (!g_GameManager.ActivateNextAugmentReward()) {
-            // A forced debug card remains testable even when no random
-            // candidates are eligible (once-only/prerequisite restrictions).
-            g_GameManager.QueueAugmentReward();
-            g_GameManager.augmentRewardActive = true;
-            g_GameManager.currentState = GameState::AUG_SELECT;
-            ++g_GameManager.augmentSelectionSerial;
-            g_AugExitT = g_RepExitT = -1.0f;
-            g_AugExitSlot = -1;
-            g_RepExitSlot = -3;
-        }
-        // Offer the selected augment in slot 1, retaining the other random
-        // choices and the normal confirmation/animation/replacement path.
-        for (int i = 1; i < g_GameManager.augChoiceCount; ++i)
-            if (g_GameManager.augChoices[i] == idx)
-                std::swap(g_GameManager.augChoices[0], g_GameManager.augChoices[i]);
-        g_GameManager.augChoices[0] = idx;
-        g_GameManager.augChoiceCount = std::max(1, g_GameManager.augChoiceCount);
-        g_HoveredAug = -1;
-        return true;
-    }
-    if (action == DebugAugmentAction::Grant && instant) {
-        g_GameManager.QueueAugmentReward();
-        g_GameManager.augmentRewardActive = true;
-        g_AugEffectQueue.push_back(idx);
-        g_AugEffectProcessing = true;
-        ProcessAugEffectQueue(g_GameManager.screenW, g_GameManager.screenH);
-        if (g_GameManager.pendingAugIdx < 0) {
-            g_AugEffectProcessing = false;
-            g_GameManager.maxHP = g_Stats.maxHP;
-            FinishAugmentEffects();
-        }
-        return true;
-    }
-    auto first = std::find(g_OwnedAugs.begin(), g_OwnedAugs.end(), idx);
-    if (action == DebugAugmentAction::Remove ||
-        (action == DebugAugmentAction::Toggle && first != g_OwnedAugs.end())) {
-        if (action == DebugAugmentAction::Toggle)
-            g_OwnedAugs.erase(std::remove(g_OwnedAugs.begin(), g_OwnedAugs.end(), idx), g_OwnedAugs.end());
-        else if (first != g_OwnedAugs.end()) g_OwnedAugs.erase(first);
-        else return false;
-        // Debug OFF must allow the same once-only card to be tested again.
-        if (std::find(g_OwnedAugs.begin(), g_OwnedAugs.end(), idx) == g_OwnedAugs.end())
-            g_GameManager.takenOnce[idx] = false;
-        RebuildPlayerStatsFromOwned(g_GameManager.screenW, g_GameManager.screenH);
-    } else {
-        if (instant) return false; // One-shot cards use Grant and the effect queue.
-        ApplySingleAugIdx(idx, g_GameManager.screenW, g_GameManager.screenH);
-        g_GameManager.maxHP = g_Stats.maxHP;
-    }
-    return true;
-}
-
 
 static void BeginGameplayTelemetryIfNeeded() {
     if (!g_DebugMode || !g_BalanceTestMode) return;
@@ -3270,12 +3243,11 @@ static void BeginGameplayTelemetryIfNeeded() {
     const bool inRunFlow = state == GameState::READY ||
                            state == GameState::RUNNING ||
                            state == GameState::PAUSED ||
-                           state == GameState::AUG_SELECT ||
-                           state == GameState::DEBUFF_SELECT;
+                           state == GameState::AUG_SELECT;
     if (!inRunFlow) return;
 
     // FinalizeLoadout() runs from the scene layer.
-    const bool hasLoadout = g_CurrentWeapon >= 0 || !g_OwnedAugs.empty();
+    const bool hasLoadout = g_CurrentWeapon >= 0;
     if (!hasLoadout) return;
 
     g_GameplayTelemetry.BeginRun(
@@ -3356,11 +3328,11 @@ static void DrawModeLabels(GameState st, float sw, float sh) {
     // ?�?�??�리?�이?�브 HUD (게임 �? ??F:증강  G:무적 ?�?�?
     if (g_CreativeMode &&
         (st == GameState::RUNNING || st == GameState::READY ||
-         st == GameState::AUG_SELECT || st == GameState::DEBUFF_SELECT)) {
+         st == GameState::AUG_SELECT)) {
         int li3 = LangIndex();
         const wchar_t* CH[3] = {
             L"CREATIVE   F: \uC99D\uAC15   G: \uBB34\uC801",
-            L"CREATIVE   F: Augment   G: Godmode",
+            L"CREATIVE   F: Card   G: Godmode",
             L"CREATIVE   F: \u5F37\u5316   G: \u30B4\u30C3\u30C9" };
         g_TextS.Draw(CH[li3], 20.0f, HudY(sh, Hud::CREATIVE_LABEL),
                      UiTextScale(g_TextS, UiTextLevel::Supporting, UiScale(sw, sh)),
@@ -3376,7 +3348,7 @@ static void DrawModeLabels(GameState st, float sw, float sh) {
 #if defined(_DEBUG)
     if (g_DebugMode && !g_CreativeMode &&
         (st == GameState::RUNNING || st == GameState::READY ||
-         st == GameState::AUG_SELECT || st == GameState::DEBUFF_SELECT)) {
+         st == GameState::AUG_SELECT)) {
         int li3 = LangIndex();
         const wchar_t* DBG[3] = {
             L"\uB514\uBC84\uADF8   F: \uB808\uBCA8\uC5C5   G: \uBB34\uC801",
@@ -3597,8 +3569,12 @@ int main() {
 
     // ?�이�??�토그램) ?�스�??�이?�라??+ 증강 ?�이�?로드
     InitIconGL();
-    LoadIcons();
-    InitRainMissileTex();   // ?�환 ?��? 로켓 ?�프?�이???�배�??�거+?�트 가??
+    LoadIcons();   // ?�환 ?��? 로켓 ?�프?�이???�배�??�거+?�트 가??
+    passive::InstallHooks();
+    passive::g_Fx.shockwave = [](float x, float y, float radius, float life,
+                                 float r, float g, float b) {
+        SpawnShockWave(x, y, radius, life, r, g, b);
+    };
 
     EnableWindowTransparency(window);
     os_pane::Init(window);
@@ -3721,22 +3697,16 @@ int main() {
             playerWin.x = cx - playerWin.width * 0.5f;
             playerWin.y = cy - playerWin.height * 0.5f;
             g_WindowSizeCur = g_Stats.windowSize;
-            if (g_Stats.chakram) InitChakramsFromStats();
-            else for (int i = 0; i < MAX_CHAKRAMS; ++i)
-                g_Chakrams[i] = ChakramState{};
         },
         [&](int mobKind, int count) {
             if (mobKind < 0 || mobKind > (int)MobKind::MAGNETAR) return 0;
             int spawned = 0;
             for (int i = 0; i < count; ++i) {
                 const size_t before = g_MonsterManager.monsters.size();
-                g_MonsterManager.SpawnMob(screenWidth, screenHeight, 160,
-                                          std::max(0.01f, g_Stats.monsterHpMult));
+                g_MonsterManager.SpawnMob(screenWidth, screenHeight, 160, 1.0f);
                 if (g_MonsterManager.monsters.size() <= before) break;
                 Monster* mob = g_MonsterManager.monsters.back();
                 mob->MakeKind((MobKind)mobKind);
-                if (mob->kind == MobKind::ROTOR)
-                    mob->hp *= g_Stats.rotorHpMult;
                 if (mob->kind == MobKind::REGULUS) {
                     const float playerX = playerWin.x + playerWin.width * 0.5f;
                     const float playerY = playerWin.y + playerWin.height * 0.5f;
@@ -3754,8 +3724,7 @@ int main() {
             {
                 const size_t before = g_MonsterManager.rangedMobs.size();
                 g_MonsterManager.SpawnRangedMob(
-                    screenWidth, screenHeight,
-                    std::max(0.01f, g_Stats.rmobHpMult), 160,
+                    screenWidth, screenHeight, 1.0f, 160,
                     0.0f, 0.0f, -1, -1);
                 if (g_MonsterManager.rangedMobs.size() <= before) break;
                 ++spawned;
@@ -3771,14 +3740,11 @@ int main() {
             if (DebugClearWaveObjective(g_MonsterManager, g_GameTime))
                 ProcessWaveTransitions(screenWidth, screenHeight);
         },
-        &g_OwnedAugs,
-        DebugEditAugment,
         // F1 > Spawn > Boss: brings a boss in as its wave would (replaces F9).
         [&](int boss) {
             if (g_GameManager.currentState != GameState::RUNNING) return 0;
             if (FindNorma()) return 0;
-            const float debugHp = g_Stats.monsterHpMult *
-                                  GetDifficultyParams(g_Difficulty).enemyHpMultiplier;
+            const float debugHp = GetDifficultyParams(g_Difficulty).enemyHpMultiplier;
             if (boss == 1) {
                 // CAELUM, the mid-run boss.
                 for (const Monster* cm : g_MonsterManager.monsters)
@@ -3825,7 +3791,6 @@ int main() {
             const GameState st = g_GameManager.currentState;
             if (st == GameState::READY || st == GameState::RUNNING ||
                 st == GameState::PAUSED || st == GameState::AUG_SELECT ||
-                st == GameState::AUG_REPLACE || st == GameState::DEBUFF_SELECT ||
                 st == GameState::DYING)
                 g_PlayDebugTainted = true;
         }
@@ -3860,6 +3825,7 @@ int main() {
         if (inputFocusChanged) {
             ResetPlayerInputEdges();
             g_aug1Released = g_aug2Released = g_aug3Released = true;
+            g_aug4Released = g_aug5Released = true;
         }
         if (focus.lost) {
             g_GameManager.spaceReleased = true;
@@ -3908,8 +3874,10 @@ int main() {
             const GameState ps = g_GameManager.currentState;
             if (ps == GameState::GAMEOVER || ps == GameState::READY ||
                 ps == GameState::MAIN_MENU || ps == GameState::CREATIVE_CONFIG ||
-                ps == GameState::CODEX || ps == GameState::TUTORIAL)
+                ps == GameState::CODEX || ps == GameState::TUTORIAL) {
                 os_pane::CloseAll();
+                g_Crash = {};   // a blue screen ends with the run
+            }
         }
         {
             const float nx = playerWin.x + playerWin.width * 0.5f;
@@ -3949,6 +3917,7 @@ int main() {
             TickPaneWall(delta);
             TickPaneWarp(delta);
             TickPhaseSpray(delta);
+            TickCrash(delta);
             DriftNormaPanes(delta, W2SX(playerWin.x + playerWin.width * 0.5f),
                             W2SY(playerWin.y + playerWin.height * 0.5f));
         }
@@ -3977,10 +3946,10 @@ int main() {
             g_aug1Released = glfwGetKey(window, GLFW_KEY_1) == GLFW_RELEASE;
             g_aug2Released = glfwGetKey(window, GLFW_KEY_2) == GLFW_RELEASE;
             g_aug3Released = glfwGetKey(window, GLFW_KEY_3) == GLFW_RELEASE;
+            g_aug4Released = glfwGetKey(window, GLFW_KEY_4) == GLFW_RELEASE;
+            g_aug5Released = glfwGetKey(window, GLFW_KEY_5) == GLFW_RELEASE;
             g_PlayerRuntime.dashInputHeld = ActionHeld(GameAction::Dash);
-            g_PlayerRuntime.skillInputHeld[0] = ActionHeld(GameAction::Skill1);
-            g_PlayerRuntime.skillInputHeld[1] = ActionHeld(GameAction::Skill2);
-            g_PlayerRuntime.skillInputHeld[2] = ActionHeld(GameAction::Skill3);
+            active::ResetInputEdges();
         }
 
         // �?부?�럽�?보간 (?�이�? ?�면 ?�장 ??
@@ -3988,8 +3957,7 @@ int main() {
         {
             GameState zs = g_GameManager.currentState;
             bool inFight = (zs == GameState::RUNNING || zs == GameState::DYING ||
-                            zs == GameState::PAUSED  || zs == GameState::AUG_SELECT ||
-                            zs == GameState::DEBUFF_SELECT);
+                            zs == GameState::PAUSED  || zs == GameState::AUG_SELECT);
             if (!inFight) { g_ViewZoom = g_ViewZoomTarget = 1.0f; }
             else {
                 // ?�수 비�? 줌아?????�장???�서???�어�?(?�한 1.4�?= zoom 0.714).
@@ -4051,35 +4019,23 @@ int main() {
                                        g_Stats,
                                        "reset_or_restart");
             g_Stats        = ResetRunStats(g_Scale);   // weapon/trial: FinalizeLoadout
-            g_ApproachOrbs.clear();
-            for (int d = 0; d < MAX_DRONES;   d++) g_Drones[d]   = DroneState{};
-            for (int c = 0; c < MAX_CHAKRAMS; c++) g_Chakrams[c] = ChakramState{};
-                                    g_BulletRainTimer = 0.0f;
-            g_PrevHP          = g_Stats.maxHP;
-            g_OwnedAugs.clear();
-            memset(g_TypeOwned, 0, sizeof(g_TypeOwned));
             g_CreativeGodmode  = false;
             g_CreativeFreeGrab = false;
             g_HoveredAug       = -1;
-            g_ConversionWeapon = -1;
             g_CurrentWeapon    = -1;
-            g_PauseSelectedAug = -1;
-            g_ShowPauseInventory = false;
             g_GameTime         = 0.0f;
             g_GameManager.ClearAugmentRewardQueue();
-            g_AugEffectQueue.clear();
-            g_AugEffectProcessing = false;
             for (int i = 0; i < MAX_SHOCKS; i++) g_ShockWaves[i].active = false;
             g_MuzzleTimer = 0.0f;
             g_StaticFieldPulseTimer = 0.0f;
             g_ShakeTime = 0.0f; g_ShakeMag = 0.0f;
             ResetTrials();
             g_RunStardust       = 0;
-            g_LaserBeams.clear(); g_LaserTimer = 0.0f;
             g_StardustPickups.clear(); g_StardustHudPulse = 0.0f;
 
             ResetJuice();
-            ResetPlayerSkills();
+            ResetPlayerSkills();   // dash and shield runtime
+            passive::Reset();
             g_SkillHudPulse.Reset();
             ResetPlayerInputEdges();
             g_PlayerRuntime.postPickGrace = 0.0f;
@@ -4093,6 +4049,7 @@ int main() {
             g_Difficulty = Difficulty::NORMAL;
             // Reset wave spawn timers and scheduled elite state for this run.
             ResetEnemySpawnState();
+            g_AntaresFamilies.clear();
             g_DyingTimer      = 0.0f;
             g_DeathBoomDone   = false;
             g_GameOverFade    = 0.0f;
@@ -4116,7 +4073,6 @@ int main() {
             const int savedWeapon = g_CurrentWeapon;
             const bool savedGodmode = g_CreativeGodmode;
             const Difficulty savedDifficulty = g_Difficulty;
-            const std::vector<int> savedOwnedAugs = g_OwnedAugs;
             const bool savedTrialPoolReady = g_TrialPoolReady;
             int savedTrialPool[TRIAL_SLOT_COUNT] = {};
             bool savedTrialSelected[TRIAL_SLOT_COUNT] = {};
@@ -4133,33 +4089,22 @@ int main() {
             g_CurrentWeapon = savedWeapon;
             g_Difficulty = savedDifficulty;
             g_CreativeGodmode = savedGodmode;
-            g_OwnedAugs = savedOwnedAugs;
             g_TrialPoolReady = savedTrialPoolReady;
             for (int i = 0; i < TRIAL_SLOT_COUNT; ++i) {
                 g_TrialPool[i] = savedTrialPool[i];
                 g_TrialSelected[i] = savedTrialSelected[i];
             }
 
-            // Re-applying the owned augment list restores the exact build,
-            // including class/creative augments and their side effects.
-            RebuildPlayerStatsFromOwned(screenWidth, screenHeight, false);
+            // Rebuild the weapon build the run started with.
+            if (g_CurrentWeapon >= 0 && g_CurrentWeapon < (int)StartWeapon::_COUNT)
+                ApplyLoadoutStats(g_Stats, g_CurrentWeapon);
             g_GameManager.maxHP = g_Stats.maxHP;
             g_GameManager.playerHP = g_Stats.maxHP;
 
-            g_CreativeStartPending = false;
-            g_GameManager.conversionAug = -1;
             g_GameManager.hoveredCard = -1;
-            g_GameManager.pendingAugIdx = -1;
-            g_GameManager.replaceChoiceCount = 0;
-            g_GameManager.augChoiceCount = 0;
-            for (int i = 0; i < 3; ++i) g_GameManager.augChoices[i] = -1;
             g_AugExitT = -1.0f;
             g_AugExitSlot = -1;
-            g_RepExitT = -1.0f;
-            g_RepExitSlot = -3;
             g_GameManager.ClearAugmentRewardQueue();
-            g_AugEffectQueue.clear();
-            g_AugEffectProcessing = false;
             g_GameManager.spaceReleased = true;
             g_GameManager.escReleased = true;
             g_GameManager.pauseResumeState = GameState::RUNNING;
@@ -4182,15 +4127,10 @@ int main() {
 
             g_MonsterManager.Clear();
             g_Bullets.clear();
-                    g_LaserBeams.clear();
-
-            g_ApproachOrbs.clear();
             g_StardustPickups.clear();
             g_MuzzleTimer = 0.0f;
             g_ShakeTime = 0.0f;
             g_ShakeMag = 0.0f;
-            for (int d = 0; d < MAX_DRONES;   ++d) g_Drones[d]   = DroneState{};
-            for (int c = 0; c < MAX_CHAKRAMS; ++c) g_Chakrams[c] = ChakramState{};
             for (int i = 0; i < MAX_SHOCKS; ++i) g_ShockWaves[i].active = false;
             ResetJuice();
 
@@ -4264,15 +4204,9 @@ int main() {
                         if (gm.currentState != GameState::RUNNING &&
                             gm.currentState != GameState::READY &&
                             gm.currentState != GameState::PAUSED &&
-                            gm.currentState != GameState::AUG_SELECT &&
-                            gm.currentState != GameState::DEBUFF_SELECT &&
-                            gm.currentState != GameState::AUG_REPLACE)
+                            gm.currentState != GameState::AUG_SELECT)
                             RestartCurrentRun();
                         g_DebugToolkit.SetVisible(true);
-                    } else if (step.rfind("DEBUGSEARCH=", 0) == 0) {
-                        const std::string query = step.substr(12);
-                        // Smoke uses ASCII IDs; interactive input also accepts Korean IME.
-                        g_DebugToolkit.InsertAugmentSearchText(std::wstring(query.begin(), query.end()));
                     } else if (step.rfind("STARDUST_NEAR", 0) == 0) {
                         // Simulate a contact-range loot drop for the smoke
                         // capture without depending on combat input timing.
@@ -4362,33 +4296,15 @@ int main() {
                         // REG-04 (scripts/test_reg04_run_reset.ps1): fill every
                         // piece of run state, run one reset path, and append a
                         // snapshot line to Screenshots/reg04_state.txt.
-                        //   REG04=NEWRUN|RESTART|REBUILD|ABANDON  fill, run, dump
+                        //   REG04=NEWRUN|RESTART|ABANDON  fill, run, dump
                         //   REG04=READY   fill, then enter READY; when the frame
                         //                 started in GAMEOVER the frame's own
                         //                 GAMEOVER->READY handling resets
                         //   REG04DUMP=<label>  dump only
-                        auto augIdx = [](AugType t) {
-                            for (int i = 0; i < AUG_TOTAL; ++i)
-                                if (ALL_AUGS[i].type == t) return i;
-                            return -1;
-                        };
                         auto fill = [&]() {
-                            for (int d = 0; d < MAX_DRONES; ++d) g_Drones[d] = { 1.0f + d, 0.5f };
-                            for (int c = 0; c < 2; ++c) {
-                                g_Chakrams[c].alive = true; g_Chakrams[c].hp = 80.0f;
-                            }
-                            g_LaserBeams.assign(3, LaserBeam{ 0, 0, 10, 10, 0.1f, 0.1f, 1.0f });
-                            g_ApproachOrbs.assign(2, ApproachOrb{ 5.0f, 5.0f });
-                            g_Skills[0] = { SkillType::CLOSE_WINDOW, 3.0f };
-                            g_Skills[1] = { SkillType::HYPER_FOCUS, 7.0f };
-                            g_Skills[2] = { SkillType::TIME_STOP, 11.0f };
-                            g_SkillReplaceIdx = 2;
                             g_PlayerRuntime.dashCooldown = 1.5f;
-                            g_PlayerRuntime.timeStopTimer = 0.8f;
-                            g_PlayerRuntime.hyperFocusTimer = 0.6f;
                             g_PlayerShield = 25.0f; g_PlayerShieldTimer = 4.0f;
                             g_PlayerRuntime.dashInputHeld = true;
-                            g_PlayerRuntime.skillInputHeld[0] = true;
                             g_PlayerRuntime.postPickGrace = 0.4f;
                             for (int i = 0; i < 5; ++i)
                                 g_Bullets.push_back(Bullet(0.0f, 0.0f, 10.0f, 0.0f));
@@ -4399,14 +4315,6 @@ int main() {
                             for (int i = 0; i < 6; ++i) g_StardustPickups.push_back(StardustPickup{});
                             for (int i = 0; i < 2; ++i) g_ShockWaves[i].active = true;
                             for (int i = 0; i < 3; ++i) g_Debris[i].active = true;
-                            g_AugEffectQueue.assign(2, augIdx(AugType::RATE_UP));
-                            const int owned[] = { augIdx(AugType::RATE_UP), augIdx(AugType::HP_UP),
-                                                  augIdx(AugType::SKILL_TIMESTOP) };
-                            g_OwnedAugs.assign(owned, owned + 3);
-                            for (int idx : owned) {
-                                g_TypeOwned[(int)ALL_AUGS[idx].type] = true;
-                                gm.takenOnce[idx] = true;
-                            }
                             gm.score = 4321; gm.scoreAccum = 4321.0f; gm.xp = XpFromWhole(55); gm.playerLevel = 3;
                             gm.playerHP = 42.0f;
                             g_Stats.killCount = 777;
@@ -4416,19 +4324,9 @@ int main() {
                             gm.waveStartTime = g_GameTime;
                         };
                         auto dump = [&](const std::string& label) {
-                            int drones = 0, chakrams = 0, skills = 0, shocks = 0, debris = 0,
-                                typeOwned = 0, taken = 0, tier3 = 0, tier4 = 0;
-                            for (const auto& d : g_Drones) drones += (d.angle != 0.0f || d.fireTimer != 0.0f);
-                            for (const auto& c : g_Chakrams) chakrams += c.alive;
-                            float timeCd = 0.0f;
-                            for (const auto& s : g_Skills) {
-                                skills += (s.type != SkillType::NONE);
-                                if (s.type == SkillType::TIME_STOP) timeCd = s.cd;
-                            }
+                            int shocks = 0, debris = 0, tier3 = 0, tier4 = 0;
                             for (const auto& s : g_ShockWaves) shocks += s.active;
                             for (const auto& p : g_Debris) debris += p.active;
-                            for (bool t : g_TypeOwned) typeOwned += t;
-                            for (bool t : gm.takenOnce) taken += t;
                             for (const Monster* mob : g_MonsterManager.monsters) {
                                 if (!mob->alive) continue;
                                 tier3 += mob->kind == MobKind::GRAVIS ||
@@ -4446,32 +4344,27 @@ int main() {
 #endif
                             if (!f) return;
                             std::fprintf(f,
-                                "%s state=%d drones=%d chakrams=%d laser=%d orbs=%d skills=%d replaceIdx=%d "
-                                "dashCd=%.2f timeStop=%.2f focus=%.2f timeCd=%.2f shield=%.1f dashHeld=%d skillHeld=%d grace=%.2f "
-                                "bullets=%d monsters=%d ranged=%d stardust=%d shocks=%d debris=%d queue=%d "
-                                "owned=%d typeOwned=%d takenOnce=%d score=%lld xp=%.3f level=%d hp=%.1f "
+                                "%s state=%d "
+                                "dashCd=%.2f shield=%.1f dashHeld=%d grace=%.2f "
+                                "bullets=%d monsters=%d ranged=%d stardust=%d shocks=%d debris=%d "
+                                "score=%lld xp=%.3f level=%d hp=%.1f "
                                 "kills=%lld weapon=%d time=%.1f rewards=%d levelup=%d "
-                                "wave=%d lastDebuff=%d waveVictory=%d tier3=%d tier4=%d "
-                                "twin=%d damage=%.5f slots=%d pendingAug=%d choice0=%s\n",
-                                label.c_str(), (int)gm.currentState, drones, chakrams,
-                                (int)g_LaserBeams.size(), (int)g_ApproachOrbs.size(), skills,
-                                g_SkillReplaceIdx, g_PlayerRuntime.dashCooldown,
-                                g_PlayerRuntime.timeStopTimer, g_PlayerRuntime.hyperFocusTimer,
-                                timeCd, g_PlayerShield,
-                                (int)g_PlayerRuntime.dashInputHeld, (int)g_PlayerRuntime.skillInputHeld[0],
+                                "wave=%d waveVictory=%d tier3=%d tier4=%d "
+                                "damage=%.5f choice0=%s\n",
+                                label.c_str(), (int)gm.currentState,
+                                g_PlayerRuntime.dashCooldown, g_PlayerShield,
+                                (int)g_PlayerRuntime.dashInputHeld,
                                 g_PlayerRuntime.postPickGrace, (int)g_Bullets.size(),
                                 (int)g_MonsterManager.monsters.size(),
                                 (int)g_MonsterManager.rangedMobs.size(),
                                 (int)g_StardustPickups.size(), shocks, debris,
-                                (int)g_AugEffectQueue.size(), (int)g_OwnedAugs.size(), typeOwned, taken,
                                 gm.score, XpToDouble(gm.xp), gm.playerLevel, gm.playerHP,
                                 g_Stats.killCount, g_CurrentWeapon, g_GameTime,
-                                gm.pendingAugmentRewards,
+                                gm.PendingRewards(),
                                 (int)gm.levelUpTransition.Active(),
-                                gm.currentWave, gm.lastWaveDebuff,
+                                gm.currentWave,
                                 (int)gm.waveVictory, tier3, tier4,
-                                (int)g_Stats.twin, g_Stats.damageMultiplier,
-                                CountIdentitySlotsUsed(), gm.pendingAugIdx,
+                                g_Stats.damageMultiplier,
                                 gm.augChoiceCount > 0 && gm.augChoices[0] >= 0 && gm.augChoices[0] < AUG_TOTAL
                                     ? ALL_AUGS[gm.augChoices[0]].name : "NONE");
                             std::fclose(f);
@@ -4480,26 +4373,6 @@ int main() {
                         const std::string arg = eq == std::string::npos ? "" : step.substr(eq + 1);
                         if (step.rfind("REG04DUMP=", 0) == 0) {
                             dump(arg);
-                        } else if (arg.rfind("PICK_", 0) == 0) {
-                            RestartCurrentRun();
-                            g_OwnedAugs.assign(IdentitySlotMax(), augIdx(AugType::PROB_CHAIN));
-                            RebuildPlayerStatsFromOwned(screenWidth, screenHeight);
-                            gm.QueueAugmentReward();
-                            if (arg == "PICK_REWARD") gm.QueueAugmentReward();
-                            gm.ActivateNextAugmentReward();
-                            g_AugEffectProcessing = true;
-                            g_AugEffectQueue.push_back(augIdx(AugType::TWIN));
-                            ProcessAugEffectQueue(screenWidth, screenHeight);
-                            dump("PICK_OPEN");
-                            if (arg == "PICK_CHAIN")
-                                g_AugEffectQueue.push_back(augIdx(AugType::PIERCE));
-                            if (arg == "PICK_CANCEL") CancelAugReplaceFlow();
-                            else CompleteAugReplaceFlow(0, screenWidth, screenHeight);
-                            if (arg == "PICK_CHAIN") {
-                                dump("PICK_CHAIN_WAIT");
-                                CompleteAugReplaceFlow(0, screenWidth, screenHeight);
-                            }
-                            dump(arg);
                         } else if (arg == "READY") {
                             fill();
                             gm.currentState = GameState::READY;
@@ -4507,42 +4380,30 @@ int main() {
                             fill();
                             if (arg == "NEWRUN") ResetForNewGame();
                             else if (arg == "RESTART") RestartCurrentRun();
-                            else if (arg == "REBUILD") RebuildPlayerStatsFromOwned(screenWidth, screenHeight);
-                            else if (arg == "REBUILD_NO_TIME") {
-                                g_OwnedAugs.pop_back();
-                                RebuildPlayerStatsFromOwned(screenWidth, screenHeight);
-                            }
                             else if (arg == "ABANDON") AbandonCurrentRun();
                             dump(arg);
                         }
-                    } else if (step.rfind("AUGSEL", 0) == 0) {
-                        // AUGSEL or AUGSEL=<AugDef::name>: the named card is
-                        // placed in slot 1 and keyboard-focused so its
-                        // detail panel is visible in the capture.
+                    } else if (step == "AUGSEL") {
+                        // AUGSEL: opens the reward pick with its card
+                        // keyboard-focused so the detail panel is visible in
+                        // the capture.
                         if (gm.currentState != GameState::RUNNING)
                             RestartCurrentRun();
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
-                        const size_t eq = step.find('=');
-                        if (eq != std::string::npos && gm.augChoiceCount > 0) {
-                            const std::string want = step.substr(eq + 1);
-                            for (int i = 0; i < AUG_TOTAL; ++i) {
-                                if (want == ALL_AUGS[i].name) {
-                                    gm.augChoices[0] = i;
-                                    break;
-                                }
-                            }
-                            g_SmokeAugFocus = 0;
-                        }
+                        g_SmokeAugFocus = 0;
+                    } else if (step.rfind("GOD=", 0) == 0) {
+                        g_SmokeGod = step.size() > 4 && step[4] == '1';
+                    } else if (step.rfind("FIRE=", 0) == 0) {
+                        g_SmokeFire = step.size() > 5 && step[5] == '1';
                     } else if (step.rfind("GIVE=", 0) == 0) {
-                        // GIVE=<AugDef::name>: grant an augment to the run.
+                        // GIVE=<AugDef::name>|ALL: take cards as if picked (ALL:
+                        // every augment card, not the level-up stat cards).
                         const std::string want = step.substr(5);
-                        for (int i = 0; i < AUG_TOTAL; ++i) {
-                            if (want == ALL_AUGS[i].name) {
-                                ApplySingleAugIdx(i, screenWidth, screenHeight);
-                                break;
-                            }
-                        }
+                        for (int i = 0; i < AUG_TOTAL; ++i)
+                            if (want == "ALL" ? !AugIsStatCard(ALL_AUGS[i])
+                                              : want == ALL_AUGS[i].name)
+                                passive::Acquire(i);
                     }
                     if (step.rfind("LEVEL=", 0) == 0) {
                         gm.playerLevel = std::max(1, std::atoi(step.c_str() + 6));
@@ -4668,8 +4529,10 @@ int main() {
                             if (mob->alive) grant(mob->regulusShield);
                     } else if (step == "MOBCLEAR") {
                         // MOBCLEAR: drop every mob and bullet so a MOBDUMP run
-                        // only sees the mobs it spawns itself.
+                        // only sees the mobs it spawns itself (the wave's own
+                        // elite stays out too).
                         g_MonsterManager.Clear();
+                        DebugHoldWave(gm.currentWave);
                         g_Bullets.clear();
                     } else if (step.rfind("MOBPLACE=", 0) == 0) {
                         // MOBPLACE=<dx>: put every live Gravis / Regulus / Antares / Quasar dx px
@@ -4817,37 +4680,16 @@ int main() {
                             mob->MakeKind((MobKind)kind);
                         }
                     } else if (step.rfind("SKILLHUD=", 0) == 0) {
-                        // SKILLHUD=MIX|EMPTY|PULSE: skill HUD states in one
-                        // frame (cooldowns, effects, passives) on a fresh run.
+                        // SKILLHUD=MIX|EMPTY|PULSE: dash HUD states (cooling
+                        // down, ready, ready pulse) on a fresh run.
                         const std::string preset = step.substr(9);
-                        g_OwnedAugs.clear();   // RestartCurrentRun keeps owned cards
                         RestartCurrentRun();
-                        auto give = [&](AugType t) {
-                            for (int i = 0; i < AUG_TOTAL; ++i)
-                                if (ALL_AUGS[i].type == t) {
-                                    ApplySingleAugIdx(i, screenWidth, screenHeight);
-                                    return;
-                                }
-                        };
-                        ClearEquippedSkills();
                         if (preset == "MIX") {
-                            EquipSkill(SkillType::CLOSE_WINDOW);
-                            EquipSkill(SkillType::HYPER_FOCUS);
-                            EquipSkill(SkillType::TIME_STOP);
-                            g_Skills[0].cd = PlayerSkillCooldownMax(SkillType::CLOSE_WINDOW) * 0.6f;
-                            g_Skills[1].cd = 12.0f;
-                            g_Skills[2].cd = 0.0f;
-                            g_PlayerRuntime.hyperFocusTimer = 3.0f;
                             g_PlayerRuntime.dashCooldown = DASH_CD;   // ~half left at the ~1.5 s capture
                             g_PlayerRuntime.dashCooldownMax = DASH_CD;
-                            give(AugType::BULLET_RAIN);
-                            g_BulletRainTimer = g_Stats.bulletRainCooldown * 0.6f;
-                            give(AugType::LIGHT_STEP);
-                            g_Stats.lightStepDisableTimer = 7.0f;
-                            for (int k = 0; k < 3; ++k) give(AugType::D_APPROACH);
                         } else if (preset == "PULSE") {
-                            EquipSkill(SkillType::TIME_STOP);
-                            g_Skills[0].cd = 0.05f;
+                            g_PlayerRuntime.dashCooldown = 0.05f;
+                            g_PlayerRuntime.dashCooldownMax = DASH_CD;
                             g_SmokeTimeScale = 0.2f;
                         }
                     } else if (step.rfind("NORMADUMP=", 0) == 0) {
@@ -4896,17 +4738,10 @@ int main() {
                         const std::string arg = step.substr(10);
                         // A new run opens on its starting pick: take the first
                         // card so the fight actually runs.
-                        if (gm.currentState == GameState::AUG_SELECT && gm.augChoiceCount > 0) {
-                            g_AugEffectQueue.push_back(gm.augChoices[0]);
-                            g_AugEffectProcessing = true;
-                            ProcessAugEffectQueue(screenWidth, screenHeight);
-                            g_AugEffectProcessing = false;
-                            gm.maxHP = g_Stats.maxHP;
+                        if (gm.currentState == GameState::AUG_SELECT && gm.augChoiceCount > 0)
                             FinishAugmentEffects();
-                        }
                         if (!FindNorma())
                             DebugSpawnNorma(g_MonsterManager, screenWidth,
-                                            g_Stats.monsterHpMult *
                                             GetDifficultyParams(g_Difficulty).enemyHpMultiplier,
                                             g_Difficulty);
                         // Clear the stage so the capture shows NORMA alone.
@@ -4914,12 +4749,17 @@ int main() {
                             if (m->alive && m->kind != MobKind::NORMA) m->alive = false;
                         if (g_ThrowBox.id != 0) os_pane::Close(g_ThrowBox.id);
                         g_ThrowBox = {};
-                        gm.maxHP = g_Stats.maxHP = 100000.0f;   // so a test run outlives the bursts
-                        gm.playerHP = gm.maxHP;
+                        if (arg != "PICK") {   // PICK keeps HP, so a hit stays readable
+                            gm.maxHP = g_Stats.maxHP = 100000.0f;   // so a test run outlives the bursts
+                            gm.playerHP = gm.maxHP;
+                        }
                         if (Monster* boss = FindNorma()) {
                             if (arg.rfind("HP", 0) == 0 && arg.size() > 2) {
                                 // HP<n>: the boss at n% of its max HP (for the boss bar).
                                 boss->hp = boss->normaMaxHp * std::strtof(arg.c_str() + 2, nullptr) / 100.0f;
+                            } else if (arg == "PICK") {
+                                // PICK: only take the open card (above), so a long capture
+                                // is not stalled by a level-up.
                             } else if (arg == "WEAR") {
                                 // WEAR: wear the open panes 15%, 45%, 75%... so the seal
                                 // ticks show several states at once.
@@ -4941,25 +4781,21 @@ int main() {
                                                        : arg == "REINFORCE" ? norma::Pattern::Reinforce
                                                        : arg == "WARP" ? norma::Pattern::Warp
                                                        : arg == "REFUGE" ? norma::Pattern::Refuge
+                                                       : arg == "CRASH" ? norma::Pattern::Crash
                                                        : norma::Pattern::None;
                                 if (arg == "PANES") norma::g_Asks.push_back(norma::Ask::ReopenPanes);
                                 if (p != norma::Pattern::None) boss->StartNormaPattern(p);
                             }
                         }
                     } else if (step.rfind("CAELUMTEST=", 0) == 0) {
-                        // CAELUMTEST=SPREAD|SCAN|SMEAR|SHOT|DRAG|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
+                        // CAELUMTEST=SPREAD|SCAN|SMEAR|SHOT|SIPHON|SPOUT|WAVE|LINE|BAD|P2|ERODE|OVERFLOW: bring CAELUM
                         // in mid-screen and start that pattern now (P2: phase 2 by
-                        // health; ERODE: phase 2 rules at once; OVERFLOW: corrupt
-                        // enough cells for the file to break).
+                        // health; ERODE: phase 2 rules at once; SPOUT: the siphon in
+                        // phase 2, spouting back; OVERFLOW: corrupt enough cells for
+                        // the file to break).
                         const std::string arg = step.substr(11);
-                        if (gm.currentState == GameState::AUG_SELECT && gm.augChoiceCount > 0) {
-                            g_AugEffectQueue.push_back(gm.augChoices[0]);
-                            g_AugEffectProcessing = true;
-                            ProcessAugEffectQueue(screenWidth, screenHeight);
-                            g_AugEffectProcessing = false;
-                            gm.maxHP = g_Stats.maxHP;
+                        if (gm.currentState == GameState::AUG_SELECT && gm.augChoiceCount > 0)
                             FinishAugmentEffects();
-                        }
                         const auto findCaelum = [&]() -> Monster* {
                             for (Monster* cm : g_MonsterManager.monsters)
                                 if (cm->kind == MobKind::CAELUM && cm->alive) return cm;
@@ -4967,7 +4803,6 @@ int main() {
                         };
                         if (!findCaelum())
                             DebugSpawnCaelum(g_MonsterManager, screenWidth,
-                                             g_Stats.monsterHpMult *
                                              GetDifficultyParams(g_Difficulty).enemyHpMultiplier,
                                              g_Difficulty);
                         for (Monster* m : g_MonsterManager.monsters)
@@ -4991,6 +4826,22 @@ int main() {
                             } else if (arg == "ERODE") {
                                 caelum::g.phase = 2;
                                 caelum::g.exposed = 6.0f;   // hold the patterns off to watch erosion alone
+                            } else if (arg == "SIPHON" || arg == "SPOUT") {
+                                if (arg == "SPOUT") {   // phase 2 without the shift (its health under the line)
+                                    boss->hp = boss->normaMaxHp * caelum::kPhase2Ratio * 0.9f;
+                                    caelum::g.phase = 2;
+                                }
+                                // A board to drink: cells in a loose ring round the player.
+                                const int cols = caelum::Cols(), here = caelum::CellAt(pcx, pcy);
+                                for (int k = 0; k < caelum::CellCount(); ++k) {
+                                    if (k == here || ((k % cols) + (k / cols) * 2) % 3 != 0) continue;
+                                    if (std::abs(k % cols - here % cols) + std::abs(k / cols - here / cols) > 3) continue;
+                                    caelum::g.cells[k].state = caelum::CellState::Corrupt;
+                                    caelum::g.cells[k].life = 9.0f;
+                                    caelum::g.cells[k].glitch = (unsigned char)(rand() % 256);
+                                }
+                                caelum::g.bossX = boss->worldX; caelum::g.bossY = boss->worldY;
+                                caelum::StartPattern(pcx, pcy, caelum::Pattern::Siphon);
                             } else if (arg == "OVERFLOW") {
                                 const int here = caelum::CellAt(pcx, pcy);
                                 for (int i = 0, n = 0; i < caelum::CellCount() &&
@@ -5005,7 +4856,6 @@ int main() {
                                 const caelum::Pattern p = arg == "SPREAD" ? caelum::Pattern::Spread
                                                         : arg == "SCAN" ? caelum::Pattern::Scanline
                                                         : arg == "SMEAR" ? caelum::Pattern::Smear
-                                                        : arg == "DRAG" ? caelum::Pattern::Drag
                                                         : arg == "SHOT" ? caelum::Pattern::Shot
                                                         : caelum::Pattern::None;
                                 if (p != caelum::Pattern::None) caelum::StartPattern(pcx, pcy, p);
@@ -5051,6 +4901,19 @@ int main() {
                     }
                     // "WAIT" (or any other name) keeps the current scene.
                 });
+            if (g_SmokeGod && g_GameManager.currentState == GameState::RUNNING)
+                g_GameManager.playerHP = g_Stats.maxHP;
+            if (g_SmokeFire) {
+                // FIRE=1: hold fire, and take the first card of every pick.
+                lmb = true;
+                GameManager& fgm = g_GameManager;
+                if (fgm.currentState == GameState::AUG_SELECT && fgm.augChoiceCount > 0 &&
+                    g_AugExitT < 0.0f) {
+                    passive::Acquire(fgm.augChoices[0]);
+                    MarkAugSeen(fgm.augChoices[0]);
+                    FinishAugmentEffects();
+                }
+            }
             // Scripted pointer events arrive after the normal input pass.
             // Route them through the same toolkit hitboxes as physical clicks.
             if (g_DebugToolkit.IsVisible() && lmb)
@@ -5069,20 +4932,11 @@ int main() {
         // card selections it opens.
         {
             const GameState ts = g_GameManager.currentState;
-            if (ts != GameState::READY && ts != GameState::AUG_SELECT &&
-                ts != GameState::AUG_REPLACE && ts != GameState::DEBUFF_SELECT)
+            if (ts != GameState::READY && ts != GameState::AUG_SELECT)
                 ready_launch::g_TutorialMode = false;
         }
-        // Tutorial step 6: the wave clock ran out. Open the nerf pick the way a
-        // real wave boundary does.
-        if (ready_launch::g_RequestNerfPick &&
-            g_GameManager.currentState == GameState::READY) {
-            ready_launch::g_RequestNerfPick = false;
-            ++g_GameManager.currentWave;
-            OpenWaveDebuffChoice();
-        }
-        // Launching from the tutorial after taking its cards: start clean with
-        // the chosen loadout (the cards and nerf were only a demonstration).
+        // Launching from the tutorial after taking its card: start clean with
+        // the chosen loadout (the card was only a demonstration).
         if (prevState == GameState::READY &&
             g_GameManager.currentState == GameState::RUNNING &&
             ready_launch::g_PicksTaken) {
@@ -5096,14 +4950,8 @@ int main() {
             fireTimer = g_Stats.fireInterval;
             g_GameManager.maxHP    = g_Stats.maxHP;
             g_GameManager.playerHP = g_Stats.maxHP;
-            g_PrevHP               = g_Stats.maxHP;
         }
         // PAUSED ???�른 ?�태: 증강 ?�명 박스 ?�기
-        if (prevState == GameState::PAUSED &&
-            g_GameManager.currentState != GameState::PAUSED) {
-            g_PauseSelectedAug = -1;
-            g_ShowPauseInventory = false;
-        }
         if (!debugInputCaptured)
             g_GameManager.UpdateStateSystem(g_MonsterManager, g_Bullets);
         SyncGameplayTelemetry();
@@ -5121,7 +4969,7 @@ int main() {
             Audio::SetVolume(g_SoundVol / 100.0f);        // 마스??볼륨
             GameState cs = g_GameManager.currentState;
             bool bgmOn = (cs == GameState::RUNNING || cs == GameState::PAUSED ||
-                          cs == GameState::AUG_SELECT || cs == GameState::DEBUFF_SELECT ||
+                          cs == GameState::AUG_SELECT ||
                           cs == GameState::READY);
             if (bgmOn) Audio::PlayBgmMain();
             else       Audio::StopBgm();
@@ -5135,81 +4983,45 @@ int main() {
         }
 
         // HP 0 ??MK2 부??OR DYING (1�??�로??모션 ??GAMEOVER)
+        // Phoenix Charm revives (full HP) instead of dying, once per run.
         if (g_GameManager.playerHP <= 0.0f &&
-            g_GameManager.currentState == GameState::RUNNING) {
+            g_GameManager.currentState == GameState::RUNNING &&
+            !passive::TryPhoenix()) {
             // MK2: 1??부????공격??비�? ??�� + ?�?HP (?�널???�음)
-            if (g_Stats.mk2 && !g_Stats.mk2Used) {
-                g_Stats.mk2Used = true;
-                float pCX = playerWin.x + playerWin.width  * 0.5f;
-                float pCY = playerWin.y + playerWin.height * 0.5f;
-                float blastDmg = g_Stats.GetBaseDamage()
-                               * g_Stats.GetDamageMultiplier() * 6.0f;
-                float blastRad = 280.0f;
-                // 주�? ?�에�??��?지
-                for (auto m : g_MonsterManager.monsters) {
-                    if (!m->alive) continue;
-                    float dx = m->worldX - pCX, dy = m->worldY - pCY;
-                    if (dx*dx + dy*dy < blastRad * blastRad) {
-                        g_MonsterManager.ApplyDamage(*m, blastDmg);
-                    }
+            // ?�반 ?�망 ???�레?�어 기점 ?�??��(모든 ???�짐) ??메뉴 ?�이?�인
+            g_GameManager.currentState = GameState::DYING;
+            g_GameManager.playerHP     = 0.0f;
+            Audio::StopBgm();
+            float pCX = playerWin.x + playerWin.width  * 0.5f;
+            float pCY = playerWin.y + playerWin.height * 0.5f;
+            g_DeathCX = pCX; g_DeathCY = pCY;
+            g_DyingTimer    = DYING_DUR;
+            g_DeathBoomDone = false;
+            g_DeathFlash    = 0.0f;
+            // ?�리모프 ??�??�복 (?�망 ?�출??�??�음)
+            g_ZoomCX = g_ZoomCY = 0.0f;
+            g_ViewZoom = 1.0f; g_ViewZoomTarget = 1.0f;
+            // ?�망 ?�인 ???�티????�� ?? 가??가까운 ?�협(?�로?�스)??기록 (결과창에 ?�시??
+            {
+                float best = 1e18f; const wchar_t* nm = nullptr;
+                auto consider = [&](float ex, float ey, const wchar_t* n) {
+                    float dx = ex-pCX, dy = ey-pCY, d = dx*dx+dy*dy;
+                    if (d < best) { best = d; nm = n; }
+                };
+                for (auto m  : g_MonsterManager.monsters)   if (m->alive)  consider(m->worldX,  m->worldY,  MobName(CodexMobIdForKind(m->kind)));
+                for (auto r  : g_MonsterManager.rangedMobs) if (r->alive)  consider(r->worldX,  r->worldY,  MobName(CM_SCOPE));
+                int li = LangIndex();
+                const wchar_t* FMT[3] = { L"%ls: signal dispersed", L"Dispersed by %ls", L"%ls dispersed" };
+                const wchar_t* UNK[3] = { L"Unknown error", L"Terminated by unknown error", L"Unknown error" };
+                if (nm) swprintf_s(g_DeathReason, FMT[li], nm);
+                else    wcscpy_s(g_DeathReason, UNK[li]);
+                if (g_NormaDoom) {
+                    static const wchar_t* const DOOM[3] = {
+                        L"OCTANS의 심판: 시간 초과", L"Judged by OCTANS: time ran out",
+                        L"OCTANSの裁き: 時間切れ" };
+                    wcscpy_s(g_DeathReason, DOOM[li]);
                 }
-                for (auto rm : g_MonsterManager.rangedMobs) {
-                    if (!rm->alive) continue;
-                    float dx = rm->worldX - pCX, dy = rm->worldY - pCY;
-                    if (dx*dx + dy*dy < blastRad * blastRad) {
-                        g_MonsterManager.ApplyDamage(*rm, blastDmg);
-                    }
-                }
-                // �ð� ȿ�� ? ���� + �����?+ ȭ�� ����
-                SpawnEnemyExplosion(pCX, pCY, 1.0f, 0.8f, 0.3f, true);
-                SpawnEnemyExplosion(pCX, pCY, 0.4f, 1.0f, 0.8f, true);
-                SpawnShockWave(pCX, pCY, blastRad * 1.4f, 0.55f,
-                               1.0f, 0.85f, 0.3f);
-                g_ShakeTime = 0.45f; g_ShakeMag = 22.0f;
-                TriggerFlash(1.0f, 0.9f, 0.4f, 0.8f);   // 부????강한 번쩍
-                TriggerHitStop(0.14f);                  // ?�팩???��?
-
-                // 부?????�력�??�널???�이 ?�?HP �?(?�버???�음)
-                g_GameManager.maxHP    = g_Stats.maxHP;
-                g_GameManager.playerHP = g_Stats.maxHP;
-                g_PrevHP               = g_GameManager.playerHP;
-                // RUNNING ?�태 ?��? (DYING ?�이 X)
-            } else {
-                // ?�반 ?�망 ???�레?�어 기점 ?�??��(모든 ???�짐) ??메뉴 ?�이?�인
-                g_GameManager.currentState = GameState::DYING;
-                g_GameManager.playerHP     = 0.0f;
-                Audio::StopBgm();
-                float pCX = playerWin.x + playerWin.width  * 0.5f;
-                float pCY = playerWin.y + playerWin.height * 0.5f;
-                g_DeathCX = pCX; g_DeathCY = pCY;
-                g_DyingTimer    = DYING_DUR;
-                g_DeathBoomDone = false;
-                g_DeathFlash    = 0.0f;
-                // ?�리모프 ??�??�복 (?�망 ?�출??�??�음)
-                g_ZoomCX = g_ZoomCY = 0.0f;
-                g_ViewZoom = 1.0f; g_ViewZoomTarget = 1.0f;
-                // ?�망 ?�인 ???�티????�� ?? 가??가까운 ?�협(?�로?�스)??기록 (결과창에 ?�시??
-                {
-                    float best = 1e18f; const wchar_t* nm = nullptr;
-                    auto consider = [&](float ex, float ey, const wchar_t* n) {
-                        float dx = ex-pCX, dy = ey-pCY, d = dx*dx+dy*dy;
-                        if (d < best) { best = d; nm = n; }
-                    };
-                    for (auto m  : g_MonsterManager.monsters)   if (m->alive)  consider(m->worldX,  m->worldY,  MobName(CodexMobIdForKind(m->kind)));
-                    for (auto r  : g_MonsterManager.rangedMobs) if (r->alive)  consider(r->worldX,  r->worldY,  MobName(CM_SCOPE));
-                    int li = LangIndex();
-                    const wchar_t* FMT[3] = { L"%ls: signal dispersed", L"Dispersed by %ls", L"%ls dispersed" };
-                    const wchar_t* UNK[3] = { L"Unknown error", L"Terminated by unknown error", L"Unknown error" };
-                    if (nm) swprintf_s(g_DeathReason, FMT[li], nm);
-                    else    wcscpy_s(g_DeathReason, UNK[li]);
-                    if (g_NormaDoom) {
-                        static const wchar_t* const DOOM[3] = {
-                            L"OCTANS의 심판: 시간 초과", L"Judged by OCTANS: time ran out",
-                            L"OCTANSの裁き: 時間切れ" };
-                        wcscpy_s(g_DeathReason, DOOM[li]);
-                    }
-                }
-            }   // close else (MK2 분기 ??
+            }
         }       // close outer if (HP <= 0)
 
         // DYING ?�망 ?�출 ???�레?�어 기점 ?�??��(모든 ???�짐) ??GAMEOVER (�?변???�음)
@@ -5234,7 +5046,7 @@ int main() {
                 // 모든 ?�·보?�·분?�체·총알·?�탑??즉시 ?�전 ??�� ??UpdateAll(RUNNING ?�용)??                //   맡기�?DYING/GAMEOVER ?�안 ?�거�?�?�??�이 ?��? ?�태�??�으므�??�기???�거.
                 g_MonsterManager.Clear();   // monsters, ranged mobs, and projectiles are deleted and cleared
                 g_Bullets.clear();
-                g_LaserBeams.clear();   // ?�캔 ?�이?�?�??�리
+                // ?�캔 ?�이?�?�??�리
                    // 배드 ?�터 감속 구역/출혈 ?�리
                 // ?�레?�어 중심 ?�??�� + 충격??+ ?�광 + ?�들�?+ 방사???�편
                 for (int k = 0; k < 4; k++)
@@ -5313,7 +5125,7 @@ int main() {
             }
         }
 
-        // --- AUG_SELECT / DEBUFF_SELECT: 1/2/3 focus, SPACE confirm ---
+        // --- AUG_SELECT: 1~5 focus, SPACE confirm ---
         static bool s_augSpaceReleased = true;
         if (inputFocusChanged)
             s_augSpaceReleased = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE;
@@ -5322,32 +5134,24 @@ int main() {
             if (spaceState == GLFW_RELEASE) s_augSpaceReleased = true;
         }
         if (!debugInputCaptured &&
-            (g_GameManager.currentState == GameState::AUG_SELECT ||
-             g_GameManager.currentState == GameState::DEBUFF_SELECT)) {
+            g_GameManager.currentState == GameState::AUG_SELECT) {
             const int k1 = glfwGetKey(window, GLFW_KEY_1);
             const int k2 = glfwGetKey(window, GLFW_KEY_2);
-            const int k3 = glfwGetKey(window, GLFW_KEY_3);            // Special effects are processed by ProcessAugEffectQueue below.
+            const int k3 = glfwGetKey(window, GLFW_KEY_3);
+            const int k4 = glfwGetKey(window, GLFW_KEY_4);
+            const int k5 = glfwGetKey(window, GLFW_KEY_5);
+            // The placeholder card has no effect: taking it only closes the pick.
             auto applyAug = [&](int slot) {
                 if (slot < 0 || slot >= g_GameManager.augChoiceCount) return;
-                const bool wasBuff = (g_GameManager.currentState == GameState::AUG_SELECT);
                 const int selectedIdx = g_GameManager.augChoices[slot];
                 if (selectedIdx < 0 || selectedIdx >= AUG_TOTAL) return;
-                g_AugEffectQueue.push_back(selectedIdx);
-                g_AugEffectProcessing = true;
-                ProcessAugEffectQueue(screenWidth, screenHeight);
-                if (g_GameManager.currentState == GameState::AUG_REPLACE)
-                    return;
-                g_AugEffectProcessing = false;
-                g_GameManager.maxHP = g_Stats.maxHP;
-                if (wasBuff) {
-                    FinishAugmentEffects();
-                } else {
-                    RecordWaveDebuffPick(selectedIdx);
-                    ReturnToRunningAfterPick();
-                }
+                passive::Acquire(selectedIdx);
+                MarkAugSeen(selectedIdx);
+                FinishAugmentEffects();
             };
 
-            constexpr float AUG_EXIT_DUR = 1.70f;  // 공전 흡수(0~0.65) + 슈퍼노바(0.65~1.20) + 여유
+            // 선택 펄스 + 흡수, 남은 카드는 별로 해체 (AugCardModel.h)
+            constexpr float AUG_EXIT_DUR = aug_card::kExitDur;
 
             // exit anim timer -- fires applyAug when done
             bool augExitFired = false;
@@ -5365,7 +5169,7 @@ int main() {
             }
 
             if (!augExitFired) {
-                // 1/2/3 focuses a card; SPACE starts the confirmation exit.
+                // 1~5 focuses a card; SPACE starts the confirmation exit.
                 if (g_AugExitT < 0.0f) {
                     if (k1 == GLFW_PRESS && g_aug1Released && g_GameManager.augChoiceCount > 0) {
                         g_HoveredAug = 0; g_GameManager.augmentKeyboardFocus = true;
@@ -5379,10 +5183,20 @@ int main() {
                         g_HoveredAug = 2; g_GameManager.augmentKeyboardFocus = true;
                         g_aug3Released = false;
                     }
+                    if (k4 == GLFW_PRESS && g_aug4Released && g_GameManager.augChoiceCount > 3) {
+                        g_HoveredAug = 3; g_GameManager.augmentKeyboardFocus = true;
+                        g_aug4Released = false;
+                    }
+                    if (k5 == GLFW_PRESS && g_aug5Released && g_GameManager.augChoiceCount > 4) {
+                        g_HoveredAug = 4; g_GameManager.augmentKeyboardFocus = true;
+                        g_aug5Released = false;
+                    }
                 }
                 if (k1 == GLFW_RELEASE) g_aug1Released = true;
                 if (k2 == GLFW_RELEASE) g_aug2Released = true;
                 if (k3 == GLFW_RELEASE) g_aug3Released = true;
+                if (k4 == GLFW_RELEASE) g_aug4Released = true;
+                if (k5 == GLFW_RELEASE) g_aug5Released = true;
 
                 // SPACE = confirm the focused constellation.
                 int kSp = glfwGetKey(window, GLFW_KEY_SPACE);
@@ -5396,64 +5210,6 @@ int main() {
                 }
 
 
-            }
-        }
-
-        if (!debugInputCaptured && g_GameManager.currentState == GameState::AUG_REPLACE) {
-            constexpr float REP_EXIT_DUR = 0.28f;
-            static bool s_repEsc   = true;
-            static bool s_repSpace = true;
-            static bool s_repKeys[9] = { true,true,true,true,true,true,true,true,true };
-            if (inputFocusChanged) {
-                s_repEsc = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_RELEASE;
-                s_repSpace = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE;
-                for (int i = 0; i < 9; ++i)
-                    s_repKeys[i] = glfwGetKey(window, GLFW_KEY_1 + i) == GLFW_RELEASE;
-            }
-
-            int kEsc   = glfwGetKey(window, GLFW_KEY_ESCAPE);
-            int kSpRep = glfwGetKey(window, GLFW_KEY_SPACE);
-            if (kEsc   == GLFW_RELEASE) s_repEsc   = true;
-            if (kSpRep == GLFW_RELEASE) s_repSpace  = true;
-            for (int ki = 0; ki < 9; ki++)
-                if (glfwGetKey(window, GLFW_KEY_1 + ki) == GLFW_RELEASE) s_repKeys[ki] = true;
-
-            bool repExitFired = false;
-            if (g_RepExitT >= 0.0f) {
-                g_RepExitT += delta;
-                if (g_RepExitT >= REP_EXIT_DUR) {
-                    if (g_RepExitSlot == -2)
-                        CancelAugReplaceFlow();
-                    else {
-                        CompleteAugReplaceFlow(g_RepExitSlot, screenWidth, screenHeight);
-                        g_HoveredAug = -1;
-                    }
-                    g_RepExitT    = -1.0f;
-                    g_RepExitSlot = -3;
-                    repExitFired  = true;
-                }
-            }
-
-            if (!repExitFired && g_RepExitT < 0.0f) {
-                if (kEsc == GLFW_PRESS && s_repEsc) {
-                    g_RepExitT    = 0.0f;
-                    g_RepExitSlot = -2;
-                    s_repEsc = false;
-                }
-                if (kSpRep == GLFW_PRESS && s_repSpace && g_HoveredAug >= 0 &&
-                    g_HoveredAug < g_GameManager.replaceChoiceCount) {
-                    g_RepExitT    = 0.0f;
-                    g_RepExitSlot = g_HoveredAug;
-                    s_repSpace = false;
-                }
-                for (int ki = 0; ki < 9; ki++) {
-                    if (ki >= g_GameManager.replaceChoiceCount) break;
-                    if (glfwGetKey(window, GLFW_KEY_1 + ki) == GLFW_PRESS && s_repKeys[ki]) {
-                        g_HoveredAug = ki;
-                        g_GameManager.augmentKeyboardFocus = true;
-                        s_repKeys[ki] = false;
-                    }
-                }
             }
         }
 
@@ -5496,7 +5252,9 @@ int main() {
             LevelUpTransition& transition = g_GameManager.levelUpTransition;
             const GameState st = g_GameManager.currentState;
             if (st == GameState::RUNNING) {
-                if (transition.Update(delta))
+                // Not under OCTANS' blue screen: the cards would open hidden
+                // beneath it and stop its clock; they wait for the shatter.
+                if (!CrashScreenUp() && transition.Update(delta))
                     g_GameManager.ActivateNextAugmentReward();  // none left: keep playing
             } else if (st != GameState::PAUSED) {
                 transition.Cancel();   // death or leaving the run wins
@@ -5512,16 +5270,18 @@ int main() {
                 if (!playerControl) {
                     g_PlayerRuntime.dashActive = false;
                 }
-                g_PlayerDmgMult = g_Stats.GetDamageTakenMult();
                 const float zoomNow = (g_ViewZoom < 0.01f) ? 0.01f : g_ViewZoom;
                 float mvX = 0.0f, mvY = 0.0f;
                 const MoveInput mv = ResolvedMoveHeld();
                 const float mlen = UpdatePlayerMovement(
                     playerWin.x, playerWin.y,
                     mv.up, mv.down, mv.left, mv.right,
-                    playerControl, MOVE_SPEED * g_Stats.GetMoveMultiplier(lmb) *
+                    playerControl, MOVE_SPEED * g_Stats.moveSpeedMult *
                         caelum::MoveFactor(),   // weakened by CAELUM's corruption
                     FIXED_DT, g_PlayerRuntime.dashActive, mvX, mvY);
+                // CAELUM's siphon draws the player toward its body while it drinks.
+                playerWin.x += caelum::g.pullX * FIXED_DT;
+                playerWin.y += caelum::g.pullY * FIXED_DT;
                 if (playerControl && mlen > 0.001f && !g_PlayerRuntime.dashActive) {
                     // ?�동 ?�상(afterimage) ???�정 간격?�로 ?�레?�어 중심???��? ?�안 ?�상
                     static float s_trailAcc = 0.0f;
@@ -5555,52 +5315,6 @@ int main() {
                 g_SkillHudPulse.Update(GatherSkillHudInputs(), FIXED_DT);
 
 
-                // �??�기 ???�레?�어 중심 ??�� (?�백 + ?�해)
-                auto closeWindowBlast = [&](float cx, float cy) {
-                    float dmg = g_Stats.GetBaseDamage() * g_Stats.GetDamageMultiplier() * 8.0f;
-                    float rad = 380.0f, r2 = rad * rad, knock = 130.0f;
-                    auto hitKB = [&](float& ex, float& ey, auto applyDamage) {
-                        float dx = ex - cx, dy = ey - cy, d2 = dx*dx + dy*dy;
-                        if (d2 < r2 && space::Reaches(space::kPlayerSource, ex, ey)) {
-                            applyDamage();
-                            float d = std::sqrt(d2)+1e-3f;
-                            ex += dx/d*knock; ey += dy/d*knock;
-                        }
-                    };
-                    for (auto m : g_MonsterManager.monsters) {
-                        if (m->alive)
-                            hitKB(m->worldX, m->worldY,
-                                  [&]() { g_MonsterManager.ApplyDamage(*m, dmg); });
-                    }
-                    for (auto r : g_MonsterManager.rangedMobs) {
-                        if (r->alive)
-                            hitKB(r->worldX, r->worldY,
-                                  [&]() { g_MonsterManager.ApplyDamage(*r, dmg); });
-                    }
-                    SpawnShockWave(cx, cy, rad*1.3f, 0.6f, 0.5f, 0.8f, 1.0f);
-                    SpawnEnemyExplosion(cx, cy, 0.5f, 0.8f, 1.0f, true);
-                    g_ShakeTime = 0.4f; g_ShakeMag = 20.0f;
-                    TriggerFlash(0.5f, 0.8f, 1.0f, 0.45f); TriggerHitStop(0.07f);
-                };
-
-                // ?�롯 ?�킬 발동 ?�퍼
-                auto useSkill = [&](int slot) {
-                    if (slot < 0 || slot >= 3) return;
-                    SkillSlot& s = g_Skills[slot];
-                    if (s.type == SkillType::NONE || s.cd > 0.0f) return;
-                    switch (s.type) {
-                    case SkillType::CLOSE_WINDOW: closeWindowBlast(pCX, pCY); break;
-                    case SkillType::HYPER_FOCUS:
-                        g_PlayerRuntime.hyperFocusTimer = HYPER_FOCUS_DUR;
-                        TriggerFlash(0.5f, 0.75f, 1.0f, 0.35f);
-                        break;
-                    case SkillType::TIME_STOP:    g_PlayerRuntime.timeStopTimer  = TIMESTOP_DUR;
-                                                  TriggerFlash(0.4f,0.9f,1.0f,0.4f); break;
-                    default: break;
-                    }
-                    s.cd = PlayerSkillCooldownMax(s.type);
-                };
-
                 // �÷��� ���?? ���� �̵� + ª�� ����
                 if (playerControl && g_PlayerRuntime.dashActive) {
                     AdvancePlayerDash(FIXED_DT, pCX, pCY);
@@ -5608,7 +5322,8 @@ int main() {
                     playerWin.y = pCY - playerWin.height * 0.5f;
                 }
                 bool cDash = ActionHeld(GameAction::Dash);
-                if (playerControl && cDash && !g_PlayerRuntime.dashInputHeld && g_PlayerRuntime.dashCooldown <= 0.0f && !g_PlayerRuntime.dashActive) {
+                if (playerControl && cDash && !g_PlayerRuntime.dashInputHeld && g_PlayerRuntime.dashCooldown <= 0.0f && !g_PlayerRuntime.dashActive &&
+                    !passive::DashSealed()) {
                     float ddx = mvX, ddy = mvY;
                     if (mlen <= 0.001f) {
                         float ax = wmx - pCX, ay = wmy - pCY;
@@ -5618,44 +5333,16 @@ int main() {
                     BeginPlayerDash(pCX, pCY, ddx, ddy,
                                     ccX - halfW, ccX + halfW,
                                     topLimit, ccY + halfH);
+                    passive::OnDashStarted();
                     TriggerFlash(0.35f, 0.85f, 1.0f, 0.12f);
                     SpawnShockWave(g_PlayerRuntime.dashFromX, g_PlayerRuntime.dashFromY, 70.0f, 0.25f, 0.4f, 1.0f, 1.0f);
-                    if (g_Stats.dashUpgrade) {
-                        g_PlayerRuntime.dashBoostShotsLeft = 3;
-                        const int burstN = 3 + rand() % 3;
-                        for (int bi = 0; bi < burstN; bi++) {
-                            float a = (float)bi / (float)burstN * 2.0f * (float)M_PI
-                                    + ((float)(rand() % 100) - 50.0f) * 0.01f;
-                            Bullet nb(pCX, pCY,
-                                      pCX + cosf(a) * 120.0f,
-                                      pCY + sinf(a) * 120.0f);
-                            nb.speed      = g_Stats.bulletSpeed * 1.1f;
-                            nb.color      = glm::vec3(0.45f, 0.95f, 1.0f);
-                            nb.homing     = true;
-                            nb.homingTurn = 6.0f;
-                            nb.dmgMult    = 0.55f;
-                            nb.launchRamp  = 0.08f;
-                            nb.launchAccel = 1.4f;
-                            g_Bullets.push_back(nb);
-                        }
-                    }
                 }
                 g_PlayerRuntime.dashInputHeld = cDash;
-                const GameAction skillActions[3] = {
-                    GameAction::Skill1, GameAction::Skill2, GameAction::Skill3 };
-                for (int i = 0; i < 3; ++i) {
-                    const bool held = ActionHeld(skillActions[i]);
-                    if (playerControl && held && !g_PlayerRuntime.skillInputHeld[i])
-                        useSkill(i);
-                    g_PlayerRuntime.skillInputHeld[i] = held;
-                }
-                // C16: ?�티�??�킬 ?�동 ?�용 ??쿨다???�난 ?�롯???�동 발동
-                if (playerControl && g_AutoSkill) for (int i = 0; i < 3; i++) useSkill(i);
 
                 // Apply each station once per fixed step.
                 GravisField::Apply(g_MonsterManager, g_Bullets, pCX, pCY,
                                    playerControl, g_PlayerRuntime.dashActive,
-                                   MOVE_SPEED * g_Stats.GetMoveMultiplier(lmb), FIXED_DT);
+                                   MOVE_SPEED * g_Stats.moveSpeedMult, FIXED_DT);
                 AdvancePlayerKnockback(FIXED_DT, pCX, pCY);
                 pCX = std::max(ccX - halfW, std::min(ccX + halfW, pCX));
                 pCY = std::max(ccY + (BROWSER_CHROME_H - ccY) / zoomNow,
@@ -5665,62 +5352,69 @@ int main() {
                 playerWin.y = pCY - playerWin.height * 0.5f;
 
                 UpdateProjectiles(g_Bullets, g_MonsterManager, playerWin,
-                                  FIXED_DT, g_PlayerRuntime.timeStopTimer,
-                                  g_PlayerRuntime.hyperFocusTimer,
-                                  (float)screenWidth, (float)screenHeight,
+                                  FIXED_DT, (float)screenWidth, (float)screenHeight,
                                   g_ViewZoom);
+
+                // Passive augments: timers, counters, stillness, grazes.
+                if (playerControl) {
+                    passive::StepInput pin;
+                    pin.dt = FIXED_DT;
+                    pin.px = pCX; pin.py = pCY;
+                    pin.aimX = wmx; pin.aimY = wmy;
+                    pin.moving = mv.up || mv.down || mv.left || mv.right;
+                    pin.dashActive = g_PlayerRuntime.dashActive;
+                    pin.damageProtected = IsPlayerDamageProtected();
+                    pin.viewL = ScreenToWorldX(0.0f);
+                    pin.viewT = ScreenToWorldY(0.0f);
+                    pin.viewR = ScreenToWorldX((float)screenWidth);
+                    pin.viewB = ScreenToWorldY((float)screenHeight);
+                    pin.viewZoom = g_ViewZoom;
+                    pin.screenW = (float)screenWidth;
+                    passive::Step(pin);
+
+                    active::StepInput ain;
+                    ain.dt = FIXED_DT;
+                    ain.px = pCX; ain.py = pCY;
+                    ain.aimX = wmx; ain.aimY = wmy;
+                    ain.moving = pin.moving;
+                    ain.keys[0] = ActionHeld(GameAction::Skill1);
+                    ain.keys[1] = ActionHeld(GameAction::Skill2);
+                    ain.keys[2] = ActionHeld(GameAction::Skill3);
+                    ain.autoUse = g_AutoSkill || g_SmokeFire;
+                    ain.viewL = pin.viewL; ain.viewT = pin.viewT;
+                    ain.viewR = pin.viewR; ain.viewB = pin.viewB;
+                    ain.viewZoom = pin.viewZoom;
+                    ain.screenW = pin.screenW;
+                    active::Step(ain);
+                    active::StepSkillBullets();
+                    float teleX, teleY;
+                    if (active::TakeTeleport(teleX, teleY)) {
+                        pCX = teleX; pCY = teleY;
+                        playerWin.x = pCX - playerWin.width * 0.5f;
+                        playerWin.y = pCY - playerWin.height * 0.5f;
+                        g_PlayerRuntime.dashActive = false;
+                    }
+                }
 
                 // ?�??무적 ???�번 ?�텝 ?�작 HP ?�??(???�해??무효, ?�복?�??��?)
                 float hpAtStep = g_GameManager.playerHP;
                 TickPlayerShield(FIXED_DT);
                 //   ???��? = ?�간?��? ?�킬 OR 증강 ??직후 ~0.05s("?�이 ?�?, 짧게)
-                bool  timeStopped = (g_PlayerRuntime.timeStopTimer > 0.0f) || (g_PlayerRuntime.postPickGrace > 0.45f);
+                bool  timeStopped = g_PlayerRuntime.postPickGrace > 0.45f;
                 float enemyDt = FIXED_DT;
-                if (!timeStopped && g_PlayerRuntime.hyperFocusTimer > 0.0f) enemyDt *= 0.7f;
-                float focusSlow = (g_PlayerRuntime.hyperFocusTimer > 0.0f) ? 0.7f : 1.0f;
 
                 // 몬스???�데?�트 (?�버??multiplier ?�용) ???�간 ?��? 중엔 ??멈춤
-                float rmobMoveMult = 1.0f / g_Stats.rmobDelayMult; // <1 ????빠름
+                float rmobMoveMult = 1.0f;
                 // Time-based speed ramp. Density is lower now, so enemy pressure should not depend
                 // only on score gained from kills.
                 float mobSpdRamp = EnemySpeedRamp(g_GameTime);
                 // Ư���� ? �� AI ���� �����衤�Ұ�, AI �� �÷��̾� �о��
-                if (!timeStopped && g_Stats.chakram && g_Stats.chakramSingularity) {
-                    const float pullR2 = 220.0f * 220.0f;
-                    const float winSz = g_WindowSizeCur > 1.0f ? g_WindowSizeCur : g_Stats.windowSize;
-                    const float safeR  = winSz * 0.52f;
-                    const float safeR2 = safeR * safeR;
-                    for (int c = 0; c < g_Stats.chakramCount && c < MAX_CHAKRAMS; c++) {
-                        if (!g_Chakrams[c].alive) continue;
-                        float chx = pCX + cosf(g_Chakrams[c].angle) * CHAKRAM_RADIUS;
-                        float chy = pCY + sinf(g_Chakrams[c].angle) * CHAKRAM_RADIUS;
-                        for (auto m : g_MonsterManager.monsters) {
-                            if (!m->alive) continue;
-                            if (m->QuasarHoldsPosition()) continue;     // an attacking Quasar stays put
-                            if (!space::Reaches(space::kPlayerSource, m->worldX, m->worldY)) continue;
-                            float ddx = chx - m->worldX, ddy = chy - m->worldY;
-                            float d2 = ddx * ddx + ddy * ddy;
-                            float pdx = m->worldX - pCX, pdy = m->worldY - pCY;
-                            float pd2 = pdx * pdx + pdy * pdy;
-                            if (d2 < pullR2) {
-                                m->singularityGrace = 0.14f;
-                                if (d2 > 900.0f && pd2 > safeR2) {
-                                    float d = std::sqrt(d2) + 1e-3f;
-                                    m->worldX += (ddx / d) * 300.0f * FIXED_DT;
-                                    m->worldY += (ddy / d) * 300.0f * FIXED_DT;
-                                }
-                                g_MonsterManager.ApplyDamage(
-                                    *m, 100.0f * FIXED_DT);
-                            }
-                        }
-                    }
-                }
                 if (!timeStopped) {
                     g_MonsterManager.UpdateAll(pCX, pCY, enemyDt,
                                                g_GameManager.playerHP, g_Bullets,
-                                               g_Stats.mobSpeedMult * mobSpdRamp * focusSlow,
-                                               rmobMoveMult * mobSpdRamp * focusSlow,
-                                               g_Stats.rotorHpMult,
+                                               mobSpdRamp,
+                                               rmobMoveMult * mobSpdRamp,
+                                               1.0f,
                                                -1.0f, -1.0f, -1.0f, -1.0f,
                                                glm::vec4(ccX - halfW, topLimit,
                                                          ccX + halfW, bottomLimit));
@@ -5792,23 +5486,6 @@ int main() {
                 } else {
                     g_StaticFieldPulseTimer = 0.0f;
                 }
-                if (!timeStopped && g_Stats.chakram && g_Stats.chakramSingularity) {
-                    const float winSz = g_WindowSizeCur > 1.0f ? g_WindowSizeCur : g_Stats.windowSize;
-                    const float safeR  = winSz * 0.52f;
-                    const float safeR2 = safeR * safeR;
-                    for (auto m : g_MonsterManager.monsters) {
-                        if (!m->alive) continue;
-                        if (m->QuasarHoldsPosition()) continue;         // an attacking Quasar stays put
-                        float pdx = m->worldX - pCX, pdy = m->worldY - pCY;
-                        float pd2 = pdx * pdx + pdy * pdy;
-                        if (pd2 >= safeR2) continue;
-                        float pd = std::sqrt(pd2) + 1e-3f;
-                        float push = (safeR - pd + 20.0f) * 16.0f;
-                        m->worldX += (pdx / pd) * push * FIXED_DT;
-                        m->worldY += (pdy / pd) * push * FIXED_DT;
-                        m->singularityGrace = 0.16f;
-                    }
-                }
 
                 // 리로???�너 ?�데?�트 (무기 ?�태머신 + ?�전 질주, ??총알 push)
 CollisionSystem::Update(pCX, pCY,
@@ -5842,9 +5519,7 @@ CollisionSystem::Update(pCX, pCY,
                 // ?�??무적 / 증강???�예(C14) ???�번 ?�텝?????�해 무효 (?�복?�??��?)
                 ApplyPlayerDamageProtection(
                     hpAtStep, g_GameManager.playerHP,
-                    IsPlayerDamageProtected(),
-                    g_Stats.lightStep, g_Stats.lightStepHitLock,
-                    g_Stats.lightStepDisableTimer);
+                    IsPlayerDamageProtected());
 
                 // Regular enemy kill rewards (KillRewards.h).
                 KillRewardSink killSink{ g_GameManager.playerHP, g_GameManager.scoreAccum,
@@ -5859,34 +5534,6 @@ CollisionSystem::Update(pCX, pCY,
                         if (m->kind == MobKind::CAELUM && m->hp <= 0.0f) PlayCaelumFall(m->worldX, m->worldY);
                         m->SpawnDeathEffect((float)now);
                         TriggerEliteKillHitStop(*m);
-                        // ??��???�리????죽을 ???�져 ?�레?�어?�게 광역 ?�해
-                        // ?�쇄 ??��(DEATH_BLAST) ???�망 ?�치?�서 주�? ?�에�?AoE
-                        //   ?�프: ?��?지 0.8??.3 + ??���?죽�? 몹�? ?�시 ???�짐(무한?�쇄 차단)
-                        // Genesis deaths emit particles only, including when
-                        // the player's chain-explosion augment is equipped.
-                        if (g_Stats.deathBlast && !m->noBlast &&
-                            m->kind != MobKind::GENESIS) {
-                            float blastDmg = g_Stats.GetBaseDamage()
-                                           * g_Stats.GetDamageMultiplier() * g_Stats.deathBlastDmgPct;
-                            float blastR = 130.0f * g_Stats.deathBlastMult;
-                            float bx = m->worldX, by = m->worldY;
-                            SpawnShockWave(bx, by, blastR, 0.35f, 1.0f, 0.55f, 0.15f);
-                            for (auto m2 : g_MonsterManager.monsters) {
-                                if (!m2->alive || m2 == m) continue;
-                                float ddx = m2->worldX - bx, ddy = m2->worldY - by;
-                                if (ddx*ddx + ddy*ddy < blastR*blastR) {
-                                    g_MonsterManager.ApplyDamage(*m2, blastDmg);
-                                    if (!m2->alive) m2->noBlast = true;
-                                }
-                            }
-                            for (auto r2 : g_MonsterManager.rangedMobs) {
-                                if (!r2->alive) continue;
-                                float ddx = r2->worldX - bx, ddy = r2->worldY - by;
-                                if (ddx*ddx + ddy*ddy < blastR*blastR) {
-                                    g_MonsterManager.ApplyDamage(*r2, blastDmg);
-                                }
-                            }
-                        }
                     }
                 }
                 for (auto r : g_MonsterManager.rangedMobs) {
@@ -5955,9 +5602,6 @@ CollisionSystem::Update(pCX, pCY,
             g_FlashIntensity -= delta * 3.5f;
             if (g_FlashIntensity < 0.0f) g_FlashIntensity = 0.0f;
         }
-        if (g_GameManager.waveDebuffToast > 0.0f)
-            g_GameManager.waveDebuffToast = std::max(
-                0.0f, g_GameManager.waveDebuffToast - delta);
         if (g_GameManager.currentState == GameState::RUNNING &&
             g_GameManager.waveTransitionTimer > 0.0f) {
             g_GameManager.waveTransitionTimer = std::max(
@@ -5968,7 +5612,7 @@ CollisionSystem::Update(pCX, pCY,
             GameState ws = g_GameManager.currentState;
             if (ws == GameState::RUNNING || ws == GameState::PAUSED ||
                 ws == GameState::READY  || ws == GameState::AUG_SELECT ||
-                ws == GameState::DEBUFF_SELECT || ws == GameState::DYING) {
+                ws == GameState::DYING) {
                 SyncPlayerBoundsSize(playerWin, delta, ws == GameState::RUNNING);
             }
         }
@@ -6021,7 +5665,7 @@ CollisionSystem::Update(pCX, pCY,
             // ?�?�??�격 ?��???HP 감소 ??빨간 비네?�만 (?�야 변???�거, �??�기 고정) ?�?�?
             // HP ���?(REGEN_UP, �Ŵ�ȭ, ���?II �� regenPerSec �ջ�)
             if (g_Stats.regenPerSec > 0.0f) {
-                g_GameManager.playerHP += g_Stats.GetRegenRate(g_GameManager.playerHP) * delta;
+                g_GameManager.playerHP += g_Stats.regenPerSec * delta;
                 if (g_GameManager.playerHP > g_Stats.maxHP)
                     g_GameManager.playerHP = g_Stats.maxHP;
             }
@@ -6041,14 +5685,6 @@ CollisionSystem::Update(pCX, pCY,
                 if (runScore >= 500000)  TryUnlockAch(ACH_SCORE_500K);
                 if (runScore >= 1000000) TryUnlockAch(ACH_SCORE_1M);
                 if (runKills >= 500)     TryUnlockAch(ACH_KILLS_500);
-                if (g_Stats.critChance > 0 && runScore >= 200000)
-                    TryUnlockAch(ACH_CRIT_SCORE);
-                if (g_Stats.deathBlast && runKills >= 300)
-                    TryUnlockAch(ACH_DEATHBLAST_KILLS);
-                int debuffCnt = 0;
-                for (int oi : g_OwnedAugs)
-                    if (ALL_AUGS[oi].rarity == AugRarity::DEBUFF) ++debuffCnt;
-                if (debuffCnt >= 5) TryUnlockAch(ACH_DEBUFF_5);
             }
 
             UpdateEnemyFx(delta);
@@ -6063,9 +5699,6 @@ CollisionSystem::Update(pCX, pCY,
 
             // 검�??�윙 ?�상 ?�데?�트
 
-            for (auto& lb : g_LaserBeams) lb.life -= delta;
-            g_LaserBeams.erase(std::remove_if(g_LaserBeams.begin(), g_LaserBeams.end(),
-                [](const LaserBeam& b){ return b.life <= 0.0f; }), g_LaserBeams.end());
 
             // 별가루: 스폰 직후 약간 퍼진 뒤 매 프레임 플레이어 방향으로 재조향 — 무조건 수집.
             g_StardustHudPulse = std::max(0.0f, g_StardustHudPulse - delta * 3.8f);
@@ -6137,9 +5770,6 @@ CollisionSystem::Update(pCX, pCY,
 
             if (g_ShakeTime > 0.0f) g_ShakeTime -= delta;
 
-            if (g_Stats.lightStepDisableTimer > 0.0f)
-                g_Stats.lightStepDisableTimer -= delta;
-
 
             UpdateEnemySpawns(g_MonsterManager, g_Stats,
                               screenWidth, screenHeight, delta, g_GameTime,
@@ -6150,153 +5780,12 @@ CollisionSystem::Update(pCX, pCY,
             ProcessWaveTransitions(screenWidth, screenHeight);
             TickNormaJudgment(delta);
             if (NormaDefeated()) CompleteBossRun(FinalWaveCount(g_Difficulty));
-            float approachSpeed = 120.0f *
-                (1.0f + 0.20f * (float)(g_Stats.approachStacks > 0 ? g_Stats.approachStacks - 1 : 0));
-            for (auto& orb : g_ApproachOrbs) {
-                float dx = pCX - orb.x;
-                float dy = pCY - orb.y;
-                float d  = sqrtf(dx*dx + dy*dy);
-                if (d > 1.0f) {
-                    orb.x += (dx/d) * approachSpeed * delta;
-                    orb.y += (dy/d) * approachSpeed * delta;
-                }
-                if (d < 25.0f) {
-                    g_GameManager.playerHP -= 20.0f * delta;
-                }
-            }
-
-            // ?�론: ?�레?�어 주위 공전 + ?�동 발사 (?�력�?50%), 1~2�?            // ?�탑 모드 ?�성 ???�론?�?공전/발사 ?�고 ?�탑?�로 ?�체??
-            if (g_Stats.drone) {
-                for (int d = 0; d < g_Stats.droneCount && d < MAX_DRONES; d++) {
-                    auto& dr = g_Drones[d];
-                    dr.angle += 1.5f * delta;
-                    // 균등 각도 ?�프??(각자 ?�른 ?�치)
-                    float ang = dr.angle + (float)d * 6.2831853f / (float)g_Stats.droneCount;
-                    float droneX = pCX + cosf(ang) * 80.0f;
-                    float droneY = pCY + sinf(ang) * 80.0f;
-                    dr.fireTimer += delta;
-                    // 군집 지???�화) ??발사 간격 2.0× ??0.6× (초고??
-                    float droneInt = g_Stats.fireInterval * (g_Stats.droneRapid ? 0.6f : 2.0f);
-                    if (dr.fireTimer >= droneInt) {
-                        float tx = 0.0f, ty = 0.0f;
-                        if (g_MonsterManager.FindNearestEnemy(
-                                droneX, droneY, tx, ty)) {
-                            Bullet nb(droneX, droneY, tx, ty);
-                            nb.speed = g_Stats.bulletSpeed * 0.5f;
-                            // Hive keeps four orbiters, but each projectile
-                            // contributes half of the normal rifle damage.
-                            nb.dmgMult = 0.5f;
-                            nb.color = glm::vec3(0.2f, 0.9f, 1.0f);
-                            g_Bullets.push_back(nb);
-                        }
-                        dr.fireTimer = 0.0f;
-                    }
-                }
-            }
-
-            //   1초마???�레?�어 ?�치???�탑 1�?배치, �?5�?지????맵에 ~5�??�시
-
-            // 차크?? 공전 + ?�몹 즉사 + ??총알 충돌 + ?�생??(n �?
-            if (g_Stats.chakram) {
-                for (int c = 0; c < g_Stats.chakramCount && c < MAX_CHAKRAMS; c++) {
-                    auto& ch = g_Chakrams[c];
-                    if (ch.alive) {
-                        ch.angle += 5.5f * delta;
-                        float chx = pCX + cosf(ch.angle) * CHAKRAM_RADIUS;
-                        float chy = pCY + sinf(ch.angle) * CHAKRAM_RADIUS;
-                        float hitR2 = CHAKRAM_SIZE * CHAKRAM_SIZE;
-                        // Ư���� ? ������/�Ұ��� ����ƽ(�� AI ����). ���⼱ ��ũ�� ������.
-                        // ���?���� ���?(Ư���� ���� ��)
-                        if (!g_Stats.chakramSingularity) {
-                        for (auto m : g_MonsterManager.monsters) {
-                            if (!m->alive) continue;
-                            float ddx = m->worldX - chx, ddy = m->worldY - chy;
-                            if (ddx*ddx + ddy*ddy < hitR2) {
-                                // The boss takes steady damage instead of the
-                                // instant kill ordinary mobs get.
-                                g_MonsterManager.ApplyDamage(*m, IsBossMob(m->kind)
-                                    ? g_Stats.GetBaseDamage() * g_Stats.GetDamageMultiplier() *
-                                          3.0f * delta
-                                    : m->hp);
-                                ch.hp -= 2.0f;
-                            }
-                        }
-                        }
-                        // ������
-                        // ?�거�?�??�촉 ?????�해
-                        for (auto rr : g_MonsterManager.rangedMobs) {
-                            if (!rr->alive) continue;
-                            float ddx = rr->worldX - chx, ddy = rr->worldY - chy;
-                            if (ddx*ddx + ddy*ddy < hitR2) {
-                                g_MonsterManager.ApplyDamage(*rr, 120.0f);
-                                ch.hp -= 3.0f;
-                            }
-                        }
-                        // ??총알 막기
-                        for (auto& bb : g_Bullets) {
-                            if (!bb.active || !bb.isEnemy) continue;
-                            float ddx = bb.x - chx, ddy = bb.y - chy;
-                            if (ddx*ddx + ddy*ddy < hitR2) {
-                                ch.hp -= 6.0f;
-                                bb.active = false;
-                            }
-                        }
-                        if (ch.hp <= 0.0f) {
-                            ch.alive = false;
-                            ch.respawnTimer = 6.0f;
-                        }
-                    } else {
-                        ch.respawnTimer -= delta;
-                        if (ch.respawnTimer <= 0.0f) {
-                            ch.alive = true;
-                            if (ch.maxHp < 1.0f) ch.maxHp = 150.0f;
-                            ch.hp    = ch.maxHp;
-                        }
-                    }
-                }
-            }
-
-            if (g_Stats.bulletRain) {
-                g_BulletRainTimer += delta;
-                // ���� ����(��ȭ): óġ���� ��ٿ�?���� 0.2�� ����. �ּ� 3�� ���� ����.
-                if (g_Stats.rainKillReduce && g_RainKillAccum > 0.0f) {
-                    float killBoost = g_RainKillAccum * 0.2f;
-                    float maxBoost = g_Stats.bulletRainCooldown - 3.0f - g_BulletRainTimer;
-                    if (maxBoost < 0.0f) maxBoost = 0.0f;
-                    if (killBoost > maxBoost) killBoost = maxBoost;
-                    g_BulletRainTimer += killBoost;
-                }
-                g_RainKillAccum = 0.0f;
-                if (g_BulletRainTimer >= g_Stats.bulletRainCooldown) {
-                    g_BulletRainTimer = 0.0f;
-                    const int N = 20;
-                    for (int i = 0; i < N; i++) {
-                        float a = (float)i / (float)N * 2.0f * (float)M_PI
-                                + ((float)(rand() % 100) - 50.0f) * 0.005f;
-                        Bullet nb(pCX, pCY,
-                                  pCX + cosf(a) * 100.0f,
-                                  pCY + sinf(a) * 100.0f);
-                        nb.speed      = g_Stats.bulletSpeed * 1.05f;  // 최고??가???? ??SAM 미사?�식
-                        nb.color      = glm::vec3(1.0f, 0.5f, 0.2f);
-                        nb.homing     = true;
-                        nb.homingTurn = 5.0f;   // rad/s
-                        nb.dmgMult    = 0.5f;
-                        // ���� �̻��� ? �߻� ���� 5%���� ������ ~0.7�ʿ� 100% ����
-                        nb.launchRamp  = 0.05f;
-                        nb.launchAccel = 1.35f;
-                        // (?�환?��? ??기존 ?�반 ?�환 ?�더�?복원. 로켓 ?�프?�이??미사??
-                        g_Bullets.push_back(nb);
-                    }
-                }
-            }
-
-
 
             // Fire bullets and cache the active damage modifiers.
             // ?�탑 모드: ?�레?�어 ?�동 발사 비활??(?�탑???�??발사)
-            float effInterval = g_Stats.fireInterval * g_Stats.GetFireIntervalMult() *
+            float effInterval = passive::FireInterval(g_Stats.fireInterval) *
                                 GravisField::FireIntervalMult(GravisField::g_playerInfluence);
-            float effSpeed    = g_Stats.bulletSpeed + g_Stats.GetBulletSpeedBonus();
+            float effSpeed    = g_Stats.bulletSpeed;
             fireTimer += delta;
             auto spawnOne = [&](float tx, float ty) {
                 float ftx = tx, fty = ty;
@@ -6311,95 +5800,22 @@ CollisionSystem::Update(pCX, pCY,
                 }
                 Bullet nb(pCX, pCY, ftx, fty);
                 nb.speed = effSpeed;
-                if (g_Stats.ricochetMax > 0) {
-                    nb.bouncesLeft = g_Stats.ricochetMax;
-                    nb.dmgMult *= g_Stats.ricochetDmgMult;
-                }
-                if (g_Stats.berserk) {
-                    float hpFrac = g_Stats.maxHP > 0.0f
-                                 ? g_GameManager.playerHP / g_Stats.maxHP : 1.0f;
-                    hpFrac = std::max(0.0f, std::min(1.0f, hpFrac));
-                    nb.dmgMult *= 1.0f + (1.0f - hpFrac) * 0.6f;
-                }
-                if (g_PlayerRuntime.dashBoostShotsLeft > 0) {
-                    --g_PlayerRuntime.dashBoostShotsLeft;
-                    nb.dmgMult *= 2.0f;
-                }
+                passive::ModifyShot(nb);
                 g_Bullets.push_back(nb);
+                active::OnPlayerBullet(nb);   // Shadow Clone copies the shot
             };
 
             auto spawnAimed = [&](float tx, float ty) {
                 TriggerMuzzle(pCX, pCY, atan2f(ty - pCY, tx - pCX));
                 Audio::PlaySfx(Audio::Sfx::Shoot);
-                if (g_Stats.twin) {
-                    float ang = atan2f(ty - pCY, tx - pCX);
-                    const float off = 0.087f;
-                    const float r = 200.0f;
-                    const int n = (g_Stats.twinCount < 2) ? 2 : g_Stats.twinCount;
-                    for (int shot = 0; shot < n; ++shot) {
-                        float a = (n > 1)
-                            ? ang + (((float)shot / (float)(n - 1)) - 0.5f) * (2.0f * off)
-                            : ang;
-                        spawnOne(pCX + cosf(a) * r, pCY + sinf(a) * r);
-                    }
-                } else {
-                    spawnOne(tx, ty);
-                }
+                spawnOne(tx, ty);
+                passive::OnShot();
             };
 
             auto aimTarget = [&](float& tx, float& ty) -> bool {
-                if (lmb) { tx = wmx; ty = wmy; return true; }
+                if (lmb && !g_SmokeFire) { tx = wmx; ty = wmy; return true; }
                 return g_MonsterManager.FindNearestEnemy(pCX, pCY, tx, ty);
             };
-
-            // ?�?�??�캔 ?�이?�?(증강) ??0.7초마??조�? 방향 관??�?(군중?�어) ?�?�?
-            // Laser sweep uses the shared segment collision path.
-            if (g_Stats.laser) {
-                float laserInt = (g_Stats.laserTier >= 3) ? 0.26f   // 수렴: 빠르지만 화면을 잠식하지 않음
-                               : (g_Stats.laserTier >= 2) ? 0.55f : LASER_INT;
-                g_LaserTimer += delta;
-                if (g_LaserTimer >= laserInt) {
-                    g_LaserTimer -= laserInt;
-                    float lang  = atan2f(wmy - pCY, wmx - pCX);   // ?�이?�????�� 커서 방향
-                    // ?�거리는 II(760)?�서 ???�리지 ?�음. ?�화 ?�렴?�?'?�비'�?강화.
-                    float LASER_RANGE = (g_Stats.laserTier >= 3) ? 700.0f
-                                      : (g_Stats.laserTier >= 2) ? 760.0f : 560.0f;
-                    float lex = pCX + cosf(lang) * LASER_RANGE, ley = pCY + sinf(lang) * LASER_RANGE;
-                    // ?�화 ?�렴(tier3): �??�비 2�???광폭 관??(?�몹 ?�인 ?�소)
-                    const float beamW    = (g_Stats.laserTier >= 3) ? 1.5f : 1.0f;
-                    const float BEAM_HALF = 24.0f * beamW;
-                    bool lcrit = false; float lcm = 1.0f;
-                    if (g_Stats.critChance > 0 && (rand()%100) < g_Stats.critChance) { lcrit = true; lcm = g_Stats.critMult; }
-                    float lbm = 1.0f;
-                    if (g_Stats.berserk) {
-                        float hf = g_Stats.maxHP > 0.0f ? g_GameManager.playerHP / g_Stats.maxHP : 1.0f;
-                        if (hf < 0.0f) hf = 0.0f; else if (hf > 1.0f) hf = 1.0f;
-                        lbm = 1.0f + (1.0f - hf) * 0.6f;
-                    }
-                    float laserDmgMult = (g_Stats.laserTier >= 3) ? 1.15f : 1.4f;
-                    float ldmg = g_Stats.GetBaseDamage() * g_Stats.GetDamageMultiplier()
-                               * laserDmgMult * lcm * lbm;
-                    KillRewardSink killSink{ g_GameManager.playerHP, g_GameManager.scoreAccum,
-                                             g_GameManager.score, g_Stats, pCX, pCY };
-                    auto inLine = [&](float qx, float qy) -> bool {
-                        return SegDist(qx, qy, pCX, pCY, lex, ley) < BEAM_HALF;
-                    };
-                    for (auto m : g_MonsterManager.monsters) {
-                        if (!m->alive || !inLine(m->worldX, m->worldY)) continue;
-                        const float dealt = g_MonsterManager.ApplyDamage(*m, ldmg);
-                        SpawnDamageNumber(m->worldX, m->worldY, dealt, lcrit);
-                        CreditLaserMonsterKill(killSink, *m);
-                    }
-                    for (auto rr : g_MonsterManager.rangedMobs) {
-                        if (!rr->alive || !inLine(rr->worldX, rr->worldY)) continue;
-                        const float dealt = g_MonsterManager.ApplyDamage(*rr, ldmg);
-                        SpawnDamageNumber(rr->worldX, rr->worldY, dealt, lcrit);
-                        CreditLaserScopeKill(killSink, *rr);
-                    }
-                    g_LaserBeams.push_back({ pCX, pCY, lex, ley, 0.13f, 0.13f, beamW });
-                    TriggerMuzzle(pCX, pCY, lang);
-                }
-            }
 
             bool fireHeld = lmb && (g_PlayerRuntime.postPickGrace <= 0.0f);
             if (fireHeld && fireTimer >= effInterval) {
@@ -6428,14 +5844,12 @@ CollisionSystem::Update(pCX, pCY,
         }
         // ============================================================
         // ?�더�?        // ============================================================
-        // Tutorial card screens (augment / nerf) are drawn mini-sized inside the
+        // The tutorial card screen is drawn mini-sized inside the
         // practice field: the rest of the frame treats the state as READY and
         // the real state is put back at the end of the frame.
         GameState tutRealState = g_GameManager.currentState;
         const bool tutSelectionRender = ready_launch::g_TutorialMode &&
-            (tutRealState == GameState::AUG_SELECT ||
-             tutRealState == GameState::DEBUFF_SELECT ||
-             tutRealState == GameState::AUG_REPLACE);
+            (tutRealState == GameState::AUG_SELECT);
         ready_launch::g_SelectionUp = tutSelectionRender;
         if (tutSelectionRender) g_GameManager.currentState = GameState::READY;
         glViewport(0, 0, screenWidth, screenHeight);
@@ -6462,8 +5876,7 @@ CollisionSystem::Update(pCX, pCY,
         {
             GameState gs = g_GameManager.currentState;
             if (gs != GameState::RUNNING && gs != GameState::DYING &&
-                gs != GameState::PAUSED && gs != GameState::AUG_SELECT &&
-                gs != GameState::DEBUFF_SELECT) {
+                gs != GameState::PAUSED && gs != GameState::AUG_SELECT) {
                 g_ShakeTime = 0.0f; g_ShakeMag = 0.0f;
             }
         }
@@ -6498,8 +5911,7 @@ CollisionSystem::Update(pCX, pCY,
         GameState wgs = g_GameManager.currentState;
         bool inWorldRender = (wgs == GameState::RUNNING || wgs == GameState::DYING ||
                               wgs == GameState::PAUSED  || wgs == GameState::READY  ||
-                              wgs == GameState::AUG_SELECT || wgs == GameState::DEBUFF_SELECT ||
-                              wgs == GameState::AUG_REPLACE ||
+                              wgs == GameState::AUG_SELECT ||
 
                               wgs == GameState::GAMEOVER ||
                               (wgs == GameState::SETTINGS &&
@@ -6541,8 +5953,7 @@ CollisionSystem::Update(pCX, pCY,
             const GameState dimState = g_GameManager.currentState;
             const bool inRun = dimState == GameState::RUNNING || dimState == GameState::DYING ||
                 dimState == GameState::PAUSED || dimState == GameState::READY ||
-                dimState == GameState::AUG_SELECT || dimState == GameState::DEBUFF_SELECT ||
-                dimState == GameState::AUG_REPLACE;
+                dimState == GameState::AUG_SELECT;
             const float combatDim = CombatDimAlpha(g_MenuDim);
             if (inRun && combatDim > 0.002f)
                 drawRect(0.0f, 0.0f, (float)screenWidth, (float)screenHeight,
@@ -6716,9 +6127,7 @@ CollisionSystem::Update(pCX, pCY,
             }
         }
         DrawStardustPickups();
-        for (auto& orb : g_ApproachOrbs) {
-            DrawApproachOrb(orb.x, orb.y, g_GameTime);
-        }
+        active::DrawWorld(g_GameTime);
         BatchFlush();
 
         // READY draws its own ship inside the practice field (SceneReady.cpp).
@@ -6732,9 +6141,8 @@ CollisionSystem::Update(pCX, pCY,
             BindMainShader();
             const GameState healthState = g_GameManager.currentState;
             if (healthState == GameState::RUNNING ||
-                (healthState == GameState::PAUSED && !g_ShowPauseInventory && !TutorialPaused()) ||
-                healthState == GameState::AUG_SELECT ||
-                healthState == GameState::DEBUFF_SELECT) {
+                (healthState == GameState::PAUSED && !TutorialPaused()) ||
+                healthState == GameState::AUG_SELECT) {
                 const float hpFraction = std::clamp(g_GameManager.playerHP /
                     std::max(1.0f, g_Stats.maxHP), 0.0f, 1.0f);
                 const float hpHit = std::min(1.0f, g_HpBarPop / 0.35f);
@@ -6767,8 +6175,7 @@ CollisionSystem::Update(pCX, pCY,
             GameState gst = g_GameManager.currentState;
             bool inGame = (gst == GameState::RUNNING ||
                            (gst == GameState::PAUSED && !TutorialPaused()) ||
-                           gst == GameState::DYING || gst == GameState::AUG_SELECT ||
-                           gst == GameState::DEBUFF_SELECT);
+                           gst == GameState::DYING || gst == GameState::AUG_SELECT);
             if (inGame) {
                 auto winChrome = [&](float x, float y, float w, float h,
                                      const wchar_t* title, float tr, float tg, float tb,
@@ -6849,16 +6256,6 @@ CollisionSystem::Update(pCX, pCY,
         // FORK.worm ?�피 ???��???RGB 분리 글리치
 
 
-        // (h4) ?�간 ?��? ???�면 가?�자�??�안 비네??(?��? ?�출)
-        if (g_PlayerRuntime.timeStopTimer > 0.0f) {
-            BindMainShader();
-            float a = 0.10f + 0.05f * sinf((float)glfwGetTime() * 10.0f);
-            float bw = 18.0f;
-            drawRect(0, 0, (float)screenWidth, bw, 0.3f, 0.9f, 1.0f, a);
-            drawRect(0, (float)screenHeight - bw, (float)screenWidth, bw, 0.3f, 0.9f, 1.0f, a);
-            drawRect(0, 0, bw, (float)screenHeight, 0.3f, 0.9f, 1.0f, a);
-            drawRect((float)screenWidth - bw, 0, bw, (float)screenHeight, 0.3f, 0.9f, 1.0f, a);
-        }
 
         // (h5) ?�격 ??빨간 가?�자�?비네??(?�격 ?��?
         if (g_HurtVignette > 0.001f) {
@@ -6981,8 +6378,7 @@ CollisionSystem::Update(pCX, pCY,
                         mini.mx = (mx - fx) / s;
                         mini.my = (my - fy) / s;
                         g_GameManager.currentState = tutRealState;
-                        if (tutRealState == GameState::AUG_REPLACE) Scene_AugReplace(mini);
-                        else                                        Scene_AugSelect(mini);
+                        Scene_AugSelect(mini);
                         tutRealState = g_GameManager.currentState;
                         g_GameManager.currentState = GameState::READY;
                         g_ViewportMap = ViewportMap{};
@@ -7007,15 +6403,12 @@ CollisionSystem::Update(pCX, pCY,
                         g_GameManager.score,
                         g_GameManager.playerLevel,
                         g_Stats.killCount,
-                        g_OwnedAugs,
                         sceneText
                     };
                     Scene_GameOver(ctx, reportState);
                     break;
                 }
-                case GameState::AUG_SELECT:
-                case GameState::DEBUFF_SELECT:     Scene_AugSelect(ctx);        break;
-                case GameState::AUG_REPLACE:       Scene_AugReplace(ctx);       break;
+                case GameState::AUG_SELECT:        Scene_AugSelect(ctx);        break;
                 default: break;
                 }
             }
@@ -7028,8 +6421,7 @@ CollisionSystem::Update(pCX, pCY,
             const float hudAlphaKeep = g_BatchAlpha;
             g_BatchAlpha *= ready_launch::g_RunIntro;
             if ((st == GameState::RUNNING || st == GameState::PAUSED ||
-                 st == GameState::DYING   || st == GameState::AUG_SELECT ||
-                 st == GameState::DEBUFF_SELECT) && !TutorialPaused()) {
+                 st == GameState::DYING   || st == GameState::AUG_SELECT) && !TutorialPaused()) {
                 const float hudScale = UiScale(sw, sh);
                 if (st == GameState::RUNNING) {
                     const float hpFrac = g_Stats.maxHP > 0.0f
@@ -7050,8 +6442,7 @@ CollisionSystem::Update(pCX, pCY,
 #endif
                 // Level + XP: one line along the bottom edge, stopping short
                 // of the version label in the bottom-right corner.
-                if (st != GameState::DYING &&
-                    !(st == GameState::PAUSED && g_ShowPauseInventory)) {
+                if (st != GameState::DYING) {
                     wchar_t lvBuf2[64];
                     swprintf_s(lvBuf2, L"%ls%d",
                                T(StrId::LV_PREFIX), g_GameManager.playerLevel);
@@ -7078,6 +6469,7 @@ CollisionSystem::Update(pCX, pCY,
                 }
                 DrawWaveHud(sw, hudScale, hudTopY, g_GameTime, g_Difficulty, g_GameManager);
                 DrawNormaBossBar(sw, hudScale, hudTopY);
+                DrawCrashCountdown(sw, hudScale, hudTopY);
 
                 // ?�상?? FPS
                 wchar_t fpsBuf[32];
@@ -7097,9 +6489,9 @@ CollisionSystem::Update(pCX, pCY,
             //    메뉴/?�시?��??�선 ?��? ???�스?��? 메뉴 ?�에 ?�던 버그 fix
             DrawFloatingCombatText(st, sw, sh);
 
-            // Skill HUD (bottom centre): key cooldowns and cooldown passives.
+            // Skill HUD (bottom centre): the dash cooldown.
             if (st == GameState::RUNNING ||
-                (st == GameState::PAUSED && !g_ShowPauseInventory && !TutorialPaused())) {
+                (st == GameState::PAUSED && !TutorialPaused())) {
                 DrawSkillHud(skill_hud::BuildSkillHudView(GatherSkillHudInputs(), g_SkillHudPulse),
                              UiScale(sw, sh), sw, sh);
             }
@@ -7122,8 +6514,7 @@ CollisionSystem::Update(pCX, pCY,
         // Pane marks stay off the augment screens, which cover the field.
         {
             const GameState bs = g_GameManager.currentState;
-            if (bs != GameState::AUG_SELECT && bs != GameState::DEBUFF_SELECT &&
-                bs != GameState::AUG_REPLACE)
+            if (bs != GameState::AUG_SELECT)
                 DrawPaneBrackets();
         }
         if (g_PaneDebug) DrawPaneDebug();
@@ -7138,11 +6529,10 @@ CollisionSystem::Update(pCX, pCY,
             const SceneTextContext sceneText{ g_TextL, g_TextS };
             const PauseSceneContext pauseState{
                 g_GameManager.currentState, g_GameManager.pauseResumeState,
-                g_SettingsReturnTo, g_ShowPauseInventory, g_LmbPrev,
+                g_SettingsReturnTo, g_LmbPrev,
                 sceneText, ResetSettingsUi
             };
             Scene_Paused(ctx, pauseState);
-            if (g_ShowPauseInventory) Scene_OwnedAugPanel(ctx);
             InputUpdateGameplayCursor(window, g_GameManager.currentState,
                                       g_ShowCrosshair, g_DebugToolkit.IsVisible());
         }
@@ -7160,6 +6550,10 @@ CollisionSystem::Update(pCX, pCY,
             BindMainShader();
             DrawGameplayCrosshair((float)mx, (float)my);
         }
+
+        // OCTANS' blue screen covers everything the game drew, HUD included.
+        DrawCrashScreen((float)screenWidth, (float)screenHeight,
+                        UiScale((float)screenWidth, (float)screenHeight));
 
         // Keep the physical mouse state for edge detection. `lmb` may be
         // cleared above when the debug toolkit captures input; storing that

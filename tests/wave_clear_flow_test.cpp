@@ -5,6 +5,7 @@
 // Includes the spawner source so its private spawn state can be driven directly.
 // Run with scripts/test_wave_clear_flow.ps1.
 #include "EnemySpawner.cpp"
+#include <cmath>
 #include <cstdio>
 
 static int g_failures = 0;
@@ -124,6 +125,55 @@ int main() {
     EXPECT(!ConsumeWaveClear().cleared, "final boss fall is not a wave clear");
     EXPECT(NormaDefeated(), "final boss fall wins");
     run.mm.Clear();
+
+    // Wave-1 elites sit near 3,000 effective HP on NORMAL, and a later elite
+    // wave scales by the HP ramp.
+    for (int kind = 0; kind < kEliteKindCount; ++kind) {
+        auto eliteHp = [&](int wave) {
+            ResetEnemySpawnState();
+            for (unsigned char& p : g_EnemySpawnState.elitePick) p = (unsigned char)kind;
+            Run r;
+            r.difficulty = Difficulty::NORMAL;
+            r.wave = wave;
+            r.Step(ELITE_SPAWN_DELAY_SECONDS + 0.1f);
+            Monster* e = r.Find(IsEliteMob);
+            float hp = e ? e->hp : 0.0f;
+            if (e && e->kind == MobKind::REGULUS) hp += e->regulusShield.hp;
+            if (e && e->kind == MobKind::ANTARES)   // both split generations
+                hp *= 1.0f + (2.0f * Monster::ANTARES_CHILD_HP +
+                              4.0f * Monster::ANTARES_CHILD_HP * Monster::ANTARES_CHILD_HP) /
+                             Monster::ANTARES_ELITE_HP_MULT;
+            r.mm.Clear();
+            return hp;
+        };
+        const float first = eliteHp(1), later = eliteHp(3);
+        std::printf("elite %d: wave 1 %.0f HP, wave 3 %.0f HP\n", kind, first, later);
+        EXPECT(first > 2500.0f && first < 3400.0f, "elite %d wave-1 HP %.0f", kind, first);
+        EXPECT(std::fabs(later / first - WaveHpRamp(3, Difficulty::NORMAL)) < 0.01f,
+               "elite %d ramps by wave (%.0f -> %.0f)", kind, first, later);
+    }
+
+    // Antares: the wave waits for every split fragment.
+    {
+        ResetEnemySpawnState();
+        for (unsigned char& p : g_EnemySpawnState.elitePick) p = 3;   // ANTARES
+        Run r;
+        r.Step(ELITE_SPAWN_DELAY_SECONDS + 0.1f);
+        Monster* parent = r.Find(IsEliteMob);
+        EXPECT(parent && parent->kind == MobKind::ANTARES, "antares enters");
+        Monster* frag = new Monster(0.0f, 0.0f, parent ? parent->antaresHpMult : 1.0f);
+        frag->MakeKind(MobKind::ANTARES);
+        frag->antaresGen = 1;
+        r.mm.monsters.push_back(frag);
+        if (parent) r.Kill(parent);
+        r.Step(DT);
+        EXPECT(!ConsumeWaveClear().cleared, "fragment still standing: no clear");
+        EXPECT(GetScheduledElite(1, r.difficulty).alive, "HUD still sees the elite");
+        r.Kill(frag);
+        r.Step(DT);
+        EXPECT(ConsumeWaveClear().cleared, "last fragment down clears the wave");
+        r.mm.Clear();
+    }
 
     // Elite rolls: never the same elite on back-to-back waves.
     for (int seed = 1; seed < 50; ++seed) {

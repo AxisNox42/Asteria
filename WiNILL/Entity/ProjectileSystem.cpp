@@ -22,21 +22,18 @@ float TurnAngleToward(float currentAngle, float targetAngle, float maxStep) {
 void UpdateProjectiles(std::vector<Bullet>& bullets,
                        const MonsterManager& monsters,
                        const SpatialBounds& playerBounds,
-                       float fixedDelta, float timeStopTimer,
-                       float hyperFocusTimer,
+                       float fixedDelta,
                        float screenWidth, float screenHeight,
                        float viewZoom) {
     const float playerX = playerBounds.x + playerBounds.width * 0.5f;
     const float playerY = playerBounds.y + playerBounds.height * 0.5f;
-    const float homingDelta = fixedDelta * (hyperFocusTimer > 0.0f ? 0.7f : 1.0f);
+    const float homingDelta = fixedDelta;
 
     for (auto& bullet : bullets) {
-        const float bulletDelta = bullet.isEnemy && hyperFocusTimer > 0.0f
-            ? fixedDelta * 0.7f : fixedDelta;
+        const float bulletDelta = fixedDelta;
         if (bullet.homing && !bullet.isEnemy && bullet.active) {
             float targetX = 0.0f, targetY = 0.0f;
-            if (monsters.FindNearestEnemy(
-                    bullet.x, bullet.y, targetX, targetY)) {
+            if (monsters.FindNearestEnemy(bullet.x, bullet.y, targetX, targetY)) {
                 const float dx = targetX - bullet.x;
                 const float dy = targetY - bullet.y;
                 const float length = std::sqrt(dx * dx + dy * dy);
@@ -50,15 +47,14 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
                 }
             }
         }
-
-        if (bullet.homing && bullet.isEnemy && bullet.active && timeStopTimer <= 0.0f) {
+        if (bullet.homing && bullet.isEnemy && bullet.active) {
             if (bullet.homingDuration > 0.0f) {
                 bullet.homingElapsed += bulletDelta;
                 if (bullet.homingElapsed >= bullet.homingDuration)
                     bullet.homing = false;
             }
         }
-        if (bullet.homing && bullet.isEnemy && bullet.active && timeStopTimer <= 0.0f) {
+        if (bullet.homing && bullet.isEnemy && bullet.active) {
             const float dx = playerX - bullet.x;
             const float dy = playerY - bullet.y;
             const float length = std::sqrt(dx * dx + dy * dy);
@@ -87,9 +83,7 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
             bullet.firedAt = space::g_Clock;
         }
         const float prevX = bullet.x, prevY = bullet.y;
-        if (!(bullet.isEnemy && timeStopTimer > 0.0f)) {
-            bullet.Update(bulletDelta);
-        }
+        bullet.Update(bulletDelta);
         // A shot whose space changed under it was swept by a moving pane's
         // border (stopped there), or a pane closed, was released or jumped
         // away (it just takes the space it now stands in).

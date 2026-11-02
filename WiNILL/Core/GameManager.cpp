@@ -5,19 +5,10 @@
 #include "GameContext.h"
 #include "Scenes.h"
 #include "ReadyLaunch.h"
-#include <algorithm>   // std::min (등급 가중치 게이팅)
+#include "PassiveAugments.h"
+#include <algorithm>
+#include <cstdlib>
 
-extern PlayerStats g_Stats;   // 최대치 도달 증강 게이팅용 (main.cpp 정의)
-extern int         g_CurrentWeapon;
-extern bool        g_ShowPauseInventory;   // main.cpp
-
-static bool DebuffCandidateAllowed(AugType t) {
-    if (t == AugType::D_BLEED && g_Stats.regenPerSec <= 0.0f)
-        return false;
-    if (t == AugType::D_APPROACH && g_Stats.approachStacks >= 3)
-        return false;
-    return true;
-}
 
 static const char* gm_vert =
     "#version 330 core\n"
@@ -147,14 +138,8 @@ void GameManager::HandleInput(GLFWwindow* window) {
                 currentState = GameState::PAUSED;
             }
             else if (currentState == GameState::PAUSED) {
-                // The augment inventory is a sub-page of the pause menu:
-                // ESC closes it first and only the next ESC resumes.
-                if (g_ShowPauseInventory) {
-                    g_ShowPauseInventory = false;
-                } else {
-                    currentState = pauseResumeState;
-                    pauseResumeState = GameState::RUNNING;
-                }
+                currentState = pauseResumeState;
+                pauseResumeState = GameState::RUNNING;
             }
         }
         escReleased = false;
@@ -181,423 +166,139 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     waveStartTime = 0.0f;
     waveTransitionFrom = 0;
     waveTransitionTimer = 0.0f;
-    lastWaveDebuff = -1;
-    waveDebuffToast = 0.0f;
-    waveDebuffPickPending = false;
-    memset(waveDebuffLog, 0, sizeof(waveDebuffLog));
     waveVictory = false;
     xp = 0;
     playerLevel = 1;
-    memset(takenOnce, 0, sizeof(takenOnce));
     g_PlayDebugTainted = g_DebugMode;
     bullets.clear();
     mm.Clear();
     lastState = GameState::READY;
 }
 
-// 등급별 가중치 — 플레이어 레벨에 비례(진행도 게이팅).
-//   초반(저레벨)엔 COMMON/RARE 위주, 에픽 L3+, 전설 L8+ 부터 서서히 열림.
-//   → 시작부터 전설 뜨는 극단 운빨 완화.
-static int RarityWeight(int rarity, int level) {
-    switch ((AugRarity)rarity) {
+// Rarity weight by player level: early picks lean common, epics open at L3,
+// legendaries at L8, mythics at L10. Luck raises the non-common weights.
+static int RarityWeight(AugRarity rarity, int level) {
+    switch (rarity) {
     case AugRarity::COMMON:    return 50;
     case AugRarity::RARE:      return 25;
-    case AugRarity::EPIC:      return level < 3 ? 0 : std::min(12, (level - 2) * 3);  // L3=3 … L6+=12
-    case AugRarity::LEGENDARY: return level < 8 ? 0 : std::min(5,  level - 7);        // L8=1 … L12+=5
-    case AugRarity::DEBUFF:    return 6;                                              // 샌드박스(allowDebuff)
-    case AugRarity::SPECIAL:   return level < 5 ? 0 : 2;                              // 카오스/판도라도 초반 차단
-    case AugRarity::MYTHIC:    return level < 10 ? 0 : 5;                             // 신화 — L10+ & 선행조건 충족 시 등장
-    default:                   return 0;
+    case AugRarity::EPIC:      return level < 3 ? 0 : std::min(12, (level - 2) * 3);
+    case AugRarity::LEGENDARY: return level < 8 ? 0 : std::min(5, level - 7);
+    case AugRarity::MYTHIC:    return level < 10 ? 0 : 3;
     }
+    return 0;
 }
 
-// Level-up cards: plain, stackable stat raises only.
-static bool StatCardAug(AugType t) {
-    switch (t) {
-    case AugType::DMG_UP: case AugType::RATE_UP: case AugType::SPD_UP:
-    case AugType::MOVE_UP: case AugType::REGEN_UP: case AugType::HP_UP:
-    case AugType::CRIT: case AugType::OVERDRIVE:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static constexpr int kRarityCount = (int)AugRarity::MYTHIC + 1;
-
-// 후보 한 장 추첨: rarity 가중 → 해당 등급 내 무작위 (takenOnce 및 고유 카테고리 잠금 적용)
-// allowDebuff=false 면 DEBUFF 등급 제외 (버프 페이지용)
-// rarityWeights (kRarityCount entries) replaces the level-based weights;
-// statOnly keeps only StatCardAug cards.
-static int RollOneAug(const bool* takenOnce,
-                      bool sizeTaken,
-                      bool allowSpecial, int level,
-                      bool allowDebuff = false,
-                      const bool* excluded = nullptr,
-                      bool excludeRandom = false,
-                      const int* rarityWeights = nullptr,
-                      bool statOnly = false) {
-    auto weightOf = [&](int r) {
-        return rarityWeights ? rarityWeights[r] : RarityWeight(r, level);
-    };
-    for (int attempt = 0; attempt < 200; attempt++) {
-        // 등급 추첨 (레벨 비례 가중치) — MYTHIC(7)까지 포함. COMBO(6)는 주입식이라 가중치 0.
-        int total = 0;
-        for (int r = 0; r <= (int)AugRarity::MYTHIC; r++) {
-            if (!allowSpecial && r == (int)AugRarity::SPECIAL) continue;
-            if (!allowDebuff  && r == (int)AugRarity::DEBUFF)  continue;
-            total += weightOf(r);
-        }
-        if (total <= 0) return -1;
-        int roll = rand() % total;
-        int acc  = 0;
-        AugRarity chosen = AugRarity::COMMON;
-        for (int r = 0; r <= (int)AugRarity::MYTHIC; r++) {
-            if (!allowSpecial && r == (int)AugRarity::SPECIAL) continue;
-            if (!allowDebuff  && r == (int)AugRarity::DEBUFF)  continue;
-            acc += weightOf(r);
-            if (roll < acc) { chosen = (AugRarity)r; break; }
-        }
-        // 보유 여부 체크 헬퍼 — 티어드 증강 선행 조건용
-        auto hasOwnedType = [&](AugType wantType) -> bool {
-            const int typeIndex = (int)wantType;
-            return typeIndex >= 0 && typeIndex < AUG_TYPE_SLOTS &&
-                   g_TypeOwned[typeIndex];
-        };
-        auto hasAnyMythicOwned = [&]() -> bool {
-            for (int k = 0; k < AUG_TOTAL; k++) {
-                if (ALL_AUGS[k].rarity != AugRarity::MYTHIC) continue;
-                if (g_TypeOwned[(int)ALL_AUGS[k].type]) return true;
-            }
-            return false;
-        };
-        auto playerHasRifle = [&]() -> bool {
-            return g_CurrentWeapon == (int)StartWeapon::RIFLE;
-        };
-
-        // 해당 등급의 후보 수집
-        int pool[AUG_TOTAL]; int poolSize = 0;
-        for (int i = 0; i < AUG_TOTAL; i++) {
-            if (excluded && excluded[i]) continue;
-            if (ALL_AUGS[i].rarity != chosen) continue;
-            AugType t = ALL_AUGS[i].type;
-            if (statOnly && !StatCardAug(t)) continue;
-            if (excludeRandom && t == AugType::RANDOM_AUG) continue;
-            // 한 번만 뽑힐 증강 (EPIC/LEG/COMBO·티어드·불리언 플래그·적출현 디버프)
-            if (AugOnceOnly(t, ALL_AUGS[i].rarity)) {
-                const int typeIndex = (int)t;
-                bool alreadyTaken = typeIndex >= 0 && typeIndex < AUG_TYPE_SLOTS
-                                  && g_TypeOwned[typeIndex];
-                if (takenOnce) alreadyTaken = alreadyTaken || takenOnce[i];
-                // The ledger is indexed by catalogue slot for save
-                // compatibility.  A retired/duplicated metadata row can
-                // still share the same AugType, so gate by type as well.
-                if (!alreadyTaken) {
-                    for (int j = 0; takenOnce && j < AUG_TOTAL; ++j) {
-                        if (j != i && ALL_AUGS[j].type == t && takenOnce[j]) {
-                            alreadyTaken = true;
-                            break;
-                        }
-                    }
-                }
-                if (alreadyTaken) continue;
-            }
-            // 고유 카테고리 잠금 (SIZE)
-            AugUnique u = ALL_AUGS[i].unique;
-            if (u == AugUnique::SIZE     && sizeTaken) continue;
-            // 티어드 강화 선행 조건
-            if (t == AugType::BULLET_RAIN_2 && !hasOwnedType(AugType::BULLET_RAIN))   continue;
-            if (t == AugType::BULLET_RAIN_3 && !hasOwnedType(AugType::BULLET_RAIN_2)) continue;
-            if (t == AugType::DRONE_2       && !hasOwnedType(AugType::DRONE))         continue;
-            if (t == AugType::CHAKRAM_2     && !hasOwnedType(AugType::CHAKRAM))       continue;
-            if (t == AugType::CHAKRAM_3     && !hasOwnedType(AugType::CHAKRAM_2))     continue;
-            if (t == AugType::LASER_2       && !hasOwnedType(AugType::LASER))         continue;
-            if (t == AugType::PIERCE_2      && !hasOwnedType(AugType::PIERCE))        continue;
-            if (t == AugType::TWIN_2        && !hasOwnedType(AugType::TWIN))          continue;
-            // 신화 — 각 최대 티어 선행 (티어 진화)
-            if (t == AugType::BULLET_RAIN_ETERNAL && !hasOwnedType(AugType::BULLET_RAIN_3)) continue;
-            if (t == AugType::DRONE_HIVE     && !hasOwnedType(AugType::DRONE_2))   continue;
-            if (t == AugType::LASER_CONVERGE && !hasOwnedType(AugType::LASER_2))   continue;
-            if (t == AugType::PIERCE_RAILSLUG&& !hasOwnedType(AugType::PIERCE_2))  continue;
-            if (t == AugType::CHAKRAM_SINGULARITY && !hasOwnedType(AugType::CHAKRAM_3)) continue;
-            if (t == AugType::LIFESTEAL_2 && !hasOwnedType(AugType::LIFESTEAL)) continue;
-            if (t == AugType::CHAIN_2     && !hasOwnedType(AugType::CHAIN))     continue;
-            if (!DebuffCandidateAllowed(t)) continue;
-            // 1런 1신화 — 이미 신화 보유 시 다른 신화 제외
-            if (ALL_AUGS[i].rarity == AugRarity::MYTHIC && hasAnyMythicOwned()) continue;
-            // 흡혈탄 스택 상한
-            if (t == AugType::LIFESTEAL && g_Stats.lifestealStacks >= 4) continue;
-            // 무기/스킬 전용 — 해당 무기 없으면 제외
-            if (t == AugType::MINIGUN && !playerHasRifle()) continue;
-            if (t == AugType::RIFLE_STABILITY   && !playerHasRifle()) continue;
-            // Retired augment slots are filtered by AugRemoved.
-            if (AugRemoved(t)) continue;
-            // 최대치 도달 증강은 제외 (선택해도 버려지는 문제) — 치명타(75%)
-            if (t == AugType::CRIT      && g_Stats.critChance   >= 75) continue;
-            pool[poolSize++] = i;
-        }
-        if (poolSize > 0)
-            return pool[rand() % poolSize];
-    }
-    return -1;
-}
-
-void GameManager::PickLevelUpChoices(bool sizeTaken) {
-    static constexpr int kStatWeights[kRarityCount] = { 50, 25, 0, 0, 0, 0, 0, 0 };
-    bool used[AUG_TOTAL] = {};
+// Five different cards: a rarity by weight (among rarities that still have
+// an offerable card), then a card of that rarity at random.
+void GameManager::PickRewardChoices() {
+    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augChoiceCount = 0;
-    for (int i = 0; i < 3; i++) augChoices[i] = -1;
-    for (int i = 0; i < 3; i++) {
-        const int idx = RollOneAug(takenOnce, sizeTaken, /*allowSpecial=*/false,
-                                   playerLevel, /*allowDebuff=*/false, used,
-                                   /*excludeRandom=*/true, kStatWeights,
-                                   /*statOnly=*/true);
-        if (idx < 0) break;
-        used[idx] = true;
-        augChoices[augChoiceCount++] = idx;
-    }
-}
-
-static AugRarity RarityForTier(WaveRewardTier tier) {
-    switch (tier) {
-    case WaveRewardTier::Legendary: return AugRarity::LEGENDARY;
-    case WaveRewardTier::Epic:      return AugRarity::EPIC;
-    case WaveRewardTier::Rare:      return AugRarity::RARE;
-    default:                        return AugRarity::COMMON;
-    }
-}
-
-void GameManager::PickWaveRewardChoices(const WaveRewardInfo& reward, bool sizeTaken) {
     bool used[AUG_TOTAL] = {};
+    const float luck = passive::LuckChanceMult();
+    for (int slot = 0; slot < kAugChoiceMax; ++slot) {
+        float weights[5] = {};
+        float total = 0.0f;
+        for (int r = 0; r < 5; ++r) {
+            bool any = false;
+            for (int i = 0; i < AUG_TOTAL && !any; ++i)
+                any = !used[i] && (int)ALL_AUGS[i].rarity == r &&
+                      !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i);
+            if (!any) continue;
+            float w = (float)RarityWeight((AugRarity)r, playerLevel);
+            if (r != (int)AugRarity::COMMON) w *= luck;
+            weights[r] = w;
+            total += w;
+        }
+        if (total <= 0.0f) break;
+        float roll = (float)(std::rand() % 100000) / 100000.0f * total;
+        int rarity = 0;
+        for (; rarity < 4 && roll >= weights[rarity]; ++rarity) roll -= weights[rarity];
+        while (weights[rarity] <= 0.0f && rarity > 0) --rarity;
+        int pool[AUG_TOTAL], n = 0;
+        for (int i = 0; i < AUG_TOTAL; ++i)
+            if (!used[i] && (int)ALL_AUGS[i].rarity == rarity &&
+                !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i))
+                pool[n++] = i;
+        if (n == 0) break;
+        const int pick = pool[std::rand() % n];
+        used[pick] = true;
+        augChoices[augChoiceCount++] = pick;
+    }
+}
+
+void GameManager::PickStatChoices() {
+    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augChoiceCount = 0;
-    for (int i = 0; i < 3; i++) augChoices[i] = -1;
-    bool gotSize = sizeTaken;
-    auto take = [&](int idx) {
-        used[idx] = true;
-        augChoices[augChoiceCount++] = idx;
-        if (ALL_AUGS[idx].unique == AugUnique::SIZE) gotSize = true;
-    };
-
-    // One card at the earned tier is guaranteed; when that tier has nothing
-    // left to offer, the next tier down stands in.
-    int guaranteed = -1;
-    for (int tier = (int)WaveRewardTierFor(reward.killSeconds, reward.boss);
-         tier >= 0 && guaranteed < 0; --tier) {
-        int only[kRarityCount] = {};
-        only[(int)RarityForTier((WaveRewardTier)tier)] = 1;
-        guaranteed = RollOneAug(takenOnce, gotSize, /*allowSpecial=*/false,
-                                playerLevel, /*allowDebuff=*/false, used,
-                                /*excludeRandom=*/false, only);
+    int pool[AUG_TOTAL], n = 0;
+    for (int i = 0; i < AUG_TOTAL; ++i)
+        if (AugIsStatCard(ALL_AUGS[i])) pool[n++] = i;
+    for (int k = 0; k < 3 && n > 0; ++k) {
+        const int j = std::rand() % n;
+        augChoices[augChoiceCount++] = pool[j];
+        pool[j] = pool[--n];
     }
-    if (guaranteed >= 0) take(guaranteed);
-
-    // The other cards lean upward the faster the kill was.
-    const float speed = WaveRewardSpeed(reward.killSeconds, reward.boss);
-    auto lerp = [&](float slow, float fast) { return (int)(slow + (fast - slow) * speed + 0.5f); };
-    int weights[kRarityCount] = {};
-    weights[(int)AugRarity::COMMON]    = lerp(50.0f, 10.0f);
-    weights[(int)AugRarity::RARE]      = 30;
-    weights[(int)AugRarity::EPIC]      = lerp(12.0f, 30.0f);
-    weights[(int)AugRarity::LEGENDARY] = lerp(3.0f, 18.0f);
-    weights[(int)AugRarity::SPECIAL]   = 2;
-    weights[(int)AugRarity::MYTHIC]    = lerp(2.0f, 8.0f);
-    while (augChoiceCount < 3) {
-        int idx = -1;
-        for (int attempt = 0; attempt < 50; attempt++) {
-            idx = RollOneAug(takenOnce, gotSize, /*allowSpecial=*/true, playerLevel,
-                             /*allowDebuff=*/false, used, /*excludeRandom=*/false,
-                             weights);
-            if (idx >= 0 && !used[idx]) break;
-        }
-        if (idx < 0 || used[idx]) break;
-        take(idx);
-    }
-    // The guaranteed card lands in any slot, not always the first.
-    if (augChoiceCount > 1) std::swap(augChoices[0], augChoices[rand() % augChoiceCount]);
-
-    // COMBO rewards require every recipe ingredient to be acquired during the run.
-    int eligible[COMBO_COUNT];
-    int eligCount = 0;
-    for (int c = 0; c < COMBO_COUNT; c++) {
-        if (ComboRewardEligible(COMBO_DEFS[c], takenOnce)) eligible[eligCount++] = c;
-    }
-    if (eligCount > 0 && (rand() % 100) < 10) {
-        AugType res = COMBO_DEFS[eligible[rand() % eligCount]].result;
-        int ridx = AugIndexOfType(res);
-        if (ridx >= 0 && !used[ridx]) {
-            // Never over the guaranteed card.
-            if (augChoiceCount < 3) augChoices[augChoiceCount++] = ridx;
-            else {
-                int slot = rand() % augChoiceCount;
-                if (augChoices[slot] == guaranteed) slot = (slot + 1) % augChoiceCount;
-                augChoices[slot] = ridx;
-            }
-        }
-    }
-}
-
-int GameManager::PickRandomDebuffIndices(int* outArr, int n) {
-    // ALL_AUGS 의 모든 DEBUFF 등급 인덱스 수집
-    int pool[AUG_TOTAL]; int poolSize = 0;
-    for (int i = 0; i < AUG_TOTAL; i++) {
-        if (ALL_AUGS[i].rarity != AugRarity::DEBUFF) continue;
-        AugType t = ALL_AUGS[i].type;
-        if (AugRemoved(t)) continue;   // Retired debuffs excluded.
-        if (!DebuffCandidateAllowed(t)) continue;
-        if (AugOnceOnly(t, AugRarity::DEBUFF)) {
-            const int typeIndex = (int)t;
-            bool alreadyTaken = typeIndex >= 0 && typeIndex < AUG_TYPE_SLOTS
-                              && g_TypeOwned[typeIndex];
-            alreadyTaken = alreadyTaken || takenOnce[i];
-            if (!alreadyTaken) {
-                for (int j = 0; j < AUG_TOTAL; ++j) {
-                    if (j != i && ALL_AUGS[j].type == t && takenOnce[j]) {
-                        alreadyTaken = true;
-                        break;
-                    }
-                }
-            }
-            if (alreadyTaken) continue;
-        }
-        pool[poolSize++] = i;
-    }
-    if (poolSize == 0) return 0;
-    // 중복 없이 n 개 (n > poolSize 면 중복 허용)
-    bool used[AUG_TOTAL] = {};
-    int filled = 0;
-    for (int i = 0; i < n; i++) {
-        int idx = -1;
-        for (int attempt = 0; attempt < 30; attempt++) {
-            idx = pool[rand() % poolSize];
-            if (!used[idx]) break;
-        }
-        if (idx < 0 || used[idx]) break;
-        used[idx] = true;
-        outArr[i] = idx;
-        filled++;
-    }
-    return filled;
-}
-
-int GameManager::PickRandomAugIndices(int* outArr, int n,
-                                      bool sizeTaken,
-                                      bool allowUnique, bool allowSpecial,
-                                      bool allowDebuff) {
-    bool used[AUG_TOTAL] = {};
-    // 이번 배치에서 이미 뽑은 SIZE 고유 카테고리 추적 —
-    //   대혼란이 거대화+축소화를 동시에 주던 버그 fix (상호 배타)
-    bool gotSize = sizeTaken;
-    int filled = 0;
-    for (int i = 0; i < n; i++) {
-        int idx = -1;
-        for (int attempt = 0; attempt < 80; attempt++) {
-            idx = RollOneAug(takenOnce,
-                             allowUnique ? gotSize : true,
-                             allowSpecial, playerLevel,
-                             allowDebuff, used, /*excludeRandom=*/true);
-            // RANDOM_AUG 자기 자신 제외
-            if (idx < 0) break;
-            if (ALL_AUGS[idx].type == AugType::RANDOM_AUG) continue;
-            if (!used[idx]) break;
-        }
-        if (idx < 0 || used[idx]) break;
-        used[idx] = true;
-        outArr[i] = idx;
-        filled++;
-        if (allowUnique) {
-            if (ALL_AUGS[idx].unique == AugUnique::SIZE)     gotSize = true;
-            }
-    }
-    return filled;
 }
 
 void GameManager::QueueAugmentReward() {
     ++pendingAugmentRewards;
 }
 
-void GameManager::QueueWaveReward(float killSeconds, bool boss) {
-    if (pendingWaveRewards >= kMaxWaveRewards) return;
-    waveRewardQueue[pendingWaveRewards++] = { killSeconds, boss };
+void GameManager::QueueStatReward() {
+    ++pendingStatRewards;
 }
 
 void GameManager::ConsumeActiveReward() {
-    if (activeRewardIsWave) {
-        if (pendingWaveRewards > 0) {
-            for (int i = 1; i < pendingWaveRewards; ++i)
-                waveRewardQueue[i - 1] = waveRewardQueue[i];
-            --pendingWaveRewards;
-        }
-    } else if (pendingAugmentRewards > 0) {
-        --pendingAugmentRewards;
-    }
-    activeRewardIsWave = false;
+    int& queue = activeRewardIsStat ? pendingStatRewards : pendingAugmentRewards;
+    if (queue > 0) --queue;
+}
+
+static void ResetCardScreen(GameManager& gm) {
+    gm.augmentKeyboardFocus = false;
+    ++gm.augmentSelectionSerial;
+    gm.currentState = GameState::AUG_SELECT;
+    g_HoveredAug = -1;
+    g_AugExitT = -1.0f;
+    g_AugExitSlot = -1;
 }
 
 bool GameManager::ActivateNextAugmentReward() {
     // Opening a reward (or finding none) ends any level-up slow-motion.
     levelUpTransition.Cancel();
     if (augmentRewardActive) return true;
-
-    while (pendingWaveRewards > 0 || pendingAugmentRewards > 0) {
-        activeRewardIsWave = pendingWaveRewards > 0;
-        if (activeRewardIsWave) {
-            activeWaveReward = waveRewardQueue[0];
-            PickWaveRewardChoices(activeWaveReward, g_Stats.sizeAugTaken);
-        } else {
-            PickLevelUpChoices(g_Stats.sizeAugTaken);
-        }
-        if (augChoiceCount <= 0) {
-            ConsumeActiveReward();
-            continue;
-        }
-
-        augmentRewardActive = true;
-        augmentKeyboardFocus = false;
-        ++augmentSelectionSerial;
-        currentState = GameState::AUG_SELECT;
-        g_HoveredAug = -1;
-        g_AugExitT = -1.0f;
-        g_AugExitSlot = -1;
-        g_RepExitT = -1.0f;
-        g_RepExitSlot = -3;
-        return true;
+    // A wave clear's augment pick opens ahead of queued level-ups.
+    while (pendingAugmentRewards > 0) {
+        activeRewardIsStat = false;
+        PickRewardChoices();
+        if (augChoiceCount > 0) break;
+        ConsumeActiveReward();   // nothing left to offer
     }
-
-    return false;
+    if (pendingAugmentRewards <= 0) {
+        if (pendingStatRewards <= 0) return false;
+        activeRewardIsStat = true;
+        PickStatChoices();
+    }
+    augmentRewardActive = true;
+    ResetCardScreen(*this);
+    return true;
 }
 
-void GameManager::OpenFixedChoices(const AugType* types, int count, bool debuff) {
+void GameManager::OpenTutorialChoice() {
     levelUpTransition.Cancel();
-    augChoiceCount = 0;
-    for (int i = 0; i < 3; i++) augChoices[i] = -1;
-    for (int i = 0; i < count && augChoiceCount < 3; i++) {
-        const int idx = AugIndexOfType(types[i]);
-        if (idx >= 0) augChoices[augChoiceCount++] = idx;
-    }
-    if (augChoiceCount <= 0) return;
-    if (!debuff) {
-        pendingAugmentRewards = 1;
-        activeRewardIsWave = false;
-        augmentRewardActive = true;
-    }
-    augmentKeyboardFocus = false;
-    ++augmentSelectionSerial;
-    currentState = debuff ? GameState::DEBUFF_SELECT : GameState::AUG_SELECT;
-    g_HoveredAug = -1;
-    g_AugExitT = -1.0f;
-    g_AugExitSlot = -1;
-    g_RepExitT = -1.0f;
-    g_RepExitSlot = -3;
+    PickStatChoices();          // the tutorial's level-up
+    activeRewardIsStat = true;
+    pendingStatRewards = 1;
+    augmentRewardActive = true;
+    ResetCardScreen(*this);
 }
 
 void GameManager::ClearAugmentRewardQueue() {
     pendingAugmentRewards = 0;
-    pendingWaveRewards = 0;
-    activeRewardIsWave = false;
+    pendingStatRewards = 0;
+    activeRewardIsStat = false;
     levelUpTransition.Cancel();
     augmentRewardActive = false;
     augChoiceCount = 0;
-    for (int i = 0; i < 3; i++) augChoices[i] = -1;
+    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augmentKeyboardFocus = false;
 }
 
@@ -629,15 +330,10 @@ void GameManager::Render() {
         float oR = 0.0f, oG = 0.0f, oB = 0.0f, overlayA = 0.5f;
         if (currentState == GameState::GAMEOVER)     { overlayA = 0.60f; }
         if (currentState == GameState::AUG_SELECT)   { overlayA = 0.45f; }
-        if (currentState == GameState::AUG_REPLACE)  { overlayA = 0.78f; }
-        // 디버프 — 화면 전체 빨간 딤 없음(AUG_SELECT 와 같은 중립 오버레이).
-        if (currentState == GameState::DEBUFF_SELECT){ overlayA = 0.45f; }
         glUniform4f(colorLoc, oR, oG, oB, overlayA);
         glBindVertexArray(overlayVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
     }
-
-    // AUG_SELECT / DEBUFF_SELECT 카드 픽커 — Scene_AugSelect(행성 UI)로 대체됨, 제거
 
     // --- 픽셀 좌표계 UI ---
     setOrtho(projectionLoc);

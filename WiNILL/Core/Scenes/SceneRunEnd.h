@@ -16,7 +16,6 @@ struct GameOverSceneContext {
     long long score;
     int playerLevel;
     long long killCount;
-    const std::vector<int>& ownedAugments;
     SceneTextContext text;
 };
 

@@ -11,14 +11,14 @@ public:
     bool active = true;
     bool isEnemy = false;
 
-    // 유도탄 (탄환 세례 등) — 매 프레임 가장 가까운 적 쪽으로 방향 보정
+    // 유도탄 — 적 탄환은 플레이어 쪽, 플레이어 탄환은 가장 가까운 적 쪽으로 방향 보정
     bool  homing       = false;
     float homingTurn   = 5.0f;   // 라디안/초
     float homingTurnStart = 0.0f; // 0이면 homingTurn을 고정값으로 사용
     float homingTurnRampStart = 0.0f;
     float homingDuration = 0.0f; // 0이면 기존처럼 수명 제한 없이 유도
     float homingElapsed  = 0.0f;
-    // 개별 데미지 배율 (탄환 세례 등 0.5x)
+    // 개별 데미지 배율
     float dmgMult      = 1.0f;
     // 적 탄환과 충돌해도 유지되는 관통 잔량
     float pierceRemaining = 0.0f;
@@ -34,20 +34,22 @@ public:
     float shootableHp    = 1.0f;
     // 직전 프레임 위치 — 스윕(레이캐스트) 충돌 판정용
     float prevX = 0.0f, prevY = 0.0f;
-    // 연쇄 작용(리코셰) — 남은 튕김 횟수 + 튕긴 후 고정 데미지(>0 이면 거리 재계산 안 함)
-    int   bouncesLeft = 0;
-    float lockedDmg   = 0.0f;
-    bool  lockedCrit  = false;
     // 발사 가속(SAM 미사일 느낌) — launchRamp<1 이면 느리게 출발해 점점 빨라짐.
     //   launchAccel(초당 증가)이 0 이면 비활성(기존 동작). launchRamp 1.0 으로 수렴.
     float launchRamp  = 1.0f;
     float launchAccel = 0.0f;
-    int pierceBonusPct = 0;  // 집중 조준 등 일회성 관통 보너스
-    bool  rainMissile = false;   // 탄환 세례 — 로켓 스프라이트로 렌더
-    // Magnetar whose broken ward face this shot already passed through.
-    const void* wardPassed = nullptr;
-    // 관통/리코셰 중인 탄이 이미 맞힌 대상 — 판정 반경 안에 머무는 동안 같은 적을 다시 맞히지 않음
-    static constexpr int kHitMemory = 4;
+    // Passive augments: a piercing shot keeps flying after a hit, a blast
+    // shot explodes where it lands, and a grazed enemy shot paid its graze.
+    bool  piercing   = false;
+    bool  blastOnHit = false;
+    bool  grazed     = false;
+    // Active-skill shot: skill damage multipliers instead of the gun's, no
+    // gun procs. skillTag says which skill (ActiveSkills.cpp).
+    bool  skillShot  = false;
+    bool  forceCrit  = false;
+    int   skillTag   = 0;
+    // Targets a piercing shot already hit, so it hits each one once.
+    static constexpr int kHitMemory = 8;
     const void* recentHits[kHitMemory] = {};
     int recentHitNext = 0;
     bool HasHit(const void* target) const {
@@ -59,11 +61,8 @@ public:
         recentHits[recentHitNext] = target;
         recentHitNext = (recentHitNext + 1) % kHitMemory;
     }
-    void ResetHits(const void* keep) {
-        for (const void*& hit : recentHits) hit = nullptr;
-        recentHits[0] = keep;
-        recentHitNext = 1;
-    }
+    // Magnetar whose broken ward face this shot already passed through.
+    const void* wardPassed = nullptr;
     bool  crescentBlade = false; // 초승달 검기 — arc 모양 렌더
     // NORMA window space the shot was fired in (SpaceRules.h); -1 until its
     // first update. It dissolves on reaching any other space.
@@ -115,10 +114,7 @@ inline BulletHaloStyle GetBulletHaloStyle(const Bullet& bullet) {
     const float r = 4.8f * bullet.sizeScale;
     float innerRadius = r * 3.1f;
     float innerAlpha = 0.20f;
-    if (bullet.rainMissile) {
-        innerRadius = std::max(innerRadius, 22.0f * bullet.sizeScale);
-        innerAlpha = 0.18f;
-    } else if (bullet.crescentBlade) {
+    if (bullet.crescentBlade) {
         const float grow = std::min(3.8f, 1.0f + bullet.traveled / 160.0f);
         innerRadius = r * 4.0f * grow + 20.0f;
         innerAlpha = 0.10f;

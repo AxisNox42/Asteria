@@ -164,7 +164,38 @@ void PaintClient(HWND hwnd, HDC dc) {
     RECT r{};
     GetClientRect(hwnd, &r);
     const int i = IndexOfHandle(hwnd);
-    const Content* c = (i >= 0 && i < (int)s_content.size()) ? &s_content[i] : nullptr;
+    Content* c = (i >= 0 && i < (int)s_content.size()) ? &s_content[i] : nullptr;
+    if (c && c->fast) {
+        // Decor: paint the dialog once into the cache, then copy (and glitch) it.
+        const int w = r.right - r.left, h = r.bottom - r.top;
+        if (w <= 0 || h <= 0) return;
+        HDC mem = CreateCompatibleDC(dc);
+        if (!c->cache || c->cacheW != w || c->cacheH != h || c->cacheDirty) {
+            if (c->cache) DeleteObject(c->cache);
+            c->cache = CreateCompatibleBitmap(dc, w, h);
+            c->cacheW = w;
+            c->cacheH = h;
+            c->cacheDirty = false;
+            HGDIOBJ prev = SelectObject(mem, c->cache);
+            Content still = *c;
+            still.unstable = 0.0f;
+            still.cache = nullptr;
+            pane_content::Paint(mem, RECT{ 0, 0, w, h }, &still, UserPrefersDark());
+            SelectObject(mem, prev);
+        }
+        HDC back = CreateCompatibleDC(dc);
+        HBITMAP backBmp = CreateCompatibleBitmap(dc, w, h);
+        HGDIOBJ prevBack = SelectObject(back, backBmp);
+        HGDIOBJ prevMem = SelectObject(mem, c->cache);
+        pane_content::GlitchFast(back, mem, w, h, c->unstable, c->glitch);
+        BitBlt(dc, r.left, r.top, w, h, back, 0, 0, SRCCOPY);
+        SelectObject(mem, prevMem);
+        SelectObject(back, prevBack);
+        DeleteObject(backBmp);
+        DeleteDC(back);
+        DeleteDC(mem);
+        return;
+    }
     // A worn pane's content breaks up and tints as its warning.
     pane_content::Paint(dc, r, c, UserPrefersDark());
 }
@@ -427,12 +458,13 @@ void Shutdown() {
     s_ownerHwnd = nullptr;
     s_panes.clear();
     s_handles.clear();
+    for (Content& c : s_content) if (c.cache) DeleteObject(c.cache);
     s_content.clear();
     s_desktop.clear();
     pane_images::Stop();
 }
 
-int Open(float x, float y, float w, float h) {
+int Open(float x, float y, float w, float h, bool decor) {
     if (!s_overlayHwnd || !EnsureClass()) return 0;
     if (!s_ownerHwnd)
         s_ownerHwnd = CreateWindowExW(WS_EX_TOOLWINDOW, kClassName, L"", WS_POPUP,
@@ -463,13 +495,20 @@ int Open(float x, float y, float w, float h) {
     Pane pane;
     pane.id = s_nextId++;
     pane.open = true;
+    pane.decor = decor;
     s_panes.push_back(pane);
     s_handles.push_back(hwnd);
     Content content;
     content.seed = (unsigned)rand() * 2654435761u + (unsigned)pane.id;
     content.dark = UserPrefersDark();
-    pane_images::Ensure(g_PanePhotos);   // reloads if the photos setting changed
-    pane_content::Roll(content, BaseTitle());   // memo, code or image, and its file title
+    if (decor) {
+        content.kind = pane_content::Kind::Memo;
+        content.role = pane_content::Role::Error;
+        content.fast = true;
+    } else {
+        pane_images::Ensure(g_PanePhotos);   // reloads if the photos setting changed
+        pane_content::Roll(content, BaseTitle());   // memo, code or image, and its file title
+    }
     content.lang = LangIndex();
     s_content.push_back(content);
     ApplyTitle((int)s_content.size() - 1);
@@ -569,6 +608,7 @@ void SetRole(int id, PaneRole role, float a, float b) {
     const pane_content::Role r = role == PaneRole::Error ? pane_content::Role::Error
                                : role == PaneRole::Shutdown ? pane_content::Role::Shutdown
                                : role == PaneRole::Copy ? pane_content::Role::Copy
+                               : role == PaneRole::Safe ? pane_content::Role::Safe
                                : pane_content::Role::None;
     // Repaint only for what the dialog shows: whole seconds, whole shots, the bar's pixels.
     const bool roleChanged = r != c.role;
@@ -579,6 +619,7 @@ void SetRole(int id, PaneRole role, float a, float b) {
     c.roleA = a;
     c.roleB = b;
     c.lang = LangIndex();
+    c.cacheDirty = true;
     if (roleChanged) ApplyTitle(i);
     InvalidateRect(s_handles[i], nullptr, FALSE);
 }
@@ -681,6 +722,15 @@ void UpdateCovered() {
 }
 
 void Tick(float dt) {
+    // Forget closed panes whose afterimages are gone, so a blue screen's
+    // dozens of panes do not pile up in every per-pane loop.
+    for (size_t i = s_panes.size(); i-- > 0;) {
+        if (s_panes[i].open || !s_panes[i].trail.empty()) continue;
+        if (i < s_content.size() && s_content[i].cache) DeleteObject(s_content[i].cache);
+        s_panes.erase(s_panes.begin() + (long long)i);
+        s_handles.erase(s_handles.begin() + (long long)i);
+        if (i < s_content.size()) s_content.erase(s_content.begin() + (long long)i);
+    }
     // Front-to-back order among panes, for overlapping spaces.
     int rank = 0;
     for (HWND h = GetTopWindow(nullptr); h; h = GetWindow(h, GW_HWNDNEXT)) {
@@ -700,6 +750,8 @@ void Tick(float dt) {
             continue;
         }
         if (!p.adopted && !s_arrange && AboveGame(s_handles[i])) StackBelowGame(s_handles[i]);
+        // Decor panes stand still unless the player is arranging windows.
+        if (p.decor && !s_arrange) continue;
         RefreshRects((int)i);
         UpdateShown(p, dt);
         if (p.refusalTimer > 0.0f) {
@@ -902,7 +954,7 @@ namespace os_pane {
 namespace { std::vector<Pane> s_none; std::vector<Rect> s_noRects; }
 void Init(GLFWwindow*) {}
 void Shutdown() {}
-int  Open(float, float, float, float) { return 0; }
+int  Open(float, float, float, float, bool) { return 0; }
 int  Adopt(int) { return 0; }
 void Place(int, float, float) {}
 void Resize(int, float, float, float, float) {}

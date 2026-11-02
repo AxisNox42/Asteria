@@ -128,13 +128,16 @@ inline void BuildField(FieldGrid& fg, const float* w, float time, bool carry = f
     fg.v.assign((size_t)fg.nx * fg.ny, 0.0f);
     int list[kMaxCols * kMaxRows], n = 0;
     for (int i = 0; i < CellCount(); ++i) if (w[i] > 0.001f) list[n++] = i;
+    // carry: the free liquid too (a dragged puddle, the siphon's streams).
+    const bool streams = carry && !g_DropBalls.empty();
     carry = carry && g.carrying;
-    fg.any = n > 0 || carry;
+    fg.any = n > 0 || carry || streams;
     if (!fg.any) return;
     for (int j = 0; j < fg.ny; ++j)
         for (int i = 0; i < fg.nx; ++i) {
             const float x = (float)i * FieldGrid::kStep, y = (float)j * FieldGrid::kStep;
             float f = carry ? CarryField(x, y, time) : 0.0f;
+            if (streams) f += DropField(x, y);
             for (int k = 0; k < n; ++k) f += w[list[k]] * BlobField(list[k], x, y, time);
             fg.v[(size_t)j * fg.nx + i] = f;
         }
@@ -334,27 +337,6 @@ inline void DrawOverlay(float time) {
         }
     }
 
-    // 5 Drag: the cursor's grip closing on the body, then each stroke's path
-    // (a line to a framed landing spot) before the body is dragged along it.
-    if (g.pattern == Pattern::Drag && g.acting && g.step < 100) {
-        if (g.t < kDragGrab) {
-            const float u = g.t / kDragGrab;
-            Ring(g.bossX, g.bossY, 150.0f - 60.0f * u, 3.4f, D[0], D[1], D[2], 0.2f + 0.2f * u, 48);
-            Ring(g.bossX, g.bossY, 150.0f - 60.0f * u, 2.0f, H[0], H[1], H[2], 0.4f + 0.6f * u, 48);
-        } else {
-            float u;
-            const int k = DragStroke(u);
-            const float local = g.t - kDragGrab - (float)k * (kDragPreview + kDragMove);
-            if (k >= 0 && k < DragStrokes() && local < kDragPreview) {
-                const float v = local / kDragPreview;
-                Seg(g.dragFromX, g.dragFromY, g.dragToX, g.dragToY, 4.0f, D[0], D[1], D[2], 0.2f + 0.2f * v);
-                Seg(g.dragFromX, g.dragFromY, g.dragToX, g.dragToY, 1.8f, H[0], H[1], H[2], 0.35f + 0.6f * v);
-                const float s2 = 46.0f;
-                Corners(g.dragToX - s2, g.dragToY - s2, s2 * 2.0f, s2 * 2.0f, 16.0f, 2.4f, H[0], H[1], H[2], 0.5f + 0.5f * v);
-            }
-        }
-    }
-
     // Phase 2 erosion: the player's cell fills its outline as they linger.
     if (g.phase == 2 && g_Tune.erodeAfter > 0.0f && g.dwellCell >= 0 && g.dwell > kErodeShow) {
         float x, y, w, h;
@@ -429,6 +411,56 @@ inline void DrawOverlay(float time) {
         }
     }
 
+    // 6 Siphon: a whirlpool round the body while it drinks. Strokes along the
+    // streams' own spiral slide inward, and rings close on the core; it
+    // gathers from the press (the only warning), fades once all is in.
+    if (g.pattern == Pattern::Siphon && g.acting) {
+        const float on = Smooth((g.t - kSiphonPlug) / (kSiphonStart - kSiphonPlug));
+        const float off = g.siphonEndAt < 0.0f ? 1.0f : 1.0f - Smooth((g.t - g.siphonEndAt) / kSiphonTailEnd);
+        const float k = on * off;
+        if (k > 0.01f) {
+            constexpr float kRv = 560.0f;
+            constexpr int kArms = 14;
+            for (int a = 0; a < kArms; ++a) {
+                const float th0 = 6.2831853f * (float)a / (float)kArms + 0.37f * (float)(a % 3);
+                const float u0 = std::fmod(time * 0.75f + (float)a * 0.383f, 1.0f);
+                const float u1 = std::min(1.0f, u0 + 0.16f);
+                const float al = k * std::sin(3.1415927f * u0) * 0.75f;
+                float qx = 0.0f, qy = 0.0f;
+                for (int i = 0; i <= 8; ++i) {
+                    const float u = u0 + (u1 - u0) * (float)i / 8.0f;
+                    const float rho = kRv * (1.0f - u), th = th0 + g.swirl * kSiphonSwirl * 1.6f * u * u;
+                    const float x = g.bossX + std::cos(th) * rho, y = g.bossY + std::sin(th) * rho;
+                    if (i > 0) {
+                        Seg(qx, qy, x, y, 3.2f, D[0], D[1], D[2], 0.25f * al);
+                        Seg(qx, qy, x, y, 1.5f, A[0], A[1], A[2], al);
+                    }
+                    qx = x; qy = y;
+                }
+            }
+            for (int i = 0; i < 3; ++i) {   // rings closing on the core
+                const float f = std::fmod(time * 1.6f + (float)i / 3.0f, 1.0f);
+                Ring(g.bossX, g.bossY, 220.0f * (1.0f - f) + 30.0f, 1.4f, H[0], H[1], H[2], k * f * 0.7f, 48);
+            }
+        }
+    }
+
+    // 6b Spout: where each stream will leave the body, a mouth line opening
+    // out along its first stretch of path while the body swells; it closes as
+    // the stream goes. (The landing cells warn as usual.)
+    if (g.pattern == Pattern::Siphon && g.acting && g.spoutAt >= 0.0f) {
+        for (const Drop& d : g.drops) {
+            const float u = Smooth((g.t - g.spoutAt) / std::max(0.05f, d.delay));
+            const float k = 1.0f - Smooth((g.t - g.spoutAt - d.delay) / kSpoutLag);
+            if (k <= 0.01f) continue;
+            float x0, y0, x1, y1;
+            DropPath(d, 0.90f, x0, y0);
+            DropPath(d, 0.90f - 0.12f * u, x1, y1);
+            Seg(x0, y0, x1, y1, 4.0f, D[0], D[1], D[2], 0.3f * k);
+            Seg(x0, y0, x1, y1, 1.8f, H[0], H[1], H[2], (0.35f + 0.6f * u) * k);
+        }
+    }
+
     // Weakened: a slow ring round the player.
     if (g.weaken > 0.0f) {
         const float a = std::clamp(g.weaken / 0.5f, 0.0f, 1.0f);
@@ -472,7 +504,7 @@ inline void DrawCursor(float time) {
         // lift; the arrow otherwise, dragging included.
         const bool clicking = g.acting && g.curPress &&
             ((g.pattern == Pattern::Smear && g.step == 0) ||
-             (g.pattern == Pattern::Drag && g.step < 100 && g.t < kDragGrab));
+             g.pattern == Pattern::Siphon);
         auto draw = [&](float x, float y, float lw, const float* c, float a) {
             if (clicking) ClickHand(x, y, sc, lw, c[0], c[1], c[2], a);
             else Pointer(x, y, sc, lw, c[0], c[1], c[2], a);
@@ -583,11 +615,28 @@ inline void DrawBody(const Monster* m, float base, float visualTime) {
     }
     // Lens: three rings in four arcs each (closing into full rings when
     // sniping), turning slowly.
-    const float va = m->normaVisualAngle;
+    // Drinking (Siphon): the lens spins up and tightens. Spouting: it swells
+    // out, spinning the other way, and lets go as the streams leave.
+    static float s_drinkSpin = 0.0f, s_drinkLast = -1.0f;
+    float drink = 0.0f, swell = 0.0f;
+    if (g.pattern == Pattern::Siphon && g.acting) {
+        drink = Smooth((g.t - kSiphonPlug) / 0.4f);
+        if (g.siphonEndAt >= 0.0f) drink *= 1.0f - Smooth((g.t - g.siphonEndAt) / kSiphonTailEnd);
+        if (g.spoutAt >= 0.0f) {
+            const float u = g.t - g.spoutAt;
+            swell = u < g_Tune.spoutSwell ? Smooth(u / g_Tune.spoutSwell)
+                                          : 1.0f - Smooth((u - g_Tune.spoutSwell) / 0.3f);
+        }
+    }
+    if (s_drinkLast >= 0.0f)
+        s_drinkSpin += std::clamp(visualTime - s_drinkLast, 0.0f, 0.1f) * (drink - 0.8f * swell) * 7.0f * g.swirl;
+    s_drinkLast = visualTime;
+    const float va = m->normaVisualAngle + s_drinkSpin;
     const float lensR[3] = { 0.66f, 0.45f, 0.25f }, lensW[3] = { 2.0f, 1.1f, 1.6f }, lensA[3] = { 0.9f, 0.55f, 0.9f };
     const float half = 0.6f + (0.7853982f - 0.6f) * sn;
     for (int i = 0; i < 3; ++i) {
-        const float rr = R * lensR[i] * (1.0f + 0.10f * open);
+        const float rr = R * lensR[i] * (1.0f + 0.10f * open) * (1.0f - (0.10f + 0.06f * (float)i) * drink) *
+                         (1.0f + (0.12f + 0.06f * (float)i) * swell);
         const float w = lensW[i] + (i == 0 ? 0.6f * sn : 0.0f);
         for (int k = 0; k < 4; ++k) {
             const float mid = (i == 1 ? -va : va) * 0.6f + 0.3f + 1.5707963f * (float)k;

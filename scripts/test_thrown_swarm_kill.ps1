@@ -18,15 +18,14 @@ try {
     & "$out\thrown_swarm_kill_test.exe"
     if ($LASTEXITCODE -ne 0) { throw 'Thrown swarm kill regression failed' }
 
-    # The three entry paths reach CollectMonsterKill; only it decides the
+    # The two entry paths reach CollectMonsterKill; only it decides the
     # thrown-Swarm exception. REG-01 exercises each path at runtime.
-    $expected = @{ 'WiNILL\main.cpp' = 1; 'WiNILL\Entity\KillRewards.h' = 1;
-                   'WiNILL\Entity\CollisionSystem.h' = 1 }
+    $expected = @{ 'WiNILL\main.cpp' = 1; 'WiNILL\Entity\CollisionSystem.h' = 1 }
     foreach ($file in $expected.Keys) {
         $count = @(Select-String -Path $file -Pattern '^\s*(?!inline).*\bCollectMonsterKill\(').Count
         if ($count -ne $expected[$file]) { throw "$file has $count CollectMonsterKill calls, expected $($expected[$file])" }
     }
     $central = @(Select-String -Path 'WiNILL\Entity\CollisionSystem.h' -Pattern '^\s*CreditThrownSwarmKill\(').Count
     if ($central -ne 1) { throw "expected one central thrown-Swarm branch, found $central" }
-    Write-Host 'source check: 3 entry paths share one thrown-Swarm branch'
+    Write-Host 'source check: 2 entry paths share one thrown-Swarm branch'
 } finally { Pop-Location }

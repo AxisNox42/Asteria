@@ -77,13 +77,6 @@ static void CheckDifficulty() {
     const int n = caelum::Neighbours(cell, nb);
     for (int k = 0; k < n; ++k) if (caelum::g.cells[nb[k]].state != caelum::CellState::Clean) ++leaked;
     Check(leaked == 0, "EASY: bad sectors do not leak");
-    caelum::g.phase = 2;
-    bool drag = false;
-    for (int k = 0; k < 40; ++k) {
-        caelum::g.count = k;
-        drag = drag || caelum::PickPattern() == caelum::Pattern::Drag;
-    }
-    Check(!drag, "EASY: phase 2 never drags the body");
     Check(caelum::g_Tune.erodeAfter == 0.0f, "EASY: no erosion");
     caelum::SetDifficulty(3);
     Check(caelum::g_Tune.shotSpeed > caelum::kShotSpeed && caelum::g_Tune.warn < caelum::kWarn,

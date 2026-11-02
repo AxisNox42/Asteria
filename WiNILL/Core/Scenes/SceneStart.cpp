@@ -2,7 +2,6 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include "GameManager.h"
-#include "SceneSkills.h"
 #include "SceneUI.h"
 #include "SceneInternal.h"
 #include "UiLayout.h"
@@ -30,7 +29,6 @@
 #include "Camera.h"
 #include "EntityDraw.h"
 #include "Monster.h"
-#include "AugmentSlots.h"
 #include "../../Render/Juice.h"
 #include <algorithm>
 #include <vector>

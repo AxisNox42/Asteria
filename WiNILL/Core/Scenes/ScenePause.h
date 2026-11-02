@@ -10,7 +10,6 @@ struct PauseSceneContext {
     GameState& currentState;
     GameState& resumeState;
     GameState& settingsReturnState;
-    bool& showOwnedAugments;
     bool previousLeftMouseDown;
     SceneTextContext text;
     void (*resetSettingsUi)(float);

@@ -5,7 +5,6 @@
 #include "GameContext.h"
 #include "../../Render/WaveHud.h"
 #include "ScenePause.h"
-#include "SceneSkills.h"
 #include "SceneUI.h"
 #include "SceneInternal.h"
 #include "ReadyLaunch.h"
@@ -34,7 +33,6 @@
 #include "Camera.h"
 #include "EntityDraw.h"
 #include "Monster.h"
-#include "AugmentSlots.h"
 #include "../../Render/Juice.h"
 #include <algorithm>
 #include <vector>
@@ -45,40 +43,32 @@
 #include "SceneInternal.h"
 
 namespace {
-enum class PauseAction : int { Resume, OpenSettings, ViewAugments, Abandon, MainMenu };
+enum class PauseAction : int { Resume, OpenSettings, Abandon, MainMenu };
 // The run's pause menu and the tutorial's (opened from the practice field, where
 // resuming returns to the field) list different rows.
 constexpr PauseAction kRunActions[] = {
-    PauseAction::Resume, PauseAction::OpenSettings,
-    PauseAction::ViewAugments, PauseAction::Abandon };
+    PauseAction::Resume, PauseAction::OpenSettings, PauseAction::Abandon };
 constexpr PauseAction kTutorialActions[] = {
     PauseAction::Resume, PauseAction::OpenSettings, PauseAction::MainMenu };
-constexpr int kPauseActionCount = 4;   // most rows any menu has
+constexpr int kPauseActionCount = 3;   // most rows any menu has
 
 void ApplyPauseAction(PauseAction action, const SceneCtx& scene,
                       const PauseSceneContext& state) {
     switch (action) {
     case PauseAction::Resume:
-        state.showOwnedAugments = false;
         state.currentState = state.resumeState;
         state.resumeState = GameState::RUNNING;
         break;
     case PauseAction::OpenSettings:
-        state.showOwnedAugments = false;
         state.settingsReturnState = GameState::PAUSED;
         if (state.resetSettingsUi) state.resetSettingsUi(0.0f);
         state.currentState = GameState::SETTINGS;
         break;
-    case PauseAction::ViewAugments:
-        state.showOwnedAugments = true;
-        break;
     case PauseAction::Abandon:
-        state.showOwnedAugments = false;
         if (scene.abandonRun) scene.abandonRun();
         break;
     case PauseAction::MainMenu:
         // Leaves the tutorial for the lobby, as ESC on the field used to.
-        state.showOwnedAugments = false;
         ready_launch::CancelLaunch();
         ready_launch::g_TutorialMode = false;
         state.currentState = GameState::MAIN_MENU;
@@ -97,7 +87,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     (void)c.reset;
     const bool tutorialPause = state.resumeState == GameState::READY;
     const PauseAction* actions = tutorialPause ? kTutorialActions : kRunActions;
-    const int actionCount = tutorialPause ? 3 : 4;
+    const int actionCount = 3;
 
     static float  s_EntryT    = 0.0f;
     static float  s_HoverT[kPauseActionCount] = {};
@@ -151,16 +141,6 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     const float btnY0   = sh * 0.42f;
     const float titleY  = sh * 0.24f;
 
-    // ESC inside the inventory is handled by GameManager::HandleInput.
-    if (state.showOwnedAugments) {
-        static float s_InventoryBackHover = 0.0f;
-        BindMainShader();
-        if (DrawBottomLeftBackButton(s_InventoryBackHover, sw, sh, uiScale,
-                                     mx, my, lmb, state.previousLeftMouseDown,
-                                     entryFade, fnow, delta))
-            state.showOwnedAugments = false;
-        return;
-    }
     // 좌측 앵커 라인 + 다이아몬드 (메인메뉴와 동일)
     {
         const float anchorX = btnX0 - 36.0f;
@@ -199,10 +179,10 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
 
     // 버튼
     // Indexed by PauseAction. MAIN MENU is the results screen's own wording.
-    static const wchar_t* kPauseRoutes[LANG_COUNT][5] = {
-        { L"계속하기", L"설정", L"보유 증강", L"\uD3EC\uAE30\uD558\uAE30", L"메인 메뉴" },
-        { L"CONTINUE", L"SETTINGS", L"AUGMENTS", L"ABANDON", L"MAIN MENU" },
-        { L"続ける", L"設定", L"所持強化", L"\u653E\u68C4\u3059\u308B", L"メインメニュー" },
+    static const wchar_t* kPauseRoutes[LANG_COUNT][4] = {
+        { L"계속하기", L"설정", L"\uD3EC\uAE30\uD558\uAE30", L"메인 메뉴" },
+        { L"CONTINUE", L"SETTINGS", L"ABANDON", L"MAIN MENU" },
+        { L"続ける", L"設定", L"\u653E\u68C4\u3059\u308B", L"メインメニュー" },
     };
     const int pauseLang = std::clamp(LangIndex(), 0, LANG_COUNT - 1);
 
@@ -258,13 +238,6 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
             }
         }
     }
-
-    // Debuff record, to the right of the buttons.
-    if (!tutorialPause)
-        DrawWaveDebuffLog(state.text.body, g_GameManager, btnX0 + BW + 90.0f * uiScale,
-                          titleY, sh - 40.0f * uiScale,
-                          UiTextScale(state.text.body, UiTextLevel::Supporting, uiScale) * 1.3f,
-                          0.88f * entryFade);
 
     if (s_ConfirmAbandon) {
         const ConfirmChoice answer = DrawConfirmDialog(

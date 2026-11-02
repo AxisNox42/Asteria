@@ -3,7 +3,6 @@
 #include <GLFW/glfw3.h>
 #include "GameManager.h"
 #include "GameContext.h"
-#include "SceneSkills.h"
 #include "SceneUI.h"
 #include "UiLayout.h"
 #include "WindowChrome.h"
@@ -32,7 +31,6 @@
 #include "Camera.h"
 #include "EntityDraw.h"
 #include "Monster.h"
-#include "AugmentSlots.h"
 #include "../../Render/Juice.h"
 #include <algorithm>
 #include <vector>

@@ -92,15 +92,10 @@ inline bool ComboIsMilestone(int c) {
     return c == 10 || c == 25 || c == 50 || c == 100 ||
            (c > 100 && c % 50 == 0);
 }
-// 무한 세례(신화) — 처치 수 누적, main 의 탄환세례 업데이트가 소비해 쿨다운 감소
-inline float g_RainKillAccum = 0.0f;
-// countsForRain=false: the combo only, no 무한 세례 kill (thrown Genesis
-// Swarms — CreditThrownSwarmKill).
-inline void AddKillCombo(bool countsForRain = true) {
+inline void AddKillCombo() {
     ++g_Combo;
     g_ComboTimer = COMBO_WINDOW;
     g_ComboPulse = 1.0f;
-    if (countsForRain) g_RainKillAccum += 1.0f;   // 처치 1건 (무한 세례용)
     Audio::PlaySfx(Audio::Sfx::Kill);   // 적 처치음
     // 콤보 마일스톤(10/25/50/100/…) — 카운터 강조 연출 + 칩 사운드 (전체화면 번쩍 X — 눈뽕 방지)
     if (ComboIsMilestone(g_Combo)) {
@@ -152,7 +147,6 @@ inline void ResetJuice() {
     g_Trail.clear();
     g_Combo = 0; g_ComboTimer = 0.0f; g_ComboPulse = 0.0f;
     g_ComboMilestone = 0.0f;
-    g_RainKillAccum = 0.0f;
     g_HitStopTimer = 0.0f;
     g_FlashIntensity = 0.0f;
     ResetEnemyFx();

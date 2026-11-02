@@ -181,7 +181,6 @@
     <ClCompile Include="..\glad.c" />
     <ClCompile Include="Core\GameManager.cpp" />
     <ClCompile Include="Core\Scenes\SceneBoot.cpp" />
-    <ClCompile Include="Core\Scenes\SceneSkills.cpp" />
     <ClCompile Include="Core\Scenes\SceneUI.cpp" />
     <ClCompile Include="Core\Scenes\SceneSettings.cpp" />
     <ClCompile Include="Core\Scenes\SceneRunConfig.cpp" />
@@ -194,6 +193,8 @@
     <ClCompile Include="Core\Scenes\WindowChrome.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Entity\AugmentCatalog.cpp" />
+    <ClCompile Include="Entity\PassiveAugments.cpp" />
+    <ClCompile Include="Entity\ActiveSkills.cpp" />
     <ClCompile Include="Entity\PlayerRuntime.cpp" />
     <ClCompile Include="Entity\EnemySpawner.cpp" />
     <ClCompile Include="Entity\ProjectileSystem.cpp" />
@@ -230,7 +231,6 @@
     <ClInclude Include="Core\Scenes\SceneStart.h" />
     <ClInclude Include="Core\Scenes\SceneTextContext.h" />
     <ClInclude Include="Core\Scenes\SceneInternal.h" />
-    <ClInclude Include="Core\Scenes\SceneSkills.h" />
     <ClInclude Include="Core\Scenes\SceneUI.h" />
     <ClInclude Include="Core\Scenes\Scenes.h" />
     <ClInclude Include="Core\Scenes\WindowChrome.h" />
@@ -240,10 +240,12 @@
     <ClInclude Include="Core\WaveSystem.h" />
     <ClInclude Include="Core\Meta.h" />
     <ClInclude Include="Entity\Augment.h" />
-    <ClInclude Include="Core\AugmentSlots.h" />
+    <ClInclude Include="Entity\PassiveAugments.h" />
+    <ClInclude Include="Entity\PassiveHooks.h" />
+    <ClInclude Include="Entity\ActiveSkills.h" />
+    <ClInclude Include="Entity\AugmentCombat.h" />
     <ClInclude Include="Entity\Bullet.h" />
     <ClInclude Include="Entity\CollisionSystem.h" />
-    <ClInclude Include="Entity\KillRewards.h" />
     <ClInclude Include="Entity\RunStats.h" />
     <ClInclude Include="Core\RunResult.h" />
     <ClInclude Include="System\SettingsSnapshot.h" />

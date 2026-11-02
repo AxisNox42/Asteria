@@ -65,43 +65,29 @@ inline const wchar_t* kReadyObjective[LANG_COUNT][READY_OBJECTIVE_COUNT] = {
     { L"Move", L"Shoot", L"Dash", L"Defeat Swarms" },
     { L"移動する", L"射撃する", L"ダッシュする", L"スウォーム撃破" },
 };
-// Steps 5 and 6 (the real augment and wave-nerf selections; ReadyLaunch.h).
-inline constexpr int READY_EXTRA_OBJECTIVE_COUNT = 2;
+// Step 5 (the real card selection; ReadyLaunch.h).
+inline constexpr int READY_EXTRA_OBJECTIVE_COUNT = 1;
 inline const wchar_t* kReadyExtraObjective[LANG_COUNT][READY_EXTRA_OBJECTIVE_COUNT] = {
-    { L"증강 선택", L"너프 선택" },
-    { L"Pick an augment", L"Pick a nerf" },
-    { L"強化を選ぶ", L"ナーフを選ぶ" },
+    { L"카드 선택" },
+    { L"Pick a card" },
+    { L"カードを選ぶ" },
 };
-// Hint inside the field: [0] level-up (augment cards), [1] wave clock running
-// ({N} = seconds left), [2] wave over (nerf cards).
-inline constexpr int READY_EXTRA_HINT_COUNT = 3;
+// Hint inside the field: [0] level-up (card screen).
+inline constexpr int READY_EXTRA_HINT_COUNT = 1;
 inline const wchar_t* kReadyExtraHint[LANG_COUNT][READY_EXTRA_HINT_COUNT] = {
-    { L"레벨 업! 증강 카드 3장 중 1장을 고르세요",
-      L"웨이브 종료까지 {N}초 — 끝나면 너프 3장 중 1장을 고릅니다",
-      L"웨이브 종료! 너프 카드를 고르세요" },
-    { L"Level up! Pick 1 of 3 augment cards",
-      L"{N} s left in the wave — then you pick 1 of 3 nerfs",
-      L"Wave over! Pick a nerf card" },
-    { L"レベルアップ！強化カード3枚から1枚を選ぼう",
-      L"ウェーブ終了まで{N}秒 — 終わるとナーフ3枚から1枚を選びます",
-      L"ウェーブ終了！ナーフカードを選ぼう" },
+    { L"레벨 업! 능력치 카드 3장 중 1장을 고르세요" },
+    { L"Level up! Pick 1 of 3 stat cards" },
+    { L"レベルアップ！能力値カード3枚から1枚を選ぼう" },
 };
-// Two-line explanation under the field: [0] augments (while picking), [1] nerfs
-// (during the wave clock and the nerf pick).
-inline constexpr int READY_PICK_NOTE_COUNT = 2;
+// Two-line explanation under the field: [0] cards (while picking).
+inline constexpr int READY_PICK_NOTE_COUNT = 1;
 inline const wchar_t* kReadyPickNote[LANG_COUNT][READY_PICK_NOTE_COUNT][2] = {
-    { { L"증강 — 레벨 업마다 3장 중 1장을 얻는 강화입니다. 이번 판 내내 유지되어 빌드를 만듭니다",
-        L"별자리를 클릭하거나 1·2·3 키로 고르고 Space로 확정하세요 — 마우스를 올리면 효과가 보입니다" },
-      { L"너프 — 새 웨이브마다 하나씩 받는 불리한 효과입니다. 그 웨이브가 끝나면 사라집니다",
-        L"가장 견딜 만한 것을 고르세요 — 증강으로 상쇄하거나 플레이로 대응할 수 있습니다" } },
-    { { L"Augments — take 1 of 3 on every level-up. They last the whole run and shape your build",
-        L"Click a constellation or press 1·2·3, then confirm with Space — hover to see its effect" },
-      { L"Nerfs — a drawback you take at the start of each wave. It ends when that wave ends",
-        L"Pick the one you can live with — offset it with augments or play around it" } },
-    { { L"強化 — レベルアップごとに3枚から1枚を得ます。その回の間ずっと続き、ビルドを作ります",
-        L"星座をクリックするか1·2·3キーで選び、Spaceで確定 — マウスを重ねると効果が見えます" },
-      { L"ナーフ — 新しいウェーブごとに1つ受ける不利な効果です。そのウェーブが終わると消えます",
-        L"耐えやすいものを選びましょう — 強化で相殺するか、プレイで対応できます" } },
+    { { L"레벨 업마다 능력치 카드 3장 중 1장, 웨이브 클리어마다 증강 카드 5장 중 1장을 얻습니다",
+        L"카드를 클릭하거나 숫자 키로 고르고 Space로 확정하세요 — 효과는 카드에 적혀 있습니다" } },
+    { { L"Each level-up gives 1 of 3 stat cards; each wave clear gives 1 of 5 augment cards",
+        L"Click a card or press its number, then confirm with Space — each card lists its effect" } },
+    { { L"レベルアップごとに能力値カード3枚から1枚、ウェーブクリアごとに強化カード5枚から1枚を得ます",
+        L"カードをクリックするか数字キーで選び、Spaceで確定 — 効果はカードに書かれています" } },
 };
 inline const wchar_t* ReadyPickNote(int block, int line) {
     if (block < 0 || block >= READY_PICK_NOTE_COUNT || line < 0 || line >= 2) return L"";
@@ -240,8 +226,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"마우스를 카드·아이콘 위에 올리면 상세 설명이 표시됩니다",
 
         L"적 처치 → 경험치(EXP) → 레벨업 / "
-        L"레벨업하면 증강 카드 3장이 자동으로 열립니다 / "
-        L"숫자키 1·2·3으로 후보를 고르고 Space로 확정합니다 / "
+        L"레벨업하면 증강 카드 5장이 자동으로 열립니다 / "
+        L"숫자키 1~5로 후보를 고르고 Space로 확정합니다 / "
         L"증강은 공격·방어·이동·스킬·경제 등 빌드를 결정합니다. 중복·시너지를 고려하세요 / "
         L"일부 증강은 {SKILLS} 액티브를 해금하거나 기존 스킬을 강화합니다 / "
         L"도감에서 이미 본 증강은 이름·효과를 미리 확인할 수 있습니다(미발견은 ???)",
@@ -286,8 +272,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"Hover cards and icons for full descriptions",
 
         L"Kills → XP → level-up / "
-        L"On level-up, 3 augment cards open on their own / "
-        L"Keys 1·2·3 select; Space confirms / "
+        L"On level-up, 5 augment cards open on their own / "
+        L"Keys 1-5 select; Space confirms / "
         L"Augments define your build: damage, defense, mobility, skills, economy / "
         L"Some unlock or upgrade {SKILLS} actives / "
         L"Codex shows discovered augments in detail; unknown ones stay hidden",
@@ -332,8 +318,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"カード·アイコンにホバーで詳細表示",
 
         L"撃破→経験値→レベルアップ / "
-        L"レベルアップすると強化カード3枚が自動で開きます / "
-        L"1·2·3で選択、Spaceで確定 / "
+        L"レベルアップすると強化カード5枚が自動で開きます / "
+        L"1〜5で選択、Spaceで確定 / "
         L"強化は攻撃·防御·移動·スキル·経済などビルドを決めます / "
         L"一部は{SKILLS}アクティブの解放·強化になります / "
         L"図鑑で発見済み強化の説明を確認(未発見は???)",

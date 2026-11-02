@@ -3,11 +3,9 @@
 // READY practice-field state. The READY screen is the lobby's TUTORIAL: it is
 // opened from the lobby button; Space launches an Easy run, ESC returns to the
 // lobby. PLAY goes straight to RUNNING and never shows it.
-//   Steps 1-4 are the practice objectives (Core/ReadyPractice.h). The two that
-//   follow use the game's real selection screens:
-//     5  AugPick   the fourth kill levels the ship up and the augment cards open
-//     6  NerfWait  a wave clock with kNerfWaitSeconds left runs out, then the
-//        NerfPick  wave-boundary nerf cards open exactly as at a real wave end
+//   Steps 1-4 are the practice objectives (Core/ReadyPractice.h). The one that
+//   follows uses the game's real selection screen:
+//     5  AugPick   the fourth kill levels the ship up and the card screen opens
 // No GL and no game headers.
 // ─────────────────────────────────────────────────────────────
 
@@ -16,19 +14,11 @@ namespace ready_launch {
 // True while the READY practice field is open as the lobby tutorial.
 inline bool g_TutorialMode = false;
 
-enum class TutorialStage { Practice, AugPick, NerfWait, NerfPick, Done };
+enum class TutorialStage { Practice, AugPick, Done };
 inline TutorialStage g_Stage = TutorialStage::Practice;
 
-// Seconds the step-6 wave clock has left when it starts.
-inline constexpr float kNerfWaitSeconds = 4.0f;
-inline float g_NerfClock = kNerfWaitSeconds;
-
-// Set by the READY scene when the wave clock runs out; the main loop opens the
-// nerf pick (the same call a real wave boundary makes) and clears it.
-inline bool g_RequestNerfPick = false;
-
-// A card or nerf was taken during the tutorial, so the run launched from here
-// must start from a clean loadout instead of carrying them over.
+// A card was taken during the tutorial, so the run launched from here must
+// start from a clean loadout instead of carrying it over.
 inline bool g_PicksTaken = false;
 
 // Space on the practice field does not start the run at once: the field's wall
@@ -55,13 +45,10 @@ inline void CancelLaunch() { g_LaunchT = -1.0f; }
 inline void BeginTutorial() {
     g_LaunchT = -1.0f;
     g_Stage = TutorialStage::Practice;
-    g_NerfClock = kNerfWaitSeconds;
-    g_RequestNerfPick = false;
     g_PicksTaken = false;
 }
 
-// Set by the main loop for the frames a tutorial card screen (augment or nerf
-// pick) is up. The READY scene then only draws, and the card screen is drawn
+// Set by the main loop for the frames the tutorial card screen is up. The READY scene then only draws, and the card screen is drawn
 // mini-sized inside the practice field.
 inline bool g_SelectionUp = false;
 
@@ -88,7 +75,7 @@ inline constexpr float kCardScreenScale = 0.68f;
 
 // True while a selection screen opened by the tutorial is up (or about to be).
 inline bool SelectionOpen() {
-    return g_Stage == TutorialStage::AugPick || g_Stage == TutorialStage::NerfPick;
+    return g_Stage == TutorialStage::AugPick;
 }
 
 } // namespace ready_launch

@@ -148,7 +148,6 @@ void FinalizeLoadout(const SceneCtx& c, int wIdx, bool tutorial) {
     fireTimer = g_Stats.fireInterval;
     g_GameManager.maxHP    = g_Stats.maxHP;
     g_GameManager.playerHP = g_Stats.maxHP;
-    g_PrevHP               = g_Stats.maxHP;
     ready_launch::g_TutorialMode = tutorial;
     if (tutorial) {
         ready_launch::BeginTutorial();

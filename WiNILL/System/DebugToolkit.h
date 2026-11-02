@@ -15,7 +15,6 @@
 // Runtime-only developer tooling. The toolkit deliberately owns no gameplay
 // state; it edits the references supplied by the main loop and reports
 // actions back through these callbacks.
-enum class DebugAugmentAction { Toggle, Add, Remove, Clear, Draw, Grant, OpenSelection, FillSlots };
 
 struct DebugToolkitContext {
     PlayerStats* stats = nullptr;
@@ -35,8 +34,6 @@ struct DebugToolkitContext {
     // PLAY constellation orbit rings toggle (Stats tab); not saved.
     bool* constellationOrbits = nullptr;
     std::function<void()> advanceWave;
-    const std::vector<int>* ownedAugments = nullptr;
-    std::function<bool(DebugAugmentAction, int)> editAugment;
     // Boss category of the spawn tab: 0 NORMA, 1 CAELUM (returns how many came in).
     std::function<int(int boss)> spawnBoss;
     // NORMA's test window (Boss category); true when one opened.
@@ -75,10 +72,6 @@ public:
     void CaptureFrameAfterRender(int width, int height, GameState renderedState);
 
     const std::wstring& LastMessage() const { return lastMessage_; }
-    bool IsAugmentSearchActive() const;
-    void InsertAugmentSearchText(const std::wstring& text);
-    void SetAugmentSearchComposition(const std::wstring& text) { augmentComposition_ = text; }
-    void EditAugmentSearch(int key, bool selectAll);
 
 private:
     enum class FieldType { Float, Int, Bool, LongLong };
@@ -97,13 +90,6 @@ private:
     int selectedMob_ = -1;
     int spawnCategory_ = 0;   // 0 regular, 1 elite, 2 boss
     int spawnCount_ = 1;
-    int augmentOffset_ = 0;
-    int selectedAugment_ = -1;
-    int augmentFilter_ = 0; // all, owned, then AugRarity + 2
-    bool augmentSearchFocused_ = false;
-    bool augmentSearchSelectAll_ = false;
-    std::wstring augmentSearch_;
-    std::wstring augmentComposition_;
 
     bool editing_ = false;
     bool replaceEditBuffer_ = false;
@@ -127,11 +113,6 @@ private:
     void BeginRuntimeEdit(int runtimeIndex);
     void ApplyFieldEdit();
     void HandleNumericKeys(GLFWwindow* window);
-    std::vector<int> FilteredAugments() const;
-    int AugmentCount(int index) const;
-    bool CanEditAugments() const;
-    void ApplyAugmentAction(DebugAugmentAction action, int index = -1);
-    void RenderAugmentTab(float x, float y, float w, float h);
     void RenderStatsTab(float x, float y, float w, float h,
                         float mouseX, float mouseY,
                         bool click);

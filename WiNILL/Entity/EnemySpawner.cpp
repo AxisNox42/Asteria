@@ -25,6 +25,7 @@ struct EnemySpawnState {
     // run so the HUD can mark it before the elite enters.
     unsigned char elitePick[kMaxWaves + 1] = {};
     const Monster* eliteMob = nullptr;   // the scheduled elite while alive
+    MobKind eliteKind = MobKind::ROTOR;  // what the current wave's elite is
     int lastBossWave = 0;                // the boss wave that already got its boss
     // The run's bosses, rolled when it starts: the final one is NORMA or
     // CAELUM; every mid-run boss wave brings the other one.
@@ -55,15 +56,10 @@ static MobKind MobKindFor(RosterKind kind) {
 
 // Converts a freshly spawned ROTOR into this wave's pick from the roster
 // (EnemyRoster.h holds each enemy's first wave per difficulty and its odds).
-static void SpecializeRegularMob(Monster& mob, int wave, Difficulty difficulty,
-                                 float rotorHpMultiplier) {
+static void SpecializeRegularMob(Monster& mob, int wave, Difficulty difficulty) {
     const RosterKind pick = RosterPickRegular(wave, (int)difficulty, rand() % 100);
-    if (pick != RosterKind::ROTOR) {
+    if (pick != RosterKind::ROTOR)
         mob.MakeKind(MobKindFor(pick));
-        return;
-    }
-    // MakeKind scales HP, so the rotor-only augment applies after conversion.
-    mob.hp *= rotorHpMultiplier;
 }
 
 // Every elite wave, on every difficulty, brings one of these at random.
@@ -115,16 +111,22 @@ static void SpawnScheduledElite(MonsterManager& monsters, int screenWidth,
     }
     g_EnemySpawnState.lastEliteWave = wave;
     g_EnemySpawnState.eliteMob = &mob;
+    g_EnemySpawnState.eliteKind = elite;
     BeginWaveObjective(WaveObjective::Elite, wave, gameTime);
 }
 
 // Drops the elite handle once it is no longer a living member of the field.
+// An Antares lives on in its split fragments: the handle moves to one of them
+// until the last falls, so the wave waits for the whole elite.
 static void TrackScheduledElite(const MonsterManager& monsters) {
     const Monster* elite = g_EnemySpawnState.eliteMob;
     if (!elite) return;
     for (const Monster* mob : monsters.monsters)
         if (mob == elite && mob->alive) return;
     g_EnemySpawnState.eliteMob = nullptr;
+    if (g_EnemySpawnState.eliteKind != MobKind::ANTARES) return;
+    for (const Monster* mob : monsters.monsters)
+        if (mob->alive && mob->kind == MobKind::ANTARES) { g_EnemySpawnState.eliteMob = mob; return; }
 }
 
 // A boss enters once per boss wave, at its start, from above the middle of
@@ -161,13 +163,12 @@ void DebugSpawnNorma(MonsterManager& monsters, int screenWidth, float hpMultipli
                      Difficulty difficulty) {
     if (g_EnemySpawnState.normaSpawned && !g_EnemySpawnState.normaDefeated) return;
     g_EnemySpawnState.normaDefeated = false;
-    const float bossWaveStart = NominalWaveStartSeconds(FinalWaveCount(difficulty), difficulty);
-    const EnemyProgression ramp = EvaluateEnemyProgression(bossWaveStart, 0, 0,
-                                                           BalanceFor((int)difficulty));
+    const float rampHp = EnemyWaveHpMultiplier(FinalWaveCount(difficulty), difficulty,
+                                               BalanceFor((int)difficulty));
     // Hand testing: this NORMA is the run's final boss (its fall wins).
     g_EnemySpawnState.finalBoss = MobKind::NORMA;
     g_EnemySpawnState.midBoss = MobKind::CAELUM;
-    PlaceNormaBoss(monsters, screenWidth, hpMultiplier * ramp.hpMultiplier, true, MobKind::NORMA, difficulty);
+    PlaceNormaBoss(monsters, screenWidth, hpMultiplier * rampHp, true, MobKind::NORMA, difficulty);
 }
 
 void DebugSpawnCaelum(MonsterManager& monsters, int screenWidth, float hpMultiplier,
@@ -180,10 +181,9 @@ void DebugSpawnCaelum(MonsterManager& monsters, int screenWidth, float hpMultipl
     int bossWave = FinalWaveCount(difficulty);
     for (int i = 0; i < schedule.bossCount; ++i)
         if (!IsFinalBossWave(schedule.bossWaves[i], difficulty)) { bossWave = schedule.bossWaves[i]; break; }
-    const float bossWaveStart = NominalWaveStartSeconds(bossWave, difficulty);
-    const EnemyProgression ramp = EvaluateEnemyProgression(bossWaveStart, 0, 0,
-                                                           BalanceFor((int)difficulty));
-    PlaceNormaBoss(monsters, screenWidth, hpMultiplier * ramp.hpMultiplier, false, MobKind::CAELUM, difficulty);
+    const float rampHp = EnemyWaveHpMultiplier(bossWave, difficulty,
+                                               BalanceFor((int)difficulty));
+    PlaceNormaBoss(monsters, screenWidth, hpMultiplier * rampHp, false, MobKind::CAELUM, difficulty);
 }
 
 // Looked up by kind rather than by pointer: dead mobs are freed elsewhere.
@@ -240,8 +240,12 @@ bool DebugClearWaveObjective(MonsterManager& monsters, float gameTime) {
     EnemySpawnState& s = g_EnemySpawnState;
     if (s.objectiveWave != s.currentWave) return false;
     if (s.objective == WaveObjective::Elite) {
+        // An Antares goes with all its fragments.
         for (Monster* mob : monsters.monsters)
-            if (mob == s.eliteMob && mob->alive) { mob->alive = false; mob->scored = true; }
+            if (mob->alive && (mob == s.eliteMob ||
+                               (s.eliteKind == MobKind::ANTARES && mob->kind == MobKind::ANTARES))) {
+                mob->alive = false; mob->scored = true; mob->noBlast = true;
+            }
         s.eliteMob = nullptr;
     } else if (s.objective == WaveObjective::MidBoss) {
         for (Monster* mob : monsters.monsters)
@@ -252,6 +256,15 @@ bool DebugClearWaveObjective(MonsterManager& monsters, float gameTime) {
     }
     TrackWaveObjective(gameTime);
     return true;
+}
+
+void DebugHoldWave(int wave) {
+    EnemySpawnState& s = g_EnemySpawnState;
+    s.lastEliteWave = s.lastBossWave = wave;
+    s.eliteMob = nullptr;
+    s.objective = WaveObjective::None;
+    s.objectiveWave = 0;
+    s.clear = {};
 }
 
 bool NormaDefeated() { return g_EnemySpawnState.normaDefeated; }
@@ -308,12 +321,9 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
     const float waveCurve = WaveCurveMult(balance, waveSeconds / WAVE_CURVE_SECONDS);
     const int baseWaveSpawnCap = static_cast<int>(
         (100 + 12 * (wave - 1)) * difficultyParams.waveSpawnCapMultiplier + 0.5f);
-    const int waveSpawnCap = std::max(1, baseWaveSpawnCap +
-        stats.mobCapBonus + stats.rmobMaxBonus + TrialRangedMaxBonus(score));
-    const EnemyProgression progression = EvaluateEnemyProgression(
-        gameTime, score, stats.mobCapBonus, balance);
-    const float hpMultiplier = stats.monsterHpMult * difficultyParams.enemyHpMultiplier *
-        progression.hpMultiplier * TrialEnemyHpMult(score);
+    const int waveSpawnCap = std::max(1, baseWaveSpawnCap + TrialRangedMaxBonus(score));
+    const float hpMultiplier = difficultyParams.enemyHpMultiplier *
+        EnemyWaveHpMultiplier(wave, difficulty, balance) * TrialEnemyHpMult(score);
 
     TrackScheduledElite(monsters);
     TrackNormaBoss(monsters);
@@ -338,7 +348,7 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         SpecialWaveSpawnStretch(wave, difficulty, SpawnSource::Ranged));
     g_EnemySpawnState.mobTimer += delta * waveCurve;
     const float spawnInterval = std::max(0.05f,
-        2.4f * balance.spawnInterval * stats.mobSpawnMult * kEnemySpawnIntervalScale *
+        2.4f * balance.spawnInterval * kEnemySpawnIntervalScale *
         bossStretch / std::max(0.01f, spawnPressure * TrialSpawnRateMult(score) *
                                difficultyParams.spawnRateMultiplier * balanceRate));
     if (g_EnemySpawnState.spawnedThisWave < waveSpawnCap &&
@@ -347,8 +357,7 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         monsters.SpawnMob(screenWidth, screenHeight,
                           (int)before + 1, hpMultiplier);
         if (monsters.monsters.size() > before) {
-            SpecializeRegularMob(*monsters.monsters.back(), wave,
-                                 difficulty, stats.rotorHpMult);
+            SpecializeRegularMob(*monsters.monsters.back(), wave, difficulty);
             ++g_EnemySpawnState.spawnedThisWave;
             g_EnemySpawnState.mobTimer -= spawnInterval;
         }
@@ -361,8 +370,7 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         return;
     }
     g_EnemySpawnState.rangedTimer += delta * waveCurve;
-    float rangedInterval = 5.0f * TrialRangedIntervalMult(score) -
-        stats.rmobSpawnDelayBonus;
+    float rangedInterval = 5.0f * TrialRangedIntervalMult(score);
     rangedInterval = std::max(1.0f, rangedInterval) /
         std::max(0.01f, spawnPressure * difficultyParams.spawnRateMultiplier *
                         scopeRate * balanceRate) *
@@ -372,8 +380,8 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         g_EnemySpawnState.rangedTimer >= rangedInterval) {
         const size_t before = monsters.rangedMobs.size();
         monsters.SpawnRangedMob(screenWidth, screenHeight,
-                                stats.rmobHpMult * difficultyParams.enemyHpMultiplier *
-                                    progression.hpMultiplier,
+                                difficultyParams.enemyHpMultiplier *
+                                    EnemyWaveHpMultiplier(wave, difficulty, balance),
                                 (int)before + 1);
         if (monsters.rangedMobs.size() > before) {
             ++g_EnemySpawnState.spawnedThisWave;
