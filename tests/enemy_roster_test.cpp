@@ -55,12 +55,13 @@ int main() {
         }
     }
 
-    // No enemy debuts on an elite or boss wave, and every debut is inside the run.
+    // No enemy debuts on a boss wave (nothing regular spawns there), and every
+    // debut is inside the run.
     for (const RosterEntry& entry : kEnemyRoster)
         for (int d = 0; d < kD; ++d) {
             const int first = entry.firstWave[d];
-            EXPECT(first == 0 || !IsSpecialWave(first, static_cast<Difficulty>(d)),
-                   "%s kind %d debuts on elite/boss wave %d",
+            EXPECT(first == 0 || !IsBossWave(first, static_cast<Difficulty>(d)),
+                   "%s kind %d debuts on boss wave %d",
                    kDiff[d], (int)entry.kind, first);
             EXPECT(first <= FinalWave(d), "%s kind %d after the run", kDiff[d], (int)entry.kind);
         }

@@ -14,11 +14,10 @@ static Monster* EnterGenesis(MonsterManager& mm, Difficulty difficulty) {
     constexpr int GENESIS_PICK = 2;                       // kEliteKinds = { QUASAR, REGULUS, GENESIS, ANTARES }
     static_assert(kEliteKinds[GENESIS_PICK] == MobKind::GENESIS, "elite order changed: update this test");
     for (unsigned char& p : g_EnemySpawnState.elitePick) p = GENESIS_PICK;
-    const WaveSchedule& sched = WaveScheduleFor(difficulty);
-    const int wave = sched.eliteWaves[0];
-    const float t = WaveStartTimeSeconds(wave, difficulty) + ELITE_SPAWN_WAVE_SECONDS + 1.0f;
+    const int wave = 1;                                   // every run opens on an elite wave
+    const float waveSeconds = ELITE_SPAWN_DELAY_SECONDS + 1.0f;
     PlayerStats stats;
-    UpdateEnemySpawns(mm, stats, 1280, 720, 0.1f, t, 0, difficulty);
+    UpdateEnemySpawns(mm, stats, 1280, 720, 0.1f, waveSeconds, wave, waveSeconds, 0, difficulty);
     for (Monster* m : mm.monsters) if (m->kind == MobKind::GENESIS) return m;
     return nullptr;
 }

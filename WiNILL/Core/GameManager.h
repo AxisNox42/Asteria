@@ -10,6 +10,12 @@
 #include "LevelUpTransition.h"
 #include "WaveSystem.h"
 
+// A wave reward waiting to open: how fast the wave's target fell sets its tier.
+struct WaveRewardInfo {
+    float killSeconds = 0.0f;
+    bool  boss = false;
+};
+
 enum class GameState {
     MAIN_MENU,         // 시작 메뉴 (시작/설정/종료)
     CREATIVE_CONFIG,   // 크리에이티브 설정 (시작점수/시작증강)
@@ -28,6 +34,7 @@ public:
     float     playerHP   = 100.0f;
     float     maxHP      = 100.0f;   // mirrors PlayerStats::maxHP for HUD
     int       currentWave = 1;
+    float     waveStartTime = 0.0f;   // run clock when currentWave began
     int       waveTransitionFrom = 0;
     float     waveTransitionTimer = 0.0f;
     int       lastWaveDebuff = -1;
@@ -55,7 +62,14 @@ public:
     int       pendingAugIdx = -1;      // AUG_REPLACE: 장착 대기 중인 신규 증강
     int       replaceChoices[32] = {}; // AUG_REPLACE: 교체 후보 (ALL_AUGS 인덱스)
     int       replaceChoiceCount = 0;
-    int       pendingAugmentRewards = 0;
+    int       pendingAugmentRewards = 0;   // level-ups: stat cards
+    // Wave clears: tiered cards from the whole pool (no debuffs). They open
+    // ahead of any queued level-up.
+    static constexpr int kMaxWaveRewards = 8;
+    WaveRewardInfo waveRewardQueue[kMaxWaveRewards] = {};
+    int       pendingWaveRewards = 0;
+    bool      activeRewardIsWave = false;   // the open pick is a wave reward
+    WaveRewardInfo activeWaveReward;
     bool      augmentRewardActive = false;
     LevelUpTransition levelUpTransition;  // slow-mo before the reward opens
     bool      takenOnce[AUG_TOTAL] = {}; // EPIC/LEGENDARY 한 번만
@@ -76,8 +90,11 @@ public:
                           float initialHp = 100.0f,
                           long long initialScore = 0);
     void AddScore(float amount);
-    // 등급 가중치 + takenOnce + 고유 카테고리 잠금 적용한 버프 3장 픽
-    void PickAugChoices(bool sizeTaken = false);
+    // Level-up pick: three stat cards (StatCardAug).
+    void PickLevelUpChoices(bool sizeTaken = false);
+    // Wave-clear pick: three cards from the pool (no debuffs), one of them
+    // guaranteed at the tier the kill time earned, the rest leaning upward.
+    void PickWaveRewardChoices(const WaveRewardInfo& reward, bool sizeTaken = false);
     // n장만 픽 (RANDOM_AUG·PANDORA·CHAOS용)
     int  PickRandomAugIndices(int* outArr, int n,
                               bool sizeTaken = false,
@@ -86,7 +103,10 @@ public:
     // 디버프만 n개 픽 (PANDORA / CHAOS 의 디버프 슬롯용)
     int  PickRandomDebuffIndices(int* outArr, int n);
     void QueueAugmentReward();
+    void QueueWaveReward(float killSeconds, bool boss);
     bool ActivateNextAugmentReward();
+    // The open reward pick was taken: drop it from its queue.
+    void ConsumeActiveReward();
     // Opens the card screen with exactly these cards (the lobby tutorial's fixed
     // augment and nerf picks); a debuff opens the nerf screen instead.
     void OpenFixedChoices(const AugType* types, int count, bool debuff);

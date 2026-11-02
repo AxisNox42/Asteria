@@ -22,6 +22,8 @@ namespace {
 
 constexpr wchar_t kClassName[] = L"AsteriaPane";
 constexpr float kRefusalSeconds = 1.6f;
+// Below this share of durability the title bar shows what is left.
+constexpr float kWornTitleShare = 0.30f;
 constexpr float kDesktopScanSeconds = 0.5f;
 // Windows smaller than this, or covering nearly the whole game, are not
 // candidates for a combat space.
@@ -82,10 +84,12 @@ int IndexOfId(int id) {
 
 const wchar_t* BaseTitle() { return L"OCTANS"; }
 
-// A pane's own title (its "file name"), or the bare base title.
+// A pane's own title (its "file name", or its role dialog's), or the bare base title.
 std::wstring TitleOf(int i) {
-    if (i >= 0 && i < (int)s_content.size() && !s_content[i].title.empty())
-        return s_content[i].title;
+    if (i >= 0 && i < (int)s_content.size()) {
+        const std::wstring t = pane_content::RoleTitle(s_content[i], BaseTitle());
+        if (!t.empty()) return t;
+    }
     return BaseTitle();
 }
 
@@ -128,12 +132,22 @@ void RefreshRects(int i) {
     p.minimized = IsIconic(hwnd) != FALSE;
 }
 
+// Puts the title bar in line: its title, then the refusal note while one
+// shows, else its status (worn, not responding). Only sets it when it changed.
+void ApplyTitle(int i) {
+    if (i < 0 || i >= (int)s_content.size() || s_panes[i].adopted) return;
+    Content& c = s_content[i];
+    const std::wstring title = TitleOf(i) + (s_panes[i].refusalTimer > 0.0f ? RefusalSuffix() : c.status);
+    if (title == c.windowTitle) return;
+    c.windowTitle = title;
+    SetWindowTextW(s_handles[i], title.c_str());
+}
+
 void Refuse(int i) {
     Pane& p = s_panes[i];
     ++p.refusals;
     p.refusalTimer = kRefusalSeconds;
-    const std::wstring title = TitleOf(i) + RefusalSuffix();
-    SetWindowTextW(s_handles[i], title.c_str());
+    ApplyTitle(i);
 }
 
 // Win32 title bars stay light unless asked; follow the user's app theme.
@@ -456,8 +470,9 @@ int Open(float x, float y, float w, float h) {
     content.dark = UserPrefersDark();
     pane_images::Ensure(g_PanePhotos);   // reloads if the photos setting changed
     pane_content::Roll(content, BaseTitle());   // memo, code or image, and its file title
+    content.lang = LangIndex();
     s_content.push_back(content);
-    SetWindowTextW(hwnd, content.title.c_str());
+    ApplyTitle((int)s_content.size() - 1);
     InvalidateRect(hwnd, nullptr, TRUE);
     RefreshRects((int)s_panes.size() - 1);
     s_panes.back().shown = s_panes.back().frame;
@@ -538,8 +553,62 @@ void SetUnstable(int id, float level) {
     if (i < 0 || i >= (int)s_content.size()) return;
     Content& c = s_content[i];
     if (c.unstable == level && level <= 0.0f) return;
+    const bool wasGlitching = pane_content::GlitchActive(c.glitch);
+    const bool changed = c.unstable != level;
     c.unstable = level;
-    InvalidateRect(s_handles[i], nullptr, FALSE);   // repaint (again) now
+    pane_content::AdvanceGlitch(c.glitch, level, c.seed);
+    // Repaint while a burst runs, once more as it ends, or when the level moved.
+    if (changed || wasGlitching || pane_content::GlitchActive(c.glitch))
+        InvalidateRect(s_handles[i], nullptr, FALSE);
+}
+
+void SetRole(int id, PaneRole role, float a, float b) {
+    const int i = IndexOfId(id);
+    if (i < 0 || i >= (int)s_content.size() || s_panes[i].adopted) return;
+    Content& c = s_content[i];
+    const pane_content::Role r = role == PaneRole::Error ? pane_content::Role::Error
+                               : role == PaneRole::Shutdown ? pane_content::Role::Shutdown
+                               : role == PaneRole::Copy ? pane_content::Role::Copy
+                               : pane_content::Role::None;
+    // Repaint only for what the dialog shows: whole seconds, whole shots, the bar's pixels.
+    const bool roleChanged = r != c.role;
+    const bool shown = (int)std::ceil(a) != (int)std::ceil(c.roleA) || (int)(a * 100.0f) != (int)(c.roleA * 100.0f) ||
+                       (int)b != (int)c.roleB;
+    if (!roleChanged && !shown) return;
+    c.role = r;
+    c.roleA = a;
+    c.roleB = b;
+    c.lang = LangIndex();
+    if (roleChanged) ApplyTitle(i);
+    InvalidateRect(s_handles[i], nullptr, FALSE);
+}
+
+void SetWear(int id, float left, bool fusing) {
+    const int i = IndexOfId(id);
+    if (i < 0 || i >= (int)s_content.size() || s_panes[i].adopted) return;
+    Content& c = s_content[i];
+    std::wstring status;
+    if (fusing) {
+        status = RefusalSuffix();
+    } else if (left < kWornTitleShare) {
+        const int li = LangIndex();
+        const int pct = std::clamp((int)std::ceil(left * 100.0f), 0, 100);
+        wchar_t buf[48];
+        swprintf_s(buf, li == 0 ? L" (내구도 %d%%)" : (li == 2 ? L" (耐久 %d%%)" : L" (Integrity %d%%)"), pct);
+        status = buf;
+    }
+    if (status == c.status) return;
+    c.status = status;
+    ApplyTitle(i);
+}
+
+bool GlitchBurstNow(int id, float& seed) {
+    const int i = IndexOfId(id);
+    if (i < 0 || i >= (int)s_content.size()) return false;
+    const Content& c = s_content[i];
+    if (c.unstable <= 0.0f || !pane_content::GlitchActive(c.glitch)) return false;
+    seed = c.glitch.seed;
+    return true;
 }
 
 void SetLocked(int id, bool locked) {
@@ -637,7 +706,7 @@ void Tick(float dt) {
             p.refusalTimer -= dt;
             if (p.refusalTimer <= 0.0f) {
                 p.refusalTimer = 0.0f;
-                SetWindowTextW(s_handles[i], TitleOf((int)i).c_str());
+                ApplyTitle((int)i);
             }
         }
     }
@@ -841,6 +910,9 @@ void Close(int) {}
 void CloseAll() {}
 void SetLocked(int, bool) {}
 void SetUnstable(int, float) {}
+void SetRole(int, PaneRole, float, float) {}
+void SetWear(int, float, bool) {}
+bool GlitchBurstNow(int, float&) { return false; }
 void SetHold(bool) {}
 void Tick(float) {}
 void SetAway(bool) {}

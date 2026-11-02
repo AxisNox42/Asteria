@@ -86,6 +86,17 @@ void RaiseToFront(int id);
 // 0..1: how unsteady the pane's contents paint (jittering lines, corrupted
 // characters, a tint toward violet). Repaints every frame while above 0.
 void SetUnstable(int id, float level);
+// The job a pattern gives a pane: it shows that system dialog instead of its
+// own contents, titled for it, until set back to Plain. a, b: Shutdown =
+// seconds left, total; Copy = shots loaded, total.
+enum class PaneRole { Plain, Error, Shutdown, Copy };
+void SetRole(int id, PaneRole role, float a = 0.0f, float b = 0.0f);
+// Title note from wear: durability left below 30%, "(Not Responding)" while
+// its fuse burns.
+void SetWear(int id, float left, bool fusing);
+// True while the pane's content glitch burst runs, with that burst's seed, so
+// the game can break the frame it draws in the same beat.
+bool GlitchBurstNow(int id, float& seed);
 
 // Per frame: refresh rectangles, restore titles after a refusal, and rescan
 // real desktop windows at a low rate.

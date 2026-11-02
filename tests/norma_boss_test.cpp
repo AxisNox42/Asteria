@@ -15,8 +15,8 @@ static void Check(bool ok, const char* what) {
 
 static void PhaseTwoAtFortyPercent() {
     Check(norma::PhaseFor(1000.0f, 1000.0f) == 1, "full HP is phase 1");
-    Check(norma::PhaseFor(401.0f, 1000.0f) == 1, "just above 40% is phase 1");
-    Check(norma::PhaseFor(400.0f, 1000.0f) == 2, "exactly 40% is phase 2");
+    Check(norma::PhaseFor(501.0f, 1000.0f) == 1, "just above 50% is phase 1");
+    Check(norma::PhaseFor(500.0f, 1000.0f) == 2, "exactly 50% is phase 2");
     Check(norma::PhaseFor(10.0f, 1000.0f) == 2, "low HP is phase 2");
     Check(norma::PhaseFor(10.0f, 0.0f) == 1, "unknown max HP stays phase 1");
 }

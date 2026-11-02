@@ -35,8 +35,9 @@ namespace norma {
 // bare level-1 gun (50 dmg every 0.2s, 250/s) needs over two minutes even
 // against the unscaled figure.
 constexpr float kBaseHp = 30000.0f;
-// Phase 2 begins at or below this share of max HP.
-constexpr float kPhase2Ratio = 0.40f;
+// Phase 2 begins at or below this share of max HP: each phase holds half of
+// it, so both bars drain at the same pace.
+constexpr float kPhase2Ratio = 0.50f;
 // The boss keeps about this far from the player, drifting slowly.
 constexpr float kHoverDistance = 420.0f;
 constexpr float kHoverBand = 60.0f;

@@ -393,7 +393,8 @@ private:
                 if (buff == Monster::REGULUS_BUFF_SHIELD) {
                     EnemyShieldState* shield = c.mob ? &c.mob->regulusShield
                                                      : &c.ranged->regulusShield;
-                    const float shieldHp = std::max(1.0f, source->regulusBaseHp) * 0.6f;
+                    // 120% of the target's own HP at the moment of the grant.
+                    const float shieldHp = std::max(1.0f, c.mob ? c.mob->hp : c.ranged->hp) * 1.2f;
                     *shield = {};
                     shield->acquiredOnce = true;
                     shield->hp = shield->maxHp = shieldHp;
