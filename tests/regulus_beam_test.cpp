@@ -1,4 +1,4 @@
-// Headless regression for Regulus shield lasers (Docs/Astral_Enemy_Blueprints_v3.md
+// Headless regression for Regulus shield lasers (Docs/Design/Astral_Enemy_Blueprints_v3.md
 // 3A). Run with scripts/test_regulus_beam.ps1.
 #include "MonsterManager.h"
 #include <cassert>

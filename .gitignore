@@ -53,7 +53,7 @@ transparency_debug.txt
 .claude/
 .cursor/hooks/.last-backup
 
-# Temporary verification output. The four checked-in icon previews remain tracked.
+# Temporary verification output (icon previews are archived in Docs/archive/icon_previews).
 /tmp/*
 /tmp_*.txt
 /inspect.txt

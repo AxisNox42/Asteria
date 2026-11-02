@@ -1,5 +1,5 @@
 // Headless regression for the Genesis v3 launcher and thrown Swarms
-// (Docs/Astral_Enemy_Blueprints_v3.md 2.2-2.5). Run with
+// (Docs/Design/Astral_Enemy_Blueprints_v3.md 2.2-2.5). Run with
 // scripts/test_genesis_launcher.ps1.
 #include "MonsterManager.h"
 #include <cassert>

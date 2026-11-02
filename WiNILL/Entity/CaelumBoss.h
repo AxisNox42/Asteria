@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 // ─────────────────────────────────────────────────────────────
-// CAELUM, the corrupted image (Docs/Caelum_Boss_Design.md). The screen (the
+// CAELUM, the corrupted image (Docs/Design/Caelum_Boss_Design.md). The screen (the
 // desktop picture) is split into a grid of kCell px cells and CAELUM corrupts it
 // cell by cell. A corrupted cell is laid over the screen as a see-through
 // glitch, hurts whoever stands in it and weakens them, and heals by itself after

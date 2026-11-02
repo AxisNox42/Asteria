@@ -1,7 +1,7 @@
 #pragma once
 
 // ─────────────────────────────────────────────────────────────
-// NORMA, the window boss (Docs/Norma_Boss_Design.md). Placeholder body: a
+// NORMA, the window boss (Docs/Design/Norma_Boss_Design.md). Placeholder body: a
 // plain square. It appears once, on the final (boss) wave, and the run is won
 // when it falls. This file holds the numbers and the pure rules the boss,
 // the game loop and the HUD share.

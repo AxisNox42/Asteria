@@ -12,7 +12,7 @@
 - `Render/Juice.h`, `Entity/Augment.h`, `AugmentDescKR.h`, `Weapons.h`, `ExpSystem.h`, `CollisionSystem.h`
 - `System/Audio.h` / `Audio.cpp`, `Core/Scenes/SceneAugment.cpp`
 - `main.cpp`의 연출 호출 지점
-- `Docs/Astral_Enemy_Blueprints_v2.md`, 사운드 TODO 문서, `GameplayTelemetry_Guide.md`
+- `Docs/Design/Astral_Enemy_Blueprints_v2.md`, 사운드 TODO 문서, `GameplayTelemetry_Guide.md`
 
 **한계**
 - 게임을 직접 실행하지 못했습니다. 체감은 코드와 문서에서 추정한 것입니다.
