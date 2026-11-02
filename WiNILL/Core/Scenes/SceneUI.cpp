@@ -1,4 +1,5 @@
 #include "SceneUI.h"
+#include "SceneContext.h"
 #include "DrawPrim.h"
 #include "TextRenderer.h"
 #include "UiLayout.h"
@@ -363,7 +364,7 @@ bool DrawBottomLeftBackButton(float& hover, float sw, float sh, float uiScale,
                               double mx, double my, bool lmb, bool lmbPrev,
                               float alpha, float now, float dt) {
     (void)sw;
-    const float w = 286.0f * uiScale, h = 64.0f * uiScale;
+    const float w = BackRailW(uiScale), h = BackRailH(uiScale);
     const float x = BottomLeftActionX(uiScale);
     const float y = BottomLeftActionY(sh, h, uiScale);
     const bool hov = UpdatePanelButtonHover(hover, true, mx, my, x, y, w, h, dt, 0.0f);
@@ -373,6 +374,41 @@ bool DrawBottomLeftBackButton(float& hover, float sw, float sh, float uiScale,
                            uiScale, true, true, true,
                            kStrings[(int)StrId::BTN_BACK], LANG_COUNT);
     return hov && lmb && !lmbPrev;
+}
+
+bool EscPressedEdge(const SceneCtx& c, bool& prev) {
+    const bool raw = c.window && glfwGetKey(c.window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+    if (c.inputFocusChanged) prev = raw;
+    const bool edge = raw && !prev;
+    prev = raw;
+    return edge;
+}
+
+bool MenuKeyboardNav(const SceneCtx& c, int& focus, int count, bool active,
+                     const bool* locked) {
+    static bool pUp = false, pDown = false, pOk = false;
+    auto held = [&](int a, int b) {
+        return c.window && (glfwGetKey(c.window, a) == GLFW_PRESS ||
+                            glfwGetKey(c.window, b) == GLFW_PRESS);
+    };
+    const bool up = held(GLFW_KEY_UP, GLFW_KEY_W);
+    const bool down = held(GLFW_KEY_DOWN, GLFW_KEY_S);
+    const bool ok = held(GLFW_KEY_ENTER, GLFW_KEY_KP_ENTER);
+    bool eUp = up && !pUp, eDown = down && !pDown, eOk = ok && !pOk;
+    pUp = up; pDown = down; pOk = ok;
+    if (c.inputFocusChanged) eUp = eDown = eOk = false;
+    if (!active || count <= 0) return false;
+
+    auto step = [&](int dir) {
+        int f = focus;
+        for (int k = 0; k < count; ++k) {
+            f = f < 0 ? (dir > 0 ? 0 : count - 1) : (f + dir + count) % count;
+            if (!locked || !locked[f]) { focus = f; return; }
+        }
+    };
+    if (eUp) step(-1);
+    else if (eDown) step(1);
+    return eOk && focus >= 0 && focus < count && (!locked || !locked[focus]);
 }
 
 float CenterTextX(float containerW, TextRenderer& tr, const wchar_t* text, float scale) {
@@ -424,7 +460,9 @@ bool UIButton(float x, float y, float w, float h, const wchar_t* label,
                  y + (h - lh) * 0.5f,
                  sc, tr, tg, tb, ta);
 
-    return hover && lmbPrev && !lmb;
+    // Fires on press like every other control (the caller passes the
+    // previous frame's button state).
+    return hover && lmb && !lmbPrev;
 }
 
 const ConfirmText& ConfirmTextQuit() {

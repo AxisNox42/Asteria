@@ -355,7 +355,7 @@ inline const CodexMobProfile* CodexMobProfileFor(int id) {
 }
 
 inline const wchar_t* CodexMobProfileText(const wchar_t* const* localized) {
-    int li = (int)g_Language;
+    int li = LangIndex();
     if (li < 0 || li >= LANG_COUNT) li = 0;
     return localized[li];
 }
@@ -483,7 +483,7 @@ inline int CodexMobDataStage(int id) {
 
 inline const wchar_t* CodexLocalizedText(const wchar_t* kr, const wchar_t* en,
                                          const wchar_t* jp) {
-    int li = (int)g_Language;
+    int li = LangIndex();
     if (li < 0 || li >= LANG_COUNT) li = 0;
     const wchar_t* text[3] = { kr, en, jp };
     return text[li];
@@ -494,7 +494,7 @@ inline const wchar_t* const* MobLocalizedNames(int id) {
     return profile ? profile->name : nullptr;
 }
 inline const wchar_t* MobName(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     const wchar_t* const* names = MobLocalizedNames(id);
     return names ? names[li] : L"???";
 }
@@ -508,7 +508,7 @@ inline const wchar_t* CodexMobListLabel(int id) {
     return L"???";
 }
 inline const wchar_t* MobDesc(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     if (id < 0 || id >= CM_COUNT) return L"???";
     const CodexMobProfile* profile = CodexMobProfileFor(id);
     return profile ? profile->description[li] : L"";

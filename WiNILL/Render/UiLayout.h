@@ -15,6 +15,9 @@ inline float BottomInset() { return g_GameBarH + (float)g_TaskbarH; }
 inline float HudY(float sh, float offsetAboveBars) {
     return sh - offsetAboveBars - BottomInset();
 }
+// Shared BACK rail at the bottom-left of every sub-page.
+inline float BackRailW(float scale) { return 286.0f * scale; }
+inline float BackRailH(float scale) { return 64.0f * scale; }
 inline float BottomLeftActionX(float scale) { return 58.0f * scale; }
 inline float BottomLeftActionY(float sh, float height, float scale) {
     return sh - height - 78.0f * scale - BottomInset();

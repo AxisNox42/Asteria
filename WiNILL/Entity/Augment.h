@@ -148,7 +148,7 @@ struct AugDef {
 
 // 현재 언어 인덱스 (범위 클램프)
 inline int CurLangIdx() {
-    int li = (int)g_Language;
+    int li = LangIndex();
     if (li < 0 || li >= LANG_COUNT) li = 0;
     return li;
 }

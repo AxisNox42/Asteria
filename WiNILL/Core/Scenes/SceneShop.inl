@@ -59,7 +59,7 @@ void Scene_Shop(const SceneCtx& c) {
     static int    s_itemCount = 0;
 
     const float now = (float)glfwGetTime();
-    if (!s_MainMenuArmoryPanel)
+    if (g_LobbyPanel != LobbyPanel::Shop)
         DrawMenuBackground(sw, sh, delta, false);
 
     float dt = delta; if (dt > 0.05f) dt = 0.05f;
@@ -77,10 +77,7 @@ void Scene_Shop(const SceneCtx& c) {
 
     const bool rawRmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     const bool rmbClick = rawRmb && !g_RmbPrev;
-    const bool rawEsc = c.window && glfwGetKey(c.window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
-    if (c.inputFocusChanged) s_prevEsc = rawEsc;
-    const bool escClick = rawEsc && !s_prevEsc;
-    s_prevEsc = rawEsc;
+    const bool escClick = EscPressedEdge(c, s_prevEsc);
     if (c.inputFocusChanged) {
         s_navHoldDir = 0;
         s_navHoldT = 0.0f;
@@ -132,7 +129,6 @@ void Scene_Shop(const SceneCtx& c) {
     const float wake = s_backExit ? (1.0f - backP) : entryTreeIn;
     const float rightWake = s_backExit ? (1.0f - backP) : entryDetailIn;
     int li = LangIndex(); if (li < 0 || li >= 3) li = 0;
-    const int nli = (li == 0) ? 0 : 1;
     if (s_tab < 0 || s_tab >= SHOP_TAB_COUNT) { s_tab = 0; s_prevTab = -1; }
 
     // ── Layout ─────────────────────────────────────────────────────────
@@ -234,25 +230,25 @@ void Scene_Shop(const SceneCtx& c) {
         };
 
         if (s_tab == 0) {
-            addGroup(nli == 0 ? L"\xCF54\xC5B4 \xD574\xAE08" : L"CORE UNLOCKS",
+            addGroup(T(LStr{ { L"\xCF54\xC5B4 \xD574\xAE08", L"CORE UNLOCKS", L"\u30B3\u30A2\u89E3\u653E" } }),
                      0.38f, 0.82f, 1.00f);
             for (int i = 0; i < META_COUNT; i++)
                 if (i != META_RESERVED_STARTAUG && i != META_RESERVED_VISION)
                     addItem(KEY_META + i, MetaName(i), 0.38f, 0.82f, 1.00f);
-            addGroup(nli == 0 ? L"\xD654\xBA74 \xD504\xB85C\xD30C\xC77C" : L"DISPLAY PROFILES",
+            addGroup(T(LStr{ { L"\xD654\xBA74 \xD504\xB85C\xD30C\xC77C", L"DISPLAY PROFILES", L"\u753B\u9762\u30D7\u30ED\u30D5\u30A3\u30FC\u30EB" } }),
                      1.00f, 0.84f, 0.28f);
             for (int i = 1; i < ACCENT_COUNT; ++i)
                 addItem(KEY_THEME + i, AccentName(i),
                         ACCENT_THEMES[i].r, ACCENT_THEMES[i].g, ACCENT_THEMES[i].b);
         }
         if (s_tab == 1) {
-            addGroup(nli == 0 ? L"\xC18C\xCD1D \xC2DC\xC2A4\xD15C" : L"RIFLE CONSTELLATION", 0.72f, 0.92f, 0.42f);
+            addGroup(T(LStr{ { L"\xC18C\xCD1D \xC2DC\xC2A4\xD15C", L"RIFLE CONSTELLATION", L"\u30E9\u30A4\u30D5\u30EB\u661F\u5EA7" } }), 0.72f, 0.92f, 0.42f);
             for (int i = 0; i < AUG_TOTAL; i++)
                 if (!AugRemoved(ALL_AUGS[i].type) && augWeapCat(ALL_AUGS[i].type) == 0)
                     addItem(KEY_AUG + i, ALL_AUGS[i].locName[li], 0.72f, 0.92f, 0.42f);
         }
         if (s_tab == 2) {
-            addGroup(nli == 0 ? L"\xC704\xC131 \xBC30\xC5F4" : L"FIELD ARRAY", 0.62f, 0.48f, 1.00f);
+            addGroup(T(LStr{ { L"\xC704\xC131 \xBC30\xC5F4", L"FIELD ARRAY", L"\u30D5\u30A3\u30FC\u30EB\u30C9\u914D\u5217" } }), 0.62f, 0.48f, 1.00f);
             for (int i = 0; i < AUG_TOTAL; i++)
                 if (!AugRemoved(ALL_AUGS[i].type) && augWeapCat(ALL_AUGS[i].type) == 1)
                     addItem(KEY_AUG + i, ALL_AUGS[i].locName[li], 0.62f, 0.48f, 1.00f);
@@ -1279,7 +1275,7 @@ void Scene_Shop(const SceneCtx& c) {
             s_backExit = false;
             s_backOutT = 0.0f;
             s_ShopBackRequested = false;
-            s_MainMenuArmoryPanel = false;
+            g_LobbyPanel = LobbyPanel::None;
             s_MainMenuResumeFromPanel = true;
             g_MainMenuEntryT = 1.0f;
             g_GameManager.currentState = GameState::MAIN_MENU;

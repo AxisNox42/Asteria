@@ -150,19 +150,19 @@ inline float     g_AchToastTimer = 0.0f;
 
 // 로컬라이즈 헬퍼
 inline const wchar_t* AchName(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     return ACH_DEFS[id].name[li];
 }
 inline const wchar_t* AchDesc(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     return ACH_DEFS[id].desc[li];
 }
 inline const wchar_t* JobName(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     return JOB_DEFS[id].name[li];
 }
 inline const wchar_t* JobDesc(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     return JOB_DEFS[id].desc[li];
 }
 

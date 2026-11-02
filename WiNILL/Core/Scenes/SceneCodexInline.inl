@@ -47,10 +47,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
 
     const bool rawRmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     const bool rmbClick = rawRmb && !g_RmbPrev;
-    const bool rawEsc = c.window && glfwGetKey(c.window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
-    if (c.inputFocusChanged) s_prevEsc = rawEsc;
-    const bool escClick = rawEsc && !s_prevEsc;
-    s_prevEsc = rawEsc;
+    const bool escClick = EscPressedEdge(c, s_prevEsc);
 
     if (c.inputFocusChanged) {
         s_navHoldDir = 0;
@@ -968,7 +965,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
             s_CodexBackRequested = false;
             s_searchFocused = false;
             g_CodexSearchInputEnabled = false;
-            s_MainMenuCodexPanel = false;
+            g_LobbyPanel = LobbyPanel::None;
             s_MainMenuResumeFromPanel = true;
             g_MainMenuEntryT = 1.0f;
             g_GameManager.currentState = GameState::MAIN_MENU;
@@ -1249,7 +1246,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
         s_CodexBackRequested = false;
         s_searchFocused = false;
         g_CodexSearchInputEnabled = false;
-        s_MainMenuCodexPanel = false;
+        g_LobbyPanel = LobbyPanel::None;
         s_MainMenuResumeFromPanel = true;
         g_MainMenuEntryT = 1.0f;
         g_GameManager.currentState = GameState::MAIN_MENU;

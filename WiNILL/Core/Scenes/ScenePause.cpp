@@ -86,6 +86,8 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     static float  s_ExitT     = 0.0f;
     static double s_LastCall  = 0.0;
     static bool   s_ConfirmAbandon = false;
+    static int    s_KbFocus = -1;       // keyboard cursor (-1 = pointer only)
+    static double s_LastMx = 0.0, s_LastMy = 0.0;
 
     const double curTime = glfwGetTime();
     if (curTime - s_LastCall > 0.12) {
@@ -94,6 +96,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
         s_ExitSel = -1;
         s_ExitT   = 0.0f;
         s_ConfirmAbandon = false;
+        s_KbFocus = -1;
     }
     s_LastCall  = curTime;
     s_EntryT   += delta;
@@ -129,15 +132,8 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     const float btnY0   = sh * 0.42f;
     const float titleY  = sh * 0.24f;
 
-    static bool s_InventoryEscArmed = true;
+    // ESC inside the inventory is handled by GameManager::HandleInput.
     if (state.showOwnedAugments) {
-        const int esc = c.window ? glfwGetKey(c.window, GLFW_KEY_ESCAPE)
-                                 : GLFW_RELEASE;
-        if (esc == GLFW_RELEASE) s_InventoryEscArmed = true;
-        else if (s_InventoryEscArmed) {
-            state.showOwnedAugments = false;
-            s_InventoryEscArmed = false;
-        }
         static float s_InventoryBackHover = 0.0f;
         BindMainShader();
         if (DrawBottomLeftBackButton(s_InventoryBackHover, sw, sh, uiScale,
@@ -146,10 +142,6 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
             state.showOwnedAugments = false;
         return;
     }
-    s_InventoryEscArmed = false;
-    if (!c.window || glfwGetKey(c.window, GLFW_KEY_ESCAPE) == GLFW_RELEASE)
-        s_InventoryEscArmed = true;
-
     // 좌측 앵커 라인 + 다이아몬드 (메인메뉴와 동일)
     {
         const float anchorX = btnX0 - 36.0f;
@@ -177,6 +169,11 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
                  BW * 0.52f, 1.0f, 0.30f, 0.78f, 1.0f, 0.22f * titleA);
     }
 
+    const bool pointerMoved = std::fabs(mx - s_LastMx) + std::fabs(my - s_LastMy) > 1.0;
+    s_LastMx = mx; s_LastMy = my;
+    const bool kbConfirm = MenuKeyboardNav(c, s_KbFocus, kPauseActionCount,
+                                           !exitActive && !s_ConfirmAbandon);
+
     // 버튼
     static const wchar_t* kPauseRoutes[LANG_COUNT][kPauseActionCount] = {
         { L"계속하기", L"설정", L"보유 증강", L"\uD3EC\uAE30\uD558\uAE30" },
@@ -198,13 +195,14 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
         const float slide = (1.0f - reveal) * 34.0f;
         const float priorBx = baseBx + slide - 10.0f * s_HoverT[i];
         const float priorBy = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
-        bool hov = UpdatePanelButtonHover(s_HoverT[i], !exitActive && !s_ConfirmAbandon,
-                                          mx, my,
-                                          priorBx, priorBy, BW, BH,
-                                          // Keep adjacent pause rows distinct.  The
-                                          // old 26px slop made a click near a row
-                                          // boundary activate its neighbour.
-                                          delta, 4.0f);
+        const bool rowsLive = !exitActive && !s_ConfirmAbandon;
+        // Keep adjacent pause rows distinct.  The old 26px slop made a click
+        // near a row boundary activate its neighbour.
+        const bool hov = rowsLive && PanelButtonHit(mx, my, priorBx, priorBy,
+                                                    BW, BH, 4.0f);
+        if (hov && pointerMoved) s_KbFocus = -1;
+        const bool kbHot = rowsLive && s_KbFocus == i;
+        s_HoverT[i] = UpdateMenuCommandHover(s_HoverT[i], hov || kbHot, delta);
         float t = s_HoverT[i];
 
         float selectPulse = selected ? (0.50f + 0.50f * sinf(fnow * 18.0f)) * exitP : 0.0f;
@@ -225,7 +223,8 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
                         uiScale, false, PanelButtonSlideSide::Both, false,
                         routeVariants, LANG_COUNT);
 
-        if (hov && lmb && !state.previousLeftMouseDown && s_ExitSel < 0) {
+        if (((hov && lmb && !state.previousLeftMouseDown) || (kbHot && kbConfirm))
+            && s_ExitSel < 0) {
             if (i == static_cast<int>(PauseAction::Abandon)) {
                 s_ConfirmAbandon = true;   // abandoning asks first
             } else {

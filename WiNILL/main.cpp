@@ -2958,6 +2958,126 @@ static void TriggerEliteKillHitStop(Monster& m) {
     m.eliteKillFx = true;                  // kill distortion (EntityDraw drawMob)
 }
 
+// ---- Overlay pieces drawn from the frame loop (kept out of main() body) ----
+static void DrawAchievementToast(float sw, float sh, float delta) {
+    if (g_AchToastTimer > 0.0f && g_AchToastId >= 0 &&
+        g_AchToastId < ACH_COUNT) {
+        g_AchToastTimer -= delta;
+        float a = g_AchToastTimer > 3.0f ? (4.0f - g_AchToastTimer)
+                : std::min(1.0f, g_AchToastTimer);
+        if (a < 0.0f) a = 0.0f; if (a > 1.0f) a = 1.0f;
+        int li2 = LangIndex();
+        const wchar_t* LBL[3] = { L"\uC5C5\uC801 \uB2EC\uC131!", L"Achievement!", L"\u5B9F\u7E3E\u9054\u6210!" };
+        wchar_t tb[160];
+        wchar_t rewardText[32];
+        FormatGrouped(ACH_DEFS[g_AchToastId].coinReward, rewardText, 32);
+        swprintf_s(tb, L"%ls  %ls  (+%ls)", LBL[li2],
+                   AchName(g_AchToastId), rewardText);
+        const float toastScale = UiTextScale(g_TextS, UiTextLevel::Description,
+                                             UiScale(sw, sh));
+        float bw = g_TextS.Width(tb, toastScale) + 48.0f;
+        float bx0 = (sw - bw) * 0.5f, by0 = sh * 0.10f;
+        BindMainShader();
+        drawRect(bx0, by0, bw, 52.0f, 0.12f, 0.10f, 0.02f, 0.85f * a);
+        drawRect(bx0, by0, bw, 4.0f, 1.0f, 0.85f, 0.25f, 0.95f * a);
+        g_TextS.Draw(tb, bx0 + 24.0f, by0 + 16.0f, toastScale,
+                     1.0f, 0.9f, 0.4f, a);
+    }
+}
+
+static void DrawModeLabels(GameState st, float sw, float sh) {
+    // ?�?�??�리?�이?�브 HUD (게임 �? ??F:증강  G:무적 ?�?�?
+    if (g_CreativeMode &&
+        (st == GameState::RUNNING || st == GameState::READY ||
+         st == GameState::AUG_SELECT || st == GameState::DEBUFF_SELECT)) {
+        int li3 = LangIndex();
+        const wchar_t* CH[3] = {
+            L"CREATIVE   F: \uC99D\uAC15   G: \uBB34\uC801",
+            L"CREATIVE   F: Augment   G: Godmode",
+            L"CREATIVE   F: \u5F37\u5316   G: \u30B4\u30C3\u30C9" };
+        g_TextS.Draw(CH[li3], 20.0f, HudY(sh, Hud::CREATIVE_LABEL),
+                     UiTextScale(g_TextS, UiTextLevel::Supporting, UiScale(sw, sh)),
+                     0.7f, 0.85f, 1.0f, 0.85f);
+        if (g_CreativeGodmode) {
+            const wchar_t* GOD[3] = { L"* \uBB34\uC801 ON", L"* GODMODE ON", L"* \u30B4\u30C3\u30C9 ON" };
+            float blink = 0.65f + 0.35f * sinf((float)glfwGetTime() * 5.0f);
+            g_TextL.Draw(GOD[li3], 20.0f, 24.0f,
+                         UiTextScale(g_TextL, UiTextLevel::Description, UiScale(sw, sh)),
+                         1.0f, 0.85f, 0.2f, blink);
+        }
+    }
+#if defined(_DEBUG)
+    if (g_DebugMode && !g_CreativeMode &&
+        (st == GameState::RUNNING || st == GameState::READY ||
+         st == GameState::AUG_SELECT || st == GameState::DEBUFF_SELECT)) {
+        int li3 = LangIndex();
+        const wchar_t* DBG[3] = {
+            L"\uB514\uBC84\uADF8   F: \uB808\uBCA8\uC5C5   G: \uBB34\uC801",
+            L"DEBUG   F: LEVEL UP   G: GODMODE",
+            L"\u30C7\u30D0\u30C3\u30B0   F: \u30EC\u30D9\u30EB\u30A2\u30C3\u30D7   G: \u7121\u6575"
+        };
+        g_TextS.Draw(DBG[li3], 20.0f, HudY(sh, Hud::CREATIVE_LABEL),
+                     UiTextScale(g_TextS, UiTextLevel::Supporting, UiScale(sw, sh)),
+                     0.7f, 0.85f, 1.0f, 0.85f);
+        if (g_CreativeGodmode) {
+            const wchar_t* GOD[3] = { L"* \uBB34\uC801 ON", L"* GODMODE ON", L"* \u30B4\u30C3\u30C9 ON" };
+            float blink = 0.65f + 0.35f * sinf((float)glfwGetTime() * 5.0f);
+            g_TextL.Draw(GOD[li3], 20.0f, 24.0f,
+                         UiTextScale(g_TextL, UiTextLevel::Description, UiScale(sw, sh)),
+                         1.0f, 0.85f, 0.2f, blink);
+        }
+    }
+#endif
+}
+
+static void DrawFloatingCombatText(GameState st, float sw, float sh) {
+    if (st == GameState::RUNNING || st == GameState::DYING) {
+        // ?��?지 ?�자 (?�드 ???�크�?변?????�스?? ???�정 ?��?
+        for (auto& d : g_DmgNumbers) {
+            float t  = d.life / d.maxLife;                   // 1 ??0
+            float sx = roundf(W2SX(d.x)), sy = W2SY(d.y);
+            wchar_t nb[32]; FormatGrouped(d.amount, nb, 32);
+            float sc = UiTextScale(g_TextS, UiTextLevel::Description,
+                (d.crit ? 1.05f : 0.72f) * g_ViewZoom
+                * (0.7f + 0.3f * t) * UiScale(sw, sh));
+            float a  = (t > 0.55f) ? 1.0f : (t / 0.55f);
+            float w  = g_TextS.Width(nb, sc);
+            if (d.crit) {
+                static const LStr kCritLabel = { { L"치명타", L"CRIT", L"クリティカル" } };
+                const wchar_t* critLabel = T(kCritLabel);
+                const float critSc = UiTextScale(g_TextS, UiTextLevel::Supporting,
+                                                 0.80f + 0.20f * t);
+                const float critW = g_TextS.Width(critLabel, critSc);
+                g_TextS.Draw(critLabel, sx - critW * 0.5f,
+                             sy - g_TextS.Height(critLabel, critSc) - 3.0f,
+                             critSc, 1.0f, 0.74f, 0.18f, a * 0.92f);
+                g_TextS.Draw(nb, sx - w * 0.5f, sy, sc,
+                             1.0f, 0.85f, 0.2f, a);
+            } else {
+                g_TextS.Draw(nb, sx - w*0.5f, sy, sc,
+                             1.0f, 1.0f, 1.0f, a*0.9f);
+            }
+        }
+        // 콤보 카운??(5콤보 ?�상부?? ?�이 콤보???�라 강해�? ???�정 ?��?
+        if (g_ShowCombo && st == GameState::RUNNING && g_Combo >= 5) {
+            bool  ms      = (g_ComboMilestone > 0.0f);
+            float msBoost = ms ? (g_ComboMilestone / 0.7f) : 0.0f;
+            wchar_t cb[48], comboText[32]; FormatGrouped(g_Combo, comboText, 32);
+            swprintf_s(cb, L"%ls COMBO", comboText);
+            float sc = UiTextScale(g_TextS, UiTextLevel::Subtitle,
+                (1.0f + g_ComboPulse * 0.4f + msBoost * 0.55f) * UiScale(sw, sh));
+            sc *= 1.0f + (g_Combo > 30 ? 0.12f : 0.0f);
+            float cr = 1.0f, cg = 1.0f, cbl = 1.0f;
+            if      (g_Combo >= 50) { cg = 0.25f; cbl = 0.2f; }
+            else if (g_Combo >= 25) { cg = 0.55f; cbl = 0.15f; }
+            else if (g_Combo >= 12) { cg = 0.9f;  cbl = 0.3f; }
+            if (ms) { cr = 1.0f; cg = 0.85f; cbl = 0.30f; }   // 마일?�톤 = 골드 ?�스
+            float w = g_TextS.Width(cb, sc);
+            g_TextS.Draw(cb, (sw - w) * 0.5f, sh * 0.115f, sc, cr, cg, cbl, 0.95f);
+        }
+    }
+}
+
 int main() {
     CrashHandler::Install();   // 강종(E23) 추적 ??처리 ?????�외 ??로그+미니?�프
     srand((unsigned)time(NULL));
@@ -6371,72 +6491,9 @@ CollisionSystem::Update(pCX, pCY,
 
             // ?�?�??�게???�업?�시�???메뉴?�??�일??OS ?�레???��? (?�스?�톱 방어 ?��??? ?�?�?
             // ?�?�??�적 ?�금 ?�스??(?�단 중앙 배너, 4�??�시 ???�이?? ?�?�?
-            if (g_AchToastTimer > 0.0f && g_AchToastId >= 0 &&
-                g_AchToastId < ACH_COUNT) {
-                g_AchToastTimer -= delta;
-                float a = g_AchToastTimer > 3.0f ? (4.0f - g_AchToastTimer)
-                        : std::min(1.0f, g_AchToastTimer);
-                if (a < 0.0f) a = 0.0f; if (a > 1.0f) a = 1.0f;
-                int li2 = LangIndex();
-                const wchar_t* LBL[3] = { L"\uC5C5\uC801 \uB2EC\uC131!", L"Achievement!", L"\u5B9F\u7E3E\u9054\u6210!" };
-                wchar_t tb[160];
-                wchar_t rewardText[32];
-                FormatGrouped(ACH_DEFS[g_AchToastId].coinReward, rewardText, 32);
-                swprintf_s(tb, L"%ls  %ls  (+%ls)", LBL[li2],
-                           AchName(g_AchToastId), rewardText);
-                const float toastScale = UiTextScale(g_TextS, UiTextLevel::Description,
-                                                     UiScale(sw, sh));
-                float bw = g_TextS.Width(tb, toastScale) + 48.0f;
-                float bx0 = (sw - bw) * 0.5f, by0 = sh * 0.10f;
-                BindMainShader();
-                drawRect(bx0, by0, bw, 52.0f, 0.12f, 0.10f, 0.02f, 0.85f * a);
-                drawRect(bx0, by0, bw, 4.0f, 1.0f, 0.85f, 0.25f, 0.95f * a);
-                g_TextS.Draw(tb, bx0 + 24.0f, by0 + 16.0f, toastScale,
-                             1.0f, 0.9f, 0.4f, a);
-            }
+            DrawAchievementToast(sw, sh, delta);
 
-            // ?�?�??�리?�이?�브 HUD (게임 �? ??F:증강  G:무적 ?�?�?
-            if (g_CreativeMode &&
-                (st == GameState::RUNNING || st == GameState::READY ||
-                 st == GameState::AUG_SELECT || st == GameState::DEBUFF_SELECT)) {
-                int li3 = LangIndex();
-                const wchar_t* CH[3] = {
-                    L"CREATIVE   F: \uC99D\uAC15   G: \uBB34\uC801",
-                    L"CREATIVE   F: Augment   G: Godmode",
-                    L"CREATIVE   F: ?\u5316   G: \u30B4\u30C3\u30C9" };
-                g_TextS.Draw(CH[li3], 20.0f, HudY(sh, Hud::CREATIVE_LABEL),
-                             UiTextScale(g_TextS, UiTextLevel::Supporting, UiScale(sw, sh)),
-                             0.7f, 0.85f, 1.0f, 0.85f);
-                if (g_CreativeGodmode) {
-                    const wchar_t* GOD[3] = { L"* \uBB34\uC801 ON", L"* GODMODE ON", L"* \u30B4\u30C3\u30C9 ON" };
-                    float blink = 0.65f + 0.35f * sinf((float)glfwGetTime() * 5.0f);
-                    g_TextL.Draw(GOD[li3], 20.0f, 24.0f,
-                                 UiTextScale(g_TextL, UiTextLevel::Description, UiScale(sw, sh)),
-                                 1.0f, 0.85f, 0.2f, blink);
-                }
-            }
-#if defined(_DEBUG)
-            if (g_DebugMode && !g_CreativeMode &&
-                (st == GameState::RUNNING || st == GameState::READY ||
-                 st == GameState::AUG_SELECT || st == GameState::DEBUFF_SELECT)) {
-                int li3 = LangIndex();
-                const wchar_t* DBG[3] = {
-                    L"\uB514\uBC84\uADF8   F: \uB808\uBCA8\uC5C5   G: \uBB34\uC801",
-                    L"DEBUG   F: LEVEL UP   G: GODMODE",
-                    L"\u30C7\u30D0\u30C3\u30B0   F: \u30EC\u30D9\u30EB\u30A2\u30C3\u30D7   G: \u7121\u6575"
-                };
-                g_TextS.Draw(DBG[li3], 20.0f, HudY(sh, Hud::CREATIVE_LABEL),
-                             UiTextScale(g_TextS, UiTextLevel::Supporting, UiScale(sw, sh)),
-                             0.7f, 0.85f, 1.0f, 0.85f);
-                if (g_CreativeGodmode) {
-                    const wchar_t* GOD[3] = { L"* \uBB34\uC801 ON", L"* GODMODE ON", L"* \u30B4\u30C3\u30C9 ON" };
-                    float blink = 0.65f + 0.35f * sinf((float)glfwGetTime() * 5.0f);
-                    g_TextL.Draw(GOD[li3], 20.0f, 24.0f,
-                                 UiTextScale(g_TextL, UiTextLevel::Description, UiScale(sw, sh)),
-                                 1.0f, 0.85f, 0.2f, blink);
-                }
-            }
-#endif
+            DrawModeLabels(st, sw, sh);
 
             // ?�?�?[7b] UI ???�스?�치 ??메뉴/�??�태??Scene_* ?�수�?분리 ?�?�?
             //    RUNNING/DYING(?�수 ?�게?????�이 ?�으??컨텍?�트 구성 ?�체�?건너?�?
@@ -6605,52 +6662,7 @@ CollisionSystem::Update(pCX, pCY,
 
             // ?�?�??�맛: ?��?지 ?�자 ?�업 + 콤보 카운??(?�제 ?�레??중에�? ?�?�?
             //    메뉴/?�시?��??�선 ?��? ???�스?��? 메뉴 ?�에 ?�던 버그 fix
-            if (st == GameState::RUNNING || st == GameState::DYING) {
-                // ?��?지 ?�자 (?�드 ???�크�?변?????�스?? ???�정 ?��?
-                for (auto& d : g_DmgNumbers) {
-                    float t  = d.life / d.maxLife;                   // 1 ??0
-                    float sx = roundf(W2SX(d.x)), sy = W2SY(d.y);
-                    wchar_t nb[32]; FormatGrouped(d.amount, nb, 32);
-                    float sc = UiTextScale(g_TextS, UiTextLevel::Description,
-                        (d.crit ? 1.05f : 0.72f) * g_ViewZoom
-                        * (0.7f + 0.3f * t) * UiScale(sw, sh));
-                    float a  = (t > 0.55f) ? 1.0f : (t / 0.55f);
-                    float w  = g_TextS.Width(nb, sc);
-                    if (d.crit) {
-                        const int critLang = LangIndex();
-                        const wchar_t* critLabel = critLang == 0 ? L"치명타"
-                            : (critLang == 2 ? L"クリティカル" : L"CRIT");
-                        const float critSc = UiTextScale(g_TextS, UiTextLevel::Supporting,
-                                                         0.80f + 0.20f * t);
-                        const float critW = g_TextS.Width(critLabel, critSc);
-                        g_TextS.Draw(critLabel, sx - critW * 0.5f,
-                                     sy - g_TextS.Height(critLabel, critSc) - 3.0f,
-                                     critSc, 1.0f, 0.74f, 0.18f, a * 0.92f);
-                        g_TextS.Draw(nb, sx - w * 0.5f, sy, sc,
-                                     1.0f, 0.85f, 0.2f, a);
-                    } else {
-                        g_TextS.Draw(nb, sx - w*0.5f, sy, sc,
-                                     1.0f, 1.0f, 1.0f, a*0.9f);
-                    }
-                }
-                // 콤보 카운??(5콤보 ?�상부?? ?�이 콤보???�라 강해�? ???�정 ?��?
-                if (g_ShowCombo && st == GameState::RUNNING && g_Combo >= 5) {
-                    bool  ms      = (g_ComboMilestone > 0.0f);
-                    float msBoost = ms ? (g_ComboMilestone / 0.7f) : 0.0f;
-                    wchar_t cb[48], comboText[32]; FormatGrouped(g_Combo, comboText, 32);
-                    swprintf_s(cb, L"%ls COMBO", comboText);
-                    float sc = UiTextScale(g_TextS, UiTextLevel::Subtitle,
-                        (1.0f + g_ComboPulse * 0.4f + msBoost * 0.55f) * UiScale(sw, sh));
-                    sc *= 1.0f + (g_Combo > 30 ? 0.12f : 0.0f);
-                    float cr = 1.0f, cg = 1.0f, cbl = 1.0f;
-                    if      (g_Combo >= 50) { cg = 0.25f; cbl = 0.2f; }
-                    else if (g_Combo >= 25) { cg = 0.55f; cbl = 0.15f; }
-                    else if (g_Combo >= 12) { cg = 0.9f;  cbl = 0.3f; }
-                    if (ms) { cr = 1.0f; cg = 0.85f; cbl = 0.30f; }   // 마일?�톤 = 골드 ?�스
-                    float w = g_TextS.Width(cb, sc);
-                    g_TextS.Draw(cb, (sw - w) * 0.5f, sh * 0.115f, sc, cr, cg, cbl, 0.95f);
-                }
-            }
+            DrawFloatingCombatText(st, sw, sh);
 
             // Skill HUD (bottom centre): key cooldowns and cooldown passives.
             if (st == GameState::RUNNING ||

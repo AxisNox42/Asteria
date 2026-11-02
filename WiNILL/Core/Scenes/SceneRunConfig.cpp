@@ -217,7 +217,7 @@ void Scene_CreativeConfig(const SceneCtx& c) {
                         FinalizeLoadout(c, FixedWeaponForSelectedJob());
                     }
 
-                    const float BW = 286.0f * uiS, BH = footH;
+                    const float BW = BackRailW(uiS), BH = footH;
                     const float BX = BottomLeftActionX(uiS);
                     const bool bHov = (mx >= BX - 12.0f && mx <= BX + BW + 12.0f &&
                                        my >= footY && my <= footY + BH);
@@ -295,11 +295,9 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     s_RcEntryT = std::min(1.0f, s_RcEntryT + dt);
     if (launchExit) launchT = std::min(0.50f, launchT + dt);
 
-    const bool esc = c.window && glfwGetKey(c.window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
     const bool rmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-    if (c.inputFocusChanged) prevEsc = esc;
-    const bool backInput = (esc && !prevEsc) || (rmb && !g_RmbPrev);
-    prevEsc = esc;
+    const bool escEdge = EscPressedEdge(c, prevEsc);
+    const bool backInput = escEdge || (rmb && !g_RmbPrev);
 
     const float entryIn = SceneTransitionEase(s_RcEntryT / kOutgameTransitionDuration);
     const float entryHeader = SceneTransitionEase(
@@ -343,8 +341,8 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     const float chartR = std::min(244.0f * uiS,
         std::min(centerW * 0.34f, (bodyBottom - bodyTop) * 0.29f));
     const float routeX = BottomLeftActionX(uiS);
-    const float routeW = 286.0f * uiS;
-    const float routeH = 64.0f * uiS;
+    const float routeW = BackRailW(uiS);
+    const float routeH = BackRailH(uiS);
     const float routeY = BottomLeftActionY(sh, routeH, uiS);
     const float playW = 270.0f * uiS;
     const float playH = 62.0f * uiS;
@@ -701,14 +699,14 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     if (launchExit && launchT >= 0.50f) {
         g_SelectedJob = weapon == 0 ? JOB_NONE : JOB_STATIC_FIELD;
         s_RcWeapon = weapon;
-        s_MainMenuRunConfigPanel = false;
+        g_LobbyPanel = LobbyPanel::None;
         if (g_CreativeMode) g_GameManager.currentState = GameState::CREATIVE_CONFIG;
         else { c.reset(); FinalizeLoadout(c, FixedWeaponForSelectedJob()); }
         launchExit = false;
         launchT = 0.0f;
     }
     if (exiting && exitT >= kOutgameTransitionDuration) {
-        s_MainMenuRunConfigPanel = false;
+        g_LobbyPanel = LobbyPanel::None;
         s_MainMenuResumeFromPanel = true;
         ResetRunConfigUi();
         g_MainMenuEntryT = 1.0f;

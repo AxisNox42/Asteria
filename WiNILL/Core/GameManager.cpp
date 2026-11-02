@@ -9,6 +9,7 @@
 
 extern PlayerStats g_Stats;   // 최대치 도달 증강 게이팅용 (main.cpp 정의)
 extern int         g_CurrentWeapon;
+extern bool        g_ShowPauseInventory;   // main.cpp
 
 static bool DebuffCandidateAllowed(AugType t) {
     if (t == AugType::D_BLEED && g_Stats.regenPerSec <= 0.0f)
@@ -146,8 +147,14 @@ void GameManager::HandleInput(GLFWwindow* window) {
                 currentState = GameState::PAUSED;
             }
             else if (currentState == GameState::PAUSED) {
-                currentState = pauseResumeState;
-                pauseResumeState = GameState::RUNNING;
+                // The augment inventory is a sub-page of the pause menu:
+                // ESC closes it first and only the next ESC resumes.
+                if (g_ShowPauseInventory) {
+                    g_ShowPauseInventory = false;
+                } else {
+                    currentState = pauseResumeState;
+                    pauseResumeState = GameState::RUNNING;
+                }
             }
         }
         escReleased = false;

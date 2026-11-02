@@ -21,22 +21,22 @@ void Scene_MainMenu(const SceneCtx& c) {
     // during the handoff so the old fade cannot create a brightness flash.
     // The constellation sky is at full strength only on the lobby itself;
     // inline pages (shop, codex, settings, run setup) keep it as a quiet backdrop.
-    const bool lobbyOnly = !s_MainMenuArmoryPanel && !s_MainMenuCodexPanel &&
-                           !s_MainMenuSettingsPanel && !s_MainMenuRunConfigPanel;
+    const bool lobbyOnly = g_LobbyPanel != LobbyPanel::Shop && g_LobbyPanel != LobbyPanel::Codex &&
+                           g_LobbyPanel != LobbyPanel::Settings && g_LobbyPanel != LobbyPanel::Run;
     DrawMenuBackground(sw, sh, delta, 1.0f, lobbyOnly ? 1.0f : 0.30f);
-    if (s_MainMenuArmoryPanel) {
+    if ((g_LobbyPanel == LobbyPanel::Shop)) {
         Scene_Shop(c);
         return;
     }
-    if (s_MainMenuCodexPanel) {
+    if ((g_LobbyPanel == LobbyPanel::Codex)) {
         Scene_Codex(c);
         return;
     }
-    if (s_MainMenuSettingsPanel) {
+    if ((g_LobbyPanel == LobbyPanel::Settings)) {
         Scene_SettingsInline(c);
         return;
     }
-    if (s_MainMenuRunConfigPanel) {
+    if ((g_LobbyPanel == LobbyPanel::Run)) {
         Scene_RunConfigInline(c);
         return;
     }
@@ -47,6 +47,8 @@ void Scene_MainMenu(const SceneCtx& c) {
     static float s_menuExitT  = 0.0f;
     static bool  s_confirmQuit = false;
     static float kHoverT[kMainMenuRouteCount] = {};
+    static int   s_kbFocus = -1;      // keyboard cursor (-1 = pointer only)
+    static double s_lastMx = 0.0, s_lastMy = 0.0;
     constexpr float kTitleDur  = 0.55f;
     constexpr float kBtnDur    = 0.45f;
     constexpr float kBtnStag   = 0.14f;
@@ -59,6 +61,7 @@ void Scene_MainMenu(const SceneCtx& c) {
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
         s_confirmQuit = false;
+        s_kbFocus = -1;
         for (int i = 0; i < kMainMenuRouteCount; ++i) kHoverT[i] = 0.0f;
         g_MainMenuEntryT = 0.001f;
     } else {
@@ -117,6 +120,16 @@ void Scene_MainMenu(const SceneCtx& c) {
     // margin, but never let the rail climb into the logo on short windows.
     float btnY0 = MainMenuButtonRailStartY(sh, uiScale);
 
+    bool kbLocked[kMainMenuRouteCount];
+    for (int i = 0; i < kBtnCount; ++i)
+        kbLocked[i] = (!g_TutorialDone && (i == kMainMenuPlayIndex || i == kMainMenuCodexIndex))
+                   || (!g_ShopUnlocked && i == kMainMenuShopIndex);
+    const bool pointerMoved = std::fabs(mx - s_lastMx) + std::fabs(my - s_lastMy) > 1.0;
+    s_lastMx = mx; s_lastMy = my;
+    const bool kbConfirm = MenuKeyboardNav(c, s_kbFocus, kBtnCount,
+        !booting && !introActive && !introWasActive && !exitActive
+            && !s_confirmQuit && g_FadeDir == 0, kbLocked);
+
     const float now = (float)glfwGetTime();
     const float menuFieldA = Smoothstep(LogoClamp01((s_introT - 0.10f) / 0.62f)) * uiA;
     DrawMainMenuAstralVeil(sw, sh, btnX0, btnY0, BW, totalBH,
@@ -161,10 +174,12 @@ void Scene_MainMenu(const SceneCtx& c) {
                               && !locked;
         const float priorBx = baseBx + (1.0f - reveal) * 34.0f - 10.0f * kHoverT[i];
         const float priorBy = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
-        bool hov = UpdatePanelButtonHover(kHoverT[i], buttonReady,
-                                          mx, my,
-                                          priorBx, priorBy, BW, BH,
-                                          delta, 4.0f * uiScale);
+        const bool ptr = buttonReady && PanelButtonHit(mx, my, priorBx, priorBy,
+                                                       BW, BH, 4.0f * uiScale);
+        if (ptr && pointerMoved) s_kbFocus = -1;
+        const bool kbHot = buttonReady && s_kbFocus == i;
+        kHoverT[i] = UpdateMenuCommandHover(kHoverT[i], ptr || kbHot, delta);
+        const bool hov = ptr;
         float t = kHoverT[i];
         float rowA = reveal * uiA * (locked ? 0.42f : 1.0f);
         if (exitActive && !selected) rowA *= (1.0f - exitP * 0.86f);
@@ -222,7 +237,7 @@ void Scene_MainMenu(const SceneCtx& c) {
             LogoLine(scx, by0 + bh * 0.30f, scx, by0 + bh * 0.70f, lw, 0.80f, 0.90f, 1.0f, la);
         }
 
-        if (hov && lmb && !g_LmbPrev && !locked) {
+        if (((hov && lmb && !g_LmbPrev) || (kbHot && kbConfirm)) && !locked) {
             if (i == kMainMenuExitIndex) {
                 s_confirmQuit = true;   // EXIT asks first
             } else {
@@ -241,19 +256,19 @@ void Scene_MainMenu(const SceneCtx& c) {
         switch (selectedMenu) {
         case kMainMenuPlayIndex:
             ResetRunConfigUi(handoffT);
-            s_MainMenuRunConfigPanel = true;
+            g_LobbyPanel = LobbyPanel::Run;
             break;
         case kMainMenuShopIndex:
             ResetShopUi(handoffT);
-            s_MainMenuArmoryPanel = true;
+            g_LobbyPanel = LobbyPanel::Shop;
             break;
         case kMainMenuCodexIndex:
             ResetCodexUi(handoffT);
-            s_MainMenuCodexPanel = true;
+            g_LobbyPanel = LobbyPanel::Codex;
             break;
         case kMainMenuSettingsIndex:
             ResetSettingsUi(handoffT);
-            s_MainMenuSettingsPanel = true;
+            g_LobbyPanel = LobbyPanel::Settings;
             break;
         case kMainMenuTutorialIndex:
             // Practice field straight from the lobby; Space starts an Easy run, ESC comes back.

@@ -78,47 +78,86 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const bool lmb = c.lmb;
     const float now = (float)glfwGetTime();
     const bool inGameSettings = (g_SettingsReturnTo == GameState::PAUSED);
-    static int   tab = 0;          // 0=DISPLAY 1=AUDIO 2=CONTROL 3=SYSTEM
-    static float entry = 0.0f;
-    static float exitT = 0.0f;
-    static bool  exiting = false;
-    static bool  prevEsc = false;
-    static float pulse = 0.0f;
-    static int   pulseRow = -1;
-    static float tabSwitchT   = 0.0f;
-    static int   s_volDrag    = -1;   // category*8+row of the slider being dragged
-    static float listHover[32] = {};
-    static float rowHover[5][10] = {};
-    static float optHover[5][10][8] = {};
-    static float holdT = 0.0f;
-    static bool  resetLatched = false;   // reset fired; wait for the button release
-    static float resetDoneT = 0.0f;      // seconds left on the "reset done" label
-    static int listCursor = 1;
-    static bool accordionFocusPending = false;
-    // Category whose header should be scrolled to the top of the board.
-    static int scrollToCategory = -1;
-    // True after a wheel scroll: the selected category tracks the right board.
-    static bool scrollFollowsBoard = false;
-    // Shared normalized scroll position for the left index and right board.
-    // Each pane maps the same 0..1 value to its own row geometry.
-    static float settingsScroll = 0.0f;
-    static float settingsScrollTarget = 0.0f;
-    static bool prevListW = false;
-    static bool prevListS = false;
-    static int detailRow = 0;
-    // SettingsSnapshot.h: capture / restore / compare (REG-26).
-    static SettingsSnapshot savedSettings = {};
-    static bool savedSettingsValid = false;
-    static bool confirmBack = false;
-    static bool settingsDirty = false;
-    // CONTROLS: action whose key is being captured (-1 = none), fade of the
-    // other rows while waiting, per-key confirm flash and the status line.
-    static int  captureAction = -1;
-    static float captureBlend = 0.0f;
-    static float keyFlash[GAME_ACTION_COUNT] = {};
-    static std::wstring keyMsg;
-    static float keyMsgT = 0.0f;
-    static bool  wasInline = false;
+    // All of the page's state lives in one struct so it has a name and a single
+    // place to look at (it still persists between frames).
+    struct SettingsUiState {
+        int tab = 0; // 0=DISPLAY 1=AUDIO 2=CONTROL 3=SYSTEM
+        float entry = 0.0f;
+        float exitT = 0.0f;
+        bool exiting = false;
+        bool prevEsc = false;
+        float pulse = 0.0f;
+        int pulseRow = -1;
+        float tabSwitchT = 0.0f;
+        int s_volDrag = -1; // category*8+row of the slider being dragged
+        float listHover[32] = {};
+        float rowHover[5][10] = {};
+        float optHover[5][10][8] = {};
+        float holdT = 0.0f;
+        bool resetLatched = false; // reset fired; wait for the button release
+        float resetDoneT = 0.0f; // seconds left on the "reset done" label
+        int listCursor = 1;
+        bool accordionFocusPending = false;
+        // Category whose header should be scrolled to the top of the board.
+        int scrollToCategory = -1;
+        // True after a wheel scroll: the selected category tracks the right board.
+        bool scrollFollowsBoard = false;
+        // Shared normalized scroll position for the left index and right board.
+        // Each pane maps the same 0..1 value to its own row geometry.
+        float settingsScroll = 0.0f;
+        float settingsScrollTarget = 0.0f;
+        bool prevListW = false;
+        bool prevListS = false;
+        int detailRow = 0;
+        // SettingsSnapshot.h: capture / restore / compare (REG-26).
+        SettingsSnapshot savedSettings = {};
+        bool savedSettingsValid = false;
+        bool confirmBack = false;
+        bool settingsDirty = false;
+        // CONTROLS: action whose key is being captured (-1 = none), fade of the
+        // other rows while waiting, per-key confirm flash and the status line.
+        int captureAction = -1;
+        float captureBlend = 0.0f;
+        float keyFlash[GAME_ACTION_COUNT] = {};
+        std::wstring keyMsg;
+        float keyMsgT = 0.0f;
+        bool wasInline = false;
+    };
+    static SettingsUiState S;
+    auto& tab = S.tab;
+    auto& entry = S.entry;
+    auto& exitT = S.exitT;
+    auto& exiting = S.exiting;
+    auto& prevEsc = S.prevEsc;
+    auto& pulse = S.pulse;
+    auto& pulseRow = S.pulseRow;
+    auto& tabSwitchT = S.tabSwitchT;
+    auto& s_volDrag = S.s_volDrag;
+    auto& listHover = S.listHover;
+    auto& rowHover = S.rowHover;
+    auto& optHover = S.optHover;
+    auto& holdT = S.holdT;
+    auto& resetLatched = S.resetLatched;
+    auto& resetDoneT = S.resetDoneT;
+    auto& listCursor = S.listCursor;
+    auto& accordionFocusPending = S.accordionFocusPending;
+    auto& scrollToCategory = S.scrollToCategory;
+    auto& scrollFollowsBoard = S.scrollFollowsBoard;
+    auto& settingsScroll = S.settingsScroll;
+    auto& settingsScrollTarget = S.settingsScrollTarget;
+    auto& prevListW = S.prevListW;
+    auto& prevListS = S.prevListS;
+    auto& detailRow = S.detailRow;
+    auto& savedSettings = S.savedSettings;
+    auto& savedSettingsValid = S.savedSettingsValid;
+    auto& confirmBack = S.confirmBack;
+    auto& settingsDirty = S.settingsDirty;
+    auto& captureAction = S.captureAction;
+    auto& captureBlend = S.captureBlend;
+    auto& keyFlash = S.keyFlash;
+    auto& keyMsg = S.keyMsg;
+    auto& keyMsgT = S.keyMsgT;
+    auto& wasInline = S.wasInline;
     if (!wasInline || s_SettingsInlineNeedsReset) {
         entry = g_SettingsEntryT;
         exitT = 0.0f;
@@ -172,15 +211,13 @@ void Scene_SettingsInline(const SceneCtx& c) {
         return SettingsSnapshotChanged(savedSettings);
     };
 
-    const bool esc = c.window && glfwGetKey(c.window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
     const bool rmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-    if (c.inputFocusChanged) prevEsc = esc;
     if (c.inputFocusChanged) s_volDrag = -1;
     // While a key is being captured, ESC / right-click cancel the capture
     // instead of leaving the screen (decided from the frame-start state).
     const bool keyCapturing = captureAction >= 0;
-    const bool backInput = !keyCapturing && ((esc && !prevEsc) || (rmb && !g_RmbPrev));
-    prevEsc = esc;
+    const bool escEdge = EscPressedEdge(c, prevEsc);
+    const bool backInput = !keyCapturing && (escEdge || (rmb && !g_RmbPrev));
     const float entryOldOut = SceneTransitionEase(entry / kOutgameTransitionDuration);
     const float entryTreeIn = SceneTransitionEase(
         (entry - 0.08f) / (kOutgameTransitionDuration - 0.08f));
@@ -317,7 +354,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         DrawSceneRadialVignette(mCX, mCY, mR * 2.2f, 0.035f * treeA);
     }
 
-    if (s_MainMenuSettingsPanel)
+    if ((g_LobbyPanel == LobbyPanel::Settings))
         DrawMainAsteriaLogo(sw, sh, 0.42f * oldA,
                            LogoClamp01(oldA + 0.20f * treeA), sw * 0.30f - 160.0f * (1.0f - oldA), 0.82f);
 
@@ -334,7 +371,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                             UiTextLevel::Subtitle, 1.0f);
 
     // \uC88C\uCE21 ghost \uBC84\uD2BC \u2014 \uCEE8\uD14D\uC2A4\uD2B8\uC5D0 \uB530\uB77C \uBA54\uC778\uBA54\uB274 vs \uC77C\uC2DC\uC815\uC9C0 \uBA54\uB274
-    if (s_MainMenuSettingsPanel) {
+    if ((g_LobbyPanel == LobbyPanel::Settings)) {
         const float mainMenuGap = 10.0f * uiS;
         for (int i = 0; i < kMainMenuRouteCount; ++i) {
             const float y = MainMenuButtonRailStartY(sh, uiS) + i * (mainBH + mainMenuGap);
@@ -1525,9 +1562,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // provisionally while browsing, but only this button writes them.
     settingsDirty = settingsChanged();
     const float backX = BottomLeftActionX(uiS);
-    const float backY = BottomLeftActionY(sh, 64.0f * uiS, uiS);
-    const float backW = 286.0f * uiS;
-    const float backH = 64.0f * uiS;
+    const float backH = BackRailH(uiS);
+    const float backY = BottomLeftActionY(sh, backH, uiS);
+    const float backW = BackRailW(uiS);
     const float saveW = std::min(486.0f * uiS, detailW * 0.82f);
     const float saveX = detailX + detailW - saveW - 24.0f * uiS;
     const float saveY = backY;
@@ -1700,8 +1737,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
 
     if (exiting && exitT >= kOutgameTransitionDuration) {
         // Settings are persisted only by SAVE CHANGES or SAVE & BACK.
-        if (s_MainMenuSettingsPanel) {
-            s_MainMenuSettingsPanel = false;
+        if ((g_LobbyPanel == LobbyPanel::Settings)) {
+            g_LobbyPanel = LobbyPanel::None;
             s_MainMenuResumeFromPanel = true;
             g_MainMenuEntryT = 1.0f;
         } else {

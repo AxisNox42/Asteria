@@ -1,6 +1,7 @@
 #pragma once
 
 struct GLFWwindow;
+struct SceneCtx;
 class TextRenderer;
 
 enum class UiTextLevel { Title, Subtitle, Description, Supporting };
@@ -63,6 +64,18 @@ bool UpdatePanelButtonHover(float& hover, bool enabled,
                             double mx, double my,
                             float x, float y, float w, float h,
                             float dt, float hitPadding = 0.0f);
+
+// True on the frame ESC goes down. `prev` is the scene's own tracker; it is
+// re-synced on focus changes so a key held across alt-tab is not a new press.
+bool EscPressedEdge(const SceneCtx& c, bool& prev);
+
+// Keyboard cursor for a vertical command list (UP/DOWN or W/S, ENTER to pick).
+// Call exactly once per frame per list. `focus` is -1 until a key is pressed;
+// `locked` (optional) marks rows that cannot be chosen. Returns true on the
+// frame ENTER confirms a focused, unlocked row. `active` false only swallows
+// the keys so they never fire later.
+bool MenuKeyboardNav(const SceneCtx& c, int& focus, int count, bool active,
+                     const bool* locked = nullptr);
 
 float CenterTextX(float containerW, TextRenderer& tr, const wchar_t* text, float scale);
 

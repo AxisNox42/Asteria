@@ -52,10 +52,7 @@ static float g_SceneTextureReveal = 1.0f;
 static bool  s_ShopBackRequested = false;
 static bool  s_CodexBackRequested = false;
 static bool  s_ShopNeedsOpenInit = true;
-static bool  s_MainMenuArmoryPanel = false;
-static bool  s_MainMenuCodexPanel = false;
-bool  s_MainMenuSettingsPanel = false;
-bool  s_MainMenuRunConfigPanel = false;
+LobbyPanel g_LobbyPanel = LobbyPanel::None;
 bool  s_MainMenuResumeFromPanel = false;
 // PLAY owns the current trial catalogue. The gameplay system still has four
 // slots; this UI state packs enabled definitions into those slots on PLAY.
@@ -98,15 +95,12 @@ static void ResetShopUi(float entryStart = 0.0f) {
 }
 
 void SmokeOpenMenuPanel(int panel) {
-    s_MainMenuArmoryPanel = false;
-    s_MainMenuCodexPanel = false;
-    s_MainMenuSettingsPanel = false;
-    s_MainMenuRunConfigPanel = false;
+    g_LobbyPanel = LobbyPanel::None;
     switch (panel) {
-    case 0: ResetRunConfigUi(1.0f); s_MainMenuRunConfigPanel = true; break;
-    case 1: ResetShopUi(1.0f);      s_MainMenuArmoryPanel = true;    break;
-    case 2: ResetCodexUi(1.0f);     s_MainMenuCodexPanel = true;     break;
-    case 3: ResetSettingsUi(1.0f);  s_MainMenuSettingsPanel = true;  break;
+    case 0: ResetRunConfigUi(1.0f); g_LobbyPanel = LobbyPanel::Run; break;
+    case 1: ResetShopUi(1.0f);      g_LobbyPanel = LobbyPanel::Shop;    break;
+    case 2: ResetCodexUi(1.0f);     g_LobbyPanel = LobbyPanel::Codex;     break;
+    case 3: ResetSettingsUi(1.0f);  g_LobbyPanel = LobbyPanel::Settings;  break;
     default: break;
     }
 }

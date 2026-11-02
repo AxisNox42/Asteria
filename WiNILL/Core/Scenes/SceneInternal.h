@@ -8,8 +8,9 @@ inline constexpr float kWideSceneLinearWidth = 0.58f;
 inline constexpr float kWideSceneLinearAlpha = 0.68f;
 
 extern float g_MainMenuEntryT;
-extern bool s_MainMenuSettingsPanel;
-extern bool s_MainMenuRunConfigPanel;
+// Which lobby page is open inline over the main menu (None = the lobby itself).
+enum class LobbyPanel { None, Run, Shop, Codex, Settings };
+extern LobbyPanel g_LobbyPanel;
 extern bool s_MainMenuResumeFromPanel;
 extern float g_SettingsEntryT;
 extern bool s_SettingsInlineNeedsReset;

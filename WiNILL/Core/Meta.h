@@ -37,7 +37,7 @@ inline long long MetaNextCost(int id) {
 }
 
 inline const wchar_t* MetaName(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     return META_DEFS[id].name[li];
 }
 
@@ -60,7 +60,7 @@ inline const AccentTheme ACCENT_THEMES[] = {
 inline const int ACCENT_COUNT = (int)(sizeof(ACCENT_THEMES) / sizeof(ACCENT_THEMES[0]));
 
 inline const wchar_t* AccentName(int id) {
-    int li = (int)g_Language; if (li < 0 || li >= LANG_COUNT) li = 0;
+    int li = LangIndex();
     if (id < 0 || id >= ACCENT_COUNT) id = 0;
     return ACCENT_THEMES[id].name[li];
 }

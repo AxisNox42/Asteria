@@ -8,7 +8,7 @@
 inline constexpr int TUTORIAL_PAGE_COUNT = 7;
 
 inline int LangIndexTutorial() {
-    int li = (int)g_Language;
+    int li = LangIndex();
     if (li < 0 || li >= LANG_COUNT) li = 0;
     return li;
 }
