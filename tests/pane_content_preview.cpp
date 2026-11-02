@@ -55,6 +55,10 @@ int wmain(int argc, wchar_t** argv) {
         for (int variant = 0; variant < 3; ++variant) {
             c.dark = variant != 0;
             c.unstable = variant == 2 ? 0.8f : 0.0f;
+            // Worn: freeze one burst on so the glitch shows in the still.
+            c.glitch.endAt = variant == 2 ? GetTickCount64() + 60000 : 0;
+            c.glitch.seed = (float)(seed % 1000);
+            c.glitch.bands = 6.0f + (float)(seed % 9);
             const RECT r{ 0, 0, w, h };
             pane_content::Paint(dc, r, &c, c.dark);
             wchar_t name[160];
@@ -64,6 +68,27 @@ int wmain(int argc, wchar_t** argv) {
         }
         std::wprintf(L"%02d %ls  %ls\n", made, kind, c.title.c_str());
         ++made;
+    }
+    // Role dialogs: error (wall), shutdown (countdown), copy (shot box).
+    const pane_content::Role roles[3] = { pane_content::Role::Error, pane_content::Role::Shutdown,
+                                          pane_content::Role::Copy };
+    const wchar_t* roleNames[3] = { L"error", L"shutdown", L"copy" };
+    for (int k = 0; k < 3; ++k) {
+        for (int dark = 0; dark < 2; ++dark) {
+            pane_content::Content c;
+            c.kind = pane_content::Kind::Memo;
+            c.role = roles[k];
+            c.roleA = k == 1 ? 1.4f : 20.0f;
+            c.roleB = k == 1 ? 3.0f : 48.0f;
+            c.dark = dark != 0;
+            const RECT r{ 0, 0, w, h };
+            pane_content::Paint(dc, r, &c, c.dark);
+            wchar_t name[160];
+            swprintf_s(name, L"%ls\\role_%ls_%ls.bmp", out.c_str(), roleNames[k], dark ? L"dark" : L"light");
+            SaveBmp(dc, bmp, w, h, name);
+        }
+        std::wprintf(L"role %ls  %ls\n", roleNames[k], pane_content::RoleTitle(
+            [&] { pane_content::Content c; c.role = roles[k]; return c; }(), L"OCTANS").c_str());
     }
     DeleteObject(bmp);
     DeleteDC(dc);

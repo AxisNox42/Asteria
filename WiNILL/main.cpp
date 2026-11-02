@@ -291,8 +291,128 @@ static float g_NormaJudgment = -1.0f;
 static bool  g_NormaDoom = false;   // the coming death is the verdict
 static constexpr float kNormaJudgmentSeconds = 10.0f;
 
+// A stroke along a polyline as one triangle strip: each point gets one pair
+// of vertices, offset along the average of its two segments' normals and
+// lengthened by 1/cos of half the turn (a mitre, capped at 3x on sharp turns).
+// Neighbouring quads share those vertices, so a curve shows no gap on the
+// outside of a bend and no darker overlap on the inside, at any alpha.
+static void StrokeSmoothPath(const float* px, const float* py, int n, bool closed,
+                             float thick, hud_lines::Rgb c, float a) {
+    if (n < 2) return;
+    const float half = thick * 0.5f;
+    std::vector<float> ox(n), oy(n);
+    const auto dir = [&](int i, int j, float& dx, float& dy) {
+        dx = px[j] - px[i]; dy = py[j] - py[i];
+        const float l = std::sqrt(dx * dx + dy * dy);
+        if (l < 1e-4f) return false;
+        dx /= l; dy /= l;
+        return true;
+    };
+    for (int i = 0; i < n; ++i) {
+        const int p = closed ? (i + n - 1) % n : std::max(0, i - 1);
+        const int q = closed ? (i + 1) % n : std::min(n - 1, i + 1);
+        float d0x = 0, d0y = 0, d1x = 0, d1y = 0;
+        const bool h0 = p != i && dir(p, i, d0x, d0y);
+        const bool h1 = q != i && dir(i, q, d1x, d1y);
+        if (!h0) { d0x = d1x; d0y = d1y; }
+        if (!h1) { d1x = d0x; d1y = d0y; }
+        float mx = -(d0y + d1y), my = d0x + d1x;   // sum of both normals
+        float ml = std::sqrt(mx * mx + my * my);
+        if (ml < 1e-4f) { mx = -d1y; my = d1x; ml = 1.0f; }   // a full turn back
+        mx /= ml; my /= ml;
+        const float cosHalf = std::max(1.0f / 3.0f, mx * -d1y + my * d1x);
+        ox[i] = mx * half / cosHalf; oy[i] = my * half / cosHalf;
+    }
+    const int segs = closed ? n : n - 1;
+    for (int i = 0; i < segs; ++i) {
+        const int j = (i + 1) % n;
+        BatchTri(px[i] + ox[i], py[i] + oy[i], px[j] + ox[j], py[j] + oy[j], px[j] - ox[j], py[j] - oy[j],
+                 c.r, c.g, c.b, a);
+        BatchTri(px[i] + ox[i], py[i] + oy[i], px[j] - ox[j], py[j] - oy[j], px[i] - ox[i], py[i] - oy[i],
+                 c.r, c.g, c.b, a);
+    }
+}
+
+// OCTANS' health is a seal chain, the same seal its panes wear (DrawPaneSeal):
+// eight links of one unbroken line, joined by nine diamonds, so it never
+// reads as a dashed line. Each link is an eighth of the phase's bar.
+//   - the health: the lit line from the left; what is lost stays as a thin,
+//     faint line, still joined at every diamond
+//   - a diamond is lit while the link before it (to its left) holds any
+//     health; when a link empties its diamond flashes white and swells
+//   - one link left: its diamond throbs violet (the last star)
+//   - damage leaves a white stretch that catches up after kSealTrailHold
+//   - phase II fills back link by link, its head white
+//   - "5/8" at the right end: links still holding health
+static constexpr float kSealTrailHold = 0.45f;
+static void DrawSealChain(float x0, float y, float w, float scale, float ratio, float refill, int phase,
+                          hud_lines::Rgb ice) {
+    static float s_trail = 1.0f, s_lastHit = -10.0f, s_lastT = 0.0f, s_flashAt = -10.0f;
+    static int s_phase = 1, s_links = 8, s_flashUpTo = 0;
+    const float dt = std::clamp(g_GameTime - s_lastT, 0.0f, 0.1f);
+    s_lastT = g_GameTime;
+    if (phase != s_phase || ratio > s_trail) { s_trail = ratio; s_phase = phase; }
+    if (ratio < s_trail - 0.0005f && g_GameTime - s_lastHit > kSealTrailHold + 0.5f) s_lastHit = g_GameTime;
+    if (g_GameTime - s_lastHit > kSealTrailHold) s_trail += (ratio - s_trail) * std::min(1.0f, dt * 5.0f);
+    // Links still holding health; a drop flashes the diamonds that went out.
+    const int links = std::clamp((int)std::ceil(ratio * 8.0f - 0.0001f), 0, 8);
+    if (links < s_links && refill <= 0.0f) { s_flashUpTo = s_links; s_flashAt = g_GameTime; }
+    s_links = links;
+    const float flash = std::clamp(1.0f - (g_GameTime - s_flashAt) / 0.35f, 0.0f, 1.0f);
+
+    const hud_lines::Rgb white{ 0.92f, 0.99f, 1.0f }, warn{ 0.86f, 0.80f, 1.0f };
+    const float r = 5.5f * scale, step = w / 8.0f;
+    const auto nodeX = [&](int k) { return x0 + step * (float)k; };
+    const auto line = [&](float a, float b, float width, hud_lines::Rgb c, float al) {
+        // Along the bar from a to b (0..1), stopping at the diamonds' points.
+        for (int k = 0; k < 8; ++k) {
+            const float s0 = std::max(a, (float)k / 8.0f), s1 = std::min(b, (float)(k + 1) / 8.0f);
+            if (s1 <= s0) continue;
+            const float l = std::max(x0 + w * s0, nodeX(k) + r), rr = std::min(x0 + w * s1, nodeX(k + 1) - r);
+            if (rr > l) hud_lines::Segment(l, y, rr, y, width, c, al);
+        }
+    };
+    const auto diamond = [&](float cx, float rad, float width, hud_lines::Rgb c, float a) {
+        hud_lines::Segment(cx, y - rad, cx + rad, y, width, c, a);
+        hud_lines::Segment(cx + rad, y, cx, y + rad, width, c, a);
+        hud_lines::Segment(cx, y + rad, cx - rad, y, width, c, a);
+        hud_lines::Segment(cx - rad, y, cx, y - rad, width, c, a);
+    };
+    line(ratio, 1.0f, 1.0f * scale, ice, 0.25f);                                  // lost
+    if (s_trail > ratio) line(ratio, s_trail, 3.0f * scale, white, 0.85f);        // damage lag
+    line(0.0f, ratio, 3.0f * scale, ice, 0.95f);                                  // health
+    if (refill > 0.0f && ratio > 0.0f) {                                          // phase II rushing back
+        const float hx = x0 + w * ratio;
+        hud_lines::Segment(hx - 14.0f * scale, y, hx, y, 3.0f * scale, white, refill);
+    }
+    const float beat = 0.5f + 0.5f * sinf(g_GameTime * 9.0f);
+    for (int k = 0; k <= 8; ++k) {
+        const float cx = nodeX(k);
+        // Diamond k closes link k (to its left); the first one anchors the chain.
+        const bool lit = k == 0 ? links > 0 : k <= links;
+        if (lit && links == 1 && k == 1 && refill <= 0.0f) {
+            diamond(cx, r * (1.0f + 0.25f * beat), (1.8f + 0.8f * beat) * scale, warn, 0.6f + 0.4f * beat);
+        } else if (lit) {
+            diamond(cx, r, 2.0f * scale, ice, 0.95f);
+            diamond(cx, r * 0.4f, 1.4f * scale, ice, 0.8f);      // inset contour, the lit core
+        } else {
+            diamond(cx, r * 0.7f, 1.0f * scale, ice, 0.25f);
+            if (flash > 0.0f && k > links && k <= s_flashUpTo)
+                diamond(cx, r * (1.0f + 0.9f * (1.0f - flash)), 2.0f * scale, white, flash);
+        }
+    }
+    BatchFlush();
+    wchar_t count[8];
+    swprintf_s(count, L"%d/8", links);
+    const float ts = 0.42f * scale;
+    g_TextS.Draw(count, x0 + w + 12.0f * scale, y - g_TextS.Height(count, ts) * 0.5f, ts,
+                 ice.r, ice.g, ice.b, 0.8f);
+    BindMainShader();
+}
+
 // The boss's health under the wave track: a dim full-length line and the
-// bright remaining share of the current phase's bar over it. Lines only.
+// bright remaining share of the current phase's bar over it (ERIDANUS: a
+// filled river instead, OCTANS: a seal chain).
 static void DrawNormaBossBar(float sw, float scale, float topY) {
     const Monster* boss = nullptr;
     for (const Monster* m : g_MonsterManager.monsters)
@@ -328,12 +448,87 @@ static void DrawNormaBossBar(float sw, float scale, float topY) {
         }
     }
     BindMainShader();
-    hud_lines::Segment(x0, y, x0 + w, y, 2.0f * scale, ice, 0.22f);
-    if (ratio > 0.0f)
-        hud_lines::Segment(x0, y, x0 + w * ratio, y, 3.0f * scale, ice, 0.95f);
-    if (refill > 0.0f && ratio > 0.0f)   // the filling edge glows white
-        hud_lines::Segment(x0 + w * ratio - 3.0f * scale, y - 4.0f * scale, x0 + w * ratio - 3.0f * scale, y + 4.0f * scale,
-                           2.0f * scale, hud_lines::Rgb{ 1.0f, 1.0f, 1.0f }, refill);
+    if (caelumBoss) {
+        // ERIDANUS, the river (Docs/Concepts/Eridanus_BossBar_Design_v1, A):
+        // the health is a stretch of flowing water, filled, between two banks
+        // that meander together, rounded at both ends like a puddle's edge.
+        // Drained health shows nothing. Through the phase shift the water
+        // rushes back in, its head white.
+        // The whole river is one closed outline (top bank -> round head ->
+        // bottom bank -> round tail), filled inside and stroked as one mitred
+        // strip, so nothing in it breaks at a joint.
+        const auto river = [&](float from, float share, hud_lines::Rgb col, float fa, float la, bool head) {
+            const float xa = x0 + w * from, e = x0 + w * share;
+            if (e - xa > 1.0f) {
+                const float k = 0.045f / scale, flow = g_GameTime * 2.4f;
+                const float step = 3.0f * scale, gap = 5.0f * scale;
+                const float capR = std::min(7.0f * scale, 0.5f * (e - xa));   // how far each round end reaches
+                const float s0 = xa + capR, s1 = std::max(s0 + 0.01f, e - capR);
+                const auto wave = [&](float x, float ph) {
+                    return y + 2.2f * scale * sinf(x * k + ph - flow);
+                };
+                // Both banks sampled at the same x, from s0 to exactly s1.
+                std::vector<float> xs;
+                for (float x = s0; x < s1 - 0.5f * step; x += step) xs.push_back(x);
+                xs.push_back(s1);
+                const size_t m = xs.size();
+                std::vector<float> ty(m), by(m);
+                for (size_t i = 0; i < m; ++i) {
+                    ty[i] = wave(xs[i], 0.0f) - gap;
+                    by[i] = wave(xs[i], 0.9f) + gap;
+                }
+                // A round end: half an ellipse joining the two banks' ends at x
+                // (dir +1 bulges right from top to bottom, -1 left from bottom to top).
+                constexpr int kCap = 12;
+                std::vector<float> px, py;
+                const auto cap = [&](float x, float yTop, float yBot, float dir) {
+                    const float cy = 0.5f * (yTop + yBot), ry = 0.5f * (yBot - yTop);
+                    for (int i = 1; i < kCap; ++i) {
+                        const float u = -1.5707963f + 3.1415927f * (float)i / (float)kCap;
+                        px.push_back(x + dir * capR * cosf(u)); py.push_back(cy + dir * ry * sinf(u));
+                    }
+                };
+                for (size_t i = 0; i < m; ++i) { px.push_back(xs[i]); py.push_back(ty[i]); }
+                const size_t headFrom = px.size() - 1;
+                cap(s1, ty[m - 1], by[m - 1], 1.0f);
+                const size_t headTo = px.size();
+                for (size_t i = m; i-- > 0;) { px.push_back(xs[i]); py.push_back(by[i]); }
+                const size_t tailFrom = px.size() - 1;
+                cap(s0, ty[0], by[0], -1.0f);
+                const size_t n = px.size();
+
+                // The water: quads between the banks, a fan for each round end.
+                for (size_t i = 0; i + 1 < m; ++i) {
+                    BatchTri(xs[i], ty[i], xs[i + 1], ty[i + 1], xs[i + 1], by[i + 1], col.r, col.g, col.b, fa);
+                    BatchTri(xs[i], ty[i], xs[i + 1], by[i + 1], xs[i], by[i], col.r, col.g, col.b, fa);
+                }
+                const auto fan = [&](size_t from, size_t to, float cx, float cy) {
+                    for (size_t i = from; i < to; ++i) {
+                        const size_t j = (i + 1) % n;
+                        BatchTri(cx, cy, px[i], py[i], px[j], py[j], col.r, col.g, col.b, fa);
+                    }
+                };
+                fan(headFrom, headTo, s1, 0.5f * (ty[m - 1] + by[m - 1]));
+                fan(tailFrom, n, s0, 0.5f * (ty[0] + by[0]));
+                // The banks and both ends: one unbroken outline.
+                StrokeSmoothPath(px.data(), py.data(), (int)n, true, 1.6f * scale, col, la);
+                // The head turns white while the water rushes back.
+                if (head && refill > 0.0f)
+                    StrokeSmoothPath(px.data() + headFrom, py.data() + headFrom, (int)(headTo - headFrom + 1), false,
+                                     1.9f * scale, hud_lines::Rgb{ 1.0f, 1.0f, 1.0f }, refill);
+                if (head && refill > 0.0f) {   // the rush: two short streaks behind the head
+                    const hud_lines::Rgb white{ 1.0f, 0.95f, 0.82f };
+                    hud_lines::Segment(e - 24.0f * scale, y - 2.0f * scale, e - 14.0f * scale, y - 2.0f * scale,
+                                       1.2f * scale, white, 0.8f * refill);
+                    hud_lines::Segment(e - 36.0f * scale, y + 2.0f * scale, e - 26.0f * scale, y + 2.0f * scale,
+                                       1.2f * scale, white, 0.8f * refill);
+                }
+            }
+        };
+        river(0.0f, ratio, ice, 0.34f, 0.95f, true);
+    } else {
+        DrawSealChain(x0, y, w, scale, ratio, refill, boss->normaPhase, ice);
+    }
     BatchFlush();
     const wchar_t* name = caelumBoss ? (boss->normaPhase == 2 ? L"ERIDANUS  II" : L"ERIDANUS")
                         : boss->normaPhase == 2 ? L"OCTANS  II" : L"OCTANS";
@@ -347,7 +542,7 @@ static void DrawNormaBossBar(float sw, float scale, float topY) {
         const float pulse = g_NormaJudgment < 3.0f
             ? 0.65f + 0.35f * sinf(g_NormaJudgment * 14.0f) : 1.0f;
         const hud_lines::Rgb red{ 1.0f, 0.30f, 0.32f };
-        const float y2 = y + 16.0f * scale;
+        const float y2 = y + (caelumBoss ? 16.0f : 20.0f) * scale;   // clear of the seal's diamonds
         BindMainShader();
         hud_lines::Segment(x0, y2, x0 + w, y2, 2.0f * scale, red, 0.22f);
         hud_lines::Segment(x0, y2, x0 + w * left, y2, 3.0f * scale, red, 0.95f * pulse);
@@ -378,7 +573,122 @@ static void DrawThrowAppear();
 static bool FuseFor(int id, float& share);
 struct PaneCollapse;
 static void DrawPaneCollapses(float dt);
+// The seal under a pane: kSealTicks small diamonds just below its bottom
+// edge, one going out (to a faint small outline) for each eighth of
+// durability lost, like OCTANS' eight stars. A diamond that just went out
+// flashes white and swells; the last one left throbs violet, since the fuse
+// lights when it goes.
+static constexpr int kSealTicks = 8;
+static constexpr float kSealFlash = 0.35f;
+struct PaneSealMark { int id = 0; int lit = kSealTicks; int flashUpTo = 0; float flashAt = -10.0f; };
+static std::vector<PaneSealMark> g_PaneSeals;
+static void DrawPaneSeal(const os_pane::Rect& box, int id, float left, hud_lines::Rgb tint) {
+    const int lit = std::clamp((int)std::ceil(left * kSealTicks - 0.001f), 0, kSealTicks);
+    PaneSealMark* mark = nullptr;
+    for (PaneSealMark& m : g_PaneSeals) if (m.id == id) mark = &m;
+    if (!mark) { g_PaneSeals.push_back({ id, lit, 0, -10.0f }); mark = &g_PaneSeals.back(); }
+    if (lit < mark->lit) { mark->flashUpTo = mark->lit; mark->flashAt = g_GameTime; }
+    mark->lit = lit;
+    const int lost = mark->flashUpTo;   // ticks [lit, lost) just went out
+    const float flash = std::clamp(1.0f - (g_GameTime - mark->flashAt) / kSealFlash, 0.0f, 1.0f);
+    const float span = std::min(box.w * 0.5f, 8.0f * 30.0f);
+    const float step = span / kSealTicks, gap = std::min(7.0f, step * 0.3f);
+    const float x0 = box.x + (box.w - span) * 0.5f, y = box.y + box.h + 10.0f;
+    const hud_lines::Rgb white{ 0.92f, 0.99f, 1.0f }, warn{ 0.86f, 0.80f, 1.0f };
+    const float beat = 0.5f + 0.5f * sinf(g_GameTime * 9.0f);
+    (void)gap;
+    // Each tick is a small diamond outline (a star of the seal), not a dash.
+    const auto diamond = [&](float cx, float r, float w, hud_lines::Rgb c, float a) {
+        PaneSeg(cx, y - r, cx + r, y, w, c, a);
+        PaneSeg(cx + r, y, cx, y + r, w, c, a);
+        PaneSeg(cx, y + r, cx - r, y, w, c, a);
+        PaneSeg(cx - r, y, cx, y - r, w, c, a);
+    };
+    const float r = std::min(6.0f, step * 0.28f);
+    for (int i = 0; i < kSealTicks; ++i) {
+        const float cx = x0 + step * (i + 0.5f);
+        if (i < lit) {
+            if (lit == 1) diamond(cx, r * (1.0f + 0.25f * beat), 1.8f + 0.8f * beat, warn, 0.6f + 0.4f * beat);
+            else {
+                diamond(cx, r, 2.0f, tint, 0.95f);
+                diamond(cx, r * 0.4f, 1.4f, tint, 0.8f);   // inset contour, the lit core
+            }
+        } else {
+            diamond(cx, r * 0.7f, 1.0f, tint, 0.25f);
+            if (flash > 0.0f && i < lost) diamond(cx, r * (1.0f + 0.8f * (1.0f - flash)), 2.0f, white, flash);
+        }
+    }
+}
+
+// Where a pane border stopped a shot: a ripple running both ways along the
+// edge and a small diamond swelling out, white fading to the pane's colour
+// (violet for the boss's shots). Marks sit on an edge by their distance from
+// its start, so they follow a dragged pane; a hit close to a fresh mark on the
+// same edge relights that mark instead of adding one.
+static constexpr float kPaneHitSeconds = 0.28f;
+static constexpr float kPaneHitReach = 28.0f;
+static constexpr float kPaneHitMerge = 12.0f;
+static constexpr size_t kPaneHitCap = 48;
+struct PaneHitMark { int id = 0; int edge = 0; float along = 0.0f; float at = 0.0f; bool enemy = true; };
+static std::vector<PaneHitMark> g_PaneHits;
+
+// edge: 0 top, 1 bottom (along runs right), 2 left, 3 right (along runs down).
+static void AddPaneHit(const os_pane::Rect& r, int id, float sx, float sy, bool enemy) {
+    const float d[4] = { std::fabs(sy - r.y), std::fabs(sy - (r.y + r.h)),
+                         std::fabs(sx - r.x), std::fabs(sx - (r.x + r.w)) };
+    int edge = 0;
+    for (int i = 1; i < 4; ++i) if (d[i] < d[edge]) edge = i;
+    const float along = edge < 2 ? std::clamp(sx - r.x, 0.0f, r.w) : std::clamp(sy - r.y, 0.0f, r.h);
+    for (PaneHitMark& m : g_PaneHits)
+        if (m.id == id && m.edge == edge && std::fabs(m.along - along) < kPaneHitMerge &&
+            g_GameTime - m.at < 0.06f) {
+            m.at = g_GameTime;
+            m.enemy = m.enemy || enemy;
+            return;
+        }
+    if (g_PaneHits.size() >= kPaneHitCap) g_PaneHits.erase(g_PaneHits.begin());
+    g_PaneHits.push_back({ id, edge, along, g_GameTime, enemy });
+}
+
+static void DrawPaneHits(const os_pane::Pane& p, const os_pane::Rect& box, hud_lines::Rgb tint) {
+    const hud_lines::Rgb white{ 1.0f, 1.0f, 1.0f }, violet{ 0.86f, 0.80f, 1.0f };
+    for (const PaneHitMark& m : g_PaneHits) {
+        if (m.id != p.id) continue;
+        const float t = (g_GameTime - m.at) / kPaneHitSeconds;
+        if (t < 0.0f || t >= 1.0f) continue;
+        const float fade = (1.0f - t) * (1.0f - t);
+        const hud_lines::Rgb base = m.enemy ? violet : tint;
+        const hud_lines::Rgb c{ white.r + (base.r - white.r) * t, white.g + (base.g - white.g) * t,
+                                white.b + (base.b - white.b) * t };
+        const bool across = m.edge < 2;
+        const float len = across ? box.w : box.h;
+        const float a = std::min(m.along, len);
+        const float hx = across ? box.x + a : (m.edge == 2 ? box.x : box.x + box.w);
+        const float hy = across ? (m.edge == 0 ? box.y : box.y + box.h) : box.y + a;
+        const float ux = across ? 1.0f : 0.0f, uy = across ? 0.0f : 1.0f;
+        // The ripple: out both ways along the edge, never past its corners.
+        const float reach = kPaneHitReach * (1.0f - (1.0f - t) * (1.0f - t));
+        const float back = std::min(reach, a), fwd = std::min(reach, len - a);
+        const float w = 3.0f - 2.0f * t;
+        PaneSeg(hx - ux * back, hy - uy * back, hx, hy, w, c, 0.95f * fade);
+        PaneSeg(hx, hy, hx + ux * fwd, hy + uy * fwd, w, c, 0.95f * fade);
+        // The dent: a small diamond outline swelling out of the hit point.
+        const float r = 5.0f * (1.0f + 0.8f * t);
+        PaneSeg(hx, hy - r, hx + r, hy, 1.6f, c, 0.9f * fade);
+        PaneSeg(hx + r, hy, hx, hy + r, 1.6f, c, 0.9f * fade);
+        PaneSeg(hx, hy + r, hx - r, hy, 1.6f, c, 0.9f * fade);
+        PaneSeg(hx - r, hy, hx, hy - r, 1.6f, c, 0.9f * fade);
+    }
+}
+
 static void DrawPaneBrackets() {
+    g_PaneHits.erase(std::remove_if(g_PaneHits.begin(), g_PaneHits.end(), [](const PaneHitMark& m) {
+        if (g_GameTime - m.at >= kPaneHitSeconds) return true;
+        for (const os_pane::Pane& p : os_pane::Panes()) if (p.open && p.id == m.id) return false;
+        return true; }), g_PaneHits.end());
+    g_PaneSeals.erase(std::remove_if(g_PaneSeals.begin(), g_PaneSeals.end(), [](const PaneSealMark& m) {
+        for (const os_pane::Pane& p : os_pane::Panes()) if (p.open && p.id == m.id) return false;
+        return true; }), g_PaneSeals.end());
     DrawPaneCollapses(1.0f / 60.0f);
     DrawThrowAppear();
     bool any = false;
@@ -442,16 +752,34 @@ static void DrawPaneBrackets() {
         const float width = 2.0f + 2.6f * left;
         const float alpha = 0.45f + 0.55f * left;
         const float arm = std::min(90.0f, std::min(box.w, box.h) * 0.22f);
-        const float xs[2] = { box.x, box.x + box.w };
-        const float ys[2] = { box.y, box.y + box.h };
-        for (int cx = 0; cx < 2; ++cx) {
-            for (int cy = 0; cy < 2; ++cy) {
-                const float x = xs[cx], y = ys[cy];
-                const float sx = cx == 0 ? 1.0f : -1.0f, sy = cy == 0 ? 1.0f : -1.0f;
-                PaneSeg(x, y, x + sx * arm, y, width, tint, alpha);
-                PaneSeg(x, y, x, y + sy * arm, width, tint, alpha);
+        const auto brackets = [&](float ox, float oy, hud_lines::Rgb c, float a, float w) {
+            const float xs[2] = { box.x + ox, box.x + box.w + ox };
+            const float ys[2] = { box.y + oy, box.y + box.h + oy };
+            for (int cx = 0; cx < 2; ++cx) {
+                for (int cy = 0; cy < 2; ++cy) {
+                    const float x = xs[cx], y = ys[cy];
+                    const float sx = cx == 0 ? 1.0f : -1.0f, sy = cy == 0 ? 1.0f : -1.0f;
+                    PaneSeg(x, y, x + sx * arm, y, w, c, a);
+                    PaneSeg(x, y, x, y + sy * arm, w, c, a);
+                }
             }
+        };
+        // While the contents glitch, the brackets break in the same beat: a
+        // jump sideways (and a little up or down) with red and cyan copies
+        // pulled apart, sized by the burst's seed.
+        float burstSeed = 0.0f;
+        if (os_pane::GlitchBurstNow(p.id, burstSeed)) {
+            const auto h = [&](float k) { const float v = sinf(burstSeed * 12.9898f + k) * 43758.5453f; return v - std::floor(v); };
+            const float jx = (h(1.0f) - 0.5f) * 2.0f * 16.0f, jy = (h(2.0f) - 0.5f) * 2.0f * 4.0f;
+            const float split = 3.0f + 5.0f * h(3.0f);
+            brackets(jx - split, jy, { 1.0f, 0.25f, 0.30f }, alpha * 0.8f, width);
+            brackets(jx + split, jy, { 0.25f, 0.86f, 0.88f }, alpha * 0.8f, width);
+            brackets(jx, jy, tint, alpha * 0.6f, width * 0.7f);
+        } else {
+            brackets(0.0f, 0.0f, tint, alpha, width);
         }
+        if (!FuseFor(p.id, fuseShare)) DrawPaneSeal(box, p.id, left, tint);
+        DrawPaneHits(p, box, tint);
         DrawPaneHop(p);
         DrawWarpCracks(p);
     }
@@ -566,6 +894,10 @@ static void RebuildPaneSpaces(const SpatialBounds& player) {
     std::sort(order.begin(), order.end(),
               [](const os_pane::Pane* a, const os_pane::Pane* b) { return a->zRank < b->zRank; });
     space::g_Regions.clear();
+    // Last frame's in-game rectangle per pane, for the border sweep.
+    static std::vector<std::pair<int, os_pane::Rect>> s_Last;
+    std::vector<std::pair<int, os_pane::Rect>> last;
+    last.swap(s_Last);
     static std::vector<std::pair<int, float>> s_Born;   // pane id -> first seen
     space::g_Clock = (float)glfwGetTime();
     s_Born.erase(std::remove_if(s_Born.begin(), s_Born.end(), [&](const std::pair<int, float>& b) {
@@ -576,9 +908,22 @@ static void RebuildPaneSpaces(const SpatialBounds& player) {
         bool known = false;
         for (const auto& b : s_Born) if (b.first == p->id) { born = b.second; known = true; }
         if (!known) s_Born.push_back({ p->id, born });
-        space::g_Regions.push_back({ p->id,
+        space::Region r{ p->id,
             ScreenToWorldX(p->shown.x), ScreenToWorldY(p->shown.y),
-            ScreenToWorldX(p->shown.x + p->shown.w), ScreenToWorldY(p->shown.y + p->shown.h), born });
+            ScreenToWorldX(p->shown.x + p->shown.w), ScreenToWorldY(p->shown.y + p->shown.h), born };
+        r.px0 = r.x0; r.py0 = r.y0; r.px1 = r.x1; r.py1 = r.y1;
+        for (const auto& l : last) {
+            if (l.first != p->id) continue;
+            const os_pane::Rect& q = l.second;
+            const float step = std::max({ std::fabs(q.x - p->shown.x), std::fabs(q.y - p->shown.y),
+                                          std::fabs(q.x + q.w - p->shown.x - p->shown.w),
+                                          std::fabs(q.y + q.h - p->shown.y - p->shown.h) });
+            r.moved = step > 0.01f && step <= space::kSweepMaxStep;
+            r.px0 = ScreenToWorldX(q.x); r.py0 = ScreenToWorldY(q.y);
+            r.px1 = ScreenToWorldX(q.x + q.w); r.py1 = ScreenToWorldY(q.y + q.h);
+        }
+        space::g_Regions.push_back(r);
+        s_Last.push_back({ p->id, p->shown });
     }
     space::g_PlayerSpace = space::SpaceAt(player.x + player.width * 0.5f,
                                           player.y + player.height * 0.5f);
@@ -2038,8 +2383,12 @@ static void LightPaneFuse(int id) {
 
 static void ApplyPaneAbsorbs() {
     for (const space::Absorb& a : space::g_Absorbed) {
-        SpawnSparks(a.x, a.y, 3, 0.76f, 0.70f, 1.0f, 160.0f);
-        if (a.paneId > 0) WearOf(a.paneId).hits += 1.0f;
+        if (a.enemy) SpawnSparks(a.x, a.y, 5, 0.86f, 0.80f, 1.0f, 240.0f);
+        else SpawnSparks(a.x, a.y, 5, 0.92f, 0.99f, 1.0f, 240.0f);
+        if (a.paneId <= 0) continue;
+        WearOf(a.paneId).hits += 1.0f;
+        if (const os_pane::Pane* p = PaneById(a.paneId))
+            AddPaneHit(p->shown, a.paneId, W2SX(a.x), W2SY(a.y), a.enemy);
     }
     space::g_Absorbed.clear();
     for (const os_pane::Pane& p : os_pane::Panes()) {
@@ -2053,6 +2402,21 @@ static void ApplyPaneAbsorbs() {
         else if (left < space::kUnsteadyShare)
             unsteady = 0.35f * (1.0f - left / space::kUnsteadyShare);
         os_pane::SetUnstable(p.id, unsteady);
+        os_pane::SetWear(p.id, left, FuseOf(p.id) != nullptr);
+        // The job a pattern gives this pane shows as a system dialog.
+        bool wall = false;
+        for (const WallPane& w : g_Wall.panes) wall = wall || (g_Wall.active && w.id == p.id);
+        if (g_NormaCountdown.id == p.id && p.id != 0) {
+            os_pane::SetRole(p.id, os_pane::PaneRole::Shutdown, g_NormaCountdown.left, norma::kCloseCountdown);
+        } else if (g_ThrowBox.id == p.id && p.id != 0) {
+            const float total = (float)(norma::kThrowRing + norma::kThrowInner);
+            const float share = g_ThrowBox.stage == 0 ? std::min(1.0f, g_ThrowBox.timer / norma::kThrowFill) : 1.0f;
+            os_pane::SetRole(p.id, os_pane::PaneRole::Copy, std::floor(total * share), total);
+        } else if (wall) {
+            os_pane::SetRole(p.id, os_pane::PaneRole::Error);
+        } else {
+            os_pane::SetRole(p.id, os_pane::PaneRole::Plain);
+        }
     }
     g_PaneWear.erase(std::remove_if(g_PaneWear.begin(), g_PaneWear.end(),
         [](const PaneWear& w) {
@@ -2525,7 +2889,9 @@ static void TickNormaJudgment(float dt) {
     bool bossAlive = false;
     for (const Monster* m : g_MonsterManager.monsters)
         if (IsBossMob(m->kind) && m->alive) { bossAlive = true; break; }
-    const bool timeOut = WaveRunComplete(g_GameTime, g_Difficulty);
+    const int wave = g_GameManager.currentWave;
+    const bool timeOut = IsFinalBossWave(wave, g_Difficulty) &&
+        WaveFightSeconds(wave, g_GameTime) >= BOSS_WAVE_DURATION_SECONDS;
     if (!bossAlive || !timeOut || NormaDefeated()) {
         g_NormaJudgment = -1.0f;
         g_NormaDoom = false;
@@ -2546,28 +2912,26 @@ static void TickNormaJudgment(float dt) {
     TriggerFlash(1.0f, 0.3f, 0.32f, 0.9f);
 }
 
+// Boss rush: a wave ends only when its elite (or mid-run boss) falls. The
+// clear queues a wave reward tiered by the kill time and starts the next wave.
 static void ProcessWaveTransitions(int scrW, int scrH) {
     if (g_GameManager.currentState != GameState::RUNNING) return;
-    const int reachedWave = CurrentWaveNumber(g_GameTime, g_Difficulty);
-    while (g_GameManager.currentWave < reachedWave) {
-        g_GameManager.waveTransitionFrom = g_GameManager.currentWave;
-        ++g_GameManager.currentWave;
-        g_GameManager.waveTransitionTimer = 2.0f;
-        // The wave HUD lists this wave's debuff until the wave ends, so a wave
-        // that gets none must not keep showing the previous one.
-        g_GameManager.lastWaveDebuff = -1;
-        g_GameManager.waveDebuffPickPending = true;
+    GameManager& gm = g_GameManager;
+    const WaveClearInfo clear = ConsumeWaveClear();
+    if (clear.cleared && clear.wave == gm.currentWave &&
+        gm.currentWave < FinalWaveCount(g_Difficulty)) {
+        gm.QueueWaveReward(clear.killSeconds, clear.boss);
+        gm.waveTransitionFrom = gm.currentWave;
+        ++gm.currentWave;
+        gm.waveStartTime = g_GameTime;
+        gm.waveTransitionTimer = 2.0f;
     }
-    // Open the pick once nothing else holds the selection screen (a level-up
-    // slow-motion or reward may be mid-flight at the boundary).
-    if (g_GameManager.waveDebuffPickPending &&
-        !g_GameManager.levelUpTransition.Active() &&
-        !g_GameManager.augmentRewardActive) {
-        g_GameManager.waveDebuffPickPending = false;
-        OpenWaveDebuffChoice();
-    }
-    // No timed clear: the run is won only by felling the boss (CompleteBossRun).
-    // When the boss wave's clock runs out the fight simply goes on.
+    // The reward opens a beat after the kill, once nothing else holds the
+    // selection screen (a level-up slow-motion may be mid-flight).
+    if (gm.pendingWaveRewards > 0 && gm.waveTransitionTimer <= 1.2f &&
+        !gm.levelUpTransition.Active() && !gm.augmentRewardActive)
+        gm.ActivateNextAugmentReward();
+    // The run is won only by felling the final boss (CompleteBossRun).
 }
 
 static void BeginAugReplaceFlow(int newIdx) {
@@ -2683,18 +3047,15 @@ static void ReturnToRunningAfterPick() {
 }
 
 static void FinishCurrentAugmentReward() {
-    if (g_GameManager.augmentRewardActive &&
-        g_GameManager.pendingAugmentRewards > 0) {
-        --g_GameManager.pendingAugmentRewards;
-    }
+    if (g_GameManager.augmentRewardActive)
+        g_GameManager.ConsumeActiveReward();
     g_GameManager.augmentRewardActive = false;
     if (!g_GameManager.ActivateNextAugmentReward())
         ReturnToRunningAfterPick();
 }
 
 static void FinishAugmentEffects() {
-    if (g_GameManager.augmentRewardActive &&
-        g_GameManager.pendingAugmentRewards > 0) {
+    if (g_GameManager.augmentRewardActive) {
         FinishCurrentAugmentReward();
         return;
     }
@@ -3405,9 +3766,10 @@ int main() {
         &g_PlayConstellationOrbits,
         [&]() {
             if (g_GameManager.currentState != GameState::RUNNING) return;
-            g_GameTime = WaveStartTimeSeconds(
-                g_GameManager.currentWave + 1, g_Difficulty);
-            ProcessWaveTransitions(screenWidth, screenHeight);
+            // Skip: the wave's target falls now (no score), so the wave
+            // clears through the normal flow and its reward opens.
+            if (DebugClearWaveObjective(g_MonsterManager, g_GameTime))
+                ProcessWaveTransitions(screenWidth, screenHeight);
         },
         &g_OwnedAugs,
         DebugEditAugment,
@@ -4043,10 +4405,8 @@ int main() {
                             g_Stats.killCount = 777;
                             g_CurrentWeapon = (int)StartWeapon::SMG;
                             g_GameTime = 99.0f;
-                            // Match the wave to the filled time; otherwise the next
-                            // frame enters wave 2 and applies a random wave debuff,
-                            // which leaks into the following snapshots.
-                            gm.currentWave = CurrentWaveNumber(g_GameTime, g_Difficulty);
+                            gm.currentWave = 1;
+                            gm.waveStartTime = g_GameTime;
                         };
                         auto dump = [&](const std::string& label) {
                             int drones = 0, chakrams = 0, skills = 0, shocks = 0, debris = 0,
@@ -4179,11 +4539,11 @@ int main() {
                     }
                     if (step.rfind("LEVEL=", 0) == 0) {
                         gm.playerLevel = std::max(1, std::atoi(step.c_str() + 6));
-                    } else if (step.rfind("WAVETIME=", 0) == 0) {
+                    } else if (step.rfind("WAVE=", 0) == 0) {
                         // HUD-only smoke fixture: jump to a wave without replaying combat.
-                        g_GameTime = std::clamp(std::strtof(step.c_str() + 9, nullptr),
-                            0.0f, TotalWaveDurationSeconds(g_Difficulty) - 1.0f);
-                        gm.currentWave = CurrentWaveNumber(g_GameTime, g_Difficulty);
+                        gm.currentWave = std::clamp(std::atoi(step.c_str() + 5),
+                                                    1, FinalWaveCount(g_Difficulty));
+                        gm.waveStartTime = g_GameTime;
                     } else if (step.rfind("XP=", 0) == 0) {
                         // XP=<n>: one large XP gain, levelled by the next tick.
                         GrantExperience(XpFromReward(std::atof(step.c_str() + 3)));
@@ -4550,7 +4910,18 @@ int main() {
                         gm.maxHP = g_Stats.maxHP = 100000.0f;   // so a test run outlives the bursts
                         gm.playerHP = gm.maxHP;
                         if (Monster* boss = FindNorma()) {
-                            if (arg == "P2") {
+                            if (arg.rfind("HP", 0) == 0 && arg.size() > 2) {
+                                // HP<n>: the boss at n% of its max HP (for the boss bar).
+                                boss->hp = boss->normaMaxHp * std::strtof(arg.c_str() + 2, nullptr) / 100.0f;
+                            } else if (arg == "WEAR") {
+                                // WEAR: wear the open panes 15%, 45%, 75%... so the seal
+                                // ticks show several states at once.
+                                int k = 0;
+                                for (const os_pane::Pane& pane : os_pane::Panes())
+                                    if (pane.open && !pane.minimized)
+                                        WearOf(pane.id).hits = PaneMaxDurability(pane) *
+                                                               std::min(0.97f, 0.15f + 0.30f * (float)k++);
+                            } else if (arg == "P2") {
                                 boss->hp = boss->normaMaxHp * 0.35f;
                             } else {
                                 boss->worldX = playerWin.x + playerWin.width * 0.5f + 380.0f;
@@ -5764,8 +6135,10 @@ CollisionSystem::Update(pCX, pCY,
 
 
             UpdateEnemySpawns(g_MonsterManager, g_Stats,
-                              screenWidth, screenHeight, delta,
-                              g_GameTime, g_GameManager.score, g_Difficulty);
+                              screenWidth, screenHeight, delta, g_GameTime,
+                              g_GameManager.currentWave,
+                              g_GameTime - g_GameManager.waveStartTime,
+                              g_GameManager.score, g_Difficulty);
             g_GameTime += delta;
             ProcessWaveTransitions(screenWidth, screenHeight);
             TickNormaJudgment(delta);

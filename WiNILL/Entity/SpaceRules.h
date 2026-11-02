@@ -17,6 +17,10 @@ struct Region {
     int id = 0;
     float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
     float bornAt = 0.0f;   // g_Clock when the pane first stood
+    // Last frame's rectangle (in this frame's world mapping) and whether the
+    // pane slid or resized since, by no more than kSweepMaxStep on screen.
+    float px0 = 0.0f, py0 = 0.0f, px1 = 0.0f, py1 = 0.0f;
+    bool moved = false;
 };
 
 inline std::vector<Region> g_Regions;
@@ -70,6 +74,7 @@ inline bool PlayerExposed() {
 struct Absorb {
     int paneId = 0;
     float x = 0.0f, y = 0.0f;
+    bool enemy = true;   // false: the player's own shot (drawn in its own colour)
 };
 inline std::vector<Absorb> g_Absorbed;
 
@@ -85,6 +90,36 @@ inline bool CrossedBorder(int shotSpace, float x, float y, int& absorbingPane) {
     if (now == shotSpace) return false;
     absorbingPane = AbsorbingPane(shotSpace, now);
     return true;
+}
+
+// A moving pane's border stops the shots it sweeps over: one that the pane
+// came over (outside it last frame, inside now) or one it slid away from
+// (inside last frame, left outside now). A pane that jumped further than
+// kSweepMaxStep in a frame, or just opened, closed or was released, sweeps
+// nothing, so those shots only change space.
+constexpr float kSweepMaxStep = 240.0f;   // screen pixels per frame
+
+inline const Region* RegionOf(int id) {
+    for (const Region& r : g_Regions) if (r.id == id) return &r;
+    return nullptr;
+}
+
+inline bool SweptBy(int shotSpace, float prevX, float prevY, float x, float y, int& sweepingPane) {
+    const int now = SpaceAt(x, y);
+    if (shotSpace < 0 || now == shotSpace) return false;
+    const auto wasIn = [&](const Region& r) {
+        return prevX >= r.px0 && prevX < r.px1 && prevY >= r.py0 && prevY < r.py1;
+    };
+    if (const Region* to = RegionOf(now); to && to->moved && !wasIn(*to)) {
+        sweepingPane = now;
+        return true;
+    }
+    if (const Region* from = RegionOf(shotSpace); from && from->moved && wasIn(*from) &&
+        !(x >= from->x0 && x < from->x1 && y >= from->y0 && y < from->y1)) {
+        sweepingPane = shotSpace;
+        return true;
+    }
+    return false;
 }
 
 // A pane only stops shots fired after it stood: a pane that opens over shots
@@ -141,7 +176,7 @@ inline bool PushOutOfBoxes(const std::vector<Box>& boxes, float margin,
     return true;
 }
 
-// Pane durability: enemy hits a pane can stop before it self-destructs.
+// Pane durability: hits (enemy or player) a pane can stop before it self-destructs.
 // Smaller panes are sturdier, up to three times the base; larger ones keep
 // the base.
 constexpr float kBaseDurability = 120.0f;

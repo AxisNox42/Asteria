@@ -60,7 +60,7 @@
 namespace caelum {
 
 constexpr float kBaseHp = 24000.0f;         // before the run's HP scaling (NORMA is 30000)
-constexpr float kPhase2Ratio = 0.40f;
+constexpr float kPhase2Ratio = 0.50f;        // each phase holds half the HP, like OCTANS
 constexpr float kSizeScale = 3.0f;
 constexpr float kContactDps = 10.0f;
 constexpr float kPhaseInvuln = 1.6f;

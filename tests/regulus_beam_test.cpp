@@ -44,7 +44,7 @@ static void CheckInstantGrant() {
     const int buff = mm.regulusBeams[0].buff;
     assert(buff >= 0 && buff <= 2);
     if (buff == Monster::REGULUS_BUFF_SHIELD) {
-        assert(std::fabs(inside->regulusShield.hp - reg->regulusBaseHp * 0.6f) < 0.01f);
+        assert(std::fabs(inside->regulusShield.hp - inside->hp * 1.2f) < 0.01f);
         assert(inside->regulusShield.grantTimer > 0.0f);        // snap-in running
     }
     Step(mm, Monster::REGULUS_BEAM_TIME + 0.05f);

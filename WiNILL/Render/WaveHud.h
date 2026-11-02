@@ -1,15 +1,16 @@
 #pragma once
 // ─────────────────────────────────────────────────────────────
-// Wave HUD (top centre): "04 / 15" and the time left in the wave,
+// Wave HUD (top centre): "04 / 15" and how long the wave's fight has run,
 // and a seven-node window of the wave track - three past waves, the current
 // wave fixed in the centre, three upcoming waves (symbols only, no labels).
 // The window's end nodes are faded to say the track goes on; the run's
 // first and final waves are never faded because nothing lies beyond them.
 // Line glyphs only; text keeps the renderer halo so
 // it reads on a bright wallpaper without a plate.
-//   ○ plain wave   ◇ elite wave   ◈ final wave
-// Every fifth non-boss wave is an elite wave (Quasar, Gravis or Genesis,
-// rolled at run start); the final wave is reserved for the boss encounter.
+//   ○ elite wave   ◇ mid-run boss wave   ◈ final wave
+// Boss rush: every wave is an elite (rolled at run start) or a boss fight and
+// ends when it falls. The timer shows how long the fight has run; on the
+// final wave it counts down to the boss's judgment instead.
 // ─────────────────────────────────────────────────────────────
 #include <algorithm>
 #include <cmath>
@@ -41,12 +42,11 @@ inline constexpr Rgb kFinal  = { 1.00f, 0.81f, 0.38f };
 inline constexpr Rgb kDanger = { 1.00f, 0.36f, 0.38f };
 inline constexpr Rgb kText   = { 0.86f, 0.91f, 1.00f };
 
-// The next wave's debuff is announced this long before the wave ends.
-inline constexpr float kDebuffPreviewSeconds = 10.0f;
 
-inline bool IsEliteWave(int wave, Difficulty difficulty) {
-    const ScheduledEliteInfo info = GetScheduledElite(wave, difficulty);
-    return info.scheduled && IsEliteMob(info.kind);
+// Track symbols keep the pre-boss-rush look: an elite wave reads as a plain
+// wave, a mid-run boss wave as the elite diamond, the final wave as before.
+inline bool IsDiamondWave(int wave, Difficulty difficulty) {
+    return IsBossWave(wave, difficulty) && !IsFinalBossWave(wave, difficulty);
 }
 
 inline void HudText(TextRenderer& font, const wchar_t* text, float x,
@@ -93,8 +93,8 @@ inline void DrawWaveTrack(float cx, float trackY, float hs, int wave, int finalW
     // Half-width of each node along the track, so the links stop at the
     // node's edge instead of running through it.
     auto nodeHalf = [&](int w) {
-        const bool isFinal = IsBossWave(w, difficulty);   // every boss wave, not only the last
-        const bool isElite = !isFinal && IsEliteWave(w, difficulty);
+        const bool isFinal = IsFinalBossWave(w, difficulty);
+        const bool isElite = IsDiamondWave(w, difficulty);
         if (w == wave) return (isFinal || isElite ? 13.0f : 10.0f) * hs + 1.2f * hs;
         if (isFinal) return 9.0f * hs + 0.9f * hs;
         if (isElite) return 7.0f * hs + 0.9f * hs;
@@ -118,8 +118,8 @@ inline void DrawWaveTrack(float cx, float trackY, float hs, int wave, int finalW
         const float nx = nodeX(w);
         const float f = fade(w);
         if (f <= 0.001f) continue;
-        const bool isFinal = IsBossWave(w, difficulty);   // every boss wave, not only the last
-        const bool isElite = !isFinal && IsEliteWave(w, difficulty);
+        const bool isFinal = IsFinalBossWave(w, difficulty);
+        const bool isElite = IsDiamondWave(w, difficulty);
         if (w == wave) {
             // Current wave: a steady outline in the node's own colour, and
             // its interior filling clockwise from 12 o'clock as the wave
@@ -173,9 +173,20 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
     using namespace wave_hud;
     const float hs = hudScale;
     const int finalWave = FinalWaveCount(difficulty);
-    const int wave = CurrentWaveNumber(gameTime, difficulty);
-    const float remain = CurrentWaveSecondsRemaining(gameTime, difficulty);
-    const bool lastSeconds = remain > 0.0f && remain <= 10.0f;
+    const int wave = std::clamp(gm.currentWave, 1, finalWave);
+    const float fight = WaveFightSeconds(wave, gameTime);
+    const bool finalFight = IsFinalBossWave(wave, difficulty);
+    const bool bossFight = IsBossWave(wave, difficulty);
+    // Final wave: time left before the judgment. Other waves: the fight clock;
+    // the node fills over the reward window (full once only Common is left).
+    float clock = fight, remainFrac = 1.0f;
+    if (finalFight) {
+        clock = std::max(0.0f, BOSS_WAVE_DURATION_SECONDS - fight);
+        remainFrac = clock / BOSS_WAVE_DURATION_SECONDS;
+    } else {
+        remainFrac = WaveRewardSpeed(fight, bossFight);
+    }
+    const bool lastSeconds = finalFight && clock > 0.0f && clock <= 10.0f;
     const float keyline = 3.2f * hs;
     const float cx = sw * 0.5f;
 
@@ -185,8 +196,8 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
     wchar_t current[8], total[16], timer[16];
     swprintf_s(current, L"%02d", wave);
     swprintf_s(total, L"/ %02d", finalWave);
-    const int remainWhole = (int)std::ceil(remain);
-    swprintf_s(timer, L"%02d:%02d", remainWhole / 60, remainWhole % 60);
+    const int clockWhole = finalFight ? (int)std::ceil(clock) : (int)clock;
+    swprintf_s(timer, L"%02d:%02d", clockWhole / 60, clockWhole % 60);
     const float textSc = UiTextScale(g_TextL, UiTextLevel::Subtitle, hs * 0.95f);
     const float totalSc = textSc * 0.65f;
     const float totalGap = 8.0f * hs;
@@ -209,8 +220,7 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
         ? std::clamp((1.0f - gm.waveTransitionTimer / 2.0f) / 0.6f, 0.0f, 1.0f)
         : 1.0f;
     DrawWaveTrack(cx, trackY, hs, wave, finalWave, difficulty,
-                  std::clamp(remain / WaveDurationSeconds(wave, difficulty),
-                             0.0f, 1.0f), pulse);
+                  std::clamp(remainFrac, 0.0f, 1.0f), pulse);
 
     // ── this wave's debuff: one line under the track until the wave ends ──
     const int di = gm.lastWaveDebuff;
@@ -222,22 +232,6 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
         const float a = gm.waveDebuffToast > 0.0f ? 1.0f : 0.75f;
         const float w = g_TextS.Width(line, sc);
         HudText(g_TextS, line, cx - w * 0.5f, trackY + 30.0f * hs, sc, kDanger, a);
-    }
-
-    // ── preview: the next wave opens a 3-card debuff pick, in the last seconds ──
-    if (gm.showDebuffPreview && wave < finalWave &&
-        remain <= kDebuffPreviewSeconds) {
-        static const wchar_t* const kNext[3] = {
-            L"다음 웨이브 ▷ 디버프 3택1", L"NEXT ▷ Choose 1 of 3 debuffs",
-            L"次のウェーブ ▷ デバフ3択1" };
-        wchar_t line[128];
-        swprintf_s(line, L"%ls", kNext[std::clamp(CurLangIdx(), 0, 2)]);
-        const float sc = UiTextScale(g_TextS, UiTextLevel::Supporting, hs);
-        // Fades in over the first second and blinks gently in the last three.
-        const float inA = std::clamp((kDebuffPreviewSeconds - remain) / 1.0f, 0.0f, 1.0f);
-        const float blink = remain < 3.0f ? 0.75f + 0.25f * sinf(remain * 12.0f) : 1.0f;
-        const float w = g_TextS.Width(line, sc);
-        HudText(g_TextS, line, cx - w * 0.5f, trackY + 52.0f * hs, sc, kElite, inA * blink);
     }
 }
 

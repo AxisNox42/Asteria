@@ -416,9 +416,8 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         // the last wave it settles at how far into the wave the run got.
         float fillShare = std::clamp(wp - (float)curWave + 0.5f, 0.0f, 1.0f);
         if (arrived) {
-            const float share = std::clamp(1.0f - CurrentWaveSecondsRemaining(
-                g_GameTime, g_Difficulty) /
-                WaveDurationSeconds(curWave, g_Difficulty), 0.0f, 1.0f);
+            // Waves have no clock: a fight that ended mid-wave shows half.
+            const float share = 0.5f;
             fillShare = 0.5f + (share - 0.5f) * std::clamp(burstT / 0.4f, 0.0f, 1.0f);
         }
         const float pulse = std::clamp((s_journeyT - s_changeT) / 0.30f, 0.0f, 1.0f);

@@ -90,12 +90,19 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         if (!(bullet.isEnemy && timeStopTimer > 0.0f)) {
             bullet.Update(bulletDelta);
         }
-        // Only a shot's own flight across a border stops it. A pane that
-        // closed, was released or hopped away under it (a pattern changing)
-        // just hands the shot to whatever space it now stands in.
+        // A shot whose space changed under it was swept by a moving pane's
+        // border (stopped there), or a pane closed, was released or jumped
+        // away (it just takes the space it now stands in).
         if (bullet.active &&
-            space::SpaceAt(prevX, prevY) == space::SpaceAt(bullet.x, bullet.y))
+            space::SpaceAt(prevX, prevY) == space::SpaceAt(bullet.x, bullet.y)) {
+            int sweepingPane = 0;
+            if (space::SweptBy(bullet.space, prevX, prevY, bullet.x, bullet.y, sweepingPane)) {
+                bullet.active = false;
+                space::g_Absorbed.push_back({ sweepingPane, bullet.x, bullet.y, bullet.isEnemy });
+                continue;
+            }
             bullet.space = space::SpaceAt(bullet.x, bullet.y);
+        }
         int absorbingPane = 0;
         if (bullet.active &&
             space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane) &&
@@ -104,10 +111,8 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         } else if (bullet.active &&
             space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane)) {
             bullet.active = false;
-            // The player's own shots still stop at the border but never wear
-            // the pane (pane 0: sparks only), so sheltering and shooting out
-            // does not break the shelter.
-            space::g_Absorbed.push_back({ bullet.isEnemy ? absorbingPane : 0, bullet.x, bullet.y });
+            // Every shot a border stops wears that pane, the player's own too.
+            space::g_Absorbed.push_back({ absorbingPane, bullet.x, bullet.y, bullet.isEnemy });
             continue;
         }
 

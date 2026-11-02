@@ -178,6 +178,7 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     score = initialScore;
     scoreAccum = static_cast<float>(initialScore);
     currentWave = 1;
+    waveStartTime = 0.0f;
     waveTransitionFrom = 0;
     waveTransitionTimer = 0.0f;
     lastWaveDebuff = -1;
@@ -210,21 +211,42 @@ static int RarityWeight(int rarity, int level) {
     }
 }
 
+// Level-up cards: plain, stackable stat raises only.
+static bool StatCardAug(AugType t) {
+    switch (t) {
+    case AugType::DMG_UP: case AugType::RATE_UP: case AugType::SPD_UP:
+    case AugType::MOVE_UP: case AugType::REGEN_UP: case AugType::HP_UP:
+    case AugType::CRIT: case AugType::OVERDRIVE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static constexpr int kRarityCount = (int)AugRarity::MYTHIC + 1;
+
 // 후보 한 장 추첨: rarity 가중 → 해당 등급 내 무작위 (takenOnce 및 고유 카테고리 잠금 적용)
 // allowDebuff=false 면 DEBUFF 등급 제외 (버프 페이지용)
+// rarityWeights (kRarityCount entries) replaces the level-based weights;
+// statOnly keeps only StatCardAug cards.
 static int RollOneAug(const bool* takenOnce,
                       bool sizeTaken,
                       bool allowSpecial, int level,
                       bool allowDebuff = false,
                       const bool* excluded = nullptr,
-                      bool excludeRandom = false) {
+                      bool excludeRandom = false,
+                      const int* rarityWeights = nullptr,
+                      bool statOnly = false) {
+    auto weightOf = [&](int r) {
+        return rarityWeights ? rarityWeights[r] : RarityWeight(r, level);
+    };
     for (int attempt = 0; attempt < 200; attempt++) {
         // 등급 추첨 (레벨 비례 가중치) — MYTHIC(7)까지 포함. COMBO(6)는 주입식이라 가중치 0.
         int total = 0;
         for (int r = 0; r <= (int)AugRarity::MYTHIC; r++) {
             if (!allowSpecial && r == (int)AugRarity::SPECIAL) continue;
             if (!allowDebuff  && r == (int)AugRarity::DEBUFF)  continue;
-            total += RarityWeight(r, level);
+            total += weightOf(r);
         }
         if (total <= 0) return -1;
         int roll = rand() % total;
@@ -233,7 +255,7 @@ static int RollOneAug(const bool* takenOnce,
         for (int r = 0; r <= (int)AugRarity::MYTHIC; r++) {
             if (!allowSpecial && r == (int)AugRarity::SPECIAL) continue;
             if (!allowDebuff  && r == (int)AugRarity::DEBUFF)  continue;
-            acc += RarityWeight(r, level);
+            acc += weightOf(r);
             if (roll < acc) { chosen = (AugRarity)r; break; }
         }
         // 보유 여부 체크 헬퍼 — 티어드 증강 선행 조건용
@@ -259,6 +281,7 @@ static int RollOneAug(const bool* takenOnce,
             if (excluded && excluded[i]) continue;
             if (ALL_AUGS[i].rarity != chosen) continue;
             AugType t = ALL_AUGS[i].type;
+            if (statOnly && !StatCardAug(t)) continue;
             if (excludeRandom && t == AugType::RANDOM_AUG) continue;
             // 한 번만 뽑힐 증강 (EPIC/LEG/COMBO·티어드·불리언 플래그·적출현 디버프)
             if (AugOnceOnly(t, ALL_AUGS[i].rarity)) {
@@ -319,60 +342,95 @@ static int RollOneAug(const bool* takenOnce,
     return -1;
 }
 
-void GameManager::PickAugChoices(bool sizeTaken) {
-    // 3장 — 같은 카드 안 나오게 중복 방지, SPECIAL 포함
+void GameManager::PickLevelUpChoices(bool sizeTaken) {
+    static constexpr int kStatWeights[kRarityCount] = { 50, 25, 0, 0, 0, 0, 0, 0 };
+    bool used[AUG_TOTAL] = {};
+    augChoiceCount = 0;
+    for (int i = 0; i < 3; i++) augChoices[i] = -1;
+    for (int i = 0; i < 3; i++) {
+        const int idx = RollOneAug(takenOnce, sizeTaken, /*allowSpecial=*/false,
+                                   playerLevel, /*allowDebuff=*/false, used,
+                                   /*excludeRandom=*/true, kStatWeights,
+                                   /*statOnly=*/true);
+        if (idx < 0) break;
+        used[idx] = true;
+        augChoices[augChoiceCount++] = idx;
+    }
+}
+
+static AugRarity RarityForTier(WaveRewardTier tier) {
+    switch (tier) {
+    case WaveRewardTier::Legendary: return AugRarity::LEGENDARY;
+    case WaveRewardTier::Epic:      return AugRarity::EPIC;
+    case WaveRewardTier::Rare:      return AugRarity::RARE;
+    default:                        return AugRarity::COMMON;
+    }
+}
+
+void GameManager::PickWaveRewardChoices(const WaveRewardInfo& reward, bool sizeTaken) {
     bool used[AUG_TOTAL] = {};
     augChoiceCount = 0;
     for (int i = 0; i < 3; i++) augChoices[i] = -1;
     bool gotSize = sizeTaken;
-    for (int i = 0; i < 3; i++) {
-        int idx = -1;
-        for (int attempt = 0; attempt < 50; attempt++) {
-            idx = RollOneAug(takenOnce, gotSize,
-                             /*allowSpecial=*/true, playerLevel,
-                             /*allowDebuff=*/false, used);
-            if (idx >= 0 && !used[idx]) break;
-        }
-        if (idx < 0) break;
+    auto take = [&](int idx) {
         used[idx] = true;
         augChoices[augChoiceCount++] = idx;
-        if (ALL_AUGS[idx].unique == AugUnique::SIZE)     gotSize = true;
-    }
+        if (ALL_AUGS[idx].unique == AugUnique::SIZE) gotSize = true;
+    };
 
-    // L1~2: 3장 중 최소 1장 희귀 이상 보장 (초반 파워 스파이크)
-    if (playerLevel <= 2) {
-        bool hasRarePlus = false;
-        for (int i = 0; i < augChoiceCount; i++)
-            if (ALL_AUGS[augChoices[i]].rarity >= AugRarity::RARE)
-                hasRarePlus = true;
-        if (!hasRarePlus) {
-            for (int attempt = 0; attempt < 80; attempt++) {
-                int idx = RollOneAug(takenOnce, gotSize,
-                                     true, playerLevel,
-                                     /*allowDebuff=*/false, used);
-                if (idx < 0) break;
-                if (ALL_AUGS[idx].rarity < AugRarity::RARE) continue;
-                used[idx] = true;
-                if (augChoiceCount > 0) augChoices[0] = idx;
-                else augChoices[augChoiceCount++] = idx;
-                break;
-            }
-        }
+    // One card at the earned tier is guaranteed; when that tier has nothing
+    // left to offer, the next tier down stands in.
+    int guaranteed = -1;
+    for (int tier = (int)WaveRewardTierFor(reward.killSeconds, reward.boss);
+         tier >= 0 && guaranteed < 0; --tier) {
+        int only[kRarityCount] = {};
+        only[(int)RarityForTier((WaveRewardTier)tier)] = 1;
+        guaranteed = RollOneAug(takenOnce, gotSize, /*allowSpecial=*/false,
+                                playerLevel, /*allowDebuff=*/false, used,
+                                /*excludeRandom=*/false, only);
     }
+    if (guaranteed >= 0) take(guaranteed);
+
+    // The other cards lean upward the faster the kill was.
+    const float speed = WaveRewardSpeed(reward.killSeconds, reward.boss);
+    auto lerp = [&](float slow, float fast) { return (int)(slow + (fast - slow) * speed + 0.5f); };
+    int weights[kRarityCount] = {};
+    weights[(int)AugRarity::COMMON]    = lerp(50.0f, 10.0f);
+    weights[(int)AugRarity::RARE]      = 30;
+    weights[(int)AugRarity::EPIC]      = lerp(12.0f, 30.0f);
+    weights[(int)AugRarity::LEGENDARY] = lerp(3.0f, 18.0f);
+    weights[(int)AugRarity::SPECIAL]   = 2;
+    weights[(int)AugRarity::MYTHIC]    = lerp(2.0f, 8.0f);
+    while (augChoiceCount < 3) {
+        int idx = -1;
+        for (int attempt = 0; attempt < 50; attempt++) {
+            idx = RollOneAug(takenOnce, gotSize, /*allowSpecial=*/true, playerLevel,
+                             /*allowDebuff=*/false, used, /*excludeRandom=*/false,
+                             weights);
+            if (idx >= 0 && !used[idx]) break;
+        }
+        if (idx < 0 || used[idx]) break;
+        take(idx);
+    }
+    // The guaranteed card lands in any slot, not always the first.
+    if (augChoiceCount > 1) std::swap(augChoices[0], augChoices[rand() % augChoiceCount]);
 
     // COMBO rewards require every recipe ingredient to be acquired during the run.
-    if (playerLevel >= 10) {
-        int eligible[COMBO_COUNT];
-        int eligCount = 0;
-        for (int c = 0; c < COMBO_COUNT; c++) {
-            if (ComboRewardEligible(COMBO_DEFS[c], takenOnce)) eligible[eligCount++] = c;
-        }
-        if (eligCount > 0 && (rand() % 100) < 10) {
-            AugType res = COMBO_DEFS[eligible[rand() % eligCount]].result;
-            int ridx = AugIndexOfType(res);
-            if (ridx >= 0 && !used[ridx]) {
-                if (augChoiceCount < 3) augChoices[augChoiceCount++] = ridx;
-                else augChoices[rand() % augChoiceCount] = ridx;
+    int eligible[COMBO_COUNT];
+    int eligCount = 0;
+    for (int c = 0; c < COMBO_COUNT; c++) {
+        if (ComboRewardEligible(COMBO_DEFS[c], takenOnce)) eligible[eligCount++] = c;
+    }
+    if (eligCount > 0 && (rand() % 100) < 10) {
+        AugType res = COMBO_DEFS[eligible[rand() % eligCount]].result;
+        int ridx = AugIndexOfType(res);
+        if (ridx >= 0 && !used[ridx]) {
+            // Never over the guaranteed card.
+            if (augChoiceCount < 3) augChoices[augChoiceCount++] = ridx;
+            else {
+                int slot = rand() % augChoiceCount;
+                if (augChoices[slot] == guaranteed) slot = (slot + 1) % augChoiceCount;
+                augChoices[slot] = ridx;
             }
         }
     }
@@ -457,15 +515,39 @@ void GameManager::QueueAugmentReward() {
     ++pendingAugmentRewards;
 }
 
+void GameManager::QueueWaveReward(float killSeconds, bool boss) {
+    if (pendingWaveRewards >= kMaxWaveRewards) return;
+    waveRewardQueue[pendingWaveRewards++] = { killSeconds, boss };
+}
+
+void GameManager::ConsumeActiveReward() {
+    if (activeRewardIsWave) {
+        if (pendingWaveRewards > 0) {
+            for (int i = 1; i < pendingWaveRewards; ++i)
+                waveRewardQueue[i - 1] = waveRewardQueue[i];
+            --pendingWaveRewards;
+        }
+    } else if (pendingAugmentRewards > 0) {
+        --pendingAugmentRewards;
+    }
+    activeRewardIsWave = false;
+}
+
 bool GameManager::ActivateNextAugmentReward() {
     // Opening a reward (or finding none) ends any level-up slow-motion.
     levelUpTransition.Cancel();
     if (augmentRewardActive) return true;
 
-    while (pendingAugmentRewards > 0) {
-        PickAugChoices(g_Stats.sizeAugTaken);
+    while (pendingWaveRewards > 0 || pendingAugmentRewards > 0) {
+        activeRewardIsWave = pendingWaveRewards > 0;
+        if (activeRewardIsWave) {
+            activeWaveReward = waveRewardQueue[0];
+            PickWaveRewardChoices(activeWaveReward, g_Stats.sizeAugTaken);
+        } else {
+            PickLevelUpChoices(g_Stats.sizeAugTaken);
+        }
         if (augChoiceCount <= 0) {
-            --pendingAugmentRewards;
+            ConsumeActiveReward();
             continue;
         }
 
@@ -495,6 +577,7 @@ void GameManager::OpenFixedChoices(const AugType* types, int count, bool debuff)
     if (augChoiceCount <= 0) return;
     if (!debuff) {
         pendingAugmentRewards = 1;
+        activeRewardIsWave = false;
         augmentRewardActive = true;
     }
     augmentKeyboardFocus = false;
@@ -509,6 +592,8 @@ void GameManager::OpenFixedChoices(const AugType* types, int count, bool debuff)
 
 void GameManager::ClearAugmentRewardQueue() {
     pendingAugmentRewards = 0;
+    pendingWaveRewards = 0;
+    activeRewardIsWave = false;
     levelUpTransition.Cancel();
     augmentRewardActive = false;
     augChoiceCount = 0;

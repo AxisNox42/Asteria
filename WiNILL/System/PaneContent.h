@@ -3,8 +3,8 @@
 // picture from the player's PC (PaneImages.h), painted with GDI (OsPane.cpp's
 // WM_PAINT). Header-only and free of game state so
 // tests/pane_content_preview.cpp can paint it to files.
-// A worn pane (unstable > 0) breaks up as one picture (Glitch): red and cyan
-// pull apart, slabs slide sideways and thin streaks run along the rows.
+// A worn pane (unstable > 0) glitches in short bursts (Glitch): bands of the
+// client slide sideways and red and blue split apart.
 #ifdef _WIN32
 #include <windows.h>
 #include <algorithm>
@@ -19,6 +19,16 @@
 namespace pane_content {
 
 enum class Kind { None, Memo, Code, Image };
+// A pattern's pane shows a system dialog for its job instead of its own
+// contents, and gets them back when the job ends: the wall's error windows,
+// the countdown's closing notice, the shot box's copy progress.
+enum class Role { None, Error, Shutdown, Copy };
+
+// A worn pane's glitch timer (see Glitch below).
+struct GlitchBurst {
+    ULONGLONG endAt = 0, nextAt = 0;   // GetTickCount64 ms; nextAt 0 = not scheduled
+    float seed = 0.0f, bands = 6.0f;
+};
 
 struct Content {
     Kind kind = Kind::None;
@@ -26,6 +36,12 @@ struct Content {
     bool dark = false;
     std::wstring title;
     float unstable = 0.0f;
+    GlitchBurst glitch;
+    Role role = Role::None;
+    float roleA = 0.0f, roleB = 0.0f;   // Shutdown: seconds left, total; Copy: loaded, total
+    int lang = 0;                       // 0 KR, 1 EN, 2 JP (role dialogs)
+    std::wstring status;                // title suffix: worn / not responding
+    std::wstring windowTitle;           // what the title bar shows now
     std::shared_ptr<const pane_images::Picture> picture;   // image kind; null = line-art chart
 };
 
@@ -343,63 +359,251 @@ inline void PaintImage(HDC dc, const RECT& r, const Content& c) {
     DeleteObject(font);
 }
 
+// ---------------------------------------------------------------- roles
+// Title for a role dialog (none: the pane's own file title).
+inline std::wstring RoleTitle(const Content& c, const wchar_t* base) {
+    const int l = std::clamp(c.lang, 0, 2);
+    static const wchar_t* const kError[3] = { L".exe - 응용 프로그램 오류", L".exe - Application Error",
+                                              L".exe - アプリケーション エラー" };
+    static const wchar_t* const kShut[3] = { L" - 창 닫는 중", L" - Closing window", L" - ウィンドウを閉じています" };
+    static const wchar_t* const kCopy[3] = { L" - 탄 복사 중", L" - Copying shots", L" - 弾をコピー中" };
+    switch (c.role) {
+    case Role::Error: return std::wstring(base) + kError[l];
+    case Role::Shutdown: return std::wstring(base) + kShut[l];
+    case Role::Copy: return std::wstring(base) + kCopy[l];
+    default: return c.title;
+    }
+}
+
+inline void Text(HDC dc, int x, int y, const std::wstring& s, COLORREF col) {
+    SetTextColor(dc, col);
+    TextOutW(dc, x, y, s.c_str(), (int)s.size());
+}
+
+inline void Box(HDC dc, int l, int t, int w, int h, COLORREF edge) {
+    Line(dc, l, t, l + w, t, edge);
+    Line(dc, l + w, t, l + w, t + h, edge);
+    Line(dc, l + w, t + h, l, t + h, edge);
+    Line(dc, l, t + h, l, t, edge);
+}
+
+// A dialog button: an outlined box with its label centred.
+inline void Button(HDC dc, int l, int t, int w, int h, const wchar_t* label, COLORREF edge,
+                   COLORREF ink, COLORREF fill) {
+    Fill(dc, l, t, l + w, t + h, fill);
+    Box(dc, l, t, w, h, edge);
+    RECT rc{ l, t, l + w, t + h };
+    SetTextColor(dc, ink);
+    DrawTextW(dc, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+// The round dialog icon: a disc with a cross (error) or a bar and dot (notice).
+inline void DialogIcon(HDC dc, int cx, int cy, int r, COLORREF disc, bool cross) {
+    HBRUSH br = CreateSolidBrush(disc);
+    HPEN edge = CreatePen(PS_SOLID, 1, disc);
+    HGDIOBJ ob = SelectObject(dc, br), op = SelectObject(dc, edge);
+    Ellipse(dc, cx - r, cy - r, cx + r + 1, cy + r + 1);
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(br);
+    DeleteObject(edge);
+    const COLORREF w = RGB(255, 255, 255);
+    const int k = r * 2 / 5;
+    if (cross) {
+        Line(dc, cx - k, cy - k, cx + k + 1, cy + k + 1, w, 3);
+        Line(dc, cx + k, cy - k, cx - k - 1, cy + k + 1, w, 3);
+    } else {
+        Line(dc, cx, cy - k, cx, cy + k / 3, w, 3);
+        Fill(dc, cx - 1, cy + k * 2 / 3, cx + 2, cy + k * 2 / 3 + 3, w);
+    }
+}
+
+// A progress bar: an outlined track and a filled share.
+inline void Progress(HDC dc, int l, int t, int w, int h, float share, COLORREF edge, COLORREF bar) {
+    Box(dc, l, t, w, h, edge);
+    const int fw = (int)((w - 3) * std::clamp(share, 0.0f, 1.0f));
+    if (fw > 0) Fill(dc, l + 2, t + 2, l + 2 + fw, t + h - 1, bar);
+}
+
+// Shared dialog layout: icon at the left, lines of text beside it, a strip
+// of buttons along the bottom. The caller frees `font`.
+struct DialogFrame { int textX, textY, lineH, stripTop; COLORREF paper, ink, faint, strip; };
+inline DialogFrame BeginDialog(HDC dc, const RECT& r, const Content& c, HFONT& font) {
+    DialogFrame f{};
+    f.paper = Paper(c);
+    f.ink = Ink(c);
+    f.faint = Mix(f.paper, f.ink, 0.55f);
+    f.strip = Mix(f.paper, f.ink, 0.07f);
+    font = MakeFont(15, FW_NORMAL, c.lang == 2 ? L"Yu Gothic UI" : L"Malgun Gothic", false);
+    SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    f.stripTop = (int)r.bottom - 52;
+    Fill(dc, r.left, f.stripTop, r.right, r.bottom, f.strip);
+    Line(dc, r.left, f.stripTop, r.right, f.stripTop, Mix(f.paper, f.ink, 0.15f));
+    f.textX = (int)r.left + 84;
+    f.textY = (int)r.top + 26;
+    f.lineH = 22;
+    return f;
+}
+
+// The wall's error window: Windows' crash dialog, addressed to the sky.
+inline void PaintError(HDC dc, const RECT& r, const Content& c) {
+    HFONT font = nullptr;
+    HGDIOBJ old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+    const DialogFrame f = BeginDialog(dc, r, c, font);
+    DialogIcon(dc, r.left + 44, r.top + 44, 18, RGB(232, 17, 35), true);
+    const int l = std::clamp(c.lang, 0, 2);
+    static const wchar_t* const kLines[3][3] = {
+        { L"\"0x0000008\" 위치의 명령이 \"SEAL_BREACH\"", L"메모리를 참조했습니다. 이 영역은 벽이므로",
+          L"아무도 들어올 수 없습니다." },
+        { L"The instruction at \"0x0000008\" referenced", L"memory at \"SEAL_BREACH\". This region is a",
+          L"wall: nothing may enter it." },
+        { L"\"0x0000008\" の命令が \"SEAL_BREACH\" の", L"メモリを参照しました。この領域は壁なので",
+          L"誰も入ることはできません。" } };
+    for (int i = 0; i < 3; ++i) Text(dc, f.textX, f.textY + f.lineH * i, kLines[l][i], f.ink);
+    static const wchar_t* const kHint[3] = { L"프로그램을 종료하려면 [확인]을 클릭하십시오.",
+        L"Click OK to terminate the program.", L"プログラムを終了するには [OK] をクリックしてください。" };
+    Text(dc, f.textX, f.textY + f.lineH * 3 + 10, kHint[l], f.faint);
+    static const wchar_t* const kOk[3] = { L"확인", L"OK", L"OK" };
+    static const wchar_t* const kCancel[3] = { L"취소", L"Cancel", L"キャンセル" };
+    Button(dc, r.right - 196, f.stripTop + 12, 84, 28, kOk[l], RGB(0, 103, 192), f.ink, f.paper);
+    Button(dc, r.right - 100, f.stripTop + 12, 84, 28, kCancel[l], Mix(f.paper, f.ink, 0.35f), f.ink, f.paper);
+    SelectObject(dc, old);
+    DeleteObject(font);
+}
+
+// The countdown pane: a closing notice with the seconds left and a draining bar.
+inline void PaintShutdown(HDC dc, const RECT& r, const Content& c) {
+    HFONT font = nullptr;
+    HGDIOBJ old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+    const DialogFrame f = BeginDialog(dc, r, c, font);
+    DialogIcon(dc, r.left + 44, r.top + 44, 18, RGB(124, 92, 214), false);
+    const int l = std::clamp(c.lang, 0, 2);
+    const int secs = std::max(0, (int)std::ceil(c.roleA - 0.001f));
+    wchar_t line[128];
+    static const wchar_t* const kFmt[3] = { L"이 창은 %d초 후에 닫힙니다.", L"This window closes in %d s.",
+                                            L"このウィンドウは %d 秒後に閉じます。" };
+    swprintf_s(line, kFmt[l], secs);
+    Text(dc, f.textX, f.textY, line, f.ink);
+    static const wchar_t* const kWarn[3] = { L"안에 있는 모든 것이 함께 닫힙니다.",
+        L"Everything inside closes with it.", L"中にあるものはすべて一緒に閉じられます。" };
+    Text(dc, f.textX, f.textY + f.lineH, kWarn[l], f.faint);
+    const int bw = std::max(40, (int)r.right - f.textX - 24);
+    Progress(dc, f.textX, f.textY + f.lineH * 2 + 14, bw, 14,
+             c.roleB > 0.0f ? c.roleA / c.roleB : 0.0f, Mix(f.paper, f.ink, 0.35f), RGB(124, 92, 214));
+    static const wchar_t* const kNow[3] = { L"지금 닫기", L"Close now", L"今すぐ閉じる" };
+    Button(dc, r.right - 120, f.stripTop + 12, 104, 28, kNow[l], Mix(f.paper, f.ink, 0.25f), f.faint, f.strip);
+    SelectObject(dc, old);
+    DeleteObject(font);
+}
+
+// The shot box: a copy dialog loading shots instead of files.
+inline void PaintCopy(HDC dc, const RECT& r, const Content& c) {
+    HFONT font = nullptr;
+    HGDIOBJ old = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+    const DialogFrame f = BeginDialog(dc, r, c, font);
+    const int l = std::clamp(c.lang, 0, 2);
+    const int x = (int)r.left + 18, y = (int)r.top + 16;
+    const int loaded = (int)(c.roleA + 0.5f), total = std::max(1, (int)(c.roleB + 0.5f));
+    wchar_t line[128];
+    static const wchar_t* const kFmt[3] = { L"탄 %d개 복사 중", L"Copying %d shots", L"弾を %d 個コピー中" };
+    swprintf_s(line, kFmt[l], total);
+    Text(dc, x, y, line, f.ink);
+    static const wchar_t* const kPath[3] = { L"OCTANS 에서 플레이어 위치 로", L"from OCTANS to your position",
+                                             L"OCTANS から プレイヤーの位置 へ" };
+    Text(dc, x, y + f.lineH, kPath[l], f.faint);
+    const int bw = std::max(40, (int)(r.right - r.left) - 36);
+    Progress(dc, x, y + f.lineH * 2 + 8, bw, 14, (float)loaded / total, Mix(f.paper, f.ink, 0.35f),
+             RGB(6, 176, 37));
+    static const wchar_t* const kLeft[3] = { L"남은 항목: %d개", L"Items remaining: %d", L"残りの項目: %d" };
+    swprintf_s(line, kLeft[l], std::max(0, total - loaded));
+    Text(dc, x, y + f.lineH * 3 + 12, line, f.faint);
+    static const wchar_t* const kCancel[3] = { L"취소", L"Cancel", L"キャンセル" };
+    Button(dc, r.right - 100, f.stripTop + 12, 84, 28, kCancel[l], Mix(f.paper, f.ink, 0.35f), f.ink, f.paper);
+    SelectObject(dc, old);
+    DeleteObject(font);
+}
+
 // ---------------------------------------------------------------- glitch
-// A worn pane's whole client breaks up as one picture (u 0..1, about 0.35 at
-// most while worn and 0.6..1 while its fuse burns), in the red / cyan
-// anaglyph look:
-//   - red pulled one way and cyan (green + blue) the other, wider with u
-//   - short slabs (a few px tall, part of a row) slid sideways, their split
-//     wider still
-//   - thin streaks: one pixel dragged along its row, tinted red or cyan
-// The pattern holds for kGlitchSliceMs at a time, so it jumps in steps
-// rather than flickering.
-constexpr unsigned kGlitchSliceMs = 80;
-inline void Glitch(unsigned* px, int w, int h, float u, unsigned seed) {
-    if (u <= 0.0f || w < 16 || h < 16) return;
-    unsigned noise = seed ^ (unsigned)(GetTickCount64() / kGlitchSliceMs) * 2654435761u;
-    const auto rnd = [&](int n) { return n > 0 ? (int)(NextRandom(noise) % (unsigned)n) : 0; };
+// A worn pane glitches in short bursts (the user's band-shift shader, run on
+// the CPU over the client's pixels). Between bursts the pane is clean.
+//   - a burst lasts kGlitchBurstMs; the wait before the next one shrinks with
+//     the burst frequency, and at frequency 1 bursts run back to back
+//   - each burst rolls a new seed and band count; a share of the horizontal
+//     bands (fill) slides sideways (wrapping round) and a little up or down
+//   - in a sliding band red and blue split apart, outward from the centre
+// Intensity is the pane's unstable level (about 0.35 at most while worn,
+// 0.6..1 while its fuse burns); a burning fuse glitches back to back.
+constexpr unsigned kGlitchBurstMs = 140;
+
+inline float GlitchHash(float n) {
+    const double v = std::sin((double)n) * 43758.5453123;
+    return (float)(v - std::floor(v));
+}
+
+// Burst frequency 0..1 for an unstable level: worn panes glitch now and
+// then, a burning fuse all the time.
+inline float GlitchFrequency(float u) { return u >= 0.6f ? 1.0f : u; }
+
+// Advances the burst timer (call once per frame while the pane is unstable).
+inline void AdvanceGlitch(GlitchBurst& g, float u, unsigned salt) {
+    const ULONGLONG now = GetTickCount64();
+    if (u <= 0.0f) { g = {}; return; }
+    unsigned noise = salt ^ (unsigned)now * 2654435761u;
+    const auto frand = [&](float lo, float hi) {
+        return lo + (hi - lo) * (float)(NextRandom(noise) % 10001) / 10000.0f;
+    };
+    const float f = GlitchFrequency(u);
+    const auto gap = [&]() -> ULONGLONG {
+        if (f >= 1.0f) return 0;
+        const float lo = 4.0f + (0.25f - 4.0f) * f, hi = 8.0f + (0.9f - 8.0f) * f;
+        return (ULONGLONG)(1000.0f * frand(lo, hi));
+    };
+    if (g.nextAt == 0) g.nextAt = now + gap();
+    if (now >= g.nextAt && now >= g.endAt) {
+        g.endAt = now + kGlitchBurstMs;
+        g.seed = frand(0.0f, 1000.0f);
+        g.bands = frand(6.0f, 8.0f + u * 14.0f);
+        g.nextAt = g.endAt + gap();
+    }
+}
+
+inline bool GlitchActive(const GlitchBurst& g) { return GetTickCount64() < g.endAt; }
+
+inline void Glitch(unsigned* px, int w, int h, float u, const GlitchBurst& g) {
+    if (u <= 0.0f || w < 16 || h < 16 || !GlitchActive(g)) return;
+    const float fill = std::min(0.85f, 0.15f + u * 0.16f);
+    const float shift = std::min(0.22f, 0.02f + u * 0.05f);
+    const float vshift = std::min(0.09f, 0.01f + u * 0.025f);
+    const float chroma = u * 0.7f;
     const std::vector<unsigned> src(px, px + (size_t)w * h);
-    const auto at = [&](int x, int y) {
-        x = std::clamp(x, 0, w - 1);
+    const auto sample = [&](float sx, float sy) {
+        const int x = std::clamp((int)(sx * w), 0, w - 1), y = std::clamp((int)(sy * h), 0, h - 1);
         return src[(size_t)y * w + x];
     };
-    // Red from x + split, cyan from x - split, both read at x - shift.
-    const auto pull = [&](int x, int y, int shift, int split) {
-        return 0xFF000000u | (at(x - shift + split, y) & 0x00FF0000u) | (at(x - shift - split, y) & 0x0000FFFFu);
-    };
-    const int split = 2 + (int)(9.0f * u);
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x) px[(size_t)y * w + x] = pull(x, y, 0, split);
-    const int slabs = 6 + (int)(44.0f * u);
-    for (int k = 0; k < slabs; ++k) {
-        const int sh = 2 + rnd(4 + (int)(10.0f * u));
-        const int sw = 20 + rnd(w / 3 + (int)(w * 0.4f * u));
-        const int y0 = rnd(h), x0 = rnd(w) - sw / 4;
-        const int shift = (rnd(2) ? 1 : -1) * (6 + rnd(10 + (int)(50.0f * u)));
-        const int wide = split + 2 + rnd(3 + (int)(8.0f * u));
-        for (int y = y0; y < std::min(h, y0 + sh); ++y)
-            for (int x = std::max(0, x0); x < std::min(w, x0 + sw); ++x)
-                px[(size_t)y * w + x] = pull(x, y, shift, wide);
-    }
-    const int streaks = 10 + (int)(70.0f * u);
-    for (int k = 0; k < streaks; ++k) {
-        const int y = rnd(h), x0 = rnd(w), len = 30 + rnd(60 + (int)(w * 0.5f * u));
-        unsigned c = at(x0, y);
-        const bool red = rnd(2) == 0;   // red streak, or cyan
-        int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
-        if (red) { r = std::min(255, r + 90); g = g * 2 / 3; b = b * 2 / 3; }
-        else { r = r / 2; g = std::min(255, g + 50); b = std::min(255, b + 60); }
-        c = 0xFF000000u | (unsigned)r << 16 | (unsigned)g << 8 | (unsigned)b;
-        const int th = 1 + (rnd(4) == 0 ? 1 : 0);
-        for (int yy = y; yy < std::min(h, y + th); ++yy)
-            for (int x = x0; x < std::min(w, x0 + len); ++x) {
-                // Fades out along its length, blended over what is there.
-                const int a = 255 - 255 * (x - x0) / len;
-                unsigned& d = px[(size_t)yy * w + x];
-                const int dr = (d >> 16) & 255, dg = (d >> 8) & 255, db = d & 255;
-                d = 0xFF000000u | (unsigned)(dr + ((r - dr) * a >> 8)) << 16 |
-                    (unsigned)(dg + ((g - dg) * a >> 8)) << 8 | (unsigned)(db + ((b - db) * a >> 8));
-            }
+    for (int y = 0; y < h; ++y) {
+        const float v = (y + 0.5f) / h;
+        const float row = std::floor(v * g.bands);
+        const float hit = GlitchHash(row * 12.9898f + g.seed) <= fill ? 1.0f : 0.0f;
+        const float dir = GlitchHash(row * 78.233f + g.seed) >= 0.5f ? 1.0f : -1.0f;
+        const float mag = 0.3f + 0.7f * GlitchHash(row * 37.719f + g.seed);
+        const float vdir = GlitchHash(row * 91.345f + g.seed) >= 0.5f ? 1.0f : -1.0f;
+        const float boost = 1.0f + hit * chroma * mag;
+        const float ca = (boost - 1.0f) * 0.015f;
+        const float sv = std::clamp(v + hit * vdir * vshift * mag, 0.0f, 1.0f);
+        for (int x = 0; x < w; ++x) {
+            const float uu = (x + 0.5f) / w;
+            float su = uu + hit * dir * shift * mag;
+            su -= std::floor(su);   // slides off one side, back in on the other
+            // Red and blue pulled apart along the line from the centre.
+            const float cx = uu - 0.5f, cy = v - 0.5f;
+            const float len = std::sqrt(cx * cx + cy * cy) + 0.0001f;
+            const float dx = cx / len * ca, dy = cy / len * ca;
+            const unsigned r = sample(su + dx, sv + dy) & 0x00FF0000u;
+            const unsigned gch = sample(su, sv) & 0x0000FF00u;
+            const unsigned b = sample(su - dx, sv - dy) & 0x000000FFu;
+            px[(size_t)y * w + x] = 0xFF000000u | r | gch | b;
+        }
     }
 }
 
@@ -425,12 +629,15 @@ inline void Paint(HDC target, const RECT& r, const Content* c, bool darkIfNone) 
     const bool dark = c ? c->dark : darkIfNone;
     Fill(dc, 0, 0, w, h, dark ? kPaperDark : kPaperLight);
     if (c) {
-        if (c->kind == Kind::Memo) PaintMemo(dc, local, *c);
+        if (c->role == Role::Error) PaintError(dc, local, *c);
+        else if (c->role == Role::Shutdown) PaintShutdown(dc, local, *c);
+        else if (c->role == Role::Copy) PaintCopy(dc, local, *c);
+        else if (c->kind == Kind::Memo) PaintMemo(dc, local, *c);
         else if (c->kind == Kind::Code) PaintCode(dc, local, *c);
         else if (c->kind == Kind::Image) PaintImage(dc, local, *c);
         if (c->unstable > 0.0f) {
             GdiFlush();
-            Glitch(static_cast<unsigned*>(bits), w, h, c->unstable, c->seed);
+            Glitch(static_cast<unsigned*>(bits), w, h, c->unstable, c->glitch);
         }
     }
     BitBlt(target, r.left, r.top, w, h, dc, 0, 0, SRCCOPY);
