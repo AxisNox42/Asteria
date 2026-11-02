@@ -43,7 +43,9 @@
 //              of the corrupt form: every board pattern is something it does
 //   - Combos   every board pattern ends in a line shove aimed into what it
 //              laid (the scan line, the window, the spread)
-//   - Bad sectors every health handle lost leaves one cell corrupted for good
+//   - Bad sectors every health handle lost leaves one cell corrupted for
+//              good: a deeper, stronger puddle (more damage, more weakness)
+//              that runs into the others and leaks into a neighbour now and then
 // Every cell warns (flickering outline) before it corrupts. The world is the
 // screen (zoom is cosmetic), so everything is in screen pixels.
 // ─────────────────────────────────────────────────────────────
@@ -126,15 +128,22 @@ struct Cell {
 };
 
 // ── Bad sectors ─────────────────────────────────────────────
-// Each health handle lost corrupts one more cell for good (away from the player,
-// not touching another), so the board shrinks as the fight goes on.
+// Each health handle lost corrupts one more cell for good (away from the
+// player, not touching another), so the board shrinks as the fight goes on. A
+// bad sector is a puddle like the others and runs into them, but it never
+// dries up, it is stronger (kBadDps, and kBadWeak while in it), and every
+// kLeakMin..kLeakMax s it leaks: a clean neighbour starts to corrupt. It is
+// drawn deeper.
 constexpr int   kMaxBad = 6;
+constexpr float kLeakMin = 3.5f, kLeakMax = 5.5f;
+constexpr float kBadDps = 40.0f;
+constexpr float kBadWeak = 0.55f;          // move and damage dealt while in one
 
 // ── 1 Spread ────────────────────────────────────────────────
 // Seeds (the first under the player) warn and corrupt; every generation each
 // cell of the last one infects one clean neighbour (a short creeping vine).
 constexpr int   kSeeds = 2, kSeedsP2 = 3;
-constexpr int   kGenerations = 2, kGenerationsP2 = 3;
+constexpr int   kGenerations = 2;           // both phases (phase 2 has more seeds)
 constexpr float kGenStep = 0.55f;
 
 // ── 2 Scanline ──────────────────────────────────────────────
@@ -154,7 +163,7 @@ constexpr int   kScanLen = 5;
 // travels; at kSmearMinScale (or after kSmearMax s) the cursor lets go and the
 // rest soaks into the cell below.
 constexpr float kSmearFar = 420.0f;
-constexpr float kSmearSpeed = 330.0f, kSmearSpeedP2 = 420.0f;   // px/s
+constexpr float kSmearSpeed = 330.0f;       // px/s, both phases
 constexpr float kSmearShrinkPerCell = 0.11f;
 constexpr float kSmearMinScale = 0.35f;
 constexpr float kSmearMax = 6.0f;
@@ -238,6 +247,49 @@ constexpr float kDragLowHp = 0.20f;
 constexpr float kErodeAfter = 1.6f;         // seconds in one cell
 constexpr float kErodeShow = 0.4f;          // the meter shows from here
 
+// ── Difficulty ──────────────────────────────────────────────
+// The numbers above are HARD (the fight as designed). EASY and NORMAL ease it,
+// NIGHTMARE presses harder. Set when a CAELUM enters (SetDifficulty: 0 EASY,
+// 1 NORMAL, 2 HARD, 3 NIGHTMARE); a fight reset keeps it.
+struct Tune {
+    float warn = kWarn, warnP2 = kWarnP2;
+    float corruptDps = kCorruptDps, badDps = kBadDps;
+    int   seeds = kSeeds, seedsP2 = kSeedsP2;
+    int   snipes = kSnipes, snipesP2 = kSnipesP2;
+    float shotSpeed = kShotSpeed;
+    float waveEvery = kWaveEvery, waveEveryP2 = kWaveEveryP2;
+    int   maxBad = kMaxBad;
+    bool  leaks = true;
+    float erodeAfter = kErodeAfter;         // 0: no erosion
+    int   dragStrokes = kDragStrokes, dragStrokesLow = kDragStrokesLow;   // 0: no drag
+    float overflowDamage = kOverflowDamage;
+    float smearSpeed = kSmearSpeed;
+};
+inline Tune g_Tune;
+inline void SetDifficulty(int d) {
+    Tune t;   // HARD
+    if (d <= 0) {          // EASY
+        t.warn = 1.0f; t.warnP2 = 0.75f; t.corruptDps = 10.0f; t.badDps = 20.0f;
+        t.seeds = 1; t.seedsP2 = 2; t.snipes = 3; t.snipesP2 = 4; t.shotSpeed = 1300.0f;
+        t.waveEvery = 5.0f; t.waveEveryP2 = 4.0f; t.maxBad = 2; t.leaks = false;
+        t.erodeAfter = 0.0f; t.dragStrokes = t.dragStrokesLow = 0;
+        t.overflowDamage = 15.0f; t.smearSpeed = 270.0f;
+    } else if (d == 1) {   // NORMAL
+        t.warn = 0.9f; t.warnP2 = 0.7f; t.corruptDps = 15.0f; t.badDps = 30.0f;
+        t.seeds = 2; t.seedsP2 = 2; t.snipes = 4; t.snipesP2 = 5; t.shotSpeed = 1500.0f;
+        t.waveEvery = 4.5f; t.waveEveryP2 = 3.5f; t.maxBad = 3;
+        t.erodeAfter = 2.4f; t.dragStrokes = 2; t.dragStrokesLow = 2;
+        t.overflowDamage = 20.0f; t.smearSpeed = 300.0f;
+    } else if (d >= 3) {   // NIGHTMARE
+        t.warn = 0.7f; t.warnP2 = 0.5f; t.corruptDps = 25.0f; t.badDps = 50.0f;
+        t.seeds = 3; t.seedsP2 = 3; t.snipes = 6; t.snipesP2 = 8; t.shotSpeed = 1900.0f;
+        t.waveEvery = 3.5f; t.waveEveryP2 = 2.6f;
+        t.erodeAfter = 1.3f; t.dragStrokes = 4; t.dragStrokesLow = 5;
+        t.overflowDamage = 35.0f; t.smearSpeed = 360.0f;
+    }
+    g_Tune = t;
+}
+
 // ── State ───────────────────────────────────────────────────
 // A stretch [from, from + len) of a row (horiz) or column; gap is an index along the line.
 struct Scan { bool horiz = true; int line = 0; int from = 0, len = 0; int dir = 1; int gap = 0; float head = 0.0f; int done = 0; };
@@ -266,6 +318,7 @@ struct State {
     float   scanDoneAt = -1.0f;     // Scanline: when the last head finished
 
     float   weaken = 0.0f;          // seconds of weakness left
+    bool    weakHard = false;       // in a bad sector: the stronger weakness
     float   overflowT = -1.0f;      // >= 0: overflowing
     float   overflowCd = 0.0f;
     bool    overflowHit = false;
@@ -323,7 +376,7 @@ struct State {
 };
 inline State g;
 
-inline float WarnTime() { return g.phase == 2 ? kWarnP2 : kWarn; }
+inline float WarnTime() { return g.phase == 2 ? g_Tune.warnP2 : g_Tune.warn; }
 inline bool Hurts(const Cell& c) { return c.state == CellState::Corrupt; }
 
 // ── Puddles ─────────────────────────────────────────────────
@@ -357,6 +410,13 @@ inline float HurtField(float x, float y) {
     return f + CarryField(x, y, g.time);
 }
 inline bool InPuddle(float x, float y) { return HurtField(x, y) >= kPuddleEdge; }
+// The bad sectors' own field: inside it is the stronger zone.
+inline bool InBadZone(float x, float y) {
+    float f = 0.0f;
+    for (int i = 0; i < CellCount(); ++i)
+        if (g.cells[i].bad) f += BlobField(i, x, y, g.time);
+    return f >= kPuddleEdge;
+}
 
 // Starts a clean (or healing) cell's warning; corrupting ones are left alone.
 inline void Infect(int i, float warn = -1.0f) {
@@ -404,7 +464,7 @@ inline void ClearHazards() {
     ClearCells();
     g.frontier.clear(); g.scans.clear(); g.shots.clear();
     g.overflowT = -1.0f; g.dwell = 0.0f;
-    g.waveT = -1.0f; g.waveCd = kWaveEvery; g.comboQueued = false;
+    g.waveT = -1.0f; g.waveCd = g_Tune.waveEvery; g.comboQueued = false;
     g.carrying = false;
     g.morph = -1.0f;
 }
@@ -412,7 +472,7 @@ inline void ClearHazards() {
 // One more bad sector: a clean cell two or more cells from the player, not the
 // boss's, and (if it can) not touching another bad sector.
 inline void AddBadSector(float px, float py) {
-    if (BadCount() >= kMaxBad) return;
+    if (BadCount() >= g_Tune.maxBad) return;
     const int here = CellAt(px, py), boss = CellAt(g.bossX, g.bossY), cols = Cols();
     for (int pass = 0; pass < 2; ++pass) {
         for (int tries = 0; tries < 80; ++tries) {
@@ -429,6 +489,7 @@ inline void AddBadSector(float px, float py) {
             }
             Cell& d = g.cells[i];
             d.state = CellState::Corrupt; d.t = 0.0f; d.bad = true;
+            d.life = RndRange(kLeakMin, kLeakMax);   // next leak
             d.glitch = (unsigned char)(rand() % 256);
             float x, y;
             CellCentre(i, x, y);
@@ -440,8 +501,8 @@ inline void AddBadSector(float px, float py) {
 inline void Reset() { g = State{}; }
 
 // Player's movement and damage to CAELUM while weakened.
-inline float MoveFactor() { return g.active && g.weaken > 0.0f ? kWeakMove : 1.0f; }
-inline float DealtFactor() { return g.active && g.weaken > 0.0f ? kWeakDealt : 1.0f; }
+inline float MoveFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? kBadWeak : kWeakMove) : 1.0f; }
+inline float DealtFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? kBadWeak : kWeakDealt) : 1.0f; }
 
 // What last hurt the player, so the screen can say why (1 corruption, 2 overflow,
 // 3 shot).
@@ -464,7 +525,20 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
         c.t += dt;
         switch (c.state) {
         case CellState::Warn:    if (c.t >= c.warn) { c.state = CellState::Corrupt; c.t = 0.0f; } break;
-        case CellState::Corrupt: if (!c.bad && c.t >= c.life) { c.state = CellState::Heal; c.t = 0.0f; } break;
+        case CellState::Corrupt:
+            if (!c.bad && c.t >= c.life) { c.state = CellState::Heal; c.t = 0.0f; }
+            else if (c.bad && g_Tune.leaks && c.t >= c.life) {   // a leak into a clean neighbour
+                int nb[4];
+                const int n = Neighbours(i, nb);
+                const int start = n > 0 ? rand() % n : 0;
+                for (int k = 0; k < n; ++k) {
+                    const int j = nb[(start + k) % n];
+                    if (g.cells[j].state == CellState::Clean) { Infect(j); break; }
+                }
+                c.t = 0.0f;
+                c.life = RndRange(kLeakMin, kLeakMax);
+            }
+            break;
         case CellState::Heal:    if (c.t >= kHeal) c = Cell{}; break;
         default: break;
         }
@@ -473,8 +547,10 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
     // Standing in a puddle: steady damage and weakness.
     g.weaken = std::max(0.0f, g.weaken - dt);
     if (InPuddle(px, py)) {
+        const bool bad = InBadZone(px, py);
         g.weaken = kWeakenLinger;
-        Hit(playerHP, kCorruptDps * dt, 1, px, py);
+        g.weakHard = bad;
+        Hit(playerHP, (bad ? g_Tune.badDps : g_Tune.corruptDps) * dt, 1, px, py);
     }
     // Overflow.
     g.overflowCd = std::max(0.0f, g.overflowCd - dt);
@@ -489,7 +565,7 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
         if (g.overflowT >= kOverflowTele && before < kOverflowTele)
             g_Events.push_back({ Fx::Overflow, px, py, 0.0f });
         if (g.overflowT >= kOverflowTele && !g.overflowHit && OverflowReach(here)) {
-            Hit(playerHP, kOverflowDamage, 2, px, py);
+            Hit(playerHP, g_Tune.overflowDamage, 2, px, py);
             g.overflowHit = true;
         }
         if (g.overflowT >= kOverflowTele + kOverflowBurst) {
@@ -503,10 +579,10 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
         }
     }
     // Erosion (phase 2): the cell the player lingers in.
-    if (g.phase == 2) {
+    if (g.phase == 2 && g_Tune.erodeAfter > 0.0f) {
         if (here != g.dwellCell) { g.dwellCell = here; g.dwell = 0.0f; }
         if (g.cells[here].state == CellState::Clean) g.dwell += dt; else g.dwell = 0.0f;
-        if (g.dwell >= kErodeAfter) { Infect(here); g.dwell = 0.0f; }
+        if (g.dwell >= g_Tune.erodeAfter) { Infect(here); g.dwell = 0.0f; }
     } else {
         g.dwellCell = -1; g.dwell = 0.0f;
     }
@@ -535,7 +611,7 @@ inline Pattern PickPattern() {
     const Pattern* list = g.phase == 2 ? p2 : p1;
     const int n = g.phase == 2 ? (int)(sizeof(p2) / sizeof(p2[0])) : (int)(sizeof(p1) / sizeof(p1[0]));
     Pattern pick = list[g.count % n];
-    if (pick == g.last) pick = list[(g.count + 1) % n];
+    if (pick == g.last || (pick == Pattern::Drag && g_Tune.dragStrokes <= 0)) pick = list[(g.count + 1) % n];
     return pick;
 }
 
@@ -543,7 +619,7 @@ inline Pattern PickPattern() {
 inline float SnipeFireAt(int k) { return kSnipeFirst + (g.phase == 2 ? kSnipeStepP2 : kSnipeStep) * (float)k; }
 // Spread: the seeds after the first are picked now; the first is wherever the
 // player is when the cursor clicks.
-inline int SeedCount() { return g.phase == 2 ? kSeedsP2 : kSeeds; }
+inline int SeedCount() { return g.phase == 2 ? g_Tune.seedsP2 : g_Tune.seeds; }
 inline void StartSpread(float px, float py) {
     g.frontier.clear();
     g.seeds.clear();
@@ -671,12 +747,11 @@ inline void TickSmear(float dt, float px, float py) {
         CellCentre(g.smearCell, g.carryX, g.carryY);
         g.carryBase = g.carryScale = 1.0f + 0.2f * (float)lifted;
         g.carrying = true;
-        Click(g.carryX, g.carryY);
         g_Events.push_back({ Fx::Window, g.carryX, g.carryY, 0.0f });
     }
     if (g.step == 1) {                                 // dragged after the player
         const float dx = px - g.carryX, dy = py - g.carryY, d = std::hypot(dx, dy);
-        const float step = std::min(d, (g.phase == 2 ? kSmearSpeedP2 : kSmearSpeed) * dt);
+        const float step = std::min(d, g_Tune.smearSpeed * dt);
         if (d > 1.0f) { g.carryX += dx / d * step; g.carryY += dy / d * step; }
         g.carryMoved += step;
         g.carryScale = std::max(kSmearMinScale, g.carryBase - kSmearShrinkPerCell * g.carryMoved / kCell);
@@ -725,7 +800,7 @@ inline void CursorWant(float px, float py, float& tx, float& ty, bool& press, bo
         }
         break;
     case Pattern::Shot:
-        if (g.step < (g.phase == 2 ? kSnipesP2 : kSnipes) && g.t >= SnipeFireAt(g.step) - kSnipeAim) {
+        if (g.step < (g.phase == 2 ? g_Tune.snipesP2 : g_Tune.snipes) && g.t >= SnipeFireAt(g.step) - kSnipeAim) {
             tx = g.aimX; ty = g.aimY;
             press = g.t >= SnipeFireAt(g.step) - kSnipeLock;
         }
@@ -826,7 +901,7 @@ inline void PickDragTarget(float px, float py) {
     }
     g.dragToX = tx; g.dragToY = ty;
 }
-inline int DragStrokes() { return g.hpRatio <= kDragLowHp ? kDragStrokesLow : kDragStrokes; }
+inline int DragStrokes() { return g.hpRatio <= kDragLowHp ? g_Tune.dragStrokesLow : g_Tune.dragStrokes; }
 // Drag: 0..1 along stroke k right now (0 while its path shows), and k.
 inline int DragStroke(float& u) {
     const float tt = g.t - kDragGrab, per = kDragPreview + kDragMove;
@@ -863,7 +938,7 @@ inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
 inline void LeadAim(float bx, float by, float px, float py, float& ax, float& ay) {
     ax = px; ay = py;
     for (int k = 0; k < 2; ++k) {
-        const float t = std::hypot(ax - bx, ay - by) / kShotSpeed;
+        const float t = std::hypot(ax - bx, ay - by) / g_Tune.shotSpeed;
         ax = px + g.pvx * t; ay = py + g.pvy * t;
     }
     ax = std::clamp(ax, 0.0f, g_W); ay = std::clamp(ay, 0.0f, g_H);
@@ -872,7 +947,7 @@ inline void FireSnipe(float bx, float by) {
     const float dx = g.aimX - bx, dy = g.aimY - by, d = std::max(1.0f, std::hypot(dx, dy));
     Shot s;
     s.x = bx; s.y = by;
-    s.vx = dx / d * kShotSpeed; s.vy = dy / d * kShotSpeed;
+    s.vx = dx / d * g_Tune.shotSpeed; s.vy = dy / d * g_Tune.shotSpeed;
     s.left = d + kShotOvershoot;
     g.shots.push_back(s);
     g_Events.push_back({ Fx::Fire, bx, by, std::atan2(dy, dx) });
@@ -881,7 +956,7 @@ inline void TickShots(float dt, float px, float py, float& playerHP) {
     for (Shot& s : g.shots) {
         const float ox = s.x, oy = s.y;
         s.x += s.vx * dt; s.y += s.vy * dt;
-        s.left -= kShotSpeed * dt;
+        s.left -= g_Tune.shotSpeed * dt;
         // Fast: test the whole step, not just where it ended.
         const float sx = s.x - ox, sy = s.y - oy, sl = sx * sx + sy * sy;
         const float u = sl > 0.0f ? std::clamp(((px - ox) * sx + (py - oy) * sy) / sl, 0.0f, 1.0f) : 0.0f;
@@ -991,7 +1066,7 @@ inline void TickWave(float dt, float bx, float by, float px, float py) {
     }
     if (r > (g.waveLine ? kLineRun : std::hypot(g_W, g_H))) {
         g.waveT = -1.0f;
-        g.waveCd = g.phase == 2 ? kWaveEveryP2 : kWaveEvery;
+        g.waveCd = g.phase == 2 ? g_Tune.waveEveryP2 : g_Tune.waveEvery;
     }
 }
 
@@ -1011,7 +1086,7 @@ inline void RunPattern(float dt, float px, float py) {
         }
         if (g.clicked < 1) break;
         const float base = kClickSlot * (float)SeedTotal() + WarnTime();
-        const int gens = g.phase == 2 ? kGenerationsP2 : kGenerations;
+        const int gens = kGenerations;
         while (g.step < gens && g.t >= base + kGenStep * (float)g.step) { StepSpread(); ++g.step; }
         if (g.step >= gens && !g.comboSent) QueueShove();   // into the vine it grew
         if (g.step >= gens && g.t >= base + kGenStep * (float)gens + 0.4f) EndPattern();
@@ -1060,10 +1135,11 @@ inline void RunPattern(float dt, float px, float py) {
         }
         g.bodyX = g.dragFromX + (g.dragToX - g.dragFromX) * u;
         g.bodyY = g.dragFromY + (g.dragToY - g.dragFromY) * u;
+        g.curX = g.bodyX; g.curY = g.bodyY;   // the hand holding it, this frame (not the last)
         break;
     }
     case Pattern::Shot: {
-        const int n = g.phase == 2 ? kSnipesP2 : kSnipes;
+        const int n = g.phase == 2 ? g_Tune.snipesP2 : g_Tune.snipes;
         // The aim follows the lead until it locks just before the shot.
         if (g.step < n && g.t < SnipeFireAt(g.step) - kSnipeLock)
             LeadAim(g.bossX, g.bossY, px, py, g.aimX, g.aimY);

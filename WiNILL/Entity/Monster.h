@@ -15,6 +15,7 @@
 #include "GravisField.h"
 #include "EnemyShield.h"
 #include "Experience.h"
+#include "BalanceTuning.h"
 #include "Settings.h"   // g_Difficulty: a Genesis picks its summon style from it when it is made
 
 class RangedMob;
@@ -136,7 +137,8 @@ inline XpAmount MobExperienceReward(MobKind kind, const PlayerStats& stats) {
     float xpBase, scoreBase;
     MobKillReward(kind, xpBase, scoreBase);
     // Currency/score reductions must not turn a tier-1 kill into zero XP.
-    return XpFromReward((double)xpBase * stats.xpMult);
+    return XpFromReward((double)xpBase * stats.xpMult *
+                        BalanceFor((int)g_Difficulty).xpMult);
 }
 
 class Monster {
@@ -700,7 +702,7 @@ public:
     // Per face: hit flash time left (MAGNETAR_HIT_FLASH .. 0).
     std::array<float, MAGNETAR_FACES> magnetarFaceHitFlash{};
 
-    // Damage over time and Gravis' temporary collision grace period.
+    // Damage over time.
     float burnTimer = 0.0f;
     float burnDps = 0.0f;
 

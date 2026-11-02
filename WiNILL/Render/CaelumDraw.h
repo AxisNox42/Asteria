@@ -82,6 +82,20 @@ inline void Pointer(float x, float y, float sc, float lw, float r, float gg, flo
     }
 }
 
+// A pointing hand (the click model), the fingertip at (x, y).
+inline void ClickHand(float x, float y, float sc, float lw, float r, float gg, float b, float a) {
+    static const float P[16][2] = { { -3, 0 }, { 3, 0 }, { 3, 12 }, { 7, 11 }, { 11, 12 }, { 14, 14 }, { 17, 15 },
+                                    { 19, 18 }, { 19, 28 }, { 16, 34 }, { -2, 34 }, { -6, 28 }, { -9, 20 },
+                                    { -9, 16 }, { -6, 15 }, { -3, 19 } };
+    for (int k = 0; k < 16; ++k) {
+        const int n = (k + 1) % 16;
+        Seg(x + P[k][0] * sc, y + P[k][1] * sc, x + P[n][0] * sc, y + P[n][1] * sc, lw, r, gg, b, a);
+    }
+    // the folded fingers' seams
+    Seg(x + 7.0f * sc, y + 11.0f * sc, x + 7.0f * sc, y + 17.0f * sc, lw * 0.6f, r, gg, b, a * 0.8f);
+    Seg(x + 11.0f * sc, y + 12.0f * sc, x + 11.0f * sc, y + 18.0f * sc, lw * 0.6f, r, gg, b, a * 0.8f);
+    Seg(x + 15.0f * sc, y + 14.5f * sc, x + 15.0f * sc, y + 19.0f * sc, lw * 0.6f, r, gg, b, a * 0.8f);
+}
 // ── Frame hooks ─────────────────────────────────────────────
 // Call once per frame before drawing. Clears the fight's leftovers when the boss
 // is gone (the hazards live in caelum::g, advanced only by the boss itself).
@@ -157,6 +171,42 @@ inline void FieldFill(const FieldGrid& fg, float T, float r, float g, float b, f
                 BatchTri(poly[0][0], poly[0][1], poly[k][0], poly[k][1], poly[k + 1][0], poly[k + 1][1], r, g, b, a);
         }
 }
+// Like FieldFill, but each vertex's colour runs from c0 to c1 with a second
+// field (`mix`, same grid) at that spot: one puddle whose colour deepens
+// smoothly where the mix field is strong, with no seam between the two.
+inline void FieldFillBlend(const FieldGrid& fg, const FieldGrid& mix, float T, const float c0[4], const float c1[4]) {
+    if (!fg.any) return;
+    const bool hasMix = mix.any && mix.nx == fg.nx && mix.ny == fg.ny;
+    static const int ci[4] = { 0, 1, 1, 0 }, cj[4] = { 0, 0, 1, 1 };
+    auto vtx = [&](float x, float y, float m) {
+        const float u = caelum::Smooth((m - 0.15f) / 0.75f);
+        BatchVtx(x, y, c0[0] + (c1[0] - c0[0]) * u, c0[1] + (c1[1] - c0[1]) * u,
+                 c0[2] + (c1[2] - c0[2]) * u, c0[3] + (c1[3] - c0[3]) * u);
+    };
+    for (int j = 0; j + 1 < fg.ny; ++j)
+        for (int i = 0; i + 1 < fg.nx; ++i) {
+            float px[8], py[8], pm[8];
+            int np = 0;
+            for (int k = 0; k < 4; ++k) {
+                const int n = (k + 1) & 3;
+                const int ai = i + ci[k], aj = j + cj[k], bi = i + ci[n], bj = j + cj[n];
+                const float va = fg.at(ai, aj), vb = fg.at(bi, bj);
+                const float ma = hasMix ? mix.at(ai, aj) : 0.0f, mb = hasMix ? mix.at(bi, bj) : 0.0f;
+                const float ax = (float)ai * FieldGrid::kStep, ay = (float)aj * FieldGrid::kStep;
+                const float bx = (float)bi * FieldGrid::kStep, by = (float)bj * FieldGrid::kStep;
+                if (va >= T) { px[np] = ax; py[np] = ay; pm[np] = ma; ++np; }
+                if ((va >= T) != (vb >= T)) {
+                    const float t = (T - va) / (vb - va);
+                    px[np] = ax + (bx - ax) * t; py[np] = ay + (by - ay) * t; pm[np] = ma + (mb - ma) * t; ++np;
+                }
+            }
+            for (int k = 1; k + 1 < np; ++k) {
+                vtx(px[0], py[0], pm[0]);
+                vtx(px[k], py[k], pm[k]);
+                vtx(px[k + 1], py[k + 1], pm[k + 1]);
+            }
+        }
+}
 inline void FieldContour(const FieldGrid& fg, float T, float w, float r, float g, float b, float a) {
     if (!fg.any || a <= 0.001f) return;
     float poly[8][2], cross[4][2];
@@ -187,16 +237,16 @@ inline void FieldRows(const FieldGrid& fg, float T, int every, float w, float r,
     }
 }
 
-// This frame's fields: the corruption as drawn (growing in, drying up), the
-// warnings, the bad sectors, and the previews (overflow reach, a window's
-// delete).
-inline FieldGrid g_Corrupt, g_Warn, g_Bad, g_Preview;
+// This frame's fields: the corruption as drawn (growing in, drying up, a
+// dragged puddle), the bad sectors (the stronger zones), the warnings, and
+// the overflow's reach.
+inline FieldGrid g_Corrupt, g_Bad, g_Warn, g_Preview;
 inline float g_WarnU = 0.0f;
 
 inline void DrawCorruptionLayer() {
     using namespace caelum;
     if (!g.active) return;
-    float wc[kMaxCols * kMaxRows] = {}, ww[kMaxCols * kMaxRows] = {}, wb[kMaxCols * kMaxRows] = {}, wp[kMaxCols * kMaxRows] = {};
+    float wc[kMaxCols * kMaxRows] = {}, wb[kMaxCols * kMaxRows] = {}, ww[kMaxCols * kMaxRows] = {}, wp[kMaxCols * kMaxRows] = {};
     const bool overflowing = g.overflowT >= 0.0f;
     g_WarnU = 0.0f;
     for (int i = 0; i < CellCount(); ++i) {
@@ -208,17 +258,19 @@ inline void DrawCorruptionLayer() {
             ww[i] = 0.55f + 0.45f * u;        // the warning swells to the puddle's size
             g_WarnU = std::max(g_WarnU, u);
         }
-        if (c.bad) wb[i] = 1.0f;
+        if (c.bad) wb[i] = 1.0f;   // part of the puddles, and drawn deeper on top
         if (overflowing && !Hurts(c) && OverflowReach(i)) wp[i] = 1.0f;
     }
     BuildField(g_Corrupt, wc, g.time, true);
-    BuildField(g_Warn, ww, g.time);
     BuildField(g_Bad, wb, g.time);
+    BuildField(g_Warn, ww, g.time);
     BuildField(g_Preview, wp, g.time);
 
-    // The film (the one sanctioned fill), darker over bad sectors.
-    FieldFill(g_Corrupt, kPuddleEdge, 0.08f, 0.03f, 0.02f, 0.34f);
-    FieldFill(g_Bad, kPuddleEdge, 0.0f, 0.0f, 0.0f, 0.22f);
+    // The film (the one sanctioned fill): one puddle, deepening smoothly into
+    // the bad sectors' stronger zones (blended per vertex, no seam).
+    static const float kFilm[4] = { 0.08f, 0.03f, 0.02f, 0.34f };
+    static const float kDeep[4] = { 0.05f, 0.01f, 0.005f, 0.68f };
+    FieldFillBlend(g_Corrupt, g_Bad, kPuddleEdge, kFilm, kDeep);
     // Warnings blink in before they land.
     if (g_WarnU > 0.6f && std::fmod(g.time * 10.0f, 1.0f) < 0.4f)
         FieldFill(g_Warn, kPuddleEdge, 0.08f, 0.03f, 0.02f, 0.17f);
@@ -245,9 +297,7 @@ inline void DrawOverlay(float time) {
         FieldContour(g_Corrupt, kPuddleEdge, overflowing ? 2.6f : 2.0f, C[0], C[1], C[2], overflowing ? 0.6f + 0.4f * pulse : 0.9f);
         FieldContour(g_Corrupt, 1.0f, 1.0f, C[0], C[1], C[2], 0.35f);
         FieldContour(g_Corrupt, 0.3f, 1.0f, A[0], A[1], A[2], 0.22f);
-        // Bad sectors: a doubled rim (they never dry up).
-        FieldContour(g_Bad, kPuddleEdge, 2.8f, A[0], A[1], A[2], 0.95f);
-        FieldContour(g_Bad, 0.95f, 1.3f, A[0], A[1], A[2], 0.6f);
+        // (Bad sectors have no rim of their own: the film deepens into them.)
         // Warnings: a flickering rim that swells to the puddle's size.
         const float flick = 0.6f + 0.4f * std::sin(time * 30.0f);
         FieldContour(g_Warn, kPuddleEdge, 1.6f + 1.4f * g_WarnU, H[0], H[1], H[2], (0.4f + 0.5f * g_WarnU) * flick);
@@ -287,15 +337,6 @@ inline void DrawOverlay(float time) {
         }
     }
 
-    // 3 Smear: the cursor's grip closing on the puddle it will lift.
-    if (g.pattern == Pattern::Smear && g.acting && g.step == 0 && g.t >= kSmearReach * 0.5f) {
-        float x, y;
-        CellCentre(g.smearCell, x, y);
-        const float u = std::clamp((g.t - kSmearReach * 0.5f) / (kSmearGrab - kSmearReach * 0.5f), 0.0f, 1.0f);
-        Ring(x, y, 170.0f - 80.0f * u, 3.4f, D[0], D[1], D[2], 0.2f + 0.2f * u, 48);
-        Ring(x, y, 170.0f - 80.0f * u, 2.0f, H[0], H[1], H[2], 0.4f + 0.6f * u, 48);
-    }
-
     // 5 Drag: the cursor's grip closing on the body, then each stroke's path
     // (a line to a framed landing spot) before the body is dragged along it.
     if (g.pattern == Pattern::Drag && g.acting && g.step < 100) {
@@ -318,10 +359,10 @@ inline void DrawOverlay(float time) {
     }
 
     // Phase 2 erosion: the player's cell fills its outline as they linger.
-    if (g.phase == 2 && g.dwellCell >= 0 && g.dwell > kErodeShow) {
+    if (g.phase == 2 && g_Tune.erodeAfter > 0.0f && g.dwellCell >= 0 && g.dwell > kErodeShow) {
         float x, y, w, h;
         CellRect(g.dwellCell, x, y, w, h);
-        const float k = std::clamp((g.dwell - kErodeShow) / (kErodeAfter - kErodeShow), 0.0f, 1.0f);
+        const float k = std::clamp((g.dwell - kErodeShow) / (g_Tune.erodeAfter - kErodeShow), 0.0f, 1.0f);
         const float per = 2.0f * (w + h);
         float left = per * k;
         const float px[5] = { x, x + w, x + w, x, x }, py[5] = { y, y, y + h, y + h, y };
@@ -430,8 +471,17 @@ inline void DrawCursor(float time) {
         const float sc = g.curPress ? 1.15f : 1.35f;
         const unsigned k = Hash(7u, (unsigned)(time / 0.07f), 3u);
         const float jx = (float)(k % 7u) - 3.0f, jy = (float)((k >> 4) % 5u) - 2.0f;
-        Pointer(g.curX + jx + 4.0f, g.curY + jy, sc, 1.2f, A[0], A[1], A[2], 0.35f);   // ghost
-        Pointer(g.curX, g.curY, sc, 2.2f, H[0], H[1], H[2], 1.0f);
+        // The model: a pointing hand while it presses a puddle (or the body) to
+        // lift; the arrow otherwise, dragging included.
+        const bool clicking = g.acting && g.curPress &&
+            ((g.pattern == Pattern::Smear && g.step == 0) ||
+             (g.pattern == Pattern::Drag && g.step < 100 && g.t < kDragGrab));
+        auto draw = [&](float x, float y, float lw, const float* c, float a) {
+            if (clicking) ClickHand(x, y, sc, lw, c[0], c[1], c[2], a);
+            else Pointer(x, y, sc, lw, c[0], c[1], c[2], a);
+        };
+        draw(g.curX + jx + 4.0f, g.curY + jy, 1.2f, A, 0.35f);   // ghost
+        draw(g.curX, g.curY, 2.2f, H, 1.0f);
     }
     BatchFlush();
 }

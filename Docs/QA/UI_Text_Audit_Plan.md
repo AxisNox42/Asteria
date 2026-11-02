@@ -6,7 +6,7 @@
 
 모든 게임 UI 텍스트를 역할별로 점검하고, 모든 버튼을 한 줄 라벨로 통일한다. 새 요청 기준으로 버튼 라벨은 제목 40px이다. 버튼의 기존 보조 줄은 제거한다. 화면의 보조 구획 제목은 부제목 36px, 본문·설정명·값은 설명 20px, 짧은 안내는 보조 설명 18px로 둔다. 글자 크기가 달라져도 화면 배치, 호버·클릭 영역, 화면 전환이 텍스트와 어긋나지 않게 확인한다. 게임 흐름과 시각적 분위기는 유지한다.
 
-기존 `UiTextLevel`, `UiTextScale`, `MaxLocalizedTextWidth`와 `Docs/QA/Onedow.xlsx`를 재사용한다. 별도 글자 체계, 텍스트 레지스트리, 검사 프레임워크는 만들지 않는다.
+기존 `UiTextLevel`, `UiTextScale`, `MaxLocalizedTextWidth`와 `Docs/QA/Asteria.xlsx`를 재사용한다. 별도 글자 체계, 텍스트 레지스트리, 검사 프레임워크는 만들지 않는다.
 
 ## A–Z 실행 순서
 

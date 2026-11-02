@@ -24,7 +24,7 @@
 
 ## 2. 조사 기준과 한계
 
-- QA 기준: `Docs/QA/Onedow_SystemQA_TechDebt_v0.1.17.xlsx`.
+- QA 기준: `Docs/QA/Asteria_SystemQA_TechDebt_v0.1.17.xlsx`.
 - 코드 기준: HEAD `abb8143`에 현재 작업 트리의 미커밋 변경을 포함한 상태. 현재 개발 중인 변경을 되돌리거나 체크포인트 커밋하지 않았다.
 - 엑셀의 기술 부채 TD-01~22, 중복 후보 DL-01~14, 원인 묶음 RC-A~L, 수정 위치 체크리스트를 읽었다. 기존 `Refactor_Roadmap.md`, `UI_Text_Audit_Plan.md`도 대조했다.
 - 최초 후보 조사에서는 자체 소스 98개/33,624줄에 반복 블록 검색을 수행했다. 이후 전체 조사와 검토 보강의 최신 기준은 조사 폴더 summary.json이다(현재 98개/33,643줄, 테스트 7개/1,400줄). 외부 miniaudio.h와 Include/는 중복 제거 대상에서 제외하고 경계/해시는 별도 목록화했다.

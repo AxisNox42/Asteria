@@ -10,6 +10,8 @@
 // Kept free of game headers so tests can include it on its own.
 // ─────────────────────────────────────────────────────────────
 #include <algorithm>
+#include <cmath>
+#include "BalanceTuning.h"
 
 inline constexpr int kRosterDifficulties = 4;   // EASY, NORMAL, HARD, NIGHTMARE
 
@@ -108,14 +110,35 @@ inline bool RosterUnlocked(RosterKind kind, int wave, int difficulty) {
     return first > 0 && wave >= first;
 }
 
-// Regular spawn odds in percent; rises 2% per wave after the first one
-// (Gimbal follows kGimbalScope instead).
-inline int RosterChancePct(RosterKind kind, int wave, int difficulty) {
+// Regular spawn odds in percent before the balance table; rises 2% per wave
+// after the first one (Gimbal follows kGimbalScope instead).
+inline int RosterBaseChancePct(RosterKind kind, int wave, int difficulty) {
     if (!RosterUnlocked(kind, wave, difficulty)) return 0;
     if (kind == RosterKind::GIMBAL) return GimbalChancePct(wave, difficulty);
     const RosterEntry& entry = RosterEntryFor(kind);
     const int grown = entry.startPct + 2 * (wave - RosterFirstWave(kind, difficulty));
     return std::min(entry.capPct, grown);
+}
+
+// The balance table's odds x for a kind (ROTOR keeps the remainder).
+inline float RosterBalanceMult(RosterKind kind, int difficulty) {
+    const BalanceTuning& b = BalanceFor(difficulty);
+    switch (kind) {
+    case RosterKind::SWARM:    return b.kSwarm;
+    case RosterKind::GIMBAL:   return b.kGimbal;
+    case RosterKind::GRAVIS:   return b.kGravis;
+    case RosterKind::MAGNETAR: return b.kMagnetar;
+    default:                   return 1.0f;
+    }
+}
+
+// Regular spawn odds in percent. A kind with odds keeps at least 1% unless
+// its multiplier is 0, so a multiplier never hides a kind's debut.
+inline int RosterChancePct(RosterKind kind, int wave, int difficulty) {
+    const int base = RosterBaseChancePct(kind, wave, difficulty);
+    const float mult = std::max(0.0f, RosterBalanceMult(kind, difficulty));
+    if (base <= 0 || mult <= 0.0f) return 0;
+    return std::max(1, (int)std::lround((float)base * mult));
 }
 
 // Picks the kind of one regular spawn for roll100 in [0, 100). Weighted
@@ -127,7 +150,7 @@ inline RosterKind RosterPickRegular(int wave, int difficulty, int roll100) {
         total += RosterChancePct(entry.kind, wave, difficulty);
     const bool rotorIn = RosterUnlocked(RosterKind::ROTOR, wave, difficulty);
     if (total <= 0) return RosterKind::ROTOR;
-    const int space = rotorIn ? 100 : total;
+    const int space = rotorIn ? std::max(100, total) : total;
     const int roll = std::clamp(roll100, 0, 99) * space / 100;
     int cutoff = 0;
     for (const RosterEntry& entry : kEnemyRoster) {

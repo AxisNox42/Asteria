@@ -8,6 +8,7 @@
 #include "MonsterManager.h"
 #include "Bullet.h"
 #include "PlayerStats.h"
+#include "BalanceTuning.h"
 #include "Juice.h"
 #include "../Core/Codex.h"
 
@@ -188,7 +189,8 @@ public:
                               bullet.x, bullet.y) < hitRadius * hitRadius) {
                     const float damage = bullet.enemyDmg > 0.0f
                         ? bullet.enemyDmg : 10.0f;
-                    HurtPlayer(playerHP, damage * stats.rmobDmgMult);
+                    HurtPlayer(playerHP, damage * stats.rmobDmgMult *
+                                         BalanceFor((int)g_Difficulty).rangedDmg);
                     bullet.active = false;
                     playerHit = true;
                 }

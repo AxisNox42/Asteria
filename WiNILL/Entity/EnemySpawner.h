@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 class Monster;
 class MonsterManager;
@@ -22,8 +22,12 @@ struct ScheduledEliteInfo {
 };
 ScheduledEliteInfo GetScheduledElite(int wave, Difficulty difficulty);
 
-// NORMA, the boss of the final wave, has entered and then fallen this run.
+// The final wave's boss (NORMA or CAELUM, rolled per run) has entered and
+// then fallen this run.
 bool NormaDefeated();
+// Which boss the final wave brings this run. A run with a mid-run boss
+// (NIGHTMARE) brings the other one there.
+MobKind FinalBossKind();
 // Hand testing: brings NORMA in now, as the boss wave would.
 // hpMultiplier is the stat/difficulty share; the run's HP ramp at the boss
 // wave is added here so a debug boss matches the real one.

@@ -39,6 +39,7 @@
 #include "MonsterManager.h"
 #include "EnemyProgression.h"
 #include "EnemySpawner.h"
+#include "BalanceTuning.h"
 #include "ProjectileSystem.h"
 #include "AugmentSlots.h"
 #include "GameplayTime.h"
@@ -2457,12 +2458,15 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
     g_GameManager.currentState = GameState::GAMEOVER;
 }
 
-// Felling NORMA, the final wave's boss, wins the run at once.
+// Felling the final wave's boss (NORMA or CAELUM) wins the run at once.
 static void CompleteBossRun(int finalWave) {
-    static const wchar_t* const reason[3] = {
+    static const wchar_t* const norma[3] = {
         L"NORMA 처치", L"NORMA Defeated", L"NORMA撃破"
     };
-    FinishRunVictory(finalWave, reason, "boss_defeated");
+    static const wchar_t* const caelumWin[3] = {
+        L"CAELUM 처치", L"CAELUM Defeated", L"CAELUM撃破"
+    };
+    FinishRunVictory(finalWave, FinalBossKind() == MobKind::CAELUM ? caelumWin : norma, "boss_defeated");
 }
 
 // Time-out verdict: starts when the boss wave's clock hits zero with NORMA
@@ -2910,6 +2914,7 @@ int main() {
 
     // ?�행 ?�일 ?�더�??�업 ?�렉?�리 ?�동 (Resource/ ?��?경로 로드 보장)
     PlatformChdirToExeDir();
+    LoadBalanceOverrides();   // balance.cfg / ASTERIA_BALANCE over the shipped balance table
 #if defined(_WIN32)
     // One game at a time: two copies would each save over the other's
     // progress. Smoke captures never save, so they may run alongside.
@@ -4931,7 +4936,6 @@ int main() {
                     ActionHeld(GameAction::MoveUp), ActionHeld(GameAction::MoveDown),
                     ActionHeld(GameAction::MoveLeft), ActionHeld(GameAction::MoveRight),
                     playerControl, MOVE_SPEED * g_Stats.GetMoveMultiplier(lmb) *
-                        (g_PlayerRuntime.moveSlowTimer > 0.0f ? GRAVIS_SLOW_MOVE_MULT : 1.0f) *
                         caelum::MoveFactor(),   // weakened by CAELUM's corruption
                     FIXED_DT, g_PlayerRuntime.dashActive, mvX, mvY);
                 if (playerControl && mlen > 0.001f && !g_PlayerRuntime.dashActive) {

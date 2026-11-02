@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include "BalanceTuning.h"
 
 // Preserve the active pre-removal run tuning while keeping its progression rules together.
 struct EnemyProgression {
@@ -20,7 +21,8 @@ inline float EnemySpeedRamp(float elapsedSeconds) {
 
 inline EnemyProgression EvaluateEnemyProgression(float elapsedSeconds,
                                                   long long score,
-                                                  int mobCapBonus) {
+                                                  int mobCapBonus,
+                                                  const BalanceTuning& balance) {
     const auto clamp01 = [](float value) {
         return std::min(1.0f, std::max(0.0f, value));
     };
@@ -35,9 +37,8 @@ inline EnemyProgression EvaluateEnemyProgression(float elapsedSeconds,
     const float hpLateT = result.lateSpawnT;
     const float hpIntensity = std::min(1.2f, std::max(0.0f, (float)score / 100000.0f));
     const float scoreHpRamp = 1.0f + hpIntensity * 0.15f;
-    constexpr float kRegularEnemyHpScale = 0.80f;
-    result.hpMultiplier = (1.22f + hpT * 1.05f + hpLateT * 0.70f)
-                        * scoreHpRamp * kRegularEnemyHpScale;
+    result.hpMultiplier = (1.22f + hpT * 1.05f + hpLateT * balance.hpLate)
+                        * scoreHpRamp * balance.hpScale;
 
     const float capBonusT = clamp01(elapsedSeconds / 360.0f);
     const int scaledCapBonus = (int)((float)mobCapBonus * capBonusT * capBonusT);

@@ -602,7 +602,7 @@ static void DrawGenesisCore(float x, float y, float size,
 static void DrawEnemyArc(float cx, float cy, float radius,
                          float start, float sweep, int segments,
                          float r, float g, float b, float alpha,
-                         float width, bool dashed);
+                         float width);
 
 static void DrawQuasarEllipseArc(float cx, float cy,
                                  float aimX, float aimY,
@@ -625,10 +625,9 @@ static void DrawQuasarEllipseArc(float cx, float cy,
 static void DrawEnemyArc(float cx, float cy, float radius,
                          float start, float sweep, int segments,
                          float r, float g, float b, float alpha,
-                         float width, bool dashed = false) {
+                         float width) {
     if (segments < 2) return;
-    for (int i = 0; i < segments; ++i) {
-        if (dashed && (i & 1)) continue;
+    for (int i = 0; i < segments; ++i) {
         const float a0 = start + sweep * (float)i / (float)segments;
         const float a1 = start + sweep * (float)(i + 1) / (float)segments;
         drawLineQuad(cx + cosf(a0) * radius, cy + sinf(a0) * radius,
@@ -648,7 +647,7 @@ static void DrawThrownBlastZone(float x, float y, float alpha, float timer,
         drawCircle(x, y, r * std::min(1.0f, timer), 1.0f, 0.24f, 0.20f,
                    (0.08f + 0.14f * timer) * alpha);
     DrawEnemyArc(x, y, r, 0.0f, 6.2831853f, 48, 1.0f, 0.30f, 0.24f,
-                 0.36f * alpha, 1.2f, false);
+                 0.36f * alpha, 1.2f);
     drawCircle(x, y, 2.5f, 1.0f, 0.40f, 0.34f, 0.80f * alpha);
 }
 
@@ -1085,13 +1084,13 @@ static void DrawRegulusPlates(float x, float y, float base, float phase,
         const float sweep = 1.5707963f - 0.44f;
         if (broken) {
             DrawEnemyArc(x, y, outerR, a0, sweep, 12, kAegisR, kAegisG, kAegisB,
-                         0.16f + 0.51f * regen, 0.8f + 1.6f * regen, false);
+                         0.16f + 0.51f * regen, 0.8f + 1.6f * regen);
             continue;
         }
         const float a = std::min(1.0f, 0.45f + 0.50f * ratio + 0.35f * flash);
-        DrawEnemyArc(x, y, outerR, a0, sweep, 12, kAegisR, kAegisG, kAegisB, a, 3.0f, false);
+        DrawEnemyArc(x, y, outerR, a0, sweep, 12, kAegisR, kAegisG, kAegisB, a, 3.0f);
         DrawEnemyArc(x, y, innerR, a0 + 0.08f, sweep - 0.16f, 10,
-                     0.92f, 0.99f, 1.0f, a * 0.5f, 1.0f, false);
+                     0.92f, 0.99f, 1.0f, a * 0.5f, 1.0f);
     }
 }
 
@@ -1148,9 +1147,9 @@ static void DrawRegulusExtension(const Monster* m, float base, float phase,
     for (int k = 0; k < 4; ++k) {
         const float a0 = -phase * 0.55f + 0.7853982f + 1.5707963f * (float)k + 0.10f;
         DrawEnemyArc(x, y, base * 2.02f, a0, 1.5707963f - 0.20f, 14,
-                     r, g, b, 0.36f, 1.1f, false);
+                     r, g, b, 0.36f, 1.1f);
         DrawEnemyArc(x, y, base * 1.93f, a0 + 0.12f, 1.5707963f - 0.44f, 10,
-                     0.92f, 0.99f, 1.0f, 0.22f, 0.8f, false);
+                     0.92f, 0.99f, 1.0f, 0.22f, 0.8f);
     }
     // (2) charge nodes: dim at rest, brighter and larger over the last 0.8 s.
     constexpr float CHARGE_WINDOW = 0.8f;
@@ -1700,15 +1699,15 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
                                 0.65f * fallOpen + 0.04f * fallPulse);
     const float haloGlow = std::max(heat, easeO(pre0 * 1.4f));
     DrawEnemyArc(x, y, haloR, 0.0f, 6.2831853f, 64, cr, cg, cb,
-                 0.58f + 0.30f * haloGlow, 1.5f + 0.5f * haloGlow, false);
+                 0.58f + 0.30f * haloGlow, 1.5f + 0.5f * haloGlow);
     DrawEnemyArc(x, y, haloR * 0.965f, 0.0f, 6.2831853f, 60, liteR, liteG, liteB,
-                 0.24f + 0.20f * haloGlow, 0.9f, false);
+                 0.24f + 0.20f * haloGlow, 0.9f);
     for (int k = 0; k < 3; ++k) {
         const float a = -spin * 0.22f + 2.0943951f * (float)k + seed;
         DrawEnemyArc(x, y, haloR * 1.05f, a - 0.13f, 0.26f, 6, liteR, liteG, liteB,
-                     0.55f + 0.35f * haloGlow, 1.2f, false);
+                     0.55f + 0.35f * haloGlow, 1.2f);
         DrawEnemyArc(x, y, haloR * 0.93f, a - 0.10f, 0.20f, 5, liteR, liteG, liteB,
-                     0.40f + 0.30f * haloGlow, 1.0f, false);
+                     0.40f + 0.30f * haloGlow, 1.0f);
         DrawEnemyNode({x + cosf(a) * haloR, y + sinf(a) * haloR, base * 0.07f,
                        0.80f + 0.20f * haloGlow}, liteR, liteG, liteB, 0.92f);
     }
@@ -1832,7 +1831,7 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
             ph -= floorf(ph);
             const float rr = base * (1.90f - 0.92f * ph);   // peel off the halo
             DrawEnemyArc(x, y, rr, 0.0f, 6.2831853f, 44, liteR, liteG, liteB,
-                         0.45f * sinf(3.1415927f * ph) * fadeIn, 1.2f, false);
+                         0.45f * sinf(3.1415927f * ph) * fadeIn, 1.2f);
         }
     }
 
@@ -1858,13 +1857,13 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
     }
 
     // Orb: double contour; the inner contour warms with heat.
-    DrawEnemyArc(x, y, orbR, 0.0f, 6.2831853f, 48, cr, cg, cb, 0.86f + 0.12f * heat, 1.9f, false);
+    DrawEnemyArc(x, y, orbR, 0.0f, 6.2831853f, 48, cr, cg, cb, 0.86f + 0.12f * heat, 1.9f);
     const float innerGlow = m->quasarState == 0 ? ease((pre - 0.5f) / 0.5f)
                           : (m->quasarState <= 3 ? 1.0f :
                              (m->quasarState == 4 ? 1.0f - ease(m->quasarTimer / 0.6f) : 0.0f));
     DrawEnemyArc(x, y, orbR * 0.90f, 0.0f, 6.2831853f, 44,
                  liteR, liteG, liteB, 0.34f + 0.30f * heat + 0.30f * innerGlow,
-                 0.95f + 0.4f * innerGlow, false);
+                 0.95f + 0.4f * innerGlow);
 
     // L3: contained core on the beam axis.
     const float amp = 0.25f + 0.75f * heat;
@@ -1890,7 +1889,7 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
         const float shake = amp * 1.2f * sinf(t * (29.0f + 3.0f * i) + seed + i);
         const float r = clampR + shake;
         DrawEnemyArc(x, y, r, c - 0.26f, 0.52f, 4,
-                     liteR, liteG, liteB, 0.70f + 0.25f * heat, 1.25f, false);
+                     liteR, liteG, liteB, 0.70f + 0.25f * heat, 1.25f);
         for (int e = -1; e <= 1; e += 2) {
             const float ea = c + 0.26f * (float)e;
             drawLineQuad(x + cosf(ea) * r, y + sinf(ea) * r,
@@ -1987,7 +1986,7 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
         const int last = m->quasarFallFired - 1;
         const glm::vec2 port = m->quasarFallOrigins[last];
         DrawEnemyArc(port.x, port.y, base * (0.12f + 0.25f * (1.0f - fallPulse)),
-                     0.0f, 6.2831853f, 16, 1.0f, 1.0f, 1.0f, fallPulse * 0.9f, 1.8f, false);
+                     0.0f, 6.2831853f, 16, 1.0f, 1.0f, 1.0f, fallPulse * 0.9f, 1.8f);
     }
 
 }
@@ -2024,13 +2023,13 @@ static void DrawQuasarFall(const Monster* m, float cr, float cg, float cb) {
             const float progress = std::clamp((age - m->quasarFallLaunchTimes[i]) / m->QuasarFallWarning(i), 0.0f, 1.0f);
             // Dark under-stroke keeps the unfilled danger disc legible on white windows.
             DrawEnemyArc(target.x, target.y, radius, 0.0f, 6.2831853f, 64,
-                         0.0f, 0.0f, 0.0f, 0.75f, 5.0f, false);
+                         0.0f, 0.0f, 0.0f, 0.75f, 5.0f);
             DrawEnemyArc(target.x, target.y, radius, 0.0f, 6.2831853f, 64,
-                         cr, cg, cb, 0.65f + 0.25f * power, 1.5f + 1.5f * power, false);
+                         cr, cg, cb, 0.65f + 0.25f * power, 1.5f + 1.5f * power);
             if (progress > 0.0f)
                 DrawEnemyArc(target.x, target.y, radius, -1.5707963f,
                              progress * 6.2831853f, 64,
-                             1.0f, 1.0f, 1.0f, 0.85f, 2.2f, false);
+                             1.0f, 1.0f, 1.0f, 0.85f, 2.2f);
             for (int k = 0; k < 4; ++k) {
                 const float a = k * 1.5707963f;
                 const glm::vec2 direction(cosf(a), sinf(a));
@@ -2049,7 +2048,7 @@ static void DrawQuasarFall(const Monster* m, float cr, float cg, float cb) {
                 // Aimed shot: a second, inner ring and four diagonal ticks,
                 // all white, so it reads apart from the scattered ones.
                 DrawEnemyArc(target.x, target.y, radius * 0.62f, 0.0f, 6.2831853f, 48,
-                             1.0f, 1.0f, 1.0f, 0.55f + 0.35f * progress, 1.4f, false);
+                             1.0f, 1.0f, 1.0f, 0.55f + 0.35f * progress, 1.4f);
                 for (int k = 0; k < 4; ++k) {
                     const float a = 0.7853982f + k * 1.5707963f;
                     const glm::vec2 dir(cosf(a), sinf(a));
@@ -2087,14 +2086,14 @@ static void DrawQuasarFall(const Monster* m, float cr, float cg, float cb) {
             }
             // Shockwave: thick bright ring (with a dark under-stroke) out to the radius.
             DrawEnemyArc(target.x, target.y, radius * (0.35f + 0.65f * out), 0.0f, 6.2831853f, 64,
-                         0.0f, 0.0f, 0.0f, 0.55f * fade, 7.0f * heavy * (1.0f - 0.6f * t), false);
+                         0.0f, 0.0f, 0.0f, 0.55f * fade, 7.0f * heavy * (1.0f - 0.6f * t));
             DrawEnemyArc(target.x, target.y, radius * (0.35f + 0.65f * out), 0.0f, 6.2831853f, 64,
-                         1.0f, 1.0f, 1.0f, fade, 4.5f * heavy * (1.0f - 0.7f * t), false);
+                         1.0f, 1.0f, 1.0f, fade, 4.5f * heavy * (1.0f - 0.7f * t));
             DrawEnemyArc(target.x, target.y, radius * (0.20f + 0.55f * out), 0.0f, 6.2831853f, 48,
-                         cr, cg, cb, 0.85f * fade, 2.2f * heavy, false);
+                         cr, cg, cb, 0.85f * fade, 2.2f * heavy);
             // The damage radius stays marked until the effect ends.
             DrawEnemyArc(target.x, target.y, radius, 0.0f, 6.2831853f, 64,
-                         cr, cg, cb, 0.55f * (1.0f - t), 2.0f, false);
+                         cr, cg, cb, 0.55f * (1.0f - t), 2.0f);
             // Fracture lines: three-part jagged rays.
             for (int k = 0; k < 9; ++k) {
                 const float a = k * 0.6981317f + 0.37f * i;
@@ -2154,7 +2153,7 @@ static void DrawQuasarFall(const Monster* m, float cr, float cg, float cb) {
         diamond(p, size, 0.98f, angle);
         if (m->quasarFallPredictedMask & (1u << i))
             DrawEnemyArc(p.x, p.y, size * 1.9f, 0.0f, 6.2831853f, 24,
-                         1.0f, 1.0f, 1.0f, 0.65f, 1.3f, false);
+                         1.0f, 1.0f, 1.0f, 0.65f, 1.3f);
         const glm::vec2 side(cosf(angle), sinf(angle));
         diamond(p - side * 14.0f, 2.8f, 0.65f, angle);
         diamond(p + side * 12.0f, 2.2f, 0.65f, angle);
@@ -2345,7 +2344,7 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
                 const float u = std::clamp((age - 0.15f * k) / 0.9f, 0.0f, 1.0f);
                 if (u <= 0.0f || u >= 1.0f) continue;
                 DrawEnemyArc(qx, qy, 40.0f + 260.0f * ease(u), 0.0f, 6.2831853f, 64,
-                             cr, cg, cb, 0.45f * (1.0f - u), 2.0f, false);
+                             cr, cg, cb, 0.45f * (1.0f - u), 2.0f);
             }
         }
         // (3) energy streaks flowing into the Quasar from every direction; they
@@ -2378,13 +2377,13 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
             const float lit = beat == 0 ? 1.0f : ease((age - Monster::QUASAR_ERUPT_BLAST_TIME) / 0.15f);
             const float armed = beat == 0 ? 1.0f : 0.28f + 0.72f * lit;
             const float thin = beat == 0 ? 1.0f : 0.55f + 0.45f * lit;
-            DrawEnemyArc(c.x, c.y, rad, 0.0f, 6.2831853f, 40, 0.0f, 0.0f, 0.0f, 0.70f * grow * armed, 5.5f * thin, false);
-            DrawEnemyArc(c.x, c.y, rad, 0.0f, 6.2831853f, 40, cr, cg, cb, 0.85f * grow * pulse * armed, 2.4f * thin, false);
+            DrawEnemyArc(c.x, c.y, rad, 0.0f, 6.2831853f, 40, 0.0f, 0.0f, 0.0f, 0.70f * grow * armed, 5.5f * thin);
+            DrawEnemyArc(c.x, c.y, rad, 0.0f, 6.2831853f, 40, cr, cg, cb, 0.85f * grow * pulse * armed, 2.4f * thin);
             // The inner ring turns the other way, faster as the blastI nears.
             DrawEnemyArc(c.x, c.y, rad * 0.55f, (beat ? -1.0f : 1.0f) * age * (1.0f + 3.0f * prog), 4.7f, 24,
-                         cr, cg, cb, 0.55f * grow * armed, 1.4f, false);
+                         cr, cg, cb, 0.55f * grow * armed, 1.4f);
             DrawEnemyArc(c.x, c.y, rad, -1.5707963f, prog * 6.2831853f, 40,
-                         1.0f, 1.0f, 1.0f, 0.90f * grow * armed, 2.6f * thin, false);
+                         1.0f, 1.0f, 1.0f, 0.90f * grow * armed, 2.6f * thin);
             for (int k = 0; k < 4; ++k) {
                 const float a = k * 1.5707963f + 0.7853982f + 0.5f * prog;
                 const glm::vec2 d(cosf(a), sinf(a));
@@ -2408,10 +2407,10 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
                 }
             }
             DrawEnemyArc(c.x, c.y, Zi * (0.35f + 0.65f * out), 0.0f, 6.2831853f, 40,
-                         0.0f, 0.0f, 0.0f, 0.5f * fade, 6.0f * (1.0f - 0.6f * t), false);
+                         0.0f, 0.0f, 0.0f, 0.5f * fade, 6.0f * (1.0f - 0.6f * t));
             DrawEnemyArc(c.x, c.y, Zi * (0.35f + 0.65f * out), 0.0f, 6.2831853f, 40,
-                         1.0f, 1.0f, 1.0f, fade, 3.8f * (1.0f - 0.7f * t), false);
-            DrawEnemyArc(c.x, c.y, Zi, 0.0f, 6.2831853f, 40, cr, cg, cb, 0.55f * (1.0f - t), 2.0f, false);
+                         1.0f, 1.0f, 1.0f, fade, 3.8f * (1.0f - 0.7f * t));
+            DrawEnemyArc(c.x, c.y, Zi, 0.0f, 6.2831853f, 40, cr, cg, cb, 0.55f * (1.0f - t), 2.0f);
             for (int k = 0; k < 6; ++k) {
                 const float a = k * 1.0471976f + 0.37f * i;
                 const float len = Zi * (0.30f + 0.70f * out);
@@ -2436,7 +2435,7 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
             for (int i = 0; i < m->quasarEruptCount && !exists; ++i) exists = m->quasarEruptBeat[i] == 0 && m->quasarEruptRing[i] == ring;
             if (!exists) continue;
             DrawEnemyArc(qx, qy, r * ease(u), 0.0f, 6.2831853f, 72,
-                         1.0f, 1.0f, 1.0f, 0.50f * (1.0f - u), 2.0f, false);
+                         1.0f, 1.0f, 1.0f, 0.50f * (1.0f - u), 2.0f);
         }
     }
     // One big shockwave leaves the Quasar and runs out through the whole field.
@@ -2444,9 +2443,9 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
         const float t = (age - blast) / fx;
         const float reach = (Monster::QUASAR_ERUPT_MAX_REACH + 90.0f) * ease(t);
         DrawEnemyArc(qx, qy, reach, 0.0f, 6.2831853f, 96,
-                     0.0f, 0.0f, 0.0f, 0.45f * (1.0f - t), 9.0f, false);
+                     0.0f, 0.0f, 0.0f, 0.45f * (1.0f - t), 9.0f);
         DrawEnemyArc(qx, qy, reach, 0.0f, 6.2831853f, 96,
-                     1.0f, 1.0f, 1.0f, 0.90f * (1.0f - t), 4.0f, false);
+                     1.0f, 1.0f, 1.0f, 0.90f * (1.0f - t), 4.0f);
     }
     // Beat 1: a shorter wave, out to the lane band only.
     const float blast2 = Monster::QUASAR_ERUPT_SECOND_BLAST;
@@ -2454,9 +2453,9 @@ static void DrawQuasarEruption(const Monster* m, float cr, float cg, float cb) {
         const float t = (age - blast2) / fx;
         const float reach = Monster::QUASAR_ERUPT_MAX_REACH * 0.85f * ease(t);
         DrawEnemyArc(qx, qy, reach, 0.0f, 6.2831853f, 96,
-                     0.0f, 0.0f, 0.0f, 0.45f * (1.0f - t), 9.0f, false);
+                     0.0f, 0.0f, 0.0f, 0.45f * (1.0f - t), 9.0f);
         DrawEnemyArc(qx, qy, reach, 0.0f, 6.2831853f, 96,
-                     1.0f, 1.0f, 1.0f, 0.90f * (1.0f - t), 4.0f, false);
+                     1.0f, 1.0f, 1.0f, 0.90f * (1.0f - t), 4.0f);
     }
 }
 
@@ -2603,10 +2602,10 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
         const float ra = (p2 ? 0.60f : 0.85f) * pulse;
         for (int k = 0; k < 4; ++k) {
             const float mid = ringSpin + 1.5707963f * (float)k;
-            DrawEnemyArc(x, y, ringR, mid - span * 0.5f, span, 28, br, bg, bb, ra * 0.14f, 4.4f, false);
-            DrawEnemyArc(x, y, ringR, mid - span * 0.5f, span, 28, br, bg, bb, ra, 2.0f, false);
+            DrawEnemyArc(x, y, ringR, mid - span * 0.5f, span, 28, br, bg, bb, ra * 0.14f, 4.4f);
+            DrawEnemyArc(x, y, ringR, mid - span * 0.5f, span, 28, br, bg, bb, ra, 2.0f);
             DrawEnemyArc(x, y, ringR - inset * 0.75f, mid - span * 0.4f, span * 0.8f, 22,
-                         br, bg, bb, ra * 0.45f, 0.9f, false);
+                         br, bg, bb, ra * 0.45f, 0.9f);
             // The bracket: two arms folding back toward the body.
             const float ga = mid + 0.7853982f;
             const float bx = x + cosf(ga) * (ringR + base * 0.04f), by = y + sinf(ga) * (ringR + base * 0.04f);
@@ -2651,12 +2650,12 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
                 DrawEnemyNode({ tx, ty, nodeR, 1.0f }, br, bg, bb, pulse);
                 continue;
             }
-            DrawEnemyArc(tx, ty, nodeR * 0.72f, 0.0f, 6.2831853f, 16, br, bg, bb, 0.45f, 1.1f, false);
+            DrawEnemyArc(tx, ty, nodeR * 0.72f, 0.0f, 6.2831853f, 16, br, bg, bb, 0.45f, 1.1f);
             drawCircle(tx, ty, nodeR * 0.16f, br, bg, bb, 0.30f);
             if (i == outStar && outFlash > 0.0f) {
                 const float t = 1.0f - outFlash;
                 DrawEnemyArc(tx, ty, nodeR * (0.8f + 2.2f * t), 0.0f, 6.2831853f, 24,
-                             1.0f, 1.0f, 1.0f, 0.9f * outFlash, 2.0f, false);
+                             1.0f, 1.0f, 1.0f, 0.9f * outFlash, 2.0f);
                 drawCircle(tx, ty, nodeR * 0.9f * outFlash, 1.0f, 1.0f, 1.0f, 0.8f * outFlash);
             }
         }
@@ -2762,9 +2761,9 @@ static void DrawGenesisLauncherShot(const Monster* m, float x, float y, float cr
         const float u = std::clamp(m->thrownTimer / 0.25f, 0.0f, 1.0f);
         const float radius = Monster::GENESIS_ROTOR_BLAST_RADIUS;
         drawCircle(x, y, radius, cr, cg, cb, 0.07f * (1.0f - u));
-        DrawEnemyArc(x, y, radius, 0, 6.2831853f, 48, cr, cg, cb, 0.9f * (1.0f - u), 1.8f, false);
+        DrawEnemyArc(x, y, radius, 0, 6.2831853f, 48, cr, cg, cb, 0.9f * (1.0f - u), 1.8f);
         DrawEnemyArc(x, y, radius * (0.25f + 0.75f * u), 0, 6.2831853f, 48,
-                     1.0f, 0.70f, 0.30f, 1.0f - u, 2.0f, false);
+                     1.0f, 0.70f, 0.30f, 1.0f - u, 2.0f);
     }
 }
 
@@ -2840,15 +2839,15 @@ void drawMob(const Monster* m, float visualTime) {
             const float gap = 0.20f * (1.0f - 0.6f * infl);
             // A dark under-stroke keeps the boundary readable on bright windows.
             DrawEnemyArc(x, y, fieldR, 0.0f, 6.2831853f, 160,
-                         0.0f, 0.0f, 0.0f, 0.40f, 3.6f, false);
+                         0.0f, 0.0f, 0.0f, 0.40f, 3.6f);
             DrawEnemyArc(x, y, fieldR, 0.0f, 6.2831853f, 160,
-                         cr, cg, cb, 0.50f + 0.18f * infl, 1.8f, false);
+                         cr, cg, cb, 0.50f + 0.18f * infl, 1.8f);
             DrawEnemyArc(x, y, fieldR * 0.92f, visualTime * 0.16f, 3.6f, 36,
-                         cr, cg, cb, arcAlpha, 1.0f, false);
+                         cr, cg, cb, arcAlpha, 1.0f);
             DrawEnemyArc(x, y, fieldR * (0.92f - gap), -visualTime * 0.22f + 2.1f, 3.6f, 32,
-                         cr, cg, cb, arcAlpha, 1.0f, false);
+                         cr, cg, cb, arcAlpha, 1.0f);
             DrawEnemyArc(x, y, fieldR * (0.92f - 2.0f * gap), visualTime * 0.30f + 4.2f, 3.6f, 28,
-                         cr, cg, cb, arcAlpha * 0.8f, 0.9f, false);
+                         cr, cg, cb, arcAlpha * 0.8f, 0.9f);
         }
 
         float bodyR = cr, bodyG = cg, bodyB = cb;
@@ -2990,18 +2989,18 @@ void drawMob(const Monster* m, float visualTime) {
                 const float implode = 1.0f - Monster::QuasarEase(tt / 0.14f);
                 if (tt < 0.14f)
                     DrawEnemyArc(x, y, base * (0.45f + 2.9f * implode), 0.0f, 6.2831853f, 40,
-                                 1.0f, 1.0f, 1.0f, 0.45f + 0.55f * (1.0f - implode), 2.4f, false);
+                                 1.0f, 1.0f, 1.0f, 0.45f + 0.55f * (1.0f - implode), 2.4f);
                 if (tt >= 0.10f && tt < 0.60f) {
                     const float u = (tt - 0.10f) / 0.50f;
                     const float out = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
                     DrawEnemyArc(x, y, base * (0.45f + 3.2f * out), 0.0f, 6.2831853f, 48,
-                                 1.0f, 1.0f, 1.0f, 0.95f * (1.0f - u), 3.2f, false);
+                                 1.0f, 1.0f, 1.0f, 0.95f * (1.0f - u), 3.2f);
                     DrawEnemyArc(x, y, base * (0.45f + 2.2f * out), 0.0f, 6.2831853f, 40,
-                                 cr, cg, cb, 0.60f * (1.0f - u), 1.5f, false);
+                                 cr, cg, cb, 0.60f * (1.0f - u), 1.5f);
                 }
                 if (tt < 0.22f)
                     DrawEnemyArc(x, y, base * 0.34f, 0.0f, 6.2831853f, 24,
-                                 1.0f, 1.0f, 1.0f, 1.0f - tt / 0.22f, 2.0f, false);
+                                 1.0f, 1.0f, 1.0f, 1.0f - tt / 0.22f, 2.0f);
             }
             // Path distance from the Quasar to the start of each leg (the flow carries on over bounces).
             std::array<float, Monster::QUASAR_BEAM_MAX_SEGMENTS> legStart{};
@@ -3058,10 +3057,10 @@ void drawMob(const Monster* m, float visualTime) {
                     const float ringR = base * (1.0f + releaseT * 1.9f);
                     DrawEnemyArc(x, y, ringR, 0.0f, 6.28318531f, 32,
                                  cr, cg, cb, (1.0f - releaseT) * 0.52f,
-                                 2.2f, false);
+                                 2.2f);
                     DrawEnemyArc(x, y, ringR * 0.82f, 0.0f, 6.28318531f, 28,
                                  cr, cg, cb, (1.0f - releaseT) * 0.13f,
-                                 1.1f, false);
+                                 1.1f);
                 }
                 // Leading edge: a bright head runs ahead of the growing beam so the
                 // front reads as one moving thing (final leg of each end only).
@@ -3069,7 +3068,7 @@ void drawMob(const Monster* m, float visualTime) {
                 if (lastLeg && growT < 1.0f) {
                     const float head = 1.0f - Monster::QuasarEase(growT);
                     DrawEnemyArc(x1, y1, beamR * (0.55f + 0.35f * head), 0.0f, 6.2831853f, 24,
-                                 1.0f, 1.0f, 1.0f, 0.55f * head, 2.0f, false);
+                                 1.0f, 1.0f, 1.0f, 0.55f * head, 2.0f);
                 }
             } else if (m->quasarState == 0) {
                 // Wind-up: the band tracks the player; edges fade in.
@@ -3111,9 +3110,9 @@ void drawMob(const Monster* m, float visualTime) {
             // Bounce point: a thin ring where this leg meets the next one.
             if (sIdx + 1 < segCount && bnc[sIdx + 1] == bnc[sIdx] + 1) {
                 DrawEnemyArc(x1, y1, beamR * 0.62f, 0.0f, 6.2831853f, 24,
-                             1.0f, 1.0f, 1.0f, 0.75f, 1.6f, false);
+                             1.0f, 1.0f, 1.0f, 0.75f, 1.6f);
                 DrawEnemyArc(x1, y1, beamR * 0.30f, 0.0f, 6.2831853f, 16,
-                             cr, cg, cb, 0.85f, 1.6f, false);
+                             cr, cg, cb, 0.85f, 1.6f);
             }
             }
             g_BatchAlpha = batchSaved;
@@ -3269,7 +3268,7 @@ void drawMob(const Monster* m, float visualTime) {
                     const float k = m->thrownTimer / 0.22f;
                     DrawEnemyArc(x, y, Monster::THROWN_SWARM_BLAST_RADIUS * (0.25f + 0.75f * k),
                                  0.0f, 6.2831853f, 28, 1.0f, 0.30f, 0.24f,
-                                 0.75f * (1.0f - k), 2.0f, false);
+                                 0.75f * (1.0f - k), 2.0f);
                 }
                 const float left = 1.0f - std::min(1.0f,
                     m->thrownTimer / Monster::THROWN_SWARM_STUN);
@@ -3333,9 +3332,9 @@ void drawMob(const Monster* m, float visualTime) {
                 const float u=std::clamp(m->thrownTimer/0.25f,0.0f,1.0f);
                 const float radius=Monster::GENESIS_ROTOR_BLAST_RADIUS;
                 drawCircle(x,y,radius,cr,cg,cb,0.07f*(1.0f-u));
-                DrawEnemyArc(x,y,radius,0,6.2831853f,48,cr,cg,cb,0.9f*(1.0f-u),1.8f,false);
+                DrawEnemyArc(x,y,radius,0,6.2831853f,48,cr,cg,cb,0.9f*(1.0f-u),1.8f);
                 DrawEnemyArc(x,y,radius*(0.25f+0.75f*u),0,6.2831853f,48,
-                             1.0f,0.70f,0.30f,1.0f-u,2.0f,false);
+                             1.0f,0.70f,0.30f,1.0f-u,2.0f);
             }
         }
         const float build=m->genesisRotorPhase==1 ?
@@ -3382,7 +3381,7 @@ void drawRangedMob(const RangedMob* r, float visualTime) {
     // Scope: an observation instrument whose inner axis ring turns in depth
     // (its minor radius breathes) and tumbles faster while charging.
     DrawEnemyArc(x, y, instrumentR, phase, 5.45f, 44,
-                 cr, cg, cb, 0.62f + 0.18f * chargeT, 0.90f, false);
+                 cr, cg, cb, 0.62f + 0.18f * chargeT, 0.90f);
     const float axis = -phase * 0.55f + 0.52f;
     const float axisX = cosf(axis), axisY = sinf(axis);
     const float ringMajor = instrumentR * 0.70f;

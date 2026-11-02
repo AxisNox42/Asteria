@@ -336,12 +336,28 @@ static void CheckFractionalXp() {
     assert(g_StardustPickups.size() == 1 && g_StardustPickups[0].xpValue == 1);
 }
 
+// The balance table's xpMult multiplies every kill's XP on top of the rules.
+static void CheckBalanceXp() {
+    ResetBalance();
+    const float mult = BalanceFor((int)g_Difficulty).xpMult;
+    for (Means means : { Means::Bullet, Means::Collect, Means::Laser }) {
+        World rotor;
+        assert(Run(Target::Rotor, means, rotor).d.dustXp == XpFromReward(2.0 * mult));
+        World scope;
+        assert(Run(Target::Scope, means, scope).d.dustXp == XpFromReward(8.0 * mult));
+    }
+}
+
 int main() {
+    // The literals below are the rules at 1x; the balance table's XP
+    // multiplier is checked on its own in CheckBalanceXp.
+    for (int d = 0; d < kBalanceDifficulties; ++d) BalanceFor(d).xpMult = 1.0f;
     CheckMatrix();
     CheckHealing();
     CheckWarlord();
     CheckCreative();
     CheckFractionalXp();
+    CheckBalanceXp();
     std::printf("REG-01 kill reward regression passed\n");
     return 0;
 }
