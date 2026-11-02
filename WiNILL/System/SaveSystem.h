@@ -448,7 +448,7 @@ inline void LoadGame() {
 #  pragma warning(pop)
 #endif
         if (matched != 2) continue;
-        if      (!std::strcmp(key, "lang"))        { int l = (int)val; if (l >= 0 && l < LANG_COUNT) g_Language = (Language)l; }
+        if      (!std::strcmp(key, "lang"))        { int l = (int)val; if (l >= 0 && l < LANG_TOTAL) g_Language = (Language)l; }
         else if (!std::strcmp(key, "fps")) {
             // Only the caps the settings screen offers (0 = VSync, -1 = legacy unlimited).
             if (val == 0 || val == 30 || val == 60 || val == 144 || val == 300 || val == -1)
@@ -556,6 +556,7 @@ inline void ResetSaveProgress() {
     g_ThemeOwned = 1; g_ThemeSel = 0; ApplyAccentTheme();
     for (int i = 0; i < JOB_COUNT; i++) g_JobBought[i] = false;
     g_TutorialDone = false;
+    g_TutorialVanishPending = false;
     g_ShopUnlocked = false;
     SaveGame();
 }

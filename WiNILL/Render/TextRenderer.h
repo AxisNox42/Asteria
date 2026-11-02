@@ -19,8 +19,22 @@
 #include "stb_truetype.h"   // 선언부. 구현은 stb_impl.cpp 의 STB_TRUETYPE_IMPLEMENTATION
 #include "DrawPrim.h"        // BatchFlush — 텍스트 그리기 전 메인 배치를 비움
 
+// Optional last-moment text rewrite (the Chinese UI swaps English strings for
+// Chinese here). Null = off. Applied by Width / Draw / DrawRotated / PreloadText.
+inline const wchar_t* (*g_TextFilter)(const wchar_t*) = nullptr;
+
 class TextRenderer {
 public:
+    // With this on, ideographs and CJK punctuation come from the LAST font of the
+    // chain (the Chinese face) instead of the first that has them (the Japanese
+    // face), so Chinese text is one consistent style. Switching clears the glyph
+    // cache so every glyph is re-baked from the right face.
+    void SetHanPriority(bool on) {
+        if (hanFirst_ == on) return;
+        hanFirst_ = on;
+        glyphs_.clear();
+        sizedGlyphs_.clear();
+    }
     // 디스크 TTF 폴백 체인 (앞쪽 우선, 없는 글리프는 다음 폰트)
     bool InitFromFiles(const char* const* ttfPaths, int nPaths, int ptSize,
                        int screenW, int screenH);
@@ -94,6 +108,7 @@ private:
         int cursorX = 1, cursorY = 1, rowHeight = 0;
     };
     std::vector<FontFace> faces_;
+    bool hanFirst_ = false;   // see SetHanPriority
     std::vector<GlyphAtlasPage> atlasPages_;
     std::vector<float> drawVertices_;
     static constexpr int kGlyphAtlasSize = 1024;
@@ -269,6 +284,12 @@ inline bool TextRenderer::InitFromMemory(const unsigned char* const* datas,
 
 inline int TextRenderer::FaceForCodepoint(int cp) const
 {
+    const bool han = (cp >= 0x3400 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF) ||
+                     (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0xFF00 && cp <= 0xFFEF);
+    if (hanFirst_ && han && faces_.size() > 1) {
+        const int last = (int)faces_.size() - 1;
+        if (faces_[last].ok && stbtt_FindGlyphIndex(&faces_[last].info, cp) != 0) return last;
+    }
     for (int i = 0; i < (int)faces_.size(); i++) {
         if (!faces_[i].ok) continue;
         // glyph index 0 = .notdef — missing codepoint; try next font in chain
@@ -397,6 +418,7 @@ inline void TextRenderer::Cleanup() {
 
 inline float TextRenderer::Width(const wchar_t* text, float scale)
 {
+    if (g_TextFilter && text) text = g_TextFilter(text);
     scale = EffectiveScale(scale);
     float w = 0.0f;
     for (const wchar_t* p = text; *p; ++p) w += GetGlyph((int)*p).advance;
@@ -405,6 +427,7 @@ inline float TextRenderer::Width(const wchar_t* text, float scale)
 inline void TextRenderer::PreloadText(const wchar_t* text)
 {
     if (!text) return;
+    if (g_TextFilter) text = g_TextFilter(text);
     for (const wchar_t* p = text; *p; ++p)
         (void)GetGlyph((int)*p);
 }
@@ -434,6 +457,7 @@ inline void TextRenderer::Draw(const wchar_t* text, float x, float y, float scal
                                float r, float g, float b, float a)
 {
     if (!text || !*text) return;
+    if (g_TextFilter) text = g_TextFilter(text);
     scale = EffectiveScale(scale);
     if (g_GfxPass != GfxPass::Text) BatchFlush();
     struct GlyphRun { int page; GLsizei first, count; };
@@ -501,6 +525,7 @@ inline void TextRenderer::DrawRotated(const wchar_t* text, float x, float y,
                                       float r, float g, float b, float a)
 {
     if (!text || !*text) return;
+    if (g_TextFilter) text = g_TextFilter(text);
     scale = EffectiveScale(scale);
     if (g_GfxPass != GfxPass::Text) BatchFlush();
     struct GlyphRun { int page; GLsizei first, count; };

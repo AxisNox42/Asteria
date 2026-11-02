@@ -69,9 +69,9 @@ float UiApproach(float v, float target, float dt, float speed) {
 // localized page title appeared.
 const wchar_t* MainMenuRouteLabel(int language, int index) {
     static const wchar_t* kRoutes[3][kMainMenuRouteCount] = {
-        { L"튜토리얼", L"플레이", L"도감", L"상점", L"설정", L"종료" },
-        { L"TUTORIAL", L"PLAY", L"ASTRAL LOG", L"SHOP", L"SETTINGS", L"EXIT" },
-        { L"チュートリアル", L"スタート", L"星界記録", L"ショップ", L"設定", L"終了" },
+        { L"튜토리얼", L"싱글 플레이", L"도감", L"상점", L"설정", L"종료" },
+        { L"TUTORIAL", L"SINGLE PLAY", L"ASTRAL LOG", L"SHOP", L"SETTINGS", L"EXIT" },
+        { L"チュートリアル", L"シングルプレイ", L"星界記録", L"ショップ", L"設定", L"終了" },
     };
     const int li = std::max(0, std::min(2, language));
     const int mi = std::max(0, std::min(kMainMenuRouteCount - 1, index));
@@ -592,70 +592,6 @@ static void DrawInfiniteConstellationField(float sw, float sh, float strengthTar
     }
 }
 
-static void ShopStaticFieldPalette(int tab, float& r, float& g, float& b) {
-    switch (tab) {
-    case 0: // CORE UNLOCKS: cold ice
-        r = 0.38f; g = 0.74f; b = 1.00f;
-        break;
-    case 1: // RIFLE: restrained green-gold
-        r = 0.72f; g = 0.88f; b = 0.48f;
-        break;
-    case 2: // FIELD: violet signal
-        r = 0.58f; g = 0.50f; b = 1.00f;
-        break;
-    default: // Fallback palette
-        r = 0.30f; g = 0.86f; b = 1.00f;
-        break;
-    }
-}
-
-struct ShopDetailLayout {
-    float left = 0.0f;
-    float right = 0.0f;
-    float top = 0.0f;
-    float bottom = 0.0f;
-    float titleY = 0.0f;
-    float copyY = 0.0f;
-    float tradeY = 0.0f;
-    float actionX = 0.0f;
-    float actionW = 0.0f;
-    float actionY = 0.0f;
-    float fieldY = 0.0f;
-};
-
-static ShopDetailLayout MakeShopDetailLayout(float x, float top,
-                                             float width, float bottom,
-                                             float uiS) {
-    ShopDetailLayout layout;
-    layout.left = x;
-    layout.right = x + width;
-    layout.top = top;
-    layout.bottom = bottom;
-    layout.titleY = top + 10.0f * uiS;
-    // Detail content starts at the title and ends at the lower-right action.
-    // The purchase control owns the bottom edge of the readout rather than
-    // floating beside the level/cost rows.
-    layout.copyY = layout.titleY + 78.0f * uiS;
-    layout.actionY = bottom - 36.0f * uiS;
-    // Keep the purchase readout close to the action control. The order inside
-    // the block is LEVEL -> COST -> BALANCE -> verdict -> button.
-    layout.tradeY = layout.actionY - 158.0f * uiS;
-    // Keep the action anchored to the right edge, but give its label a wider
-    // reading lane so long states do not collapse into a narrow ribbon.
-    layout.actionX = x + width * 0.30f;
-    layout.actionW = width * 0.70f;
-    layout.fieldY = layout.copyY + (layout.actionY - layout.copyY) * 0.54f;
-
-    // On a short viewport, pull the middle rows upward while preserving the
-    // title and the button's bottom-edge ownership.
-    const float minTradeY = layout.copyY + 96.0f * uiS;
-    if (layout.tradeY < minTradeY) {
-        layout.tradeY = minTradeY;
-        layout.fieldY = layout.copyY + (layout.actionY - layout.copyY) * 0.54f;
-    }
-    return layout;
-}
-
 void DrawVisibleConstellNode(float x, float y, float size,
                                     float r, float g, float b, float a,
                                     bool whiteSpark,
@@ -1036,6 +972,49 @@ static void DrawFontTitle(float sw, float sh, float alpha, float reveal,
         const float bx = x - w * 0.04f + w * 0.3f * rnd(110 + b);
         drawRect(bx, by, w * (0.25f + 0.5f * rnd(120 + b)), std::max(1.5f, h * 0.025f),
                  0.50f, 0.95f, 1.0f, 0.45f * a * glitch);
+    }
+}
+
+// A lobby route label breaking up: red/cyan ghosts, letters that jump or drop
+// out, and thin scan bars, all re-rolled 30 times a second. glitch 0..1 scales it.
+static void DrawGlitchRouteLabel(const wchar_t* text, float x, float y, float scale,
+                                 float alpha, float glitch, float now) {
+    if (alpha <= 0.002f) return;
+    TextRenderer& tr = g_TextL;
+    const float h = tr.Height(text, scale);
+    const float w = tr.Width(text, scale);
+    auto h01 = [](unsigned n) {
+        n = n * 747796405u + 2891336453u;
+        n = ((n >> ((n >> 28u) + 4u)) ^ n) * 277803737u;
+        n = (n >> 22u) ^ n;
+        return (float)(n & 0xFFFFFFu) / 16777216.0f;
+    };
+    const unsigned frame = (unsigned)std::floor(now * 30.0f);
+    auto rnd = [&](unsigned k) { return h01(frame * 977u + k * 131u + 29u); };
+    const float split = h * (0.04f + 0.10f * rnd(1)) * glitch;
+    tr.Draw(text, x + split, y, scale, 1.0f, 0.15f, 0.30f, 0.55f * alpha * glitch);
+    tr.Draw(text, x - split, y, scale, 0.10f, 0.90f, 1.0f, 0.55f * alpha * glitch);
+    wchar_t prefix[32] = {};
+    const int n = (int)std::min<size_t>(wcslen(text), 30);
+    for (int i = 0; i < n; ++i) {
+        for (int k = 0; k < i; ++k) prefix[k] = text[k];
+        prefix[i] = 0;
+        const wchar_t ch[2] = { text[i], 0 };
+        float dx = 0.0f, dy = 0.0f, ca = 1.0f;
+        if (rnd(10 + i) < 0.55f * glitch) {
+            dx = (rnd(40 + i) - 0.5f) * h * 0.9f * glitch;
+            dy = (rnd(70 + i) - 0.5f) * h * 0.25f * glitch;
+        }
+        if (rnd(100 + i) < 0.22f * glitch) ca = 0.25f;   // dropout
+        tr.Draw(ch, x + tr.Width(prefix, scale) + dx, y + dy, scale,
+                0.92f, 0.97f, 1.0f, ca * alpha);
+    }
+    BindMainShader();
+    for (int b = 0; b < 3; ++b) {
+        if (rnd(130 + b) > 0.75f * glitch + 0.1f) continue;
+        drawRect(x - w * 0.05f + w * 0.4f * rnd(140 + b), y + h * (0.1f + 0.8f * rnd(150 + b)),
+                 w * (0.3f + 0.6f * rnd(160 + b)), std::max(1.5f, h * 0.04f),
+                 0.50f, 0.95f, 1.0f, 0.5f * alpha * glitch);
     }
 }
 

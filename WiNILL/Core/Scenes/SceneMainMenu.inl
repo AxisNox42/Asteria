@@ -46,6 +46,7 @@ void Scene_MainMenu(const SceneCtx& c) {
     static int   s_menuSelect = -1;
     static float s_menuExitT  = 0.0f;
     static bool  s_confirmQuit = false;
+    static float s_vanishT = 0.0f;          // glitch-out clock of the TUTORIAL entry
     static float kHoverT[kMainMenuRouteCount] = {};
     static int   s_kbFocus = -1;      // keyboard cursor (-1 = pointer only)
     static double s_lastMx = 0.0, s_lastMy = 0.0;
@@ -61,6 +62,7 @@ void Scene_MainMenu(const SceneCtx& c) {
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
         s_confirmQuit = false;
+        s_vanishT = 0.0f;
         s_kbFocus = -1;
         for (int i = 0; i < kMainMenuRouteCount; ++i) kHoverT[i] = 0.0f;
         g_MainMenuEntryT = 0.001f;
@@ -120,10 +122,25 @@ void Scene_MainMenu(const SceneCtx& c) {
     // margin, but never let the rail climb into the logo on short windows.
     float btnY0 = MainMenuButtonRailStartY(sh, uiScale);
 
+    // TUTORIAL is gone once the tutorial is done. Right after finishing it, the
+    // entry plays one glitch-out first (g_TutorialVanishPending), then never again.
+    const bool tutHidden = TutorialRouteHidden();
+    const bool tutVanishing = g_TutorialVanishPending;
+    // The label breaks up harder and harder, then is cut off at full glitch (no fade).
+    constexpr float kVanishWait = 0.40f, kVanishGlitch = 1.30f, kVanishDur = kVanishGlitch;
+    if (tutVanishing && !booting && !introActive && !introWasActive && g_FadeDir == 0
+        && !exitActive && !s_confirmQuit) {
+        s_vanishT += std::min(delta, 0.05f);
+        if (s_vanishT >= kVanishDur) {
+            g_TutorialVanishPending = false;
+            s_vanishT = 0.0f;
+        }
+    }
     bool kbLocked[kMainMenuRouteCount];
     for (int i = 0; i < kBtnCount; ++i)
         kbLocked[i] = (!g_TutorialDone && (i == kMainMenuPlayIndex || i == kMainMenuCodexIndex))
-                   || (!g_ShopUnlocked && i == kMainMenuShopIndex);
+                   || (!g_ShopUnlocked && i == kMainMenuShopIndex)
+                   || (i == kMainMenuTutorialIndex && (tutHidden || tutVanishing));
     const bool pointerMoved = std::fabs(mx - s_lastMx) + std::fabs(my - s_lastMy) > 1.0;
     s_lastMx = mx; s_lastMy = my;
     const bool kbConfirm = MenuKeyboardNav(c, s_kbFocus, kBtnCount,
@@ -157,6 +174,8 @@ void Scene_MainMenu(const SceneCtx& c) {
     DrawMainAsteriaLogo(sw, sh, titleA, std::min(s_introT / kLogoTraceDur, 1.0f),
                        sw * kLobbyLogoCenterXFrac, kLobbyLogoHeightMul);
     for (int i = 0; i < kBtnCount; i++) {
+        if (i == kMainMenuTutorialIndex && tutHidden) { kHoverT[i] = 0.0f; continue; }
+        const bool vanishing = (i == kMainMenuTutorialIndex) && tutVanishing;
         float baseBx = btnX0;
         float baseBy = btnY0 + (float)i * (BH + BGAP);
         float rawBtnPh = (s_introT - kTitleDur - (float)i * kBtnStag) / kBtnDur;
@@ -171,7 +190,7 @@ void Scene_MainMenu(const SceneCtx& c) {
             || (!g_ShopUnlocked && i == kMainMenuShopIndex);
         const bool buttonReady = !booting && !introActive && !introWasActive
                               && !exitActive && !s_confirmQuit && g_FadeDir == 0
-                              && !locked;
+                              && !locked && !vanishing;
         const float priorBx = baseBx + (1.0f - reveal) * 34.0f - 10.0f * kHoverT[i];
         const float priorBy = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
         const bool ptr = buttonReady && PanelButtonHit(mx, my, priorBx, priorBy,
@@ -202,11 +221,23 @@ void Scene_MainMenu(const SceneCtx& c) {
             MainMenuRouteLabel(1, i),
             MainMenuRouteLabel(2, i),
         };
-        DrawPanelButton(route, bx, by, BW, BH,
-                        ar, ag, ab, rowA, t, selected, selectPulse,
-                        now + (float)i * 0.17f,
-                        uiScale, false, PanelButtonSlideSide::Left, false,
-                        routeVariants, 3);
+        if (vanishing && s_vanishT > kVanishWait) {
+            // Glitch-out: the label breaks up harder until the very last frame,
+            // then it is simply gone.
+            const float u = std::min(1.0f, (s_vanishT - kVanishWait) / (kVanishGlitch - kVanishWait));
+            const float g = u * u;                 // slow start, violent end
+            const float life = 1.0f;
+            const float ts = UiTextScale(g_TextL, UiTextLevel::Title, uiScale);
+            const float th = g_TextL.Height(route, ts);
+            DrawGlitchRouteLabel(route, bx + 8.0f, by + std::max(0.0f, (BH - th) * 0.5f), ts,
+                                 rowA * life, 0.25f + 0.75f * g, now);
+        } else {
+            DrawPanelButton(route, bx, by, BW, BH,
+                            ar, ag, ab, rowA, t, selected, selectPulse,
+                            now + (float)i * 0.17f,
+                            uiScale, false, PanelButtonSlideSide::Left, false,
+                            routeVariants, 3);
+        }
 
         if (locked) {
             // Line-only padlock to the right of the label: a shackle arc over

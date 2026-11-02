@@ -9,7 +9,9 @@
 inline int g_FpsCap = 60;   // 첫 실행 기본 60fps (세이브 있으면 덮어씀)
 
 // 언어 (한국어 / 영어 / 일본어)
-enum class Language { KR, EN, JP };
+// ZH (Simplified Chinese) has no text tables of its own: it reads the English slot
+// and ZhTranslate() (ZhStrings.h) swaps in Chinese where a translation exists.
+enum class Language { KR, EN, JP, ZH };
 inline Language g_Language = Language::KR;
 
 // ASTERIA_SMOKE 환경변수로 실행한 스모크 캡처 세션. 세이브를 쓰지 않는다.
@@ -19,10 +21,15 @@ inline bool g_SmokeCapture = false;
 inline int g_SmokeAugFocus = -1;
 // Smoke-only game-time scale (SLOW=x step), for frame-by-frame captures.
 inline float g_SmokeTimeScale = 1.0f;
-inline constexpr int LANG_COUNT = 3;
+inline constexpr int LANG_COUNT = 3;    // languages with full text tables (KR, EN, JP)
+inline constexpr int LANG_TOTAL = 4;    // selectable languages (adds ZH)
 
+inline bool IsChinese() { return g_Language == Language::ZH; }
+
+// Index into a KR / EN / JP table. Chinese falls back to the English entry.
 inline int LangIndex() {
     int li = (int)g_Language;
+    if (li == (int)Language::ZH) return 1;
     if (li < 0 || li >= LANG_COUNT) li = 0;
     return li;
 }
@@ -298,13 +305,13 @@ inline bool g_ShaderFx          = false;
 inline bool g_ShaderFx          = false;
 #endif
 
-// Menu background darkness (settings > DISPLAY). 0..100, 50 = the original
-// look. Menus scale their dimming layers by it (MenuDimScale in SceneMenus.cpp);
+// Menu background darkness (settings > DISPLAY). 0..100; 50 is the original
+// look and the factor is 1.0 there; the default for new saves is 80. Menus scale their dimming layers by it (MenuDimScale in SceneMenus.cpp);
 // in-run screens get only kCombatDimShare of the same darkness (see below).
 // Whole-screen jitter (px) requested by an out-of-game page this frame; the frame
 // loop applies it to the projection and clears it (the HOLD TO RESET build-up).
 inline float g_UiShakePx = 0.0f;
-inline constexpr int kMenuDimDefault = 50;
+inline constexpr int kMenuDimDefault = 80;
 inline int g_MenuDim = kMenuDimDefault;
 // 0..100 -> 0..4 multiplier on the menu dim alphas: 0..50 ramps 0..1 (50 is the
 // original look), 50..100 ramps 1..4. Above ~1.5 the gradients are already
@@ -387,6 +394,11 @@ inline int   g_ThemeOwned = 1;
 // 로비 튜토리얼을 끝까지 마쳤는지. false 인 동안(첫 실행)은 튜토리얼·설정·종료만 열린다.
 // 마치면 플레이·도감이 열린다.
 inline bool  g_TutorialDone = false;
+// The tutorial was just finished in this session and the lobby has not yet played
+// the TUTORIAL entry's glitch-out. Never saved: a fresh launch (or a return to the
+// lobby after the glitch) shows no TUTORIAL entry at all once the tutorial is done.
+inline bool  g_TutorialVanishPending = false;
+inline bool  TutorialRouteHidden() { return g_TutorialDone && !g_TutorialVanishPending; }
 // 별가루를 처음 모았는지. true 가 되면 로비의 상점이 열린다.
 inline bool  g_ShopUnlocked = false;
 inline int   g_ThemeSel   = 0;

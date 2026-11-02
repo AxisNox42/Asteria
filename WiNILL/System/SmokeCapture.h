@@ -74,6 +74,7 @@ public:
         const std::string lang = SmokeEnv("ASTERIA_SMOKE_LANG");
         if (lang == "EN") g_Language = Language::EN;
         else if (lang == "JP") g_Language = Language::JP;
+        else if (lang == "ZH") g_Language = Language::ZH;
         else if (lang == "KR") g_Language = Language::KR;
         const std::string tag = SmokeEnv("ASTERIA_SMOKE_TAG");
         if (!tag.empty()) tag_ = tag;
@@ -190,10 +191,10 @@ private:
     }
 
     std::wstring FileName(const Step& step) const {
-        static const char* kLang[] = { "KR", "EN", "JP" };
+        static const char* kLang[] = { "KR", "EN", "JP", "ZH" };
         char buf[160];
         std::snprintf(buf, sizeof(buf), "%s_%s_%02d_%s", tag_.c_str(),
-                      kLang[LangIndex()], (int)index_ + 1, step.name.c_str());
+                      kLang[(int)g_Language & 3], (int)index_ + 1, step.name.c_str());
         return std::wstring(buf, buf + std::strlen(buf));
     }
 };

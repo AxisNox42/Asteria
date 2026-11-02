@@ -1,5 +1,6 @@
 #pragma once
 #include "Settings.h"
+#include "ZhStrings.h"
 
 // ─────────────────────────────────────────────────────────────
 // i18n — UI 라벨 번역 테이블
@@ -230,9 +231,8 @@ inline const wchar_t* kStrings[(int)StrId::_COUNT][LANG_COUNT] = {
 };
 
 inline const wchar_t* T(StrId id) {
-    int li = (int)g_Language;
-    if (li < 0 || li >= LANG_COUNT) li = 0;
-    return kStrings[(int)id][li];
+    if (IsChinese()) return ZhTranslate(kStrings[(int)id][1]);
+    return kStrings[(int)id][LangIndex()];
 }
 
 // 한 장면 안에서만 쓰는 라벨용 3개 국어 묶음. 순서: KR, EN, JP.
@@ -241,9 +241,8 @@ struct LStr {
     const wchar_t* t[LANG_COUNT];
 };
 inline const wchar_t* T(const LStr& s) {
-    int li = (int)g_Language;
-    if (li < 0 || li >= LANG_COUNT) li = 0;
-    return s.t[li];
+    if (IsChinese()) return ZhTranslate(s.t[1]);
+    return s.t[LangIndex()];
 }
 
 // 1234567 -> "1,234,567". out 은 최소 32 wchar_t.

@@ -4237,6 +4237,13 @@ int main() {
                         // A fresh run held on the READY screen (practice field).
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
                         gm.currentState = GameState::READY;
+                    } else if (step == "TUTDONE") {
+                        g_TutorialDone = true;   // unlock the lobby for captures (not saved in smoke)
+                    } else if (step.rfind("COINS=", 0) == 0) {
+                        g_Coins = std::atoll(step.c_str() + 6);   // stardust for shop captures
+                    } else if (step == "TUTVANISH") {
+                        g_TutorialDone = true;   // finished just now: the lobby plays the glitch-out
+                        g_TutorialVanishPending = true;
                     } else if (step == "TUTPAUSE") {
                         // The tutorial's pause menu over the practice field (same as ESC there).
                         if (gm.currentState != GameState::READY) RestartCurrentRun();

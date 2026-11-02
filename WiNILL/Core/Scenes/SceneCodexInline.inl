@@ -203,6 +203,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
                  1.2f, mainTotalH + 170.0f,
                  0.48f, 0.82f, 1.0f, 0.12f * oldMenuA);
         for (int i = 0; i < kMainMenuRouteCount; ++i) {
+            if (i == kMainMenuTutorialIndex && TutorialRouteHidden()) continue;
             const bool focus = (!s_backExit && i == kMainMenuCodexIndex);
             const float rowY = ghostRailY + (float)i * (mainBH + ghostGap);
             const float rowX = mainX - ghostSlide - (focus ? 0.0f : 26.0f * oldOut);
@@ -382,6 +383,55 @@ static void Scene_CodexInline(const SceneCtx& c) {
         if (CodexAugSeen(i)) ++unlockSeen[1];
     }
 
+    // Per-tier unlock counts for the current category: signals by spawn tier,
+    // augments by rarity. Same "seen" rule as the totals above.
+    struct TierStat { wchar_t label[40]; int seen, total; float r, g, b; };
+    TierStat tierRows[12];
+    int tierRowCount = 0;
+    if (s_cat == 0) {
+        int seenBy[12] = {}, totalBy[12] = {};
+        ForEachCodexMobEntry([&](int id) {
+            const int v = std::max(0, std::min(11, CodexMobSpawnTierHalfSteps(id)));
+            ++totalBy[v];
+            if (CodexMobNameUnlocked(id)) ++seenBy[v];
+        });
+        for (int v = 1; v < 12; ++v) {          // unknown tier (0) goes last
+            if (totalBy[v] == 0) continue;
+            TierStat& t = tierRows[tierRowCount++];
+            wchar_t num[16];
+            if (v % 2) swprintf_s(num, L"%d.5", v / 2); else swprintf_s(num, L"%d", v / 2);
+            swprintf_s(t.label, ShopText(L"티어 %ls", L"TIER %ls", L"ティア %ls"), num);
+            t.seen = seenBy[v]; t.total = totalBy[v];
+            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f;
+        }
+        if (totalBy[0] > 0) {
+            TierStat& t = tierRows[tierRowCount++];
+            swprintf_s(t.label, L"%ls", ShopText(L"티어 ?", L"TIER ?", L"ティア ?"));
+            t.seen = seenBy[0]; t.total = totalBy[0];
+            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f;
+        }
+    } else {
+        int seenBy[8] = {}, totalBy[8] = {};
+        for (int i = 0; i < AUG_TOTAL; ++i) {
+            if (AugRemoved(ALL_AUGS[i].type)) continue;
+            const int r = std::max(0, std::min(7, (int)ALL_AUGS[i].rarity));
+            ++totalBy[r];
+            if (CodexAugSeen(i)) ++seenBy[r];
+        }
+        static const wchar_t* kRar[3][8] = {
+            { L"일반", L"희귀", L"에픽", L"전설", L"디버프", L"특수", L"조합", L"신화" },
+            { L"COMMON", L"RARE", L"EPIC", L"LEGENDARY", L"DEBUFF", L"SPECIAL", L"COMBO", L"MYTHIC" },
+            { L"コモン", L"レア", L"エピック", L"伝説", L"デバフ", L"特殊", L"コンボ", L"神話" },
+        };
+        for (int r = 0; r < 8; ++r) {
+            if (totalBy[r] == 0) continue;
+            TierStat& t = tierRows[tierRowCount++];
+            swprintf_s(t.label, L"%ls", kRar[rootLanguage][r]);
+            t.seen = seenBy[r]; t.total = totalBy[r];
+            GetRarityColor((AugRarity)r, t.r, t.g, t.b);
+        }
+    }
+
     int recordCount = 0;
     for (int i = 0; i < itemCount; ++i) {
         if (items[i].isGroup) continue;
@@ -398,6 +448,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
     // summary. A query searches discovered records across both categories.
     auto codexText = [&](const wchar_t* kr, const wchar_t* en,
                          const wchar_t* jp = nullptr) -> const wchar_t* {
+        if (IsChinese()) return ZhTranslate(en);
         if (li == 0) return kr;
         if (li == 2 && jp) return jp;
         return en;
@@ -444,9 +495,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
     if (!g_CodexSearchInputEnabled) CodexSearchClearComposition();
 
     BindMainShader();
-    const wchar_t* searchTitle = s_searchFocused
-        ? codexText(L"\uAC80\uC0C9 / \uC785\uB825\uC911", L"SEARCH / ACTIVE", L"\u691C\u7D22\u4E2D")
-        : codexText(L"\uAC80\uC0C9", L"SEARCH", L"\u691C\u7D22");
+    // The label is the same while typing; focus only brightens it (below).
+    const wchar_t* searchTitle = codexText(L"\uAC80\uC0C9", L"SEARCH", L"\u691C\u7D22");
     const float searchTitleScale = UiTextScale(g_TextS, UiTextLevel::Subtitle, uiS);
     DrawShadowedText(g_TextS, searchTitle,
                      utilityX, utilityY, searchTitleScale,
@@ -542,93 +592,63 @@ static void Scene_CodexInline(const SceneCtx& c) {
                          clearHover ? 1.0f : 0.82f,
                          (clearHover ? 0.98f : 0.62f) * wake, 0.60f);
     }
-    // The key-hint line under the field was removed (QA #42); the unlock
-    // title now sits a clear gap below the search field.
+    // Unlock progress lives inside each category: its own n / n and one row per
+    // tier (rarity for augments, signal tier for signals). A search spans both
+    // categories, so it shows only the match count here.
     const float progressTitleY = searchY + searchH + 40.0f * uiS;
-    const wchar_t* progressTitle = codexText(
-        L"\uB3C4\uAC10 \uD574\uAE08 \uBAA9\uB85D", L"UNLOCK PROGRESS", L"\u56F3\u9451\u89E3\u653E\u9032\u6357");
     const float progressBarX = utilityX;
     const float progressBarW = std::max(48.0f * uiS,
                                         std::min(320.0f * uiS,
                                                  utilityW - 16.0f * uiS));
     const float resultSc = UiTextScale(g_TextS, UiTextLevel::Supporting, uiS);
-    // Reserve room for a two-digit result count whether or not a search is
-    // active, so the title never runs into it (EN "UNLOCK PROGRESS") and
-    // does not change size while typing.
-    wchar_t resultReserve[48] = {};
-    formatResultSummary(resultReserve, 48, 88);
-    const float resultReserveW = g_TextS.Width(resultReserve, resultSc)
-                               + 16.0f * uiS;
-    float progressTitleFactor = uiS;
-    float progressTitleScale = UiTextScale(g_TextS, UiTextLevel::Subtitle,
-                                           progressTitleFactor);
-    while (progressTitleFactor > 0.6f * uiS &&
-           g_TextS.Width(progressTitle, progressTitleScale) + resultReserveW
-               > progressBarW) {
-        progressTitleFactor -= 0.03f * uiS;
-        progressTitleScale = UiTextScale(g_TextS, UiTextLevel::Subtitle,
-                                         progressTitleFactor);
-    }
-    DrawShadowedText(g_TextS,
-                     progressTitle,
-                     utilityX, progressTitleY, progressTitleScale,
-                     curRoot.r, curRoot.g, curRoot.b, 0.84f * wake, 0.58f);
     if (hasSearch) {
-        const float resultW = g_TextS.Width(searchResultSummary, resultSc);
-        const bool besideTitle = g_TextS.Width(progressTitle, progressTitleScale)
-                               + resultReserveW <= progressBarW;
-        // On small windows the title is already at the minimum text scale;
-        // the count then moves into the search field, left of the clear X.
-        const float resultX = besideTitle
-            ? progressBarX + progressBarW - resultW
-            : utilityX + searchW - clearW - 8.0f * uiS - resultW;
-        const float resultY = besideTitle
-            ? progressTitleY + (g_TextS.Height(progressTitle, progressTitleScale)
-                                - g_TextS.Height(searchResultSummary, resultSc)) * 0.5f
-            : searchY + (searchH - g_TextS.Height(searchResultSummary, resultSc)) * 0.5f;
-        DrawShadowedText(g_TextS, searchResultSummary, resultX, resultY,
-                         resultSc, 0.62f, 0.72f, 0.86f, 0.66f * wake, 0.52f);
-    }
-    // Give each unlock entry its own two-line block: a large readout first,
-    // then the archive line directly underneath it.  This keeps the progress
-    // data legible without competing with the search field above.
-    const float progressRowY = progressTitleY
-        + g_TextS.Height(progressTitle, progressTitleScale) + 22.0f * uiS;
-    const float progressRowStep = 80.0f * uiS;
-    for (int i = 0; i < CAT_COUNT; ++i) {
-        const float rowY = progressRowY + (float)i * progressRowStep;
-        const RootDef& progressRoot = ROOTS[i];
-        const float progressRootScale = UiTextScale(g_TextS, UiTextLevel::Subtitle, uiS);
-        DrawShadowedText(g_TextS, progressRoot.label[rootLanguage],
-                         utilityX, rowY, progressRootScale,
-                         progressRoot.r, progressRoot.g, progressRoot.b,
-                         (s_cat == i ? 0.98f : 0.72f) * wake, 0.54f);
-        wchar_t progressBuf[32];
-        swprintf_s(progressBuf, L"%02d / %02d", unlockSeen[i], unlockTotal[i]);
-        const float progressSc = UiTextScale(g_TextS, UiTextLevel::Description, uiS);
-        const float progressW = g_TextS.Width(progressBuf, progressSc);
-        DrawShadowedText(g_TextS, progressBuf,
-                         progressBarX + progressBarW - progressW,
-                         rowY + (g_TextS.Height(progressRoot.label[rootLanguage], progressRootScale)
-                               - g_TextS.Height(progressBuf, progressSc)) * 0.5f,
-                         progressSc,
-                         0.86f, 0.92f, 1.00f, 0.88f * wake, 0.54f);
-        const float trackY = rowY + g_TextS.Height(progressRoot.label[rootLanguage], progressRootScale)
-                           + 8.0f * uiS;
-        const float fillW = progressBarW * (unlockTotal[i] > 0
-            ? (float)unlockSeen[i] / (float)unlockTotal[i] : 0.0f);
-        DrawVisibleConstellLine(progressBarX, trackY,
-                                progressBarX + progressBarW, trackY,
-                                0.75f * uiS, progressRoot.r, progressRoot.g, progressRoot.b,
-                                0.18f * wake);
-        if (fillW > 0.0f)
-            DrawVisibleConstellLine(progressBarX, trackY,
-                                    progressBarX + fillW, trackY,
-                                    1.7f * uiS, progressRoot.r, progressRoot.g, progressRoot.b,
-                                    0.76f * wake);
-        DrawVisibleConstellNode(progressBarX + fillW, trackY, 2.4f * uiS,
-                                progressRoot.r, progressRoot.g, progressRoot.b,
-                                0.64f * wake, false);
+        DrawShadowedText(g_TextS, searchResultSummary, progressBarX, progressTitleY,
+                         resultSc, 0.62f, 0.72f, 0.86f, 0.80f * wake, 0.52f);
+    } else {
+        const RootDef& catRoot = ROOTS[s_cat];
+        const float catScale = UiTextScale(g_TextS, UiTextLevel::Subtitle, uiS);
+        const float numScale = UiTextScale(g_TextS, UiTextLevel::Description, uiS);
+        // A track + fill + node under a label row; returns nothing.
+        auto drawProgressRow = [&](const wchar_t* label, float labelScale, int seen, int total,
+                                   float rowY, float lr, float lg, float lb,
+                                   float cr, float cg, float cb, float a) {
+            DrawShadowedText(g_TextS, label, utilityX, rowY, labelScale,
+                             lr, lg, lb, a * wake, 0.54f);
+            wchar_t buf[32];
+            swprintf_s(buf, L"%02d / %02d", seen, total);
+            const float sc = std::min(numScale, labelScale * 1.1f);
+            const float w = g_TextS.Width(buf, sc);
+            const float lh = g_TextS.Height(label, labelScale);
+            DrawShadowedText(g_TextS, buf, progressBarX + progressBarW - w,
+                             rowY + (lh - g_TextS.Height(buf, sc)) * 0.5f, sc,
+                             0.86f, 0.92f, 1.00f, 0.88f * a * wake, 0.54f);
+            const float trackY = rowY + lh + 7.0f * uiS;
+            const float fillW = progressBarW * (total > 0 ? (float)seen / (float)total : 0.0f);
+            DrawVisibleConstellLine(progressBarX, trackY, progressBarX + progressBarW, trackY,
+                                    0.75f * uiS, cr, cg, cb, 0.18f * wake);
+            if (fillW > 0.0f)
+                DrawVisibleConstellLine(progressBarX, trackY, progressBarX + fillW, trackY,
+                                        1.7f * uiS, cr, cg, cb, 0.76f * wake);
+            DrawVisibleConstellNode(progressBarX + fillW, trackY, 2.4f * uiS,
+                                    cr, cg, cb, 0.64f * wake, false);
+        };
+        // The category's own total first, then its tiers.
+        drawProgressRow(catRoot.label[rootLanguage], catScale, unlockSeen[s_cat],
+                        unlockTotal[s_cat], progressTitleY,
+                        catRoot.r, catRoot.g, catRoot.b, catRoot.r, catRoot.g, catRoot.b, 0.98f);
+        float rowY = progressTitleY + g_TextS.Height(catRoot.label[rootLanguage], catScale)
+                   + 34.0f * uiS;
+        const float tierScale = UiTextScale(g_TextS, UiTextLevel::Supporting, uiS) * 1.15f;
+        const float tierStep = g_TextS.Height(L"A", tierScale) + 24.0f * uiS;
+        for (int t = 0; t < tierRowCount; ++t) {
+            const TierStat& ts = tierRows[t];
+            // Dark rarity colours (green / blue / purple) are lifted for small text.
+            const float lr = ts.r + (1.0f - ts.r) * 0.45f, lg = ts.g + (1.0f - ts.g) * 0.45f,
+                        lb = ts.b + (1.0f - ts.b) * 0.45f;
+            drawProgressRow(ts.label, tierScale, ts.seen, ts.total, rowY,
+                            lr, lg, lb, ts.r, ts.g, ts.b, 0.90f);
+            rowY += tierStep;
+        }
     }
 
     int selectedCategory = searchActive ? s_searchSelectedCategory : s_cat;

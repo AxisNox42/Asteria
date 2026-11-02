@@ -1687,7 +1687,8 @@ void Scene_OwnedAugPanel(const SceneCtx& c) {
                 g_TextS.Draw(TITLE, PX, titleY, titleScale, 1, 1, 1, 0.95f);
                 // 현재 무기 (항상 표시)
                 {
-                    const wchar_t* wPrefix = (g_Language==Language::EN)?L"Weapon:":
+                    const wchar_t* wPrefix = (g_Language==Language::ZH)?L"武器：":
+                                             (g_Language==Language::EN)?L"Weapon:":
                                              (g_Language==Language::JP)?L"武器:":
                                              L"현재 무기:";
                     wchar_t wLine[160];

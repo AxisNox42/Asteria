@@ -23,7 +23,8 @@ static bool Near(float a, float b) { return std::fabs(a - b) < 1e-5f; }
 
 static void CheckFactor() {
     assert(Near(MenuDimFactor(0), 0.0f));
-    assert(Near(MenuDimFactor(kMenuDimDefault), 1.0f));   // default = original look
+    assert(Near(MenuDimFactor(50), 1.0f));                // 50 = the original look
+    assert(kMenuDimDefault == 80);
     assert(Near(MenuDimFactor(100), kMenuDimMax));
     assert(Near(MenuDimFactor(75), 2.5f));
     assert(Near(MenuDimFactor(-20), 0.0f));                // clamped

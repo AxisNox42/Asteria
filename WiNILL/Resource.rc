@@ -16,6 +16,7 @@ FONT_CHAKRA     RCDATA      "Resource\\Font\\ChakraPetch-Regular.ttf"
 FONT_ORBIT      RCDATA      "Resource\\Font\\Orbit-Regular.ttf"
 FONT_JUA        RCDATA      "Resource\\Font\\Jua-Regular.ttf"
 FONT_KOSUGI     RCDATA      "Resource\\Font\\KosugiMaru-Regular.ttf"
+FONT_ZCOOL      RCDATA      "Resource\\Font\\ZCOOLQingKeHuangYou-Regular.ttf"
 
 // 배경 마스크 — 외부 Resource/ 폴더 없이도 메뉴 셰이더가 초기화되도록 임베드.
 IMAGE_BG_RADIAL RCDATA      "Resource\\bg_radial.png"

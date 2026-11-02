@@ -2,6 +2,7 @@
 
 #include "../Entity/Augment.h"
 #include "../System/Translations.h"
+#include "../System/ZhStrings.h"
 #include "../System/EmbeddedResource.h"
 #include "TextRenderer.h"
 #include <algorithm>
@@ -38,10 +39,10 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
     // This prevents a stale Resource/Font folder from changing the UI
     // after a user downloads only WiNILL.exe from GitHub.
     const char* embeddedFontNames[] = {
-        "FONT_CHAKRA", "FONT_ORBIT", "FONT_JUA", "FONT_KOSUGI"
+        "FONT_CHAKRA", "FONT_ORBIT", "FONT_JUA", "FONT_KOSUGI", "FONT_ZCOOL"
     };
-    const unsigned char* memoryFonts[4] = {};
-    int memoryFontSizes[4] = {};
+    const unsigned char* memoryFonts[5] = {};
+    int memoryFontSizes[5] = {};
     int memoryFontCount = 0;
     for (const char* name : embeddedFontNames) {
         EmbeddedResourceView view;
@@ -67,7 +68,7 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
     }
 
     if (!fontsInitialized) {
-        const char* chain[6] = {};
+        const char* chain[7] = {};
         int nFonts = 0;
         auto addFont = [&](const char* path) {
             if (path && nFonts < (int)(sizeof(chain) / sizeof(chain[0])))
@@ -88,6 +89,10 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
                          "../Resource/Font/KosugiMaru-Regular.ttf",
                          "../../Resource/Font/KosugiMaru-Regular.ttf",
                          "C:/Windows/Fonts/meiryo.ttc"));
+        // Simplified Chinese face: last in the chain (see TextRenderer::SetHanPriority).
+        addFont(pickFont("Resource/Font/ZCOOLQingKeHuangYou-Regular.ttf",
+                         "../Resource/Font/ZCOOLQingKeHuangYou-Regular.ttf",
+                         "../../Resource/Font/ZCOOLQingKeHuangYou-Regular.ttf"));
         if (nFonts == 0) {
             addFont(pickFont("C:/Windows/Fonts/malgun.ttf",
                              "C:/Windows/Fonts/arial.ttf",
@@ -119,6 +124,12 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
 }
 
 void UpdateGameTextHalo(int screenHeight) {
+    // Chinese UI: swap English strings for Chinese at draw time and prefer the
+    // Chinese face for ideographs. Cheap to call every frame (no-ops when unchanged).
+    g_TextFilter = IsChinese() ? &ZhTranslate : nullptr;
+    g_TextL.SetHanPriority(IsChinese());
+    g_TextS.SetHanPriority(IsChinese());
+    g_TextXL.SetHanPriority(IsChinese());
     // The desktop behind the window stays sharp, so text needs a full outline.
     const float strength = 0.90f;
     const float radiusPx = std::max(1.5f, 2.0f * (float)screenHeight / 1600.0f);

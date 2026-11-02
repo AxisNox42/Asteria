@@ -43,6 +43,9 @@
 #include "SceneInternal.h"
 
 static int s_RcWeapon = 0;
+// 난이도 선택 브라켓이 켜지고 꺼지는 정도(0~1). 패널을 열 때는 애니메이션 없이 현재 선택에 맞춘다.
+constexpr float kPlayBracketFadeSec = 0.30f;
+static bool s_RcDiffSelInit = false;
 static int s_RcDifficulty = 1;   // 0=EASY 1=NORMAL 2=HARD 3=NIGHTMARE, 패널을 다시 열어도 유지
 static bool s_RcStateLoaded = false;
 static float s_RcEntryT = 0.0f;
@@ -59,6 +62,8 @@ constexpr float kPlayEntryTextX   = 22.0f;   // 세로선 → 글자
 constexpr float kPlayGaugeStep    = 28.0f;   // 난이도 별 게이지 간격
 constexpr float kPlayTextShadow   = 0.92f;   // 밝은 바탕화면 위에서도 읽히도록 글자 그림자를 진하게
 constexpr float kPlayGaugeSize    = 11.0f;   // 난이도 별 게이지 노드 크기
+constexpr float kPlayGaugeInset   = 26.0f;   // 게이지 오른쪽 끝이 열 끝에서 안쪽으로 들어간 거리
+constexpr float kPlayBracketLift  = 0.16f;   // 선택 행 브라켓을 흰색 쪽으로 살짝 밝히는 비율
 constexpr float kPlayEntrySelectedScale = 1.12f;   // 선택된 이름의 확대 배율
 constexpr float kPlayHeroFadeSec   = 0.30f;  // 직업을 바꿀 때 새 외형이 나타나는 시간(초)
 constexpr float kPlayLabelScale     = 1.20f;   // 직업/난이도 머리글 확대 배율(Title 단계 기준)
@@ -79,6 +84,8 @@ constexpr PlayRGB kPlayDifficultyColor[kPlayDifficultyCount] = {
 
 // ── PLAY 패널 문구 (KR, EN, JP) ──
 const LStr kTxtPlay        = { { L"플레이", L"PLAY", L"プレイ" } };
+// The page is the lobby's SINGLE PLAY route; the button inside still says PLAY.
+const LStr kTxtSinglePlay  = { { L"싱글 플레이", L"SINGLE PLAY", L"シングルプレイ" } };
 const LStr kTxtClass       = { { L"직업", L"CLASS", L"クラス" } };
 const LStr kTxtDifficulty  = { { L"난이도", L"DIFFICULTY", L"難易度" } };
 const LStr kTxtBest        = { { L"최고 점수", L"BEST", L"ベスト" } };
@@ -128,6 +135,7 @@ void ResetRunConfigUi(float entryStart) {
     ResetTrials();
     s_RcWeapon = 0;
     s_RcStateLoaded = false;
+    s_RcDiffSelInit = false;
 }
 
 
@@ -248,6 +256,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     static int weapon = 0;
     static float weaponHover[kPlayWeaponCount] = {};
     static float diffHover[kPlayDifficultyCount] = {};
+    static float diffSelT[kPlayDifficultyCount] = {};
     static float backHover = 0.0f;
     static float playHover = 0.0f;
     static float heroClock = 0.0f;   // 외형 회전용 연속 시계. 패널을 다시 열어도 이어서 돈다.
@@ -396,7 +405,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         std::min(chartR, (heroGapBottom - heroGapTop) * 0.5f), centerW * 0.5f - 10.0f * uiS));
 
     const float playTitleScale = UiTextScale(g_TextL, UiTextLevel::Title, uiS);
-    DrawShadowedText(g_TextL, T(kTxtPlay), pageL, headerY,
+    DrawShadowedText(g_TextL, T(kTxtSinglePlay), pageL, headerY,
                      playTitleScale, 1.0f, 1.0f, 1.0f,
                      0.98f * entryHeader, kPlayTextShadow);
     LogoLine(pageL, headerY + 58.0f * uiS, pageR, headerY + 58.0f * uiS,
@@ -424,7 +433,8 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     auto drawChoice = [&](float x, float w, float y0, bool sel, float& hover,
                           PlayRGB col, const wchar_t* name, const wchar_t* sub,
                           float* nameMidY = nullptr, bool brackets = false,
-                          const wchar_t* subBig = nullptr, bool bars = false) -> bool {
+                          const wchar_t* subBig = nullptr, bool bars = false,
+                          float selAmt = -1.0f) -> bool {
         const bool hov = ready && mx >= x - 14.0f * uiS && mx <= x + w
             && my >= y0 - 8.0f * uiS && my <= y0 + entryH;
         hover = UpdateMenuCommandHover(hover, hov, dt);
@@ -470,16 +480,36 @@ void Scene_RunConfigInline(const SceneCtx& c) {
             const float bx0 = x - 2.0f * uiS, bx1 = x + w - 2.0f * uiS;
             const float by0 = y0 - 4.0f * uiS;
             const float by1 = std::max(y0 + entryH - 8.0f * uiS, subBottom + 6.0f * uiS);
-            const float arm = (sel ? 9.0f : 5.0f + 3.0f * hover) * uiS;
-            const float th = (sel ? 1.6f : 0.9f) * uiS;
-            const float ba = (sel ? 1.0f : 0.34f + 0.30f * hover) * contentA;
+            // 선택 정도(sa)는 0.3초에 걸쳐 오르내리며 팔 길이·굵기·밝기·발광을 함께 움직인다.
+            const float sa = selAmt >= 0.0f ? selAmt : (sel ? 1.0f : 0.0f);
+            const float arm = ((5.0f + 3.0f * hover) + (9.0f - (5.0f + 3.0f * hover)) * sa) * uiS;
+            const float th = (0.9f + 0.7f * sa) * uiS;
+            const float ba = ((0.34f + 0.30f * hover) + (1.0f - (0.34f + 0.30f * hover)) * sa) * contentA;
             const float ov = th * 0.5f;   // 모서리 이음새가 비지 않게 팔을 반 굵기만큼 겹친다
+            // 선택된 행의 꼭짓점 색은 직업/난이도 색에 흰색을 아주 조금 섞어 밝힌다.
+            const float lift = kPlayBracketLift * sa;
+            const float br = col.r + (1.0f - col.r) * lift;
+            const float bg = col.g + (1.0f - col.g) * lift;
+            const float bb = col.b + (1.0f - col.b) * lift;
             for (int ix = 0; ix < 2; ++ix) {
                 for (int iy = 0; iy < 2; ++iy) {
                     const float cx0 = ix ? bx1 : bx0, cy0 = iy ? by1 : by0;
                     const float sx = ix ? -1.0f : 1.0f, sy = iy ? -1.0f : 1.0f;
-                    LogoLine(cx0 - sx * ov, cy0, cx0 + sx * arm, cy0, th, col.r, col.g, col.b, ba);
-                    LogoLine(cx0, cy0 - sy * ov, cx0, cy0 + sy * arm, th, col.r, col.g, col.b, ba);
+                    if (sa > 0.01f) {
+                        // 발광: 같은 팔을 더 굵고 옅게 두 겹 깔고, 꼭짓점에 작은 빛무리를 둔다.
+                        // 아주 느리게 숨 쉬듯 변해 눈에 거슬리지 않는다.
+                        const float breathe = 0.88f + 0.12f * std::sin((float)glfwGetTime() * 2.2f);
+                        const float gl = ba * breathe * sa;
+                        for (int layer = 0; layer < 2; ++layer) {
+                            const float gw = th * (layer == 0 ? 5.5f : 3.2f);
+                            const float ga = gl * (layer == 0 ? 0.07f : 0.13f);
+                            LogoLine(cx0 - sx * ov, cy0, cx0 + sx * arm, cy0, gw, br, bg, bb, ga);
+                            LogoLine(cx0, cy0 - sy * ov, cx0, cy0 + sy * arm, gw, br, bg, bb, ga);
+                        }
+                        DrawConstellationDisc(cx0, cy0, 9.0f * uiS, br, bg, bb, 0.10f * gl, false);
+                    }
+                    LogoLine(cx0 - sx * ov, cy0, cx0 + sx * arm, cy0, th, br, bg, bb, ba);
+                    LogoLine(cx0, cy0 - sy * ov, cx0, cy0 + sy * arm, th, br, bg, bb, ba);
                 }
             }
         } else if (bars) {
@@ -568,17 +598,23 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         }
         const PlayRGB col = kPlayDifficultyColor[i];
         const bool sel = s_RcDifficulty == i;
+        if (!s_RcDiffSelInit) diffSelT[i] = sel ? 1.0f : 0.0f;
+        else diffSelT[i] = std::max(0.0f, std::min(1.0f,
+            diffSelT[i] + (sel ? 1.0f : -1.0f) * dt / kPlayBracketFadeSec));
+        const float selShown = diffSelT[i] * diffSelT[i] * (3.0f - 2.0f * diffSelT[i]);   // smoothstep
         float midY = 0.0f;
         if (drawChoice(rightX, sideW, entryY(i), sel,
-                       diffHover[i], col, diffName(i), tailBuf, &midY, true, bigText))
+                       diffHover[i], col, diffName(i), tailBuf, &midY, true, bigText, false, selShown))
             s_RcDifficulty = i;
         // 이름 줄 오른쪽 끝의 4칸 게이지: 켜진 별 개수가 단계(1~4)다.
         for (int k = 0; k < kPlayDifficultyCount; ++k)
-            drawDiamond(rightR - 10.0f * uiS
+            drawDiamond(rightR - kPlayGaugeInset * uiS
                             - (kPlayDifficultyCount - 1 - k) * kPlayGaugeStep * uiS,
                         midY, kPlayGaugeSize * uiS, col.r, col.g, col.b,
                         (k <= i ? (sel ? 1.0f : 0.72f) : 0.26f) * contentA);
     }
+
+    s_RcDiffSelInit = true;   // 이후 선택 변화는 0.3초 전환으로 보인다
 
     // 중앙: 선택 직업 이름
     const float heroNameY = chartCY - chartR - 58.0f * uiS;
@@ -681,7 +717,8 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     DrawUnifiedMenuCommand(T(kTxtPlay),
                            playX, playY, playW, playH,
                            weaponR, weaponG, weaponB, contentA,
-                           playHover, true,
+                           // 쉬는 상태에서도 짧은 브라켓이 있고, 호버하면 뒤로 버튼처럼 양옆으로 확장된다.
+                           0.38f + 0.62f * playHover, false,
                            0.12f + 0.10f * sinf(now * 2.2f), now + 0.51f,
                            uiS, true, true, true,
                            kTxtPlay.t, LANG_COUNT);

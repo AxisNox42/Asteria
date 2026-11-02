@@ -753,6 +753,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
                 ready_launch::g_Stage = Stage::Done;
                 if (!g_TutorialDone) {
                     g_TutorialDone = true;
+                    g_TutorialVanishPending = true;   // the lobby glitches TUTORIAL out once
                     SaveGame();
                 }
             }

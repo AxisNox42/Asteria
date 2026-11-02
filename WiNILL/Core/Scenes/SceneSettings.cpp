@@ -55,6 +55,7 @@ void ResetSettingsUi(float entryStart) {
 // Japanese fall back to English for most labels (QA #36).
 static const wchar_t* SettingsText(const wchar_t* kr, const wchar_t* en,
                                    const wchar_t* jp) {
+    if (IsChinese()) return ZhTranslate(en);
     const int li = LangIndex();
     return li == 0 ? kr : (li == 2 ? jp : en);
 }
@@ -114,6 +115,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
         SettingsSnapshot savedSettings = {};
         bool savedSettingsValid = false;
         bool confirmBack = false;
+        bool showCredits = false;   // CREDITS page open over the settings board
+        float creditsT = 0.0f;      // seconds it has been open (ignores the opening click)
         bool settingsDirty = false;
         // CONTROLS: action whose key is being captured (-1 = none), fade of the
         // other rows while waiting, per-key confirm flash and the status line.
@@ -153,6 +156,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto& savedSettings = S.savedSettings;
     auto& savedSettingsValid = S.savedSettingsValid;
     auto& confirmBack = S.confirmBack;
+    auto& showCredits = S.showCredits;
+    auto& creditsT = S.creditsT;
     auto& settingsDirty = S.settingsDirty;
     auto& captureAction = S.captureAction;
     auto& captureBlend = S.captureBlend;
@@ -220,7 +225,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // instead of leaving the screen (decided from the frame-start state).
     const bool keyCapturing = captureAction >= 0;
     const bool escEdge = EscPressedEdge(c, prevEsc);
-    const bool backInput = !keyCapturing && (escEdge || (rmb && !g_RmbPrev));
+    const bool backRaw = !keyCapturing && (escEdge || (rmb && !g_RmbPrev));
+    // While the credits page is up, back closes it instead of leaving settings.
+    const bool backInput = backRaw && !showCredits;
+    if (backRaw && showCredits) showCredits = false;
     const float entryOldOut = SceneTransitionEase(entry / kOutgameTransitionDuration);
     const float entryTreeIn = SceneTransitionEase(
         (entry - 0.08f) / (kOutgameTransitionDuration - 0.08f));
@@ -234,7 +242,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float treeA = entryTreeIn * (1.0f - outP);
     const float oldA = exiting ? outP : (1.0f - entryOldOut);
     const bool ready = !exiting && entry >= 0.55f;
-    const bool inputReady = ready && !confirmBack;
+    const bool inputReady = ready && !confirmBack && !showCredits;
 
     // ── Key capture (CONTROLS): the Input key callback stores the next press
     // in g_CapturedKey while g_KeyCaptureActive is set.
@@ -378,6 +386,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     if ((g_LobbyPanel == LobbyPanel::Settings)) {
         const float mainMenuGap = 10.0f * uiS;
         for (int i = 0; i < kMainMenuRouteCount; ++i) {
+            if (i == kMainMenuTutorialIndex && TutorialRouteHidden()) continue;
             const float y = MainMenuButtonRailStartY(sh, uiS) + i * (mainBH + mainMenuGap);
             const bool focus = i == kMainMenuSettingsIndex;
             const float x = mainX - 250.0f * (1.0f - oldA) - (focus ? 0.0f : 24.0f * (1.0f - oldA));
@@ -416,7 +425,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         { L"DISPLAY",  L"\uD654\uBA74", L"画面"       },
         { L"AUDIO",    L"\uC18C\uB9AC", L"サウンド"       },
         { L"GAMEPLAY", L"\uAC8C\uC784\uD50C\uB808\uC774", L"ゲームプレイ" },
-        { L"ARCHIVE",  L"\uAE30\uB85D", L"記録" },
+        { L"OTHER",    L"\uAE30\uD0C0", L"その他" },
         { L"BACK",     L"\uB4A4\uB85C", L"戻る"       },
     };
     if (tab >= 5) tab = 0;
@@ -494,7 +503,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     };
     SRow settingsRows[5][10] = {};
     const int rowCounts[5] = { 4, 5, kDebugSettingsVisible ? 4 : 3,
-                               GAME_ACTION_COUNT + 1, 2 };
+                               GAME_ACTION_COUNT + 1, 3 };
 
     static wchar_t s_volBuf[8];
 
@@ -510,8 +519,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // \u2500\u2500 Render rows \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // Keep every category's controls expanded on the right settings board.
     swprintf_s(s_volBuf, L"%d", g_SoundVol);
-    const int allLangCur = g_Language == Language::KR ? 0 :
-                           g_Language == Language::EN ? 1 : 2;
+    const int allLangCur = (int)g_Language;   // KR 0, EN 1, JP 2, ZH 3
     const int allFpsCur =
         g_FpsCap == 0 ? 0 : g_FpsCap == 30 ? 1 : g_FpsCap == 60 ? 2 :
         g_FpsCap == 144 ? 3 : g_FpsCap == 300 ? 4 : 5;
@@ -564,8 +572,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
         L"기본값 복원", L"RESTORE DEFAULTS", L"初期設定に戻す");
     settingsRows[3][GAME_ACTION_COUNT].isKeyReset = true;
     settingsRows[4][0] = { SettingsText(L"언어", L"LANGUAGE", L"言語"), nullptr, false, false, false, false,
-                           { L"한국어", L"English", L"日本語" },
-                           3, allLangCur };
+                           { L"한국어", L"English", L"日本語", L"中文" },
+                           4, allLangCur };
+    // CREDITS: one chip that opens the credits page.
+    settingsRows[4][2] = { SettingsText(L"크레딧", L"CREDITS", L"クレジット"), nullptr, false, false, false, false,
+                           { SettingsText(L"보기", L"VIEW", L"表示") }, 1, 0 };
     settingsRows[4][1] = { SettingsText(L"데이터 초기화", L"RESET DATA", L"データ初期化"), nullptr, false, false, true, true };
 
     auto settingsOptionTextLevel = [&](int category, int row) {
@@ -634,9 +645,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
     for (int a = 0; a < GAME_ACTION_COUNT; ++a)
         controlsLabels[a] = kKeyActionLabels[a][LangIndex()];
     controlsLabels[GAME_ACTION_COUNT] = settingsRows[3][GAME_ACTION_COUNT].label;
-    const wchar_t* archiveLabels[2] = {
+    const wchar_t* archiveLabels[3] = {
         SettingsText(L"언어", L"LANGUAGE", L"言語"),
-        SettingsText(L"데이터 초기화", L"RESET DATA", L"データ初期化") };
+        SettingsText(L"데이터 초기화", L"RESET DATA", L"データ初期化"),
+        SettingsText(L"크레딧", L"CREDITS", L"クレジット") };
     // The left category index is an accordion; keep every right-side option
     // visible so changing categories does not collapse the settings board.
     addHeader(0, SettingsText(L"화면", L"DISPLAY", L"画面"));
@@ -649,8 +661,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     addHeader(3, SettingsText(L"조작", L"CONTROLS", L"操作"));
     for (int i = 0; i < GAME_ACTION_COUNT + 1; ++i)
         addItem(3, i, controlsLabels[i]);
-    addHeader(4, SettingsText(L"기록", L"ARCHIVE", L"記録"));
-    for (int i = 0; i < 2; ++i) addItem(4, i, archiveLabels[i]);
+    addHeader(4, SettingsText(L"기타", L"OTHER", L"その他"));
+    for (int i = 0; i < 3; ++i) addItem(4, i, archiveLabels[i]);
 
     SettingsListEntry rightList[32] = {};
     int rightListCount = 0;
@@ -665,7 +677,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         SettingsText(L"소리", L"AUDIO", L"サウンド"),
         SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"),
         SettingsText(L"조작", L"CONTROLS", L"操作"),
-        SettingsText(L"기록", L"ARCHIVE", L"記録") };
+        SettingsText(L"기타", L"OTHER", L"その他") };
     const wchar_t* const* categoryRows[5] = {
         displayLabels, audioLabels, gameplayLabels, controlsLabels, archiveLabels };
     for (int category = 0; category < 5; ++category) {
@@ -1135,7 +1147,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
             return kToggleLabels[optionLanguage][optionIndex];
         } else if (category == 4 && row == 0) {
             static const wchar_t* language[] = {
-                L"한국어", L"English", L"日本語"
+                L"한국어", L"English", L"日本語", L"中文"
             };
             return language[optionIndex];
         }
@@ -1430,6 +1442,23 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 drawRect(barX + 2.0f, barY + 2.0f,
                          (barW - 4.0f) * resetFill(holdT), barH - 4.0f,
                          1.0f, 0.22f, 0.14f, 0.92f * rowA);
+            }
+            {   // Corner brackets: faint at rest, widen and brighten on hover / hold.
+                const float bo = (3.0f + 6.0f * showA) * uiS;
+                const float arm = (12.0f + 6.0f * showA) * uiS;
+                const float bw = 1.6f * uiS;
+                const float ba = (0.42f + 0.50f * showA) * rowA;
+                const float bx0 = barX - bo, bx1 = barX + barW + bo;
+                const float by0 = barY - bo, by1 = barY + barH + bo;
+                const float br = 1.0f, bg = 0.36f, bb = 0.30f;
+                LogoLine(bx0, by0, bx0 + arm, by0, bw, br, bg, bb, ba);
+                LogoLine(bx0, by0, bx0, by0 + arm, bw, br, bg, bb, ba);
+                LogoLine(bx1, by0, bx1 - arm, by0, bw, br, bg, bb, ba);
+                LogoLine(bx1, by0, bx1, by0 + arm, bw, br, bg, bb, ba);
+                LogoLine(bx0, by1, bx0 + arm, by1, bw, br, bg, bb, ba);
+                LogoLine(bx0, by1, bx0, by1 - arm, bw, br, bg, bb, ba);
+                LogoLine(bx1, by1, bx1 - arm, by1, bw, br, bg, bb, ba);
+                LogoLine(bx1, by1, bx1, by1 - arm, bw, br, bg, bb, ba);
             }
             static const wchar_t* resetLabelVariants[] = {
                 L"길게 눌러 초기화", L"HOLD TO RESET", L"長押しでリセット"
@@ -1776,7 +1805,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         }
     }
 
-    // \u2500\u2500 Click handling \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // -- Click handling --------------------------------------------------
      // Apply option clicks using the category/row that owns the hovered
      // control; the left category index remains independent of this board.
      if (inputReady && lmb && !g_LmbPrev
@@ -1811,9 +1840,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
              else if (row == 1) g_ShowCrosshair = option == 0;
              else if (row == 2) g_PanePhotos = option == 0;
              else if (row == 3) g_DebugMode = option == 0;
+         } else if (category == 4 && row == 2) {
+             showCredits = true;
          } else if (category == 4 && row == 0) {
-             g_Language = option == 0 ? Language::KR :
-                          option == 1 ? Language::EN : Language::JP;
+             g_Language = option == 0 ? Language::KR : option == 1 ? Language::EN
+                        : option == 2 ? Language::JP : Language::ZH;
          }
      }
 
@@ -1837,7 +1868,63 @@ void Scene_SettingsInline(const SceneCtx& c) {
          holdT = std::max(0.0f, holdT - dt * 4.0f);
      }
      g_UiShakePx = (holdT > 0.01f && !(exiting && resetDoneT > 0.0f))
-         ? 16.0f * uiS * std::pow(holdT / kResetHoldSec, 2.5f) : 0.0f;
+         ? 9.0f * uiS * std::pow(holdT / kResetHoldSec, 2.5f) : 0.0f;
+
+    // ── CREDITS page ────────────────────────────────────────────────────
+    // Drawn over the whole board. Back (ESC / right-click) or a click closes it.
+    if (showCredits) {
+        BindMainShader();
+        drawRect(0.0f, 0.0f, sw, sh, 0.004f, 0.010f, 0.026f, 0.90f);
+        struct CreditLine { const wchar_t* text; int kind; };   // 0 heading, 1 name, 2 note, 3 gap
+        const CreditLine lines[] = {
+            { SettingsText(L"제작", L"TEAM PINATA", L"制作"), 0 },
+            { L"AxisNox42", 1 }, { L"Rid", 1 },
+            { L"", 3 },
+            { SettingsText(L"사용한 소프트웨어", L"THIRD-PARTY SOFTWARE", L"使用ソフトウェア"), 0 },
+            { L"GLFW   zlib / libpng", 1 }, { L"glad   MIT / public domain", 1 },
+            { L"GLM   MIT", 1 }, { L"stb_image · stb_truetype   public domain / MIT", 1 },
+            { L"miniaudio   public domain / MIT-0", 1 },
+            { L"", 3 },
+            { SettingsText(L"글꼴", L"FONTS", L"フォント"), 0 },
+            { L"Chakra Petch · Orbit · Jua · Kosugi Maru · ZCOOL QingKe HuangYou", 1 },
+            { L"SIL Open Font License 1.1", 2 },
+            { L"", 3 },
+            { SettingsText(L"ESC 또는 클릭으로 닫기", L"ESC OR CLICK TO CLOSE", L"ESCまたはクリックで閉じる"), 2 },
+        };
+        const float headSc = settingsScale(g_TextL, 1.0f, UiTextLevel::Subtitle);
+        const float nameSc = settingsScale(g_TextL, 1.0f, UiTextLevel::Description);
+        float total = 0.0f;
+        for (const CreditLine& l : lines)
+            total += l.kind == 3 ? 28.0f * uiS
+                   : (l.kind == 0 ? g_TextL.Height(l.text, headSc) + 12.0f * uiS
+                                  : g_TextL.Height(l.text, nameSc) + 8.0f * uiS);
+        float y = std::max(60.0f * uiS, (sh - total) * 0.5f);
+        const wchar_t* title = SettingsText(L"크레딧", L"CREDITS", L"クレジット");
+        const float titleSc = settingsScale(g_TextL, 1.0f, UiTextLevel::Title);
+        drawSettingsTextAtLevel(g_TextL, title, (sw - g_TextL.Width(title, titleSc)) * 0.5f,
+                                std::max(24.0f * uiS, y - g_TextL.Height(title, titleSc) - 26.0f * uiS), 1.0f,
+                                1.0f, 1.0f, 1.0f, 0.96f, UiTextLevel::Title, 0.70f);
+        for (const CreditLine& l : lines) {
+            if (l.kind == 3) { y += 28.0f * uiS; continue; }
+            const float sc = l.kind == 0 ? headSc : nameSc;
+            const float w = g_TextL.Width(l.text, sc);
+            const float x = (sw - w) * 0.5f;
+            if (l.kind == 0) {
+                DrawShadowedText(g_TextL, l.text, x, y, sc, 0.48f, 0.82f, 1.0f, 0.96f, 0.7f);
+                const float ry = y + g_TextL.Height(l.text, sc) + 4.0f * uiS;
+                LogoLine(x, ry, x + w, ry, 1.0f * uiS, 0.34f, 0.72f, 1.0f, 0.30f);
+                y += g_TextL.Height(l.text, sc) + 12.0f * uiS;
+            } else {
+                const float a = l.kind == 1 ? 0.92f : 0.62f;
+                DrawShadowedText(g_TextL, l.text, x, y, sc, 0.90f, 0.95f, 1.0f, a, 0.7f);
+                y += g_TextL.Height(l.text, sc) + 8.0f * uiS;
+            }
+        }
+        creditsT += dt;
+        if (lmb && !g_LmbPrev && creditsT > 0.20f) showCredits = false;
+    } else {
+        creditsT = 0.0f;
+    }
 
     if (exiting && exitT >= kOutgameTransitionDuration) {
         // Settings are persisted only by SAVE CHANGES or SAVE & BACK.
