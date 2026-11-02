@@ -237,8 +237,9 @@ inline int TrialRangedMaxBonus(long long score) {
 inline bool g_CreativeMode = false;
 inline bool g_DebugMode = false;
 // Title logo: 0 = vector constellation mark, 1 = handwritten "Asteria" (A),
-// 2 = jagged "Asteria" (B). Chosen from the debug toolkit; not saved.
-inline int g_TitleStyle = 1;
+// 2 = jagged "Asteria" (B), 3 = plain UI font. Chosen from the debug
+// toolkit; not saved.
+inline int g_TitleStyle = 3;
 
 // Counts and the wallet never exceed this, so additions cannot overflow and
 // every value fits the HUD (999,999,999,999,999).
@@ -283,6 +284,11 @@ inline bool g_AudioEngineEnabled = true;
 // 액티브 스킬 자동 사용 (C16) — ON 시 Q/E/R 스킬을 쿨다운 끝날 때마다 자동 발동.
 //   기본 OFF(수동). 설정에서 토글.
 inline bool g_AutoSkill         = false;
+
+// 보스 창 이미지에 '사진' 폴더도 쓰기 (PaneImages.h). 기본 OFF: 꺼져 있으면
+// Windows 기본 배경화면과 지금 배경화면만 쓴다. 켜면 개인 사진이 방송·녹화에
+// 그대로 보일 수 있다.
+inline bool g_PanePhotos        = false;
 
 // CRT 셰이더 효과 (G) — 스캔라인 + 비네트 + 네온 글로우. 설정에서 토글.
 // macOS: 투명 전체화면 합성 + 통합 GPU 부담 → 기본 OFF (세이브·macopt 마이그레이션으로도 적용)

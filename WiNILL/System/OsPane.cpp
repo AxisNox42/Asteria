@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <filesystem>
 #include "Settings.h"
+#include "PaneContent.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -20,9 +21,6 @@ namespace os_pane {
 namespace {
 
 constexpr wchar_t kClassName[] = L"AsteriaPane";
-// Client colours per theme: paper and ink, like a plain text editor.
-constexpr COLORREF kPaperLight = RGB(255, 255, 255), kInkLight = RGB(60, 64, 80);
-constexpr COLORREF kPaperDark = RGB(30, 31, 36), kInkDark = RGB(190, 196, 214);
 constexpr float kRefusalSeconds = 1.6f;
 constexpr float kDesktopScanSeconds = 0.5f;
 // Windows smaller than this, or covering nearly the whole game, are not
@@ -44,49 +42,11 @@ HWND s_ownerHwnd = nullptr;
 std::vector<Pane> s_panes;
 std::vector<HWND> s_handles;               // parallel to s_panes
 
-// What a pane's client shows (parallel to s_panes). Adopted windows paint
-// themselves and keep an empty entry.
-enum class ContentKind { None, Notes, Chart };
-struct Content {
-    ContentKind kind = ContentKind::None;
-    unsigned seed = 0;
-    bool dark = false;
-    std::wstring title;
-    float unstable = 0.0f;
-};
+// What a pane's client shows (parallel to s_panes): a random memo, code
+// file or image (PaneContent.h). Adopted windows paint themselves and keep an
+// empty entry.
+using pane_content::Content;
 std::vector<Content> s_content;
-
-// Lines a pane's "note" may show: the sky's own source and logs.
-const wchar_t* const kNoteLines[] = {
-    L"// constellation.cfg - do not edit",
-    L"norma.boundary = WINDOW;",
-    L"if (player.space != this.space) ignore(attack);",
-    L"sky.render(stars, lines_only = true);",
-    L"[warn] 별 좌표 재계산 중...",
-    L"[info] 경계 밖에서 신호가 감지됨",
-    L"while (universe.running) { tick(); }",
-    L"for (s in stars) s.link(nearest(s));",
-    L"// TODO: 창 바깥에는 무엇이 있지?",
-    L"aggro.cross_border      = true;",
-    L"projectile.cross_border = false;",
-    L"pane.durability = 60;",
-    L"[error] 외부 입력: 마우스 드래그",
-    L"일시정지 중에도 창은 움직인다.",
-    L"log 03:14:15  sector NORMA  ok",
-    L"return sky;",
-    L"ASTERIA.exe - waiting for input",
-    L"assert(window.contains(core));",
-    L"[info] 별자리 12개 로드됨",
-    L"// 이 우주는 누가 컴파일했을까",
-    L"seal(pane); count_down(3);",
-    L"0x7F3A  0x0000  0x1E4C  0xFFFF",
-};
-constexpr int kNoteLineCount = (int)(sizeof(kNoteLines) / sizeof(kNoteLines[0]));
-
-unsigned NextRandom(unsigned& state) {
-    state = state * 1664525u + 1013904223u;
-    return state >> 8;
-}
 
 bool UserPrefersDark() {
     DWORD light = 1, size = sizeof(light);
@@ -120,7 +80,7 @@ int IndexOfId(int id) {
     return -1;
 }
 
-const wchar_t* BaseTitle() { return L"NORMA"; }
+const wchar_t* BaseTitle() { return L"OCTANS"; }
 
 // A pane's own title (its "file name"), or the bare base title.
 std::wstring TitleOf(int i) {
@@ -186,63 +146,13 @@ void ApplyTheme(HWND hwnd) {
     DwmSetWindowAttribute(hwnd, kDarkModeAttribute, &dark, sizeof(dark));
 }
 
-// Notepad-like text: lines picked from kNoteLines by the pane's seed.
-void PaintNotes(HDC dc, const RECT& r, const Content& c) {
-    HFONT font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                             FIXED_PITCH | FF_MODERN, L"Consolas");
-    HGDIOBJ old = SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, c.dark ? kInkDark : kInkLight);
-    unsigned state = c.seed;
-    // Instability: its own random stream changes every paint, so the jitter
-    // and corruption flicker while the layout (state) stays put.
-    unsigned noise = c.seed ^ (unsigned)(GetTickCount64() / 33);
-    const float u = c.unstable;
-    if (u > 0.0f) {
-        const COLORREF ink = c.dark ? kInkDark : kInkLight;
-        const COLORREF warn = c.dark ? RGB(214, 160, 255) : RGB(150, 70, 200);
-        const auto mix = [&](int a, int b) { return (int)(a + (b - a) * std::min(1.0f, u)); };
-        SetTextColor(dc, RGB(mix(GetRValue(ink), GetRValue(warn)),
-                             mix(GetGValue(ink), GetGValue(warn)),
-                             mix(GetBValue(ink), GetBValue(warn))));
-    }
-    const int lineHeight = 19;
-    for (int y = r.top + 8; y + lineHeight <= r.bottom - 4; y += lineHeight) {
-        if (NextRandom(state) % 9 == 0) continue;   // a blank line now and then
-        const wchar_t* line = kNoteLines[NextRandom(state) % kNoteLineCount];
-        if (u <= 0.0f) {
-            TextOutW(dc, r.left + 10, y, line, lstrlenW(line));
-            continue;
-        }
-        // Shaken sideways, a few characters broken, now and then doubled.
-        std::wstring text = line;
-        static const wchar_t kBroken[] = L"#?%@&*<>/\\|~";
-        for (wchar_t& ch : text)
-            if ((float)(NextRandom(noise) % 1000) < 180.0f * u)
-                ch = kBroken[NextRandom(noise) % (sizeof(kBroken) / sizeof(wchar_t) - 1)];
-        const int shift = (int)(((float)(NextRandom(noise) % 200) - 100.0f) * 0.12f * u);
-        const int lift = (int)(((float)(NextRandom(noise) % 200) - 100.0f) * 0.03f * u);
-        TextOutW(dc, r.left + 10 + shift, y + lift, text.c_str(), (int)text.size());
-        if ((float)(NextRandom(noise) % 1000) < 120.0f * u)
-            TextOutW(dc, r.left + 10 + shift + 3, y + lift + 2, text.c_str(), (int)text.size());
-    }
-    SelectObject(dc, old);
-    DeleteObject(font);
-}
-
 void PaintClient(HWND hwnd, HDC dc) {
     RECT r{};
     GetClientRect(hwnd, &r);
     const int i = IndexOfHandle(hwnd);
     const Content* c = (i >= 0 && i < (int)s_content.size()) ? &s_content[i] : nullptr;
-    const bool dark = c ? c->dark : UserPrefersDark();
-    HBRUSH paper = CreateSolidBrush(dark ? kPaperDark : kPaperLight);
-    FillRect(dc, &r, paper);
-    DeleteObject(paper);
-    // Notepad text; a worn pane's text breaks up and tints as its warning.
-    if (!c) return;
-    PaintNotes(dc, r, *c);
+    // A worn pane's content breaks up and tints as its warning.
+    pane_content::Paint(dc, r, c, UserPrefersDark());
 }
 
 LRESULT CALLBACK PaneProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -491,6 +401,8 @@ void ScanDesktop() {
 void Init(GLFWwindow* overlay) {
     s_overlay = overlay;
     s_overlayHwnd = overlay ? glfwGetWin32Window(overlay) : nullptr;
+    // Decode a few pictures from this PC in the background for image panes.
+    pane_images::Ensure(g_PanePhotos);
 }
 
 void Shutdown() {
@@ -503,6 +415,7 @@ void Shutdown() {
     s_handles.clear();
     s_content.clear();
     s_desktop.clear();
+    pane_images::Stop();
 }
 
 int Open(float x, float y, float w, float h) {
@@ -540,13 +453,9 @@ int Open(float x, float y, float w, float h) {
     s_handles.push_back(hwnd);
     Content content;
     content.seed = (unsigned)rand() * 2654435761u + (unsigned)pane.id;
-    content.kind = content.seed % 10 < 7 ? ContentKind::Notes : ContentKind::Chart;
     content.dark = UserPrefersDark();
-    wchar_t title[64];
-    swprintf_s(title, content.kind == ContentKind::Notes ? L"%ls - note_%02u.txt"
-                                                         : L"%ls - chart_%02u.png",
-               BaseTitle(), (content.seed >> 4) % 100);
-    content.title = title;
+    pane_images::Ensure(g_PanePhotos);   // reloads if the photos setting changed
+    pane_content::Roll(content, BaseTitle());   // memo, code or image, and its file title
     s_content.push_back(content);
     SetWindowTextW(hwnd, content.title.c_str());
     InvalidateRect(hwnd, nullptr, TRUE);

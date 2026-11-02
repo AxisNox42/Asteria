@@ -679,10 +679,11 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
 
     // Input goes through the bindings; the field only sees actions.
     rp::Input in;
-    in.up    = ActionHeld(GameAction::MoveUp);
-    in.down  = ActionHeld(GameAction::MoveDown);
-    in.left  = ActionHeld(GameAction::MoveLeft);
-    in.right = ActionHeld(GameAction::MoveRight);
+    const MoveInput mv = ResolvedMoveHeld();
+    in.up    = mv.up;
+    in.down  = mv.down;
+    in.left  = mv.left;
+    in.right = mv.right;
     in.dashHeld = ActionHeld(GameAction::Dash);
     in.fireHeld = c.lmb;
     in.aimValid = true;

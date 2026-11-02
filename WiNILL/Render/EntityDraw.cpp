@@ -627,7 +627,7 @@ static void DrawEnemyArc(float cx, float cy, float radius,
                          float r, float g, float b, float alpha,
                          float width) {
     if (segments < 2) return;
-    for (int i = 0; i < segments; ++i) {
+    for (int i = 0; i < segments; ++i) {
         const float a0 = start + sweep * (float)i / (float)segments;
         const float a1 = start + sweep * (float)(i + 1) / (float)segments;
         drawLineQuad(cx + cosf(a0) * radius, cy + sinf(a0) * radius,
@@ -2716,25 +2716,8 @@ static void DrawNormaBody(const Monster* m, float base, float visualTime) {
     // Pattern warnings, thin violet lines (warning colour; danger is ice).
     // Warnings share the body's colour.
     const float vr = r, vg = g, vb = b;
-    if (m->normaPattern == norma::Pattern::Aim &&
-        (m->normaStage == norma::Stage::Telegraph || m->normaStage == norma::Stage::Act)) {
-        // A short aim line that tracks the player, with a reticle bracket at
-        // its end; it brightens into the firing barrel.
-        const bool firing = m->normaStage == norma::Stage::Act;
-        const float a = m->normaAimAngle;
-        const float ux = cosf(a), uy = sinf(a);
-        const float r0 = half * 1.2f, r1 = half + norma::kAimLineLength;
-        const float lr = vr, lg = vg, lb = vb;
-        drawLineQuad(x + ux * r0, y + uy * r0, x + ux * r1, y + uy * r1,
-                     firing ? 2.4f : 1.4f, lr, lg, lb, firing ? 0.55f : 0.8f);
-        const float ex = x + ux * r1, ey = y + uy * r1;
-        const float px = -uy, py = ux, s2 = 12.0f;
-        drawLineQuad(ex + px * s2, ey + py * s2, ex + px * s2 - ux * s2, ey + py * s2 - uy * s2,
-                     1.6f, lr, lg, lb, 0.85f);
-        drawLineQuad(ex - px * s2, ey - py * s2, ex - px * s2 - ux * s2, ey - py * s2 - uy * s2,
-                     1.6f, lr, lg, lb, 0.85f);
-        drawLineQuad(ex + px * s2, ey + py * s2, ex - px * s2, ey - py * s2, 1.0f, lr, lg, lb, 0.5f);
-    }
+    // The aim volley has no aim line: the star point and ring gap turned onto
+    // the player (in the body) are its only tell.
     if (m->normaStage == norma::Stage::Telegraph) {
         const float t = m->normaTimer;
         if (m->normaPattern == norma::Pattern::Refuge) {

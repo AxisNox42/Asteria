@@ -294,6 +294,12 @@
     <ClInclude Include="System\OsPane.h">
       <Filter>System</Filter>
     </ClInclude>
+    <ClInclude Include="System\PaneContent.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="System\PaneImages.h">
+      <Filter>System</Filter>
+    </ClInclude>
     <ClInclude Include="System\WindowFx.h">
       <Filter>System</Filter>
     </ClInclude>

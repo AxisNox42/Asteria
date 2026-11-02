@@ -10,8 +10,9 @@ namespace GravisField {
 void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
            float& playerX, float& playerY, bool playerControl, bool dashActive,
            float moveSpeed, float dt) {
-    // Pull and time dilation both come from the same field; the pull is
-    // capped against the player's move speed, dilation keeps the strongest.
+    // Pull and time dilation both come from the same field; the pull
+    // accelerates a drift capped against the player's move speed, dilation
+    // keeps the strongest.
     FieldAccum field;
     for (const Monster* gravis : monsters.monsters) {
         if (!gravis || !gravis->alive || gravis->kind != MobKind::GRAVIS) continue;
@@ -20,10 +21,15 @@ void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
         field.Add(gravis->worldX - playerX, gravis->worldY - playerY);
     }
     g_playerInfluence = playerControl ? field.maxInfluence : 0.0f;
-    if (playerControl && !dashActive) {
-        field.ClampPull(PullCap(moveSpeed));
-        playerX += field.pullVX * dt;
-        playerY += field.pullVY * dt;
+    if (!playerControl || dashActive) {
+        // A dash breaks free of the built-up drift; menus drop it too.
+        g_playerDrift.Reset();
+    } else {
+        const float cap = PullCap(moveSpeed);
+        field.ClampPull(cap);
+        g_playerDrift.Step(field.pullVX, field.pullVY, field.maxInfluence > 0.0f, cap, dt);
+        playerX += g_playerDrift.vx * dt;
+        playerY += g_playerDrift.vy * dt;
     }
 
     // The field also curves every live bullet toward its Gravis.

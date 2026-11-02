@@ -99,7 +99,7 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         int absorbingPane = 0;
         if (bullet.active &&
             space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane) &&
-            !space::Absorbs(absorbingPane, bullet.firedAt)) {
+            !bullet.anyPaneStops && !space::Absorbs(absorbingPane, bullet.firedAt)) {
             bullet.space = space::SpaceAt(bullet.x, bullet.y);   // a pane born after the shot: pass
         } else if (bullet.active &&
             space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane)) {

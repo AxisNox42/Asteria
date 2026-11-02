@@ -718,10 +718,17 @@ public:
     float ApplyDamage(float damage) {
         if (kind == MobKind::NORMA && (normaHidden || normaInvuln > 0.0f)) return 0.0f;
         if (kind == MobKind::NORMA && normaExposed > 0.0f) damage *= norma::kExposeDamage;
+        // Phase 1 is its own bar for NORMA too: no hit takes it past the line.
+        if (kind == MobKind::NORMA && normaPhase == 1)
+            damage = std::min(damage, std::max(0.0f, hp - normaMaxHp * norma::kPhase2Ratio));
         if (kind == MobKind::CAELUM) {
             if (caelum::g.invuln > 0.0f) return 0.0f;
             if (caelum::g.exposed > 0.0f) damage *= caelum::kExposeDamage;
             damage *= caelum::DealtFactor();   // the player is weakened by corruption
+            // Phase 1 is its own bar: it drains to the phase-2 line and no
+            // further, so no hit skips phase 2.
+            if (caelum::g.phase == 1)
+                damage = std::min(damage, std::max(0.0f, hp - normaMaxHp * caelum::kPhase2Ratio));
         }
         const bool hadShield = regulusShield.hp > 0.0f;
         const float dealt = ApplyEnemyDamageWithShield(
@@ -2416,8 +2423,13 @@ public:
         }
         // Dragged by its cursor: exactly where the rules put it.
         if (caelum::g.bodyExact) {
+            // Its velocity still tracks the drag (eased), for the pixels it sheds.
+            if (deltaTime > 0.0f) {
+                const float k = std::min(1.0f, 10.0f * deltaTime);
+                normaVelX += ((caelum::g.bodyX - worldX) / deltaTime - normaVelX) * k;
+                normaVelY += ((caelum::g.bodyY - worldY) / deltaTime - normaVelY) * k;
+            }
             worldX = caelum::g.bodyX; worldY = caelum::g.bodyY;
-            normaVelX = normaVelY = 0.0f;
             TryContact(distance, playerHP, contactDmg, deltaTime);
             return;
         }
@@ -2465,6 +2477,8 @@ public:
         normaPhaseFlash = std::max(0.0f, normaPhaseFlash - deltaTime);
         if (normaPhase == 1 && norma::PhaseFor(hp, normaMaxHp) == 2) {
             normaPhase = 2;
+            // Phase 2 is a fresh bar: damage past the first bar's end is dropped.
+            hp = normaMaxHp * norma::kPhase2Ratio;
             normaPhaseFlash = norma::kPhaseFlashSeconds;
             norma::g_Events.push_back({ norma::Fx::PhaseShift, worldX, worldY, 0.0f });
             // Whatever it was doing ends: every pane blows, it holds still,

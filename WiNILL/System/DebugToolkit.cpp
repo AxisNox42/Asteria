@@ -431,7 +431,7 @@ const wchar_t* DebugToolkit::MobLabel(int index) {
     static const wchar_t* labels[] = {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
         L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR",
-        L"NORMA", L"NORMA 테스트 창", L"CAELUM"
+        L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS"
     };
     if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
         return L"알 수 없음";
@@ -1014,14 +1014,14 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                        p.w - 32.0f, 42.0f, mx, my)) {
             RequestAllScreenshots();
         } else {
-            const float bw = (p.w - 32.0f - 2.0f * 8.0f) / 3.0f;
-            for (int s = 0; s < 3; ++s) {
+            const float bw = (p.w - 32.0f - 3.0f * 8.0f) / 4.0f;
+            for (int s = 0; s < 4; ++s) {
                 if (Hit(p.x + 16.0f + s * (bw + 8.0f), p.y + TITLE_STYLE_Y,
                         bw, 34.0f, mx, my)) {
                     g_TitleStyle = s;
-                    static const wchar_t* const kMsg[3] = {
+                    static const wchar_t* const kMsg[4] = {
                         L"타이틀: 별자리 선 로고", L"타이틀: 곡선 필기체 (A)",
-                        L"타이틀: 뾰족 필기체 (B)" };
+                        L"타이틀: 뾰족 필기체 (B)", L"타이틀: 기본 폰트" };
                     SetMessage(kMsg[s]);
                 }
             }
@@ -1297,9 +1297,9 @@ void DebugToolkit::RenderCaptureTab(float x, float y, float w, float h,
     }
     g_TextS.Draw(L"타이틀 로고", x + 20.0f, y + TITLE_STYLE_Y - 30.0f, 0.55f,
                  0.70f, 0.94f, 1.0f, 0.94f);
-    static const wchar_t* const kStyle[3] = { L"별자리 선", L"곡선 (A)", L"뾰족 (B)" };
-    const float bw = (w - 32.0f - 2.0f * 8.0f) / 3.0f;
-    for (int s = 0; s < 3; ++s)
+    static const wchar_t* const kStyle[4] = { L"별자리 선", L"곡선 (A)", L"뾰족 (B)", L"기본 폰트" };
+    const float bw = (w - 32.0f - 3.0f * 8.0f) / 4.0f;
+    for (int s = 0; s < 4; ++s)
         DrawButton(x + 16.0f + s * (bw + 8.0f), y + TITLE_STYLE_Y, bw, 34.0f,
                    kStyle[s], g_TitleStyle == s, true);
     if (!lastMessage_.empty())

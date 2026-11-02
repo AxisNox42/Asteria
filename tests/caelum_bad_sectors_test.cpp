@@ -36,7 +36,8 @@ static void CheckHurts() {
     float hp = 100.0f;
     for (int i = 0; i < 60; ++i) caelum::TickCells(1.0f / 60.0f, cx, cy, hp);
     Check(hp < 100.0f - caelum::kBadDps * 0.9f, "standing in it for a second does about kBadDps");
-    Check(caelum::g.weaken > 0.0f && caelum::MoveFactor() == caelum::kBadWeak, "standing in it weakens harder");
+    Check(caelum::g.weaken > 0.0f && caelum::MoveFactor() == caelum::kBadMove &&
+          caelum::DealtFactor() == caelum::kBadWeak, "standing in it weakens harder");
 }
 
 static void CheckNoOverflow() {

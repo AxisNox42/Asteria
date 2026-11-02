@@ -283,6 +283,7 @@ inline void SaveGame() {
     add("audiomono=%lld\n", g_AudioMonoOutput ? 1 : 0);
     add("audioenabled=%lld\n", g_AudioEngineEnabled ? 1 : 0);
     add("autoskill=%lld\n", g_AutoSkill ? 1 : 0);
+    add("panephotos=%lld\n", g_PanePhotos ? 1 : 0);
     add("strongmenudim=%lld\n", g_StrongMenuDim ? 1 : 0);
     add("debugmode=%lld\n",    g_DebugMode ? 1 : 0);
     add("shaderfx=%lld\n",  g_ShaderFx  ? 1 : 0);
@@ -464,6 +465,7 @@ inline void LoadGame() {
         else if (!std::strcmp(key, "audiomono"))   g_AudioMonoOutput   = (val != 0);
         else if (!std::strcmp(key, "audioenabled")) g_AudioEngineEnabled = (val != 0);
         else if (!std::strcmp(key, "autoskill"))   g_AutoSkill         = (val != 0);
+        else if (!std::strcmp(key, "panephotos"))  g_PanePhotos        = (val != 0);
         else if (!std::strcmp(key, "strongmenudim")) g_StrongMenuDim    = (val != 0);
         else if (!std::strcmp(key, "debugmode"))    g_DebugMode = (val != 0);
         else if (!std::strcmp(key, "shaderfx"))    g_ShaderFx          = (val != 0);

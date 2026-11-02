@@ -198,12 +198,22 @@ static void DrawPaneOutline(const os_pane::Rect& r, hud_lines::Rgb c, float w, f
     PaneSeg(r.x, r.y + r.h, r.x, r.y, w, c, a);
 }
 
-// A lit fuse, drawn as a bright head running round the pane's frame, faster
-// each lap, with a lit trail behind it. At the end the frame locks solid and
-// the pane folds shut.
+static void DrawPaneGlow(const os_pane::Rect& r, hud_lines::Rgb c, float alpha,
+                         int rings, float step, float outward);
+
+// A lit fuse wraps the whole pane: the full frame throbs (faster as it burns)
+// with glow lines inside and out, and two burning heads leave the top middle,
+// run both ways round and meet at the bottom middle as it blows. At the end
+// the frame locks solid white and the pane folds shut.
 static void DrawPaneFuse(const os_pane::Rect& pane, float share) {
     const hud_lines::Rgb warn{ 0.86f, 0.80f, 1.0f }, white{ 0.92f, 0.99f, 1.0f };
-    DrawPaneOutline(pane, warn, 1.4f, 0.40f);
+    // The beat speeds up from ~3 to ~12 per second.
+    const float beatPhase = 6.2831853f * (3.0f * share + 4.5f * share * share) * space::kFuseSeconds;
+    const float beat = 0.5f + 0.5f * sinf(beatPhase);
+    const float heat = 0.45f + 0.55f * share;
+    DrawPaneOutline(pane, warn, 2.0f + 1.5f * beat, (0.55f + 0.45f * beat) * heat);
+    DrawPaneGlow(pane, warn, (0.35f + 0.35f * beat) * heat, 4, 4.0f, -1.0f);
+    DrawPaneGlow(pane, warn, (0.25f + 0.30f * beat) * heat, 3 + (int)(3.0f * share), 4.0f, 1.0f);
     // Point at fraction s (0..1) round the frame, clockwise from the top-left.
     const float perim = 2.0f * (pane.w + pane.h);
     auto at = [&](float s, float& x, float& y) {
@@ -217,14 +227,26 @@ static void DrawPaneFuse(const os_pane::Rect& pane, float share) {
         d -= pane.w;
         x = pane.x; y = pane.y + pane.h - d;
     };
-    const float laps = 1.2f * share + 3.2f * share * share;
-    constexpr int kTrail = 34;
-    for (int i = 0; i < kTrail; ++i) {
-        float x0, y0, x1, y1;
-        at(laps - 0.012f * (float)i, x0, y0);
-        at(laps - 0.012f * (float)(i + 1), x1, y1);
-        PaneSeg(x0, y0, x1, y1, i < 3 ? 4.0f : 2.4f, i < 3 ? white : warn,
-                1.0f - (float)i / (float)kTrail);
+    // The burnt part: from the top middle, half the frame each way at the end.
+    const float start = pane.w * 0.5f / perim;
+    const float reach = 0.5f * std::min(1.0f, share * 1.08f);
+    constexpr int kSteps = 96;   // short enough steps that corners stay square
+    for (int side = -1; side <= 1; side += 2) {
+        for (int i = 0; i < kSteps; ++i) {
+            const float t0 = reach * (float)i / kSteps, t1 = reach * (float)(i + 1) / kSteps;
+            float x0, y0, x1, y1;
+            at(start + side * t0, x0, y0);
+            at(start + side * t1, x1, y1);
+            const bool head = i >= kSteps - 4;
+            PaneSeg(x0, y0, x1, y1, head ? 5.0f : 3.0f, head ? white : warn, head ? 1.0f : 0.9f);
+        }
+        float hx, hy;   // the burning head: a short white cross-bar
+        at(start + side * reach, hx, hy);
+        if (reach > 0.0f && reach < 0.5f) {
+            const float k = 7.0f + 4.0f * beat;
+            PaneSeg(hx - k, hy, hx + k, hy, 2.0f, white, 0.9f);
+            PaneSeg(hx, hy - k, hx, hy + k, 2.0f, white, 0.9f);
+        }
     }
     if (share > 0.92f) DrawPaneOutline(pane, white, 4.0f, 1.0f);
 }
@@ -269,28 +291,52 @@ static float g_NormaJudgment = -1.0f;
 static bool  g_NormaDoom = false;   // the coming death is the verdict
 static constexpr float kNormaJudgmentSeconds = 10.0f;
 
-// NORMA's health under the wave track: a dim full-length line, the bright
-// remaining share over it, and a notch where phase 2 begins. Lines only.
+// The boss's health under the wave track: a dim full-length line and the
+// bright remaining share of the current phase's bar over it. Lines only.
 static void DrawNormaBossBar(float sw, float scale, float topY) {
     const Monster* boss = nullptr;
     for (const Monster* m : g_MonsterManager.monsters)
         if (IsBossMob(m->kind) && m->alive) { boss = m; break; }
     if (!boss) return;
-    const float ratio = std::clamp(boss->hp / std::max(1.0f, boss->normaMaxHp), 0.0f, 1.0f);
+    float ratio = std::clamp(boss->hp / std::max(1.0f, boss->normaMaxHp), 0.0f, 1.0f);
     const float w = sw * 0.36f, x0 = (sw - w) * 0.5f;
     const float y = topY + 92.0f * scale;
     const bool caelumBoss = boss->kind == MobKind::CAELUM;
     const hud_lines::Rgb ice = caelumBoss ? hud_lines::Rgb{ 1.0f, 0.82f, 0.50f }
                                           : hud_lines::Rgb{ 0.72f, 0.94f, 1.0f };
+    // ERIDANUS (CAELUM): one bar per phase. Phase 1's share drains to empty,
+    // then a fresh bar fills up through the phase shift and phase 2 drains it.
+    float refill = 0.0f;
+    if (caelumBoss) {
+        const float split = caelum::kPhase2Ratio;
+        if (boss->normaPhase == 2) {
+            ratio = std::clamp(ratio / split, 0.0f, 1.0f);
+            const float u = 1.0f - std::clamp(caelum::g.invuln / caelum::kPhaseInvuln, 0.0f, 1.0f);
+            const float fill = u * u * (3.0f - 2.0f * u);
+            ratio *= fill;
+            refill = 1.0f - fill;
+        } else {
+            ratio = std::clamp((ratio - split) / (1.0f - split), 0.0f, 1.0f);
+        }
+    } else {
+        // OCTANS (NORMA) the same way: its bar refills while it is untouchable.
+        ratio = norma::BarShareFor(boss->hp, boss->normaMaxHp, boss->normaPhase);
+        if (boss->normaPhase == 2 && boss->normaInvuln > 0.0f) {
+            const float fill = norma::BarRefillFor(boss->normaInvuln);
+            ratio *= fill;
+            refill = 1.0f - fill;
+        }
+    }
     BindMainShader();
     hud_lines::Segment(x0, y, x0 + w, y, 2.0f * scale, ice, 0.22f);
     if (ratio > 0.0f)
         hud_lines::Segment(x0, y, x0 + w * ratio, y, 3.0f * scale, ice, 0.95f);
-    const float notch = x0 + w * (caelumBoss ? caelum::kPhase2Ratio : norma::kPhase2Ratio);
-    hud_lines::Segment(notch, y - 6.0f * scale, notch, y + 6.0f * scale, 1.4f * scale, ice, 0.7f);
+    if (refill > 0.0f && ratio > 0.0f)   // the filling edge glows white
+        hud_lines::Segment(x0 + w * ratio - 3.0f * scale, y - 4.0f * scale, x0 + w * ratio - 3.0f * scale, y + 4.0f * scale,
+                           2.0f * scale, hud_lines::Rgb{ 1.0f, 1.0f, 1.0f }, refill);
     BatchFlush();
-    const wchar_t* name = caelumBoss ? (boss->normaPhase == 2 ? L"CAELUM  II" : L"CAELUM")
-                        : boss->normaPhase == 2 ? L"NORMA  II" : L"NORMA";
+    const wchar_t* name = caelumBoss ? (boss->normaPhase == 2 ? L"ERIDANUS  II" : L"ERIDANUS")
+                        : boss->normaPhase == 2 ? L"OCTANS  II" : L"OCTANS";
     const float ts = 0.55f * scale;
     g_TextS.Draw(name, x0, y - 10.0f * scale - g_TextS.Height(name, ts), ts,
                  ice.r, ice.g, ice.b, 0.95f);
@@ -1214,7 +1260,8 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             // A cascade of big panes over the ground between the boss and the
             // player, leaning one way or the other.
             const float bsx = W2SX(boss->worldX), bsy = W2SY(boss->worldY);
-            const int n = norma::WallCountFor(boss->normaPhase);
+            const int n = norma::WallCountFor(boss->normaPhase, (int)g_Difficulty);
+            const float spread = norma::WallSpreadFor(n);
             // Panes of random size, strewn across the line from the boss to the
             // player (spread sideways and at random depth), so each run's
             // barricade and footprints differ.
@@ -1231,7 +1278,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                 p.w = std::min(maxW, frand(norma::kWallMinW, norma::kWallMaxW));
                 p.h = std::min(maxH, frand(norma::kWallMinH, norma::kWallMaxH));
                 const float along = len * frand(0.25f, 0.75f);
-                const float side = ((float)i - (float)(n - 1) * 0.5f) * norma::kWallSpread +
+                const float side = ((float)i - (float)(n - 1) * 0.5f) * spread +
                                    frand(-norma::kWallJitter, norma::kWallJitter);
                 const float cx = bsx + ux * along + nx * side, cy = bsy + uy * along + ny * side;
                 p.x = std::clamp(cx - p.w * 0.5f, 0.0f, std::max(0.0f, sw - p.w));
@@ -2038,11 +2085,14 @@ static void TickPaneFuses(float dt) {
         const int ring = (int)std::round(norma::kThrowRing * norma::kDetonateBurstShare);
         const int inner = (int)std::round(norma::kThrowInner * norma::kDetonateBurstShare);
         const float spin = RandRange(0.0f, 6.2831853f);
+        const size_t first = g_Bullets.size();
         for (int i = 0; i < ring; ++i)
             SpawnNormaShot(cx, cy, spin + 6.2831853f * (float)i / ring, norma::kThrowRingSpeed);
         for (int i = 0; i < inner; ++i)
             SpawnNormaShot(cx, cy, spin + 6.2831853f * ((float)i + 0.5f) / inner,
                            norma::kThrowInnerSpeed);
+        // Every pane open now stops the burst, even ones opened after it.
+        for (size_t i = first; i < g_Bullets.size(); ++i) g_Bullets[i].anyPaneStops = true;
         Shake(0.3f, 14.0f);
     }
     g_PaneFuses.erase(std::remove_if(g_PaneFuses.begin(), g_PaneFuses.end(),
@@ -2461,10 +2511,10 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
 // Felling the final wave's boss (NORMA or CAELUM) wins the run at once.
 static void CompleteBossRun(int finalWave) {
     static const wchar_t* const norma[3] = {
-        L"NORMA 처치", L"NORMA Defeated", L"NORMA撃破"
+        L"OCTANS 처치", L"OCTANS Defeated", L"OCTANS撃破"
     };
     static const wchar_t* const caelumWin[3] = {
-        L"CAELUM 처치", L"CAELUM Defeated", L"CAELUM撃破"
+        L"ERIDANUS 처치", L"ERIDANUS Defeated", L"ERIDANUS撃破"
     };
     FinishRunVictory(finalWave, FinalBossKind() == MobKind::CAELUM ? caelumWin : norma, "boss_defeated");
 }
@@ -4308,11 +4358,11 @@ int main() {
                                 ++open;
                                 if (p.locked) ++locked;
                             }
-                            std::fprintf(nf, "%s ovl=%.0f state=%d hp=%.0f boss=%d pattern=%d stage=%d exposed=%.2f shots=%d panes=%d locked=%d fuses=%d box=%d/%d ram=%d/%d\n",
+                            std::fprintf(nf, "%s ovl=%.0f state=%d hp=%.0f boss=%d pattern=%d stage=%d exposed=%.2f shots=%d panes=%d locked=%d fuses=%d box=%d/%d ram=%d/%d wall=%d\n",
                                 step.c_str() + 10, ovl, (int)gm.currentState, gm.playerHP, nb ? 1 : 0, nb ? (int)nb->normaPattern : -1,
                                 nb ? (int)nb->normaStage : -1, nb ? nb->normaExposed : 0.0f, shots,
                                 open, locked, (int)g_PaneFuses.size(), g_ThrowBox.id, g_ThrowBox.stage,
-                                g_PaneRams.empty() ? 0 : g_PaneRams[0].id, g_PaneRams.empty() ? 0 : g_PaneRams[0].stage);
+                                g_PaneRams.empty() ? 0 : g_PaneRams[0].id, g_PaneRams.empty() ? 0 : g_PaneRams[0].stage, (int)g_Wall.panes.size());
                             std::fclose(nf);
                         }
                     } else if (step == "NORMACLOSE") {
@@ -4620,8 +4670,8 @@ int main() {
                     else    wcscpy_s(g_DeathReason, UNK[li]);
                     if (g_NormaDoom) {
                         static const wchar_t* const DOOM[3] = {
-                            L"NORMA의 심판: 시간 초과", L"Judged by NORMA: time ran out",
-                            L"NORMAの裁き: 時間切れ" };
+                            L"OCTANS의 심판: 시간 초과", L"Judged by OCTANS: time ran out",
+                            L"OCTANSの裁き: 時間切れ" };
                         wcscpy_s(g_DeathReason, DOOM[li]);
                     }
                 }
@@ -4931,10 +4981,10 @@ int main() {
                 g_PlayerDmgMult = g_Stats.GetDamageTakenMult();
                 const float zoomNow = (g_ViewZoom < 0.01f) ? 0.01f : g_ViewZoom;
                 float mvX = 0.0f, mvY = 0.0f;
+                const MoveInput mv = ResolvedMoveHeld();
                 const float mlen = UpdatePlayerMovement(
                     playerWin.x, playerWin.y,
-                    ActionHeld(GameAction::MoveUp), ActionHeld(GameAction::MoveDown),
-                    ActionHeld(GameAction::MoveLeft), ActionHeld(GameAction::MoveRight),
+                    mv.up, mv.down, mv.left, mv.right,
                     playerControl, MOVE_SPEED * g_Stats.GetMoveMultiplier(lmb) *
                         caelum::MoveFactor(),   // weakened by CAELUM's corruption
                     FIXED_DT, g_PlayerRuntime.dashActive, mvX, mvY);

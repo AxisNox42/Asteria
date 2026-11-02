@@ -452,7 +452,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         bool isKeyReset = false;            // CONTROLS: restore-defaults row
     };
     SRow settingsRows[5][10] = {};
-    const int rowCounts[5] = { 3, 5, kDebugSettingsVisible ? 3 : 2,
+    const int rowCounts[5] = { 3, 5, kDebugSettingsVisible ? 4 : 3,
                                GAME_ACTION_COUNT + 1, 2 };
 
     static wchar_t s_volBuf[8];
@@ -498,7 +498,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
                            { toggleOn, toggleOff }, 2, g_AutoSkill ? 0 : 1 };
     settingsRows[2][1] = { SettingsText(L"조준선", L"CROSSHAIR", L"照準"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_ShowCrosshair ? 0 : 1 };
-    settingsRows[2][2] = { SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード"), nullptr, false, false, false, false,
+    // Off by default: the boss panes then show only Windows wallpapers.
+    settingsRows[2][2] = { SettingsText(L"보스 창에 내 사진", L"MY PHOTOS IN PANES", L"ボス窓に写真"), nullptr, false, false, false, false,
+                           { toggleOn, toggleOff }, 2, g_PanePhotos ? 0 : 1 };
+    settingsRows[2][3] = { SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_DebugMode ? 0 : 1 };
     for (int a = 0; a < GAME_ACTION_COUNT; ++a) {
         settingsRows[3][a].label = kKeyActionLabels[a][LangIndex()];
@@ -535,7 +538,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
         } else if (category == 2) {
             if (row == 0) return g_AutoSkill != savedSettings.autoSkill;
             if (row == 1) return g_ShowCrosshair != savedSettings.crosshair;
-            if (row == 2) return g_DebugMode != savedSettings.debugMode;
+            if (row == 2) return g_PanePhotos != savedSettings.panePhotos;
+            if (row == 3) return g_DebugMode != savedSettings.debugMode;
         } else if (category == 3) {
             return row < GAME_ACTION_COUNT
                 && g_KeyBinds.key[row] != savedSettings.keyBinds.key[row];
@@ -566,9 +570,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
         SettingsText(L"효과음 채널", L"SFX BUS", L"効果音"),
         SettingsText(L"출력", L"OUTPUT", L"出力"),
         SettingsText(L"오디오 엔진", L"AUDIO ENGINE", L"オーディオエンジン") };
-    const wchar_t* gameplayLabels[3] = {
+    const wchar_t* gameplayLabels[4] = {
         SettingsText(L"자동 스킬", L"AUTO SKILL", L"自動スキル"),
         SettingsText(L"조준선", L"CROSSHAIR", L"照準"),
+        SettingsText(L"보스 창에 내 사진", L"MY PHOTOS IN PANES", L"ボス窓に写真"),
         SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード") };
     const wchar_t* controlsLabels[GAME_ACTION_COUNT + 1] = {};
     for (int a = 0; a < GAME_ACTION_COUNT; ++a)
@@ -584,7 +589,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     addHeader(1, SettingsText(L"소리", L"AUDIO", L"サウンド"));
     if (tab == 1) for (int i = 0; i < 5; ++i) addItem(1, i, audioLabels[i]);
     addHeader(2, SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"));
-    if (tab == 2) for (int i = 0; i < (kDebugSettingsVisible ? 3 : 2); ++i)
+    if (tab == 2) for (int i = 0; i < (kDebugSettingsVisible ? 4 : 3); ++i)
         addItem(2, i, gameplayLabels[i]);
     addHeader(3, SettingsText(L"조작", L"CONTROLS", L"操作"));
     if (tab == 3) for (int i = 0; i < GAME_ACTION_COUNT + 1; ++i)
@@ -989,7 +994,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 };
                 return output[optionLanguage][optionIndex];
             }
-        } else if (category == 2 && row < 3) {
+        } else if (category == 2 && row < 4) {
             return kToggleLabels[optionLanguage][optionIndex];
         } else if (category == 4 && row == 0) {
             static const wchar_t* language[] = {
@@ -1667,7 +1672,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
          } else if (category == 2) {
              if (row == 0) g_AutoSkill = option == 0;
              else if (row == 1) g_ShowCrosshair = option == 0;
-             else if (row == 2) g_DebugMode = option == 0;
+             else if (row == 2) g_PanePhotos = option == 0;
+             else if (row == 3) g_DebugMode = option == 0;
          } else if (category == 4 && row == 0) {
              g_Language = option == 0 ? Language::KR :
                           option == 1 ? Language::EN : Language::JP;

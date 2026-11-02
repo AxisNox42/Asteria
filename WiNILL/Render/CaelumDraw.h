@@ -313,7 +313,8 @@ inline void DrawOverlay(float time) {
         }
     }
 
-    // 2 Scanline: the stretch's rails ahead of the head, the head, the gap.
+    // 2 Scanline: the stretch's rails ahead of the head, and the head. The gap
+    // is not marked: the player reads it from where no warning lands.
     for (const Scan& s : g.scans) {
         const int len = s.len;
         float lx, ly, lw, lh;
@@ -325,10 +326,6 @@ inline void DrawOverlay(float time) {
             if (s.horiz) { Seg(lx, ly, lx + lw, ly, 1.2f, H[0], H[1], H[2], rail); Seg(lx, ly + lh, lx + lw, ly + lh, 1.2f, H[0], H[1], H[2], rail); }
             else         { Seg(lx, ly, lx, ly + lh, 1.2f, H[0], H[1], H[2], rail); Seg(lx + lw, ly, lx + lw, ly + lh, 1.2f, H[0], H[1], H[2], rail); }
         }
-        const int gapCell = s.horiz ? s.line * Cols() + s.gap : s.gap * Cols() + s.line;
-        float gx, gy, gw, gh;
-        CellRect(gapCell, gx, gy, gw, gh);
-        Corners(gx + 6.0f, gy + 6.0f, gw - 12.0f, gh - 12.0f, 26.0f, 3.0f, 0.75f, 1.0f, 0.85f, 0.9f);   // the way through
         if (s.done < len) {
             const float k = std::clamp(s.head, 0.0f, (float)len);
             const float along = ((float)s.from + (s.dir > 0 ? k : (float)len - k)) * kCell;
@@ -489,13 +486,55 @@ inline void DrawCursor(float time) {
 // ── The body ────────────────────────────────────────────────
 // A round viewfinder (Docs/Concepts/Caelum_Body_Design_A_v2.png, A1).
 // Corrupt form: a round frame with crop marks bent onto it and a three-ring
-// lens, all torn sideways in three bands (a broken display, re-rolled a few
-// times a second), hollow pixels leaking off one side. Sniper form
-// (g.formBlend): the tear closes, the frame pulls in, the lens rings close,
+// lens, all one unbroken piece; the frame (crop marks and handles) turns
+// slowly one way while the lens turns the other, and hollow pixels shed off
+// the rim behind it as it moves (all round when it is still). Sniper form
+// (g.formBlend): the frame pulls in, the lens rings close,
 // and a short bore runs from the core to the lens rim with a notch on the
 // frame where it points; nothing sticks out further. Eight handles sit on the
-// frame (one per eighth of health). Phase 2 tears harder and pushes the crop
-// marks off the frame.
+// frame (one per eighth of health). Phase 2 pushes the crop marks off the
+// frame.
+// The hollow pixels it sheds: real particles in world space, so they stream
+// out behind whichever way it moves.
+struct LeakPx { float x, y, vx, vy, age, life, size; };
+constexpr int kLeakPx = 16;
+inline LeakPx g_LeakPx[kLeakPx];
+inline int    g_LeakN = 0;
+inline float  g_LeakLast = -1.0f, g_LeakAcc = 0.0f;
+
+inline void TickLeakPixels(float x, float y, float R, float base, float vx, float vy,
+                           float rate, float visualTime) {
+    const float dt = g_LeakLast < 0.0f ? 0.0f : std::clamp(visualTime - g_LeakLast, 0.0f, 0.1f);
+    g_LeakLast = visualTime;
+    int n = 0;
+    for (int i = 0; i < g_LeakN; ++i) {
+        LeakPx p = g_LeakPx[i];
+        p.age += dt;
+        if (p.age >= p.life) continue;
+        const float drag = std::exp(-1.5f * dt);
+        p.vx *= drag; p.vy *= drag;
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        g_LeakPx[n++] = p;
+    }
+    g_LeakN = n;
+    g_LeakAcc += rate * dt;
+    const float sp = std::sqrt(vx * vx + vy * vy);
+    while (g_LeakAcc >= 1.0f) {
+        g_LeakAcc -= 1.0f;
+        if (g_LeakN >= kLeakPx) continue;
+        const float spread = ((float)(std::rand() % 1000) / 1000.0f - 0.5f);
+        // Moving: off the trailing side. Still: anywhere round the rim.
+        const float a = sp > 20.0f ? std::atan2(-vy, -vx) + spread * 1.4f : spread * 6.2831853f;
+        const float out = 30.0f + (float)(std::rand() % 30);
+        LeakPx p;
+        p.x = x + std::cos(a) * R * 0.85f; p.y = y + std::sin(a) * R * 0.85f;
+        p.vx = std::cos(a) * out; p.vy = std::sin(a) * out;
+        p.age = 0.0f; p.life = 1.0f + (float)(std::rand() % 50) / 100.0f;
+        p.size = base * (0.09f + (float)(std::rand() % 50) / 1000.0f);
+        g_LeakPx[g_LeakN++] = p;
+    }
+}
+
 inline void DrawBody(const Monster* m, float base, float visualTime) {
     using namespace caelum;
     const float x = m->worldX, y = m->worldY;
@@ -514,48 +553,32 @@ inline void DrawBody(const Monster* m, float base, float visualTime) {
     const float R = base * 1.3f * (1.0f - 0.06f * charge + 0.08f * open) * (1.0f - 0.12f * sn);
     const float push = p2 ? R * (0.08f + 0.04f * std::sin(visualTime * 3.0f)) * crop : 0.0f;
 
-    // The tear: three horizontal bands, the lower two shifted sideways.
-    const unsigned tick = (unsigned)(visualTime / 0.2f);
-    const float amp = base * (p2 ? 0.50f : 0.34f) * crop;
-    float dx[3] = { 0.0f, 0.0f, 0.0f };
-    for (int i = 1; i < 3; ++i) {
-        const unsigned h = Hash(31u, tick, (unsigned)i);
-        const float f = (float)(h % 1000u) / 1000.0f;
-        dx[i] = amp * (i == 1 ? 0.6f + 0.4f * f : -(0.2f + 0.4f * f));
-    }
-    const float cut0 = y - R + 2.0f * R * 0.36f, cut1 = y - R + 2.0f * R * 0.60f;
-    auto bandOf = [&](float py) { return py < cut0 ? 0 : (py < cut1 ? 1 : 2); };
-    // An arc cut where it crosses a band edge, each piece shifted with its band.
-    auto tornArc = [&](float rad, float a0, float a1, float w, float al) {
+    // One whole piece: every arc and arm is drawn unbroken.
+    auto arc = [&](float rad, float a0, float a1, float w, float al) {
         const int n = std::max(6, (int)(std::fabs(a1 - a0) * rad / 6.0f));
         float px = x + std::cos(a0) * rad, py = y + std::sin(a0) * rad;
-        int pb = bandOf(py);
         for (int k = 1; k <= n; ++k) {
             const float a = a0 + (a1 - a0) * (float)k / (float)n;
             const float qx = x + std::cos(a) * rad, qy = y + std::sin(a) * rad;
-            const int qb = bandOf(qy);
-            if (qb == pb) Seg(px + dx[pb], py, qx + dx[qb], qy, w, r, gg, b, al);
-            px = qx; py = qy; pb = qb;
+            Seg(px, py, qx, qy, w, r, gg, b, al);
+            px = qx; py = qy;
         }
-    };
-    auto tornSeg = [&](float x0, float y0, float x1, float y1, float w, float al) {
-        const float d = dx[bandOf(y0)];
-        Seg(x0 + d, y0, x1 + d, y1, w, r, gg, b, al);
     };
 
     // Frame: a faint ring.
-    tornArc(R, 0.0f, 6.2831853f, 1.0f, 0.30f * pulse);
+    arc(R, 0.0f, 6.2831853f, 1.0f, 0.30f * pulse);
     // Crop marks bent onto the ring: an arc along it and a short arm inward at
     // each end. In sniper form one of them turns to face the aim.
-    const float turn = std::remainder(g.aimAng - 0.7853982f, 6.2831853f) * sn;
+    const float spin = -m->normaVisualAngle * 0.5f;
+    const float turn = spin + std::remainder(g.aimAng - 0.7853982f - spin, 6.2831853f) * sn;
     const float arm = 0.46f - 0.12f * sn, RB = R + push;
     for (int k = 0; k < 4; ++k) {
         const float a = turn + 0.7853982f + 1.5707963f * (float)k;
-        tornArc(RB, a - arm, a + arm, 3.0f + 1.5f * flash, pulse);
+        arc(RB, a - arm, a + arm, 3.0f + 1.5f * flash, pulse);
         for (int s = -1; s <= 1; s += 2) {
             const float e = a + (float)s * arm;
-            tornSeg(x + std::cos(e) * RB, y + std::sin(e) * RB,
-                    x + std::cos(e) * RB * 0.84f, y + std::sin(e) * RB * 0.84f, 3.0f + 1.5f * flash, pulse);
+            Seg(x + std::cos(e) * RB, y + std::sin(e) * RB,
+                    x + std::cos(e) * RB * 0.84f, y + std::sin(e) * RB * 0.84f, 3.0f + 1.5f * flash, r, gg, b, pulse);
         }
     }
     // Lens: three rings in four arcs each (closing into full rings when
@@ -568,7 +591,7 @@ inline void DrawBody(const Monster* m, float base, float visualTime) {
         const float w = lensW[i] + (i == 0 ? 0.6f * sn : 0.0f);
         for (int k = 0; k < 4; ++k) {
             const float mid = (i == 1 ? -va : va) * 0.6f + 0.3f + 1.5707963f * (float)k;
-            tornArc(rr, mid - half, mid + half, w, lensA[i] * (i == 0 ? pulse : 1.0f));
+            arc(rr, mid - half, mid + half, w, lensA[i] * (i == 0 ? pulse : 1.0f));
         }
     }
     // Handles on the frame: they go dark as health drops, in this order.
@@ -580,21 +603,23 @@ inline void DrawBody(const Monster* m, float base, float visualTime) {
         for (int k = 0; k < 8; ++k) if (goesDark[k] == i) pos = k;
         const bool on = pos >= kHealthHandles - lit;
         const bool justLost = !on && pos == kHealthHandles - lit - 1 && g.handleFlash > 0.0f;
-        const float a = -1.5707963f + 0.3926991f + 0.7853982f * (float)i;
+        const float a = turn - 1.5707963f + 0.3926991f + 0.7853982f * (float)i;
         const float hy = y + std::sin(a) * R;
-        const float hxp = x + std::cos(a) * R + dx[bandOf(hy)];
+        const float hxp = x + std::cos(a) * R;
         Box(hxp - hs, hy - hs, hs * 2.0f, hs * 2.0f, on ? 2.0f : 1.0f, r, gg, b, on ? 1.0f : (justLost ? 0.9f : 0.18f));
         if (on) Box(hxp - hs * 0.45f, hy - hs * 0.45f, hs * 0.9f, hs * 0.9f, 1.2f, r, gg, b, 0.8f);
     }
-    // Corruption leaking out: hollow pixels off the lower right.
-    if (crop > 0.01f) {
-        for (int i = 0; i < 4; ++i) {
-            const unsigned h = Hash(57u, tick, (unsigned)i);
-            const float s = base * 0.13f * (1.0f - 0.12f * (float)i);
-            const float px = x + R * 0.72f + base * 0.2f * (float)(i + 1) + (float)(h % 9u) - 4.0f;
-            const float py = y + R * 0.75f + base * 0.18f * (float)(i + 1);
-            Box(px, py, s, s, 1.2f, r, gg, b, (0.85f - 0.18f * (float)i) * crop);
-        }
+    // Corruption leaking out: hollow pixels shed off the rim, more when it
+    // moves, none in sniper form; they shrink and fade as they drift.
+    TickLeakPixels(x, y, R, base, m->normaVelX, m->normaVelY,
+                   crop > 0.01f ? std::min(12.0f, 3.0f + std::sqrt(m->normaVelX * m->normaVelX + m->normaVelY * m->normaVelY) * 0.04f) : 0.0f,
+                   visualTime);
+    for (int i = 0; i < g_LeakN; ++i) {
+        const LeakPx& p = g_LeakPx[i];
+        const float u = p.age / p.life;
+        const float s = p.size * (1.0f - 0.5f * u);
+        const float fade = std::min(1.0f, u * 6.0f) * (1.0f - u);
+        Box(p.x - s * 0.5f, p.y - s * 0.5f, s, s, 1.2f, r, gg, b, 0.95f * fade);
     }
     // Sniper form: a short bore from the core to the lens rim, a notch on the
     // frame where it points, focus ticks on the other three sides.

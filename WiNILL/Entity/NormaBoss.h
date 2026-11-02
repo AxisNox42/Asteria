@@ -102,7 +102,6 @@ constexpr float kAimStreamSpeed = 500.0f;
 constexpr float kAimTrackTelegraph = 4.0f;  // rad/s while warning
 constexpr float kAimTrackRate = 1.8f;       // rad/s while firing
 constexpr float kAimJitter = 0.04f;         // rad, alternating
-constexpr float kAimLineLength = 360.0f;    // warning line, well short of the edge
 constexpr float kAimMuzzle = 1.8f;          // muzzle star distance, in body units (base)
 constexpr float kAimDrill = 1.6f;           // rad/s the cube turns about the aim while firing
 
@@ -196,7 +195,9 @@ constexpr float kWallKnock = 260.0f;        // world px of shove
 constexpr float kWallPlayerMargin = 14.0f;  // px kept between the player's centre and a pane's edge
 constexpr float kWallDetourSpeed = 170.0f;  // px/s a mob slides along a pane's edge toward the player's side
 constexpr int   kWallCount = 4;
-constexpr int   kWallCountPhase2 = 4;
+constexpr int   kWallCountPhase2 = 6;
+// Extra wall panes per difficulty (EASY, NORMAL, HARD, NIGHTMARE).
+constexpr int   kWallCountByDifficulty[4] = { 0, 0, 1, 2 };
 constexpr float kWallStagger = 0.1f;
 constexpr float kWallHold = 0.3f;           // beat after the last pane before the stand timer
 // Each pane gets a random size within these (screen px, capped by a share of the screen)
@@ -209,7 +210,12 @@ constexpr float kWallWarn = 1.2f;           // red brackets mark the footprints 
 constexpr float kWallStand = 2.5f;          // seconds the wall stays up before it is lit
 constexpr float kWallBuildSeconds = 1.0f;   // the boss's telegraph
 constexpr float kWallSeconds = 4.5f;        // the boss's share of the pattern
-inline int WallCountFor(int phase) { return phase >= 2 ? kWallCountPhase2 : kWallCount; }
+inline int WallCountFor(int phase, int difficulty) {
+    return (phase >= 2 ? kWallCountPhase2 : kWallCount) +
+           kWallCountByDifficulty[difficulty < 0 ? 0 : difficulty > 3 ? 3 : difficulty];
+}
+// The sideways spread narrows past 6 panes so a big wall stays on screen.
+inline float WallSpreadFor(int n) { return n > 6 ? kWallSpread * 5.0f / (float)(n - 1) : kWallSpread; }
 
 // 14 Warp (phase 2): the boss glides into one of its panes and is gone: it
 // cannot be hurt or touch anyone. The pane it will burst out of (the one near
@@ -329,6 +335,23 @@ inline float LeadAngle(float sx, float sy, float px, float py, float vx, float v
 inline int PhaseFor(float hp, float maxHp) {
     if (maxHp <= 0.0f) return 1;
     return hp <= maxHp * kPhase2Ratio ? 2 : 1;
+}
+
+// The boss bar shows each phase as its own full bar: phase 1 drains the HP
+// above kPhase2Ratio, then the bar refills (over kPhaseInvuln, after a beat
+// of kBarRefillHold empty) and phase 2 drains the rest.
+constexpr float kBarRefillHold = 0.25f;
+inline float BarShareFor(float hp, float maxHp, int phase) {
+    if (maxHp <= 0.0f) return 0.0f;
+    const float split = maxHp * kPhase2Ratio;
+    const float share = phase >= 2 ? hp / split : (hp - split) / (maxHp - split);
+    return std::clamp(share, 0.0f, 1.0f);
+}
+// 0..1 how far the phase 2 bar has refilled, from the invulnerable time left.
+inline float BarRefillFor(float invulnLeft) {
+    const float t = 1.0f - std::clamp(invulnLeft / kPhaseInvuln, 0.0f, 1.0f);
+    const float k = std::clamp((t - kBarRefillHold) / (1.0f - kBarRefillHold), 0.0f, 1.0f);
+    return k * k * (3.0f - 2.0f * k);
 }
 
 // Signed speed toward the player (+) or away (-) that keeps the hover band.

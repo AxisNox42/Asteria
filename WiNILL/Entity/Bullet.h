@@ -54,6 +54,9 @@ public:
     float firedAt = 0.0f;
     // NORMA's shot: a small square with a short tail (placeholder look).
     bool  normaShot = false;
+    // Stopped by every pane it flies into, even one opened after it was fired
+    // (a blown pane's burst meeting the panes Detonate reopens).
+    bool  anyPaneStops = false;
 
     glm::vec3 color = glm::vec3(1.0f, 1.0f, 0.0f);
 

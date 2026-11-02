@@ -1,6 +1,7 @@
 // Headless regression for the Gravis field: the pull is stronger but
 // capped against the player's move speed, and the time-dilation influence
-// slows fire / dash recovery without stacking across several Gravis.
+// slows fire / dash recovery without stacking across several Gravis, and
+// the pull builds up as accelerated drift that coasts out of the field.
 // Run with scripts/test_gravis_field.ps1.
 #include "GravisField.h"
 #include "Monster.h"
@@ -94,6 +95,45 @@ static void CheckOutsideFieldIsNeutral() {
     std::printf("outside / core neutral ok\n");
 }
 
+static void CheckDriftAccelerates() {
+    using namespace GravisField;
+    const float dt = 1.0f / 120.0f;
+    const float cap = PullCap(400.0f);
+    PullDrift drift;
+    // A steady 200 px/s pull: drift starts at rest and builds up toward it.
+    drift.Step(200.0f, 0.0f, true, cap, dt);
+    assert(drift.vx > 0.0f && drift.vx < 10.0f);
+    float prev = drift.vx;
+    for (int i = 0; i < 60; ++i) {
+        drift.Step(200.0f, 0.0f, true, cap, dt);
+        assert(drift.vx > prev);
+        prev = drift.vx;
+    }
+    assert(drift.vx > 90.0f && drift.vx < 200.0f);   // ~0.5 s in: halfway there
+    for (int i = 0; i < 600; ++i) drift.Step(200.0f, 0.0f, true, cap, dt);
+    assert(Near(drift.vx, 200.0f, 0.5f));
+    std::printf("drift builds up to the local pull ok\n");
+}
+
+static void CheckDriftCoastsAndCaps() {
+    using namespace GravisField;
+    const float dt = 1.0f / 120.0f;
+    const float cap = PullCap(400.0f);
+    PullDrift drift;
+    for (int i = 0; i < 600; ++i) drift.Step(cap, 0.0f, true, cap, dt);
+    assert(drift.vx <= cap + 0.01f);
+    // Leaving the field: momentum carries for a moment, then bleeds off.
+    drift.Step(0.0f, 0.0f, false, cap, dt);
+    assert(drift.vx > cap * 0.9f);
+    for (int i = 0; i < 360; ++i) drift.Step(0.0f, 0.0f, false, cap, dt);
+    assert(Near(drift.vx, 0.0f) && Near(drift.vy, 0.0f));
+    // A lower cap (slowed player) clamps existing drift right away.
+    for (int i = 0; i < 600; ++i) drift.Step(cap, 0.0f, true, cap, dt);
+    drift.Step(cap, 0.0f, true, cap * 0.5f, dt);
+    assert(drift.vx <= cap * 0.5f + 0.01f);
+    std::printf("drift coasts out and stays capped ok\n");
+}
+
 static void CheckEliteSet() {
     assert(!IsEliteMob(MobKind::GRAVIS));
     assert(IsEliteMob(MobKind::REGULUS));
@@ -122,6 +162,8 @@ int main() {
     CheckDilationUsesStrongestOnly();
     CheckDilationValues();
     CheckOutsideFieldIsNeutral();
+    CheckDriftAccelerates();
+    CheckDriftCoastsAndCaps();
     CheckEliteSet();
     std::printf("gravis field regression passed\n");
     return 0;

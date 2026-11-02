@@ -1,6 +1,8 @@
 #pragma once
 // Gravis field: a pull on the player (capped against move speed so it
 // never becomes a cage) plus time dilation that slows fire and dash recovery.
+// The pull is an acceleration: drift velocity builds up while the player
+// stays in the field and coasts out after leaving it.
 // Pure math lives here so it can be regression-tested headlessly.
 #include <algorithm>
 #include <cmath>
@@ -18,6 +20,8 @@ inline constexpr float PULL_GAIN         = 240.0f;  // extra px/s toward the cor
 inline constexpr float PULL_CAP_RATIO    = 0.80f;   // of the player's move speed
 inline constexpr float FIRE_SLOW         = 0.40f;   // +40% fire interval at the core
 inline constexpr float DASH_RECOVER_SLOW = 0.50f;   // -50% dash cooldown regen
+inline constexpr float PULL_RESPONSE     = 1.6f;    // 1/s: drift settles on the local pull in ~0.6 s
+inline constexpr float PULL_COAST_DRAG   = 2.4f;    // 1/s: drift bleeds off outside every field
 
 // 0 at the rim (and beyond), 1 on the core.
 inline float Influence(float distSq) {
@@ -63,12 +67,39 @@ struct FieldAccum {
     }
 };
 
+// Drift velocity the field has built up on the player. Gravity accelerates
+// it toward the local pull (PullSpeed, i.e. the terminal speed) and drag
+// bleeds it off, so the pull ramps up over time and carries past the rim.
+struct PullDrift {
+    float vx = 0.0f;
+    float vy = 0.0f;
+
+    void Reset() { vx = vy = 0.0f; }
+
+    // (targetVX, targetVY) = summed, already-capped pull of every field;
+    // inField = false switches to coasting drag.
+    void Step(float targetVX, float targetVY, bool inField, float cap, float dt) {
+        const float rate = inField ? PULL_RESPONSE : PULL_COAST_DRAG;
+        const float keep = std::exp(-rate * dt);
+        vx = targetVX + (vx - targetVX) * keep;
+        vy = targetVY + (vy - targetVY) * keep;
+        const float length = std::sqrt(vx * vx + vy * vy);
+        if (length > cap && length > 0.0001f) {
+            vx *= cap / length;
+            vy *= cap / length;
+        }
+        if (length < 0.5f && !inField) Reset();
+    }
+};
+
+inline PullDrift g_playerDrift;
+
 // Latest field influence on the player; written by the fixed step, read by the
 // fire and dash-cooldown code.
 inline float g_playerInfluence = 0.0f;
 
-// One fixed step of every live Gravis: pulls the player (capped, skipped
-// while dashing), updates g_playerInfluence and curves bullets.
+// One fixed step of every live Gravis: accelerates the player's drift
+// (capped; a dash cuts it), updates g_playerInfluence and curves bullets.
 void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
            float& playerX, float& playerY, bool playerControl, bool dashActive,
            float moveSpeed, float dt);

@@ -954,9 +954,41 @@ static bool DrawImageTitle(float sw, float sh, float alpha, float reveal,
     return true;
 }
 
+// Plain title (g_TitleStyle 3): "ASTERIA" in the game's regular UI font,
+// fading in with the reveal.
+static void DrawFontTitle(float sw, float sh, float alpha, float reveal,
+                          float centerXOverride, float heightMul) {
+    static const wchar_t kTitle[] = L"ASTERIA";
+    const float appear = Smoothstep(LogoClamp01(reveal / 0.70f));
+    const float a = alpha * appear;
+    if (a <= 0.001f) return;
+
+    const float baseH = MainLogoHeight(sh) * heightMul;
+    const float unitH = g_TextXL.Height(kTitle, 1.0f);
+    const float unitW = g_TextXL.Width(kTitle, 1.0f);
+    if (unitH <= 0.0f || unitW <= 0.0f) return;
+    float scale = baseH * 0.80f / unitH;
+    const float maxW = sw * 0.66f;
+    if (unitW * scale > maxW) scale = maxW / unitW;
+    const float w = unitW * scale;
+    const float h = unitH * scale;
+
+    const float cx = (centerXOverride > 0.0f) ? centerXOverride : sw * 0.5f;
+    const float cy = MainLogoTop(sh) + baseH * 0.5f;
+    float x = cx - w * 0.5f;
+    if (x < 28.0f) x = 28.0f;
+    if (x + w > sw - 28.0f) x = sw - w - 28.0f;
+    g_TextXL.Draw(kTitle, x, cy - h * 0.5f, scale, 0.90f, 0.97f, 1.0f, 0.96f * a);
+    BindMainShader();
+}
+
 void DrawMainAsteriaLogo(float sw, float sh, float alpha, float reveal,
                                float centerXOverride, float heightMul) {
     if (alpha <= 0.001f) return;
+    if (g_TitleStyle == 3) {
+        DrawFontTitle(sw, sh, alpha, reveal, centerXOverride, heightMul);
+        return;
+    }
     if (g_TitleStyle != 0 &&
         DrawImageTitle(sw, sh, alpha, reveal, centerXOverride, heightMul))
         return;

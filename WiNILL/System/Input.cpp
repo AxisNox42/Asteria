@@ -35,6 +35,8 @@ extern wchar_t g_VolBuf[8];
 extern int g_VolLen;
 
 bool  keys[1024] = {};
+unsigned g_KeyPressSeq[1024] = {};
+static unsigned s_KeyPressCounter = 0;
 float g_ScrollAccum = 0.0f;
 bool  g_KeyCaptureActive = false;
 int   g_CapturedKey = -1;
@@ -252,7 +254,10 @@ static void CodexPaste(GLFWwindow* window) {
 
 static void InputKeyCallback(GLFWwindow* window, int key, int, int action, int mods) {
     if (key >= 0 && key < 1024) {
-        if      (action == GLFW_PRESS)   keys[key] = true;
+        if (action == GLFW_PRESS) {
+            keys[key] = true;
+            g_KeyPressSeq[key] = ++s_KeyPressCounter;
+        }
         else if (action == GLFW_RELEASE) keys[key] = false;
     }
     if (g_KeyCaptureActive) {

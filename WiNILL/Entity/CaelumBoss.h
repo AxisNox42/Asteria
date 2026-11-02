@@ -116,8 +116,8 @@ constexpr float kDragTrailLife = 4.0f;      // ... while the cursor drags it
 constexpr float kHeal = 1.0f;
 constexpr float kCorruptDps = 20.0f;
 // Weakened: while in a corrupted cell and kWeakenLinger s after leaving it.
-constexpr float kWeakenLinger = 2.0f;
-constexpr float kWeakMove = 0.70f, kWeakDealt = 0.70f;
+constexpr float kWeakenLinger = 1.5f;
+constexpr float kWeakMove = 0.85f, kWeakDealt = 0.70f;
 struct Cell {
     CellState state = CellState::Clean;
     float t = 0.0f;          // seconds in this state
@@ -137,7 +137,8 @@ struct Cell {
 constexpr int   kMaxBad = 6;
 constexpr float kLeakMin = 3.5f, kLeakMax = 5.5f;
 constexpr float kBadDps = 40.0f;
-constexpr float kBadWeak = 0.55f;          // move and damage dealt while in one
+constexpr float kBadWeak = 0.55f;          // damage dealt while in one
+constexpr float kBadMove = 0.75f;          // move while in one
 
 // ── 1 Spread ────────────────────────────────────────────────
 // Seeds (the first under the player) warn and corrupt; every generation each
@@ -501,7 +502,7 @@ inline void AddBadSector(float px, float py) {
 inline void Reset() { g = State{}; }
 
 // Player's movement and damage to CAELUM while weakened.
-inline float MoveFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? kBadWeak : kWeakMove) : 1.0f; }
+inline float MoveFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? kBadMove : kWeakMove) : 1.0f; }
 inline float DealtFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? kBadWeak : kWeakDealt) : 1.0f; }
 
 // What last hurt the player, so the screen can say why (1 corruption, 2 overflow,
@@ -515,7 +516,7 @@ inline void Hit(float& playerHP, float dmg, int src, float x, float y) {
 }
 
 inline int PhaseFor(float hp, float maxHp) {
-    return (maxHp > 0.0f && hp <= maxHp * kPhase2Ratio) ? 2 : 1;
+    return (maxHp > 0.0f && hp <= maxHp * kPhase2Ratio + 0.01f) ? 2 : 1;   // the phase-1 floor lands on the line
 }
 
 // ── Cells, overflow, erosion, damage ────────────────────────
