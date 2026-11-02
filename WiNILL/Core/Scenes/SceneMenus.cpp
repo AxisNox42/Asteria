@@ -69,9 +69,9 @@ float UiApproach(float v, float target, float dt, float speed) {
 // localized page title appeared.
 const wchar_t* MainMenuRouteLabel(int language, int index) {
     static const wchar_t* kRoutes[3][kMainMenuRouteCount] = {
-        { L"튜토리얼", L"플레이", L"상점", L"도감", L"설정", L"종료" },
-        { L"TUTORIAL", L"PLAY", L"SHOP", L"ASTRAL LOG", L"SETTINGS", L"EXIT" },
-        { L"チュートリアル", L"スタート", L"ショップ", L"星界記録", L"設定", L"終了" },
+        { L"튜토리얼", L"플레이", L"도감", L"상점", L"설정", L"종료" },
+        { L"TUTORIAL", L"PLAY", L"ASTRAL LOG", L"SHOP", L"SETTINGS", L"EXIT" },
+        { L"チュートリアル", L"スタート", L"星界記録", L"ショップ", L"設定", L"終了" },
     };
     const int li = std::max(0, std::min(2, language));
     const int mi = std::max(0, std::min(kMainMenuRouteCount - 1, index));
@@ -105,6 +105,21 @@ void SmokeOpenMenuPanel(int panel) {
     }
 }
 static void DrawInfiniteConstellationField(float sw, float sh, float strength);
+// Settings > DISPLAY menu darkness as a multiplier for the menu dim alphas.
+// Only out-of-game screens read it: any in-run state (combat, practice field,
+// pause, card picks) always gets 1.0 here, so the pause veil keeps its fixed
+// look; in-run screens take a fixed 20% of the darkness from main.cpp instead. SETTINGS opened from pause counts as a menu.
+static float MenuDimScale() {
+    switch (g_GameManager.currentState) {
+    case GameState::RUNNING: case GameState::DYING: case GameState::PAUSED:
+    case GameState::READY: case GameState::AUG_SELECT:
+    case GameState::DEBUFF_SELECT: case GameState::AUG_REPLACE:
+        return 1.0f;
+    default:
+        return MenuDimFactor(g_MenuDim);
+    }
+}
+
 // 메인메뉴·난이도선택 공용 앰비언트 배경 (파티클 + 스캔라인 + 선택적 비네트)
 void DrawMenuBackground(float sw, float sh, float delta, float darkenAmount,
                         float skyStrength) {
@@ -112,10 +127,15 @@ void DrawMenuBackground(float sw, float sh, float delta, float darkenAmount,
     BindMainShader();
     if (darkenAmount < 0.0f) darkenAmount = 0.0f;
     if (darkenAmount > 1.0f) darkenAmount = 1.0f;
+    const float dim = MenuDimScale();
+    if (dim > 1.0f)   // extra darkness the saturated gradients cannot add
+        drawRect(0, 0, sw, sh, 0.0f, 0.0f, 0.0f,
+                 0.14f * (dim - 1.0f));   // 0 at 50, 0.42 at 100
 
     if (darkenAmount > 0.0f) {
         // 딥 네이비 반투명 — 배경화면이 비치도록
-        drawRect(0, 0, sw, sh, 0.04f, 0.06f, 0.14f, 0.16f * darkenAmount);
+        drawRect(0, 0, sw, sh, 0.04f, 0.06f, 0.14f,
+                 std::min(1.0f, 0.16f * darkenAmount * dim));
     }
 
     DrawInfiniteConstellationField(sw, sh, skyStrength);
@@ -126,15 +146,10 @@ void DrawMenuBackground(float sw, float sh, float delta, float darkenAmount,
         for (float yy = 0.0f; yy < sh; yy += 4.0f)
             drawRect(0.0f, yy, sw, 1.0f, 0.35f, 0.20f, 0.85f, scanlineA);
     }
-    if (darkenAmount > 0.0f) {
-        // 상하 비네트
-        drawRect(0, 0, sw, 110.0f, 0.0f, 0.0f, 0.0f, 0.22f * darkenAmount);
-        drawRect(0, sh - 90.0f, sw, 90.0f, 0.0f, 0.0f, 0.0f, 0.22f * darkenAmount);
-    }
 }
 
 static float MainLogoTop(float sh) {
-    return sh * 0.105f + 50.0f;
+    return sh * 0.150f + 50.0f;
 }
 
 static float MainLogoHeight(float sh) {
@@ -169,7 +184,8 @@ void DrawSceneLeftVignette(float sw, float sh, float alpha) {
     if (alpha <= 0.001f) return;
     const UiThemePalette& theme = GetUiTheme();
     DrawLinearGradient(0.0f, 0.0f, sw * 0.60f, sh,
-                       theme.Dim.r, theme.Dim.g, theme.Dim.b, alpha * theme.Dim.a);
+                       theme.Dim.r, theme.Dim.g, theme.Dim.b,
+                       std::min(1.0f, alpha * theme.Dim.a * MenuDimScale()));
 }
 
 // bg_linear.png is the page's persistent left-side contrast field.  Keep it
@@ -190,7 +206,7 @@ void DrawPersistentSceneSideVignettes(float sw, float sh, float alpha) {
     const float fieldW = sw * kWideSceneLinearWidth;
     // bg_linear is already a darkening mask; applying the theme alpha again
     // made it disappear against the menu background.
-    const float fieldA = alpha;
+    const float fieldA = std::min(1.0f, alpha * MenuDimScale());
     DrawLinearGradient(0.0f, 0.0f, fieldW, sh,
                        theme.Dim.r, theme.Dim.g, theme.Dim.b,
                        fieldA, false);
@@ -203,7 +219,7 @@ void DrawSceneRadialVignette(float cx, float cy, float radius, float alpha) {
     if (alpha <= 0.001f || radius <= 1.0f) return;
     const UiThemePalette& theme = GetUiTheme();
     DrawRadialGradient(cx, cy, radius, theme.Dim.r, theme.Dim.g, theme.Dim.b,
-                       alpha * theme.Dim.a * 0.96f);
+                       std::min(1.0f, alpha * theme.Dim.a * 0.96f * MenuDimScale()));
 }
 
 void DrawSettingsOrbitArc(float cx, float cy, float radiusX,
@@ -232,7 +248,7 @@ float MainMenuCommandStartY(float sh, float uiScale) {
     const float totalH = kRowCount * kRowH + (kRowCount - 1.0f) * kGap;
     float y = sh * 0.48f;
     if (y + totalH > sh - 54.0f) y = sh - totalH - 54.0f;
-    const float logoFloor = MainLogoTop(sh) + MainLogoHeight(sh) * 0.72f;
+    const float logoFloor = MainLogoTop(sh) + MainLogoHeight(sh) * (kLobbyLogoHeightMul * 0.85f * 0.72f / 0.82f);
     if (y < logoFloor) y = logoFloor;
     return y;
 }
@@ -243,7 +259,7 @@ float OutgameButtonRailStartY(float sh, float uiScale, int rowCount,
                               float rowH, float rowGap) {
     const float totalH = rowCount * rowH + std::max(0, rowCount - 1) * rowGap;
     float y = sh - totalH - std::max(52.0f * uiScale, sh * 0.075f);
-    const float logoFloor = MainLogoTop(sh) + MainLogoHeight(sh) * 0.82f;
+    const float logoFloor = MainLogoTop(sh) + MainLogoHeight(sh) * (kLobbyLogoHeightMul * 0.85f);
     if (y < logoFloor) y = logoFloor;
     return y;
 }
@@ -972,8 +988,55 @@ static void DrawFontTitle(float sw, float sh, float alpha, float reveal,
     float x = cx - w * 0.5f;
     if (x < 28.0f) x = 28.0f;
     if (x + w > sw - 28.0f) x = sw - w - 28.0f;
-    g_TextXL.Draw(kTitle, x, cy - h * 0.5f, scale, 0.90f, 0.97f, 1.0f, 0.96f * a);
+    const float ty = cy - h * 0.5f;
+
+    // Occasional glitch burst (about one every 4 s, a quarter second long):
+    // the word splits into red/cyan ghosts, some letters jump sideways, and a
+    // couple of thin scan bars cut across it. Re-rolled 30 times a second.
+    const float now = (float)glfwGetTime();
+    const float kSlot = 0.25f;
+    const int slot = (int)std::floor(now / kSlot);
+    auto h01 = [](unsigned n) {
+        n = n * 747796405u + 2891336453u;
+        n = ((n >> ((n >> 28u) + 4u)) ^ n) * 277803737u;
+        n = (n >> 22u) ^ n;
+        return (float)(n & 0xFFFFFFu) / 16777216.0f;
+    };
+    float glitch = 0.0f;
+    if (h01((unsigned)slot * 2654435761u) < 0.0625f)
+        glitch = 1.0f - (now - slot * kSlot) / kSlot;
+    if (glitch <= 0.0f) {
+        g_TextXL.Draw(kTitle, x, ty, scale, 0.90f, 0.97f, 1.0f, 0.96f * a);
+        BindMainShader();
+        return;
+    }
+    const unsigned frame = (unsigned)std::floor(now * 30.0f);
+    auto rnd = [&](unsigned k) { return h01(frame * 977u + k * 131u + 17u); };
+    const float split = h * (0.03f + 0.06f * rnd(1)) * glitch;
+    g_TextXL.Draw(kTitle, x + split, ty, scale, 1.0f, 0.15f, 0.30f, 0.55f * a * glitch);
+    g_TextXL.Draw(kTitle, x - split, ty, scale, 0.10f, 0.90f, 1.0f, 0.55f * a * glitch);
+    const int n = (int)(sizeof(kTitle) / sizeof(kTitle[0])) - 1;
+    for (int i = 0; i < n; ++i) {
+        wchar_t prefix[16] = {};
+        for (int k = 0; k < i; ++k) prefix[k] = kTitle[k];
+        const wchar_t ch[2] = { kTitle[i], L'\0' };
+        float dx = 0.0f, dy = 0.0f, ca = 0.96f;
+        if (rnd(10 + i) < 0.45f * glitch) {
+            dx = (rnd(30 + i) - 0.5f) * h * 0.55f * glitch;
+            dy = (rnd(50 + i) - 0.5f) * h * 0.10f * glitch;
+        }
+        if (rnd(70 + i) < 0.12f * glitch) ca = 0.30f;   // brief dropout
+        g_TextXL.Draw(ch, x + g_TextXL.Width(prefix, scale) + dx, ty + dy, scale,
+                      0.90f, 0.97f, 1.0f, ca * a);
+    }
     BindMainShader();
+    for (int b = 0; b < 2; ++b) {
+        if (rnd(90 + b) > 0.7f) continue;
+        const float by = ty + h * (0.10f + 0.80f * rnd(100 + b));
+        const float bx = x - w * 0.04f + w * 0.3f * rnd(110 + b);
+        drawRect(bx, by, w * (0.25f + 0.5f * rnd(120 + b)), std::max(1.5f, h * 0.025f),
+                 0.50f, 0.95f, 1.0f, 0.45f * a * glitch);
+    }
 }
 
 void DrawMainAsteriaLogo(float sw, float sh, float alpha, float reveal,
@@ -1405,7 +1468,14 @@ bool TryEscNavigateBack() {
         return true;
     case GS::READY:
         // The practice field is only reachable from the lobby's TUTORIAL button.
-        ready_launch::g_TutorialMode = false;
+        ready_launch::CancelLaunch();
+        if (ready_launch::g_TutorialMode) {
+            // The tutorial has its own pause menu (continue / settings / main
+            // menu); resuming comes back to this practice field.
+            g_GameManager.pauseResumeState = GS::READY;
+            st = GS::PAUSED;
+            return true;
+        }
         st = GS::MAIN_MENU;
         return true;
     case GS::CREATIVE_CONFIG:

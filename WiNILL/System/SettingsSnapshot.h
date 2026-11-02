@@ -26,6 +26,7 @@ struct SettingsSnapshot {
     int sfxVol = 100;
     KeyBindSet keyBinds = kDefaultKeyBinds;
     bool panePhotos = false;
+    int menuDim = kMenuDimDefault;
 };
 
 inline SettingsSnapshot CaptureSettingsSnapshot() {
@@ -34,7 +35,8 @@ inline SettingsSnapshot CaptureSettingsSnapshot() {
              g_SoundVol, g_BgmEnabled, g_SfxEnabled,
              g_AudioMonoOutput, g_AudioEngineEnabled,
              g_AutoSkill, g_ShowCrosshair, g_DebugMode,
-             g_Language, g_BgmVol, g_SfxVol, g_KeyBinds, g_PanePhotos };
+             g_Language, g_BgmVol, g_SfxVol, g_KeyBinds, g_PanePhotos,
+             g_MenuDim };
 }
 
 // Puts every snapshot value back and re-applies the audio device state.
@@ -65,6 +67,7 @@ inline void RestoreSettingsSnapshot(const SettingsSnapshot& saved) {
     g_Language = saved.language;
     g_KeyBinds = saved.keyBinds;
     g_PanePhotos = saved.panePhotos;
+    g_MenuDim = saved.menuDim;
 }
 
 inline bool SettingsSnapshotChanged(const SettingsSnapshot& saved) {
@@ -85,5 +88,6 @@ inline bool SettingsSnapshotChanged(const SettingsSnapshot& saved) {
         || g_BgmVol != saved.bgmVol
         || g_SfxVol != saved.sfxVol
         || g_KeyBinds != saved.keyBinds
-        || g_PanePhotos != saved.panePhotos;
+        || g_PanePhotos != saved.panePhotos
+        || g_MenuDim != saved.menuDim;
 }

@@ -39,9 +39,9 @@ inline const wchar_t* kReadyTitle[LANG_COUNT] = {
     L"チュートリアル",
 };
 inline const wchar_t* kReadyBrief[LANG_COUNT] = {
-    L"연습장에서 조작을 익히세요 — {START}로 쉬움 난이도 출격, ESC로 로비 복귀",
-    L"Learn the controls in the practice field — {START} launches an Easy run, ESC returns to the lobby",
-    L"練習場で操作に慣れましょう — {START}でイージー出撃、ESCでロビーに戻ります",
+    L"연습장에서 조작을 익히세요 — {START}로 쉬움 난이도 출격, ESC로 일시정지",
+    L"Learn the controls in the practice field — {START} launches an Easy run, ESC pauses",
+    L"練習場で操作に慣れましょう — {START}でイージー出撃、ESCで一時停止",
 };
 
 inline const wchar_t* ReadyTitle()  { return kReadyTitle[LangIndexTutorial()]; }
@@ -165,17 +165,17 @@ inline const wchar_t* kReadyAim[LANG_COUNT] = {
 // Legend beside the keyboard, one line per key group (keys follow the bindings).
 inline constexpr int READY_LEGEND_COUNT = 5;
 inline const wchar_t* kReadyLegend[LANG_COUNT][READY_LEGEND_COUNT] = {
-    { L"{MOVE}  이동", L"{DASH}  대시", L"{SKILLS}  스킬 (증강 후)", L"{START}  출격 (쉬움)", L"{QUIT}  나가기" },
-    { L"{MOVE}  move", L"{DASH}  dash", L"{SKILLS}  skills (from augments)", L"{START}  launch (Easy)", L"{QUIT}  leave" },
-    { L"{MOVE}  移動", L"{DASH}  ダッシュ", L"{SKILLS}  スキル (強化後)", L"{START}  出撃 (イージー)", L"{QUIT}  戻る" },
+    { L"{MOVE}  이동", L"{DASH}  대시", L"{SKILLS}  스킬 (증강 후)", L"{START}  출격 (쉬움)", L"{QUIT}  일시정지" },
+    { L"{MOVE}  move", L"{DASH}  dash", L"{SKILLS}  skills (from augments)", L"{START}  launch (Easy)", L"{QUIT}  pause" },
+    { L"{MOVE}  移動", L"{DASH}  ダッシュ", L"{SKILLS}  スキル (強化後)", L"{START}  出撃 (イージー)", L"{QUIT}  一時停止" },
 };
 // Small caption under a single-action key cap, by keyboard_panel::KeyRole
 // (None, Move, Dash, Skill, Start, Quit). Empty = no caption.
 inline constexpr int READY_KEY_ROLE_COUNT = 6;
 inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
-    { L"", L"", L"대시", L"", L"출격", L"나가기" },
-    { L"", L"", L"dash", L"", L"launch", L"leave" },
-    { L"", L"", L"ダッシュ", L"", L"出撃", L"戻る" },
+    { L"", L"", L"대시", L"", L"출격", L"일시정지" },
+    { L"", L"", L"dash", L"", L"launch", L"pause" },
+    { L"", L"", L"ダッシュ", L"", L"出撃", L"一時停止" },
 };
 
 inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }

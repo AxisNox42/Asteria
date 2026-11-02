@@ -155,7 +155,7 @@ void Scene_MainMenu(const SceneCtx& c) {
     constexpr float kLogoTraceDur = 1.40f;
     static_assert(kLogoTraceDur <= kIntroDone, "logo trace must finish within the intro");
     DrawMainAsteriaLogo(sw, sh, titleA, std::min(s_introT / kLogoTraceDur, 1.0f),
-                       sw * 0.30f, 0.82f);
+                       sw * kLobbyLogoCenterXFrac, kLobbyLogoHeightMul);
     for (int i = 0; i < kBtnCount; i++) {
         float baseBx = btnX0;
         float baseBy = btnY0 + (float)i * (BH + BGAP);

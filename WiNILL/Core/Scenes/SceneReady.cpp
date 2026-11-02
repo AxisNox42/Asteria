@@ -673,6 +673,23 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     const float now = (float)glfwGetTime();
     const float dt = std::clamp(c.delta, 0.0f, 0.05f);
 
+    // Launch animation clock; the run starts when the wall has swollen out.
+    if (ready_launch::Launching()) {
+        ready_launch::g_LaunchT += dt;
+        if (ready_launch::g_LaunchT >=
+            ready_launch::kLaunchShrinkSec + ready_launch::kLaunchExpandSec) {
+            ready_launch::CancelLaunch();
+            ready_launch::g_RunIntro = 0.0f;
+            ready_launch::g_StartGraceT = ready_launch::kStartGraceSec;
+            g_UiShakePx = 0.0f;
+            ready_launch::g_TutorialMode = false;
+            g_Difficulty = Difficulty::EASY;
+            g_GameManager.currentState = GameState::RUNNING;
+            return;
+        }
+    }
+    const bool launching = ready_launch::Launching();
+
     PracticeView& v = View();
     TouchView(v);
     const rp::Rules rules = LiveRules(v, c.lmb);
@@ -691,12 +708,15 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     in.aimY = ((float)c.my - cv.Y(kFieldY)) / (kViewScale * cv.k);
     // While a card screen is up this scene only draws; the field stands still.
     const bool picking = ready_launch::g_SelectionUp;
-    if (picking) in = rp::Input{};
-    rp::Step(v.field, rules, in, picking ? 0.0f : dt);
+    // The field stands still under a card screen and during the launch.
+    const bool paused = g_GameManager.currentState == GameState::PAUSED;   // tutorial pause menu
+    const bool still = picking || launching || paused;
+    if (still) in = rp::Input{};
+    rp::Step(v.field, rules, in, still ? 0.0f : dt);
 
     const bool dashOk = rules.dashAvailable;
     const rp::Objective current = rp::CurrentObjective(v.field, dashOk);
-    if (ready_launch::g_TutorialMode && !picking) {
+    if (ready_launch::g_TutorialMode && !picking && !launching && !paused) {
         using Stage = ready_launch::TutorialStage;
         switch (ready_launch::g_Stage) {
         case Stage::Practice:
@@ -745,6 +765,127 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     const float ease = 1.0f - std::exp(-dt * kGlowEase);
     for (int i = 0; i < kGuideCount; ++i) v.glow[i] += (targets[i] - v.glow[i]) * ease;
     const float pulse = 0.72f + 0.28f * std::sin(now * kPulseSpeed);
+
+    if (launching) {
+        namespace rl = ready_launch;
+        const float t = rl::g_LaunchT;
+        auto frame = [&](float fx, float fy, float fw, float fh, float a) {
+            const float key = cv.S(1.5f);
+            Box(fx, fy, fw, fh, cv.S(1.3f) + cv.S(1.4f) * a, kCyan, 0.32f + 0.55f * a, key);
+            const float L = cv.S(kFieldCorner), th = cv.S(2.4f);
+            const float cx[4] = { fx, fx + fw, fx + fw, fx }, cy[4] = { fy, fy, fy + fh, fy + fh };
+            const float dx[4] = { 1, -1, -1, 1 }, dy[4] = { 1, 1, -1, -1 };
+            for (int i = 0; i < 4; ++i) {
+                Line(cx[i] + dx[i] * L, cy[i], cx[i], cy[i], th, kCyan, 0.75f + 0.2f * a, key);
+                Line(cx[i], cy[i], cx[i], cy[i] + dy[i] * L, th, kCyan, 0.75f + 0.2f * a, key);
+            }
+        };
+        BindMainShader();
+        const float fcx = cv.X(kFieldX + kFieldW * 0.5f), fcy = cv.Y(kFieldY + kFieldH * 0.5f);
+        // The page (title, notes, objectives, keyboard) fades by alpha, not by a
+        // dark cover: g_BatchAlpha scales both geometry and text.
+        auto drawPage = [&](float alpha) {
+            if (alpha <= 0.004f) return;
+            g_BatchAlpha = alpha;
+            Text(text.title, ReadyTitle(), cv.X(kCanvasW * 0.5f), cv.Y(kTitleY), cv.S(kTitlePx),
+                 kCyan, 0.98f, Align::Center);
+            Text(text.body, ReadyBrief(), cv.X(kCanvasW * 0.5f), cv.Y(kBriefY), cv.S(kBriefPx),
+                 kText, 0.9f, Align::Center);
+            DrawObjectives(v.field, current, dashOk, cv, text.body, pulse);
+            DrawKeyboard(v, current, cv, text.body, pulse, false, now);
+            BatchFlush();
+            g_BatchAlpha = 1.0f;
+            BindMainShader();
+        };
+        // The practice field at the bottom of the squeeze, as a canvas.
+        const float sqz = rl::kLaunchShrinkTo;
+        const float k0 = cv.k * sqz;
+        const float ox0 = fcx - (kFieldX + kFieldW * 0.5f) * k0;
+        const float oy0 = fcy - (kFieldY + kFieldH * 0.5f) * k0;
+        static bool s_burstDone = false;
+        if (t < 0.05f) s_burstDone = false;
+        if (t < rl::kLaunchShrinkSec) {
+            // Squeeze: the page fades back and the field draws a little smaller.
+            const float p = t / rl::kLaunchShrinkSec;
+            const float e = 1.0f - (1.0f - p) * (1.0f - p);
+            const float sc = 1.0f - (1.0f - rl::kLaunchShrinkTo) * e;
+            drawPage(1.0f - 0.75f * e);
+            Canvas cs = cv;
+            cs.k = cv.k * sc;
+            cs.ox = fcx - (kFieldX + kFieldW * 0.5f) * cs.k;
+            cs.oy = fcy - (kFieldY + kFieldH * 0.5f) * cs.k;
+            DrawField(v, rules, current, dashOk, cs, text.body, now, dt);
+        } else {
+            // Swell: the wall grows out over the keyboard and the notes. It
+            // reaches the screen edge at 80% of the swell; the dark floor then
+            // fades and the game shows through as the run starts.
+            const float p = std::min(1.0f, (t - rl::kLaunchShrinkSec) / rl::kLaunchExpandSec);
+            const float reach = std::min(1.0f, p / 0.8f);
+            const float e = reach * reach * reach * (reach * (reach * 6.0f - 15.0f) + 10.0f);
+            const float fadeP = std::max(0.0f, (p - 0.8f) / 0.2f);
+            const float x0 = fcx - cv.S(kFieldW) * 0.5f * sqz, y0 = fcy - cv.S(kFieldH) * 0.5f * sqz;
+            const float w0 = cv.S(kFieldW) * sqz, h0 = cv.S(kFieldH) * sqz;
+            const float inset = cv.S(6.0f) * (1.0f - e);
+            const float fx = x0 + (inset - x0) * e, fy = y0 + (inset - y0) * e;
+            const float fw = w0 + (c.sw - 2.0f * inset - w0) * e;
+            const float fh = h0 + (c.sh - 2.0f * inset - h0) * e;
+
+            // The page is already faint; it finishes fading in the first half.
+            const float pf = std::min(1.0f, p / 0.5f);
+            drawPage(0.25f * (1.0f - pf * pf * (3.0f - 2.0f * pf)));
+
+            // The dummies break into shards at the start of the swell.
+            const Rgb swarm{ v.mobs[0]->color.r, v.mobs[0]->color.g, v.mobs[0]->color.b };
+            const Rgb swarmText = Lighten(swarm, 0.45f);
+            if (!s_burstDone) {
+                s_burstDone = true;
+                for (int i = 0; i < rp::kDummyCount; ++i) {
+                    const rp::Dummy& d = v.field.dummies[i];
+                    if (!d.Alive()) continue;
+                    SpawnShards(v, ox0 + (kFieldX + rp::DummyX(d) * kViewScale) * k0,
+                                oy0 + (kFieldY + rp::DummyY(d) * kViewScale) * k0, k0);
+                }
+            }
+
+            // Dark floor inside the wall.
+            drawRect(fx, fy, fw, fh, 0.012f, 0.026f, 0.060f, 0.96f * (1.0f - fadeP));
+            BatchFlush();
+            BindMainShader();
+            for (Shard& sh2 : v.shards) {
+                sh2.x += sh2.vx * dt; sh2.y += sh2.vy * dt; sh2.ang += sh2.spin * dt; sh2.life -= dt;
+                const float hl = k0 * 8.0f * 1.5f, ca = std::cos(sh2.ang) * hl, sa = std::sin(sh2.ang) * hl;
+                Line(sh2.x - ca, sh2.y - sa, sh2.x + ca, sh2.y + sa, k0 * 2.2f, swarmText,
+                     std::max(0.0f, sh2.life / kShardLife), 0.0f);
+            }
+            v.shards.erase(std::remove_if(v.shards.begin(), v.shards.end(),
+                [](const Shard& sd) { return sd.life <= 0.0f; }), v.shards.end());
+
+            // The ship leaves its spot, glides to the screen centre and grows to
+            // its run size with a small overshoot, where the run will start.
+            {
+                const float ws0 = kViewScale * k0;
+                const float sx0 = ox0 + (kFieldX + v.field.playerX * kViewScale) * k0;
+                const float sy0 = oy0 + (kFieldY + v.field.playerY * kViewScale) * k0;
+                const float shipX = sx0 + (c.sw * 0.5f - sx0) * e;
+                const float shipY = sy0 + (c.sh * 0.5f - sy0) * e;
+                const float u = e - 1.0f;
+                const float eBack = 1.0f + 2.0f * u * u * u + 1.0f * u * u;   // ease-out-back, ~4% over
+                const float shipRunSize = PLAYER_SIZE_PX * g_Stats.playerSizeMult;
+                const float shipScale = ws0 + (1.0f - ws0) * eBack;
+                DrawPlayerWeaponShell(shipX, shipY, shipRunSize * shipScale,
+                                      v.field.aim, now);
+            }
+            frame(fx, fy, fw, fh, e);
+            if (p > 0.8f) {
+                // Arrival: the wall's edge flares once and the screen gives a nudge.
+                const float flash = 1.0f - fadeP;
+                Box(fx, fy, fw, fh, cv.S(5.0f), kCyan, 0.55f * flash * flash, 0.0f);
+                g_UiShakePx = 4.0f * cv.k * flash * flash;
+            }
+        }
+        BatchFlush();
+        return;
+    }
 
     BindMainShader();
     Text(text.title, ReadyTitle(), cv.X(kCanvasW * 0.5f), cv.Y(kTitleY), cv.S(kTitlePx),

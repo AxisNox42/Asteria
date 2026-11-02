@@ -190,8 +190,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
     DrawMainAsteriaLogo(sw, sh,
                        returnLogoA * oldMenuA,
                        LogoClamp01(oldMenuA + 0.22f * wake),
-                       sw * 0.30f - 160.0f * oldOut,
-                       0.82f);
+                       sw * kLobbyLogoCenterXFrac - 160.0f * oldOut,
+                       kLobbyLogoHeightMul);
     {
         const int ghostLang = LangIndex();
         const float ghostSlide = 250.0f * oldOut;

@@ -284,7 +284,7 @@ inline void SaveGame() {
     add("audioenabled=%lld\n", g_AudioEngineEnabled ? 1 : 0);
     add("autoskill=%lld\n", g_AutoSkill ? 1 : 0);
     add("panephotos=%lld\n", g_PanePhotos ? 1 : 0);
-    add("strongmenudim=%lld\n", g_StrongMenuDim ? 1 : 0);
+    add("menudim=%lld\n", g_MenuDim);
     add("debugmode=%lld\n",    g_DebugMode ? 1 : 0);
     add("shaderfx=%lld\n",  g_ShaderFx  ? 1 : 0);
     add("mobstyle=%lld\n",  (int)g_MobVisualStyle);
@@ -466,7 +466,7 @@ inline void LoadGame() {
         else if (!std::strcmp(key, "audioenabled")) g_AudioEngineEnabled = (val != 0);
         else if (!std::strcmp(key, "autoskill"))   g_AutoSkill         = (val != 0);
         else if (!std::strcmp(key, "panephotos"))  g_PanePhotos        = (val != 0);
-        else if (!std::strcmp(key, "strongmenudim")) g_StrongMenuDim    = (val != 0);
+        else if (!std::strcmp(key, "menudim"))     g_MenuDim           = (int)(val < 0 ? 0 : val > 100 ? 100 : val);
         else if (!std::strcmp(key, "debugmode"))    g_DebugMode = (val != 0);
         else if (!std::strcmp(key, "shaderfx"))    g_ShaderFx          = (val != 0);
         else if (!std::strcmp(key, "mobstyle"))   { int v = (int)val; if (v >= 0 && v <= 1) g_MobVisualStyle = (MobVisualStyle)v; }

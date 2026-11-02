@@ -8,6 +8,7 @@
 #include "SceneSkills.h"
 #include "SceneUI.h"
 #include "SceneInternal.h"
+#include "ReadyLaunch.h"
 #include "UiLayout.h"
 #include "WindowChrome.h"
 #include "Settings.h"
@@ -44,8 +45,15 @@
 #include "SceneInternal.h"
 
 namespace {
-enum class PauseAction : int { Resume, OpenSettings, ViewAugments, Abandon };
-constexpr int kPauseActionCount = static_cast<int>(PauseAction::Abandon) + 1;
+enum class PauseAction : int { Resume, OpenSettings, ViewAugments, Abandon, MainMenu };
+// The run's pause menu and the tutorial's (opened from the practice field, where
+// resuming returns to the field) list different rows.
+constexpr PauseAction kRunActions[] = {
+    PauseAction::Resume, PauseAction::OpenSettings,
+    PauseAction::ViewAugments, PauseAction::Abandon };
+constexpr PauseAction kTutorialActions[] = {
+    PauseAction::Resume, PauseAction::OpenSettings, PauseAction::MainMenu };
+constexpr int kPauseActionCount = 4;   // most rows any menu has
 
 void ApplyPauseAction(PauseAction action, const SceneCtx& scene,
                       const PauseSceneContext& state) {
@@ -68,6 +76,14 @@ void ApplyPauseAction(PauseAction action, const SceneCtx& scene,
         state.showOwnedAugments = false;
         if (scene.abandonRun) scene.abandonRun();
         break;
+    case PauseAction::MainMenu:
+        // Leaves the tutorial for the lobby, as ESC on the field used to.
+        state.showOwnedAugments = false;
+        ready_launch::CancelLaunch();
+        ready_launch::g_TutorialMode = false;
+        state.currentState = GameState::MAIN_MENU;
+        state.resumeState = GameState::RUNNING;
+        break;
     }
 }
 }
@@ -79,6 +95,9 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     const float delta = c.delta;
     (void)*c.fireTimer;
     (void)c.reset;
+    const bool tutorialPause = state.resumeState == GameState::READY;
+    const PauseAction* actions = tutorialPause ? kTutorialActions : kRunActions;
+    const int actionCount = tutorialPause ? 3 : 4;
 
     static float  s_EntryT    = 0.0f;
     static float  s_HoverT[kPauseActionCount] = {};
@@ -127,7 +146,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     const float BW      = std::min(520.0f * uiScale, sw * 0.38f);
     const float BH      = 70.0f * uiScale;
     const float BGAP    = 15.0f * uiScale;
-    const float totalBH = (float)kPauseActionCount * BH + (float)(kPauseActionCount - 1) * BGAP;
+    const float totalBH = (float)actionCount * BH + (float)(actionCount - 1) * BGAP;
     const float btnX0   = std::max(58.0f, sw * 0.075f);
     const float btnY0   = sh * 0.42f;
     const float titleY  = sh * 0.24f;
@@ -161,7 +180,11 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
         static const wchar_t* kPauseHeader[LANG_COUNT] = {
             L"플레이 일시정지", L"PLAY PAUSED", L"プレイ一時停止"
         };
-        const wchar_t* hdr = kPauseHeader[li];
+        // Same words as the lobby's TUTORIAL route and the run's pause title.
+        static const wchar_t* kTutorialHeader[LANG_COUNT] = {
+            L"튜토리얼 일시정지", L"TUTORIAL PAUSED", L"チュートリアル一時停止"
+        };
+        const wchar_t* hdr = tutorialPause ? kTutorialHeader[li] : kPauseHeader[li];
         float hdrSc = UiTextScale(state.text.title, UiTextLevel::Title, uiScale);
         state.text.title.Draw(hdr, btnX0, titleY, hdrSc, 0.50f, 0.82f, 1.0f, 0.92f * titleA);
         BindMainShader();
@@ -171,26 +194,27 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
 
     const bool pointerMoved = std::fabs(mx - s_LastMx) + std::fabs(my - s_LastMy) > 1.0;
     s_LastMx = mx; s_LastMy = my;
-    const bool kbConfirm = MenuKeyboardNav(c, s_KbFocus, kPauseActionCount,
+    const bool kbConfirm = MenuKeyboardNav(c, s_KbFocus, actionCount,
                                            !exitActive && !s_ConfirmAbandon);
 
     // 버튼
-    static const wchar_t* kPauseRoutes[LANG_COUNT][kPauseActionCount] = {
-        { L"계속하기", L"설정", L"보유 증강", L"\uD3EC\uAE30\uD558\uAE30" },
-        { L"CONTINUE", L"SETTINGS", L"AUGMENTS", L"ABANDON" },
-        { L"続ける", L"設定", L"所持強化", L"\u653E\u68C4\u3059\u308B" },
+    // Indexed by PauseAction. MAIN MENU is the results screen's own wording.
+    static const wchar_t* kPauseRoutes[LANG_COUNT][5] = {
+        { L"계속하기", L"설정", L"보유 증강", L"\uD3EC\uAE30\uD558\uAE30", L"메인 메뉴" },
+        { L"CONTINUE", L"SETTINGS", L"AUGMENTS", L"ABANDON", L"MAIN MENU" },
+        { L"続ける", L"設定", L"所持強化", L"\u653E\u68C4\u3059\u308B", L"メインメニュー" },
     };
     const int pauseLang = std::clamp(LangIndex(), 0, LANG_COUNT - 1);
 
     const float ar = 0.48f, ag = 0.82f, ab = 1.0f;
 
-    for (int i = 0; i < kPauseActionCount; ++i) {
+    for (int i = 0; i < actionCount; ++i) {
         float rawPh = (s_EntryT - 0.18f - (float)i * 0.08f) / 0.32f;
         float reveal = Smoothstep(std::max(0.0f, std::min(rawPh, 1.0f)));
 
         float baseBx = btnX0;
         float baseBy = btnY0 + (float)i * (BH + BGAP);
-        const wchar_t* route = kPauseRoutes[pauseLang][i];
+        const wchar_t* route = kPauseRoutes[pauseLang][(int)actions[i]];
         const bool selected = (s_ExitSel == i);
         const float slide = (1.0f - reveal) * 34.0f;
         const float priorBx = baseBx + slide - 10.0f * s_HoverT[i];
@@ -214,7 +238,8 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
         float by    = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
 
         const wchar_t* routeVariants[LANG_COUNT] = {
-            kPauseRoutes[0][i], kPauseRoutes[1][i], kPauseRoutes[2][i]
+            kPauseRoutes[0][(int)actions[i]], kPauseRoutes[1][(int)actions[i]],
+            kPauseRoutes[2][(int)actions[i]]
         };
         DrawPanelButton(route, bx, by, BW, BH,
                         ar, ag, ab, rowA,
@@ -225,7 +250,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
 
         if (((hov && lmb && !state.previousLeftMouseDown) || (kbHot && kbConfirm))
             && s_ExitSel < 0) {
-            if (i == static_cast<int>(PauseAction::Abandon)) {
+            if (actions[i] == PauseAction::Abandon) {
                 s_ConfirmAbandon = true;   // abandoning asks first
             } else {
                 s_ExitSel = i;
@@ -235,10 +260,11 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     }
 
     // Debuff record, to the right of the buttons.
-    DrawWaveDebuffLog(state.text.body, g_GameManager, btnX0 + BW + 90.0f * uiScale,
-                      titleY, sh - 40.0f * uiScale,
-                      UiTextScale(state.text.body, UiTextLevel::Supporting, uiScale) * 1.3f,
-                      0.88f * entryFade);
+    if (!tutorialPause)
+        DrawWaveDebuffLog(state.text.body, g_GameManager, btnX0 + BW + 90.0f * uiScale,
+                          titleY, sh - 40.0f * uiScale,
+                          UiTextScale(state.text.body, UiTextLevel::Supporting, uiScale) * 1.3f,
+                          0.88f * entryFade);
 
     if (s_ConfirmAbandon) {
         const ConfirmChoice answer = DrawConfirmDialog(
@@ -249,7 +275,8 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
             DrawConfirmDialog(false, ConfirmTextAbandon(), sw, sh, mx, my, lmb,
                               state.previousLeftMouseDown, delta);
             if (answer == ConfirmChoice::Yes) {
-                s_ExitSel = static_cast<int>(PauseAction::Abandon);
+                for (int k = 0; k < actionCount; ++k)
+                    if (actions[k] == PauseAction::Abandon) s_ExitSel = k;
                 s_ExitT   = 0.0f;
             }
         }
@@ -259,7 +286,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
         int sel   = s_ExitSel;
         s_ExitSel = -1;
         s_ExitT   = 0.0f;
-        ApplyPauseAction(static_cast<PauseAction>(sel), c, state);
+        ApplyPauseAction(actions[sel], c, state);
         return;
     }
 

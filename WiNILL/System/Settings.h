@@ -298,8 +298,37 @@ inline bool g_ShaderFx          = false;
 inline bool g_ShaderFx          = false;
 #endif
 
-// Strong readability overlay for out-of-game menu backgrounds.
-inline bool g_StrongMenuDim     = false;
+// Menu background darkness (settings > DISPLAY). 0..100, 50 = the original
+// look. Menus scale their dimming layers by it (MenuDimScale in SceneMenus.cpp);
+// in-run screens get only kCombatDimShare of the same darkness (see below).
+// Whole-screen jitter (px) requested by an out-of-game page this frame; the frame
+// loop applies it to the projection and clears it (the HOLD TO RESET build-up).
+inline float g_UiShakePx = 0.0f;
+inline constexpr int kMenuDimDefault = 50;
+inline int g_MenuDim = kMenuDimDefault;
+// 0..100 -> 0..4 multiplier on the menu dim alphas: 0..50 ramps 0..1 (50 is the
+// original look), 50..100 ramps 1..4. Above ~1.5 the gradients are already
+// opaque, so DrawMenuBackground adds a flat veil for the extra darkness.
+inline constexpr float kMenuDimMax = 4.0f;
+// Combat and the other in-run screens take this share of the menu darkness.
+inline constexpr float kCombatDimShare = 0.20f;
+inline float MenuDimFactor(int value) {
+    const int v = value < 0 ? 0 : (value > 100 ? 100 : value);
+    return v <= 50 ? v / 50.0f : 1.0f + (v - 50) * ((kMenuDimMax - 1.0f) / 50.0f);
+}
+// How dark the menu backdrop is at this setting, as one black-equivalent alpha:
+// the navy base (0.16 x factor) combined with the extra veil above 50
+// (0.14 x (factor - 1)), as DrawMenuBackground stacks them.
+inline float MenuDimEquivAlpha(int value) {
+    const float f = MenuDimFactor(value);
+    const float base = f * 0.16f > 1.0f ? 1.0f : f * 0.16f;
+    const float extra = f > 1.0f ? 0.14f * (f - 1.0f) : 0.0f;
+    return 1.0f - (1.0f - base) * (1.0f - extra);
+}
+// Black veil alpha for in-run screens: a fixed share of the menu darkness.
+inline float CombatDimAlpha(int value) {
+    return kCombatDimShare * MenuDimEquivAlpha(value);
+}
 
 // Combat elements (bullets, HP/XP rings) sit straight on the desktop.
 // Bright or busy wallpapers wash them out, so they always get a dark keyline.

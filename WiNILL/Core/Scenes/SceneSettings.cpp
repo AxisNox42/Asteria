@@ -91,6 +91,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         float tabSwitchT = 0.0f;
         int s_volDrag = -1; // category*8+row of the slider being dragged
         float listHover[32] = {};
+        float catOpen[5] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };   // accordion openness per category
         float rowHover[5][10] = {};
         float optHover[5][10][8] = {};
         float holdT = 0.0f;
@@ -134,6 +135,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto& tabSwitchT = S.tabSwitchT;
     auto& s_volDrag = S.s_volDrag;
     auto& listHover = S.listHover;
+    auto& catOpen = S.catOpen;
     auto& rowHover = S.rowHover;
     auto& optHover = S.optHover;
     auto& holdT = S.holdT;
@@ -189,6 +191,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         g_KeyCaptureActive = false;
         g_CapturedKey = -1;
         for (auto& h : listHover) h = 0.0f;
+        for (int c2 = 0; c2 < 5; ++c2) catOpen[c2] = (c2 == tab) ? 1.0f : 0.0f;
         for (auto& category : rowHover)
             for (auto& h : category) h = 0.0f;
         for (auto& category : optHover)
@@ -356,7 +359,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
 
     if ((g_LobbyPanel == LobbyPanel::Settings))
         DrawMainAsteriaLogo(sw, sh, 0.42f * oldA,
-                           LogoClamp01(oldA + 0.20f * treeA), sw * 0.30f - 160.0f * (1.0f - oldA), 0.82f);
+                           LogoClamp01(oldA + 0.20f * treeA), sw * kLobbyLogoCenterXFrac - 160.0f * (1.0f - oldA),
+                           kLobbyLogoHeightMul);
 
     const float settingsTitleY = 42.0f * uiS;
     drawSettingsTextAtLevel(g_TextL, SettingsText(L"설정", L"SETTINGS", L"設定"), mainX, settingsTitleY,
@@ -489,10 +493,19 @@ void Scene_SettingsInline(const SceneCtx& c) {
         bool isKeyReset = false;            // CONTROLS: restore-defaults row
     };
     SRow settingsRows[5][10] = {};
-    const int rowCounts[5] = { 3, 5, kDebugSettingsVisible ? 4 : 3,
+    const int rowCounts[5] = { 4, 5, kDebugSettingsVisible ? 4 : 3,
                                GAME_ACTION_COUNT + 1, 2 };
 
     static wchar_t s_volBuf[8];
+
+    // HOLD TO RESET: the fill rushes in and slows toward the end (ease-out),
+    // while the screen shake grows with the held time so it peaks at the end.
+    constexpr float kResetHoldSec = 2.2f;
+    auto resetFill = [&](float held) {
+        const float x = std::max(0.0f, std::min(1.0f, held / kResetHoldSec));
+        const float r = 1.0f - x;
+        return 1.0f - r * r * r;
+    };
 
     // \u2500\u2500 Render rows \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // Keep every category's controls expanded on the right settings board.
@@ -518,6 +531,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
                               g_VfxDensity == VfxDensity::MEDIUM ? 1 : 2 };
     settingsRows[0][2] = { SettingsText(L"콤보 HUD", L"COMBO HUD", L"コンボHUD"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_ShowCombo ? 0 : 1 };
+    // Menu darkness: drag slider, 50 = the original look. Menus only.
+    settingsRows[0][3] = { SettingsText(L"화면 어둡기", L"MENU DIMMING", L"画面の暗さ"), nullptr, false, true, false, false,
+                           {}, 0, 0, &g_MenuDim };
     settingsRows[1][0] = { SettingsText(L"마스터 볼륨", L"MASTER VOL", L"マスター音量"), s_volBuf, false, true, false, false,
                            {}, 0, 0, &g_SoundVol };
     settingsRows[1][1] = { SettingsText(L"BGM 채널", L"BGM BUS", L"BGM"), nullptr, false, true, false, false,
@@ -566,6 +582,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
             if (row == 0) return g_FpsCap != savedSettings.fps;
             if (row == 1) return g_VfxDensity != savedSettings.density;
             if (row == 2) return g_ShowCombo != savedSettings.combo;
+            if (row == 3) return g_MenuDim != savedSettings.menuDim;
         } else if (category == 1) {
             if (row == 0) return g_SoundVol != savedSettings.soundVol;
             if (row == 1) return g_BgmVol != savedSettings.bgmVol;
@@ -597,10 +614,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto addItem = [&](int cat, int row, const wchar_t* label) {
         list[listCount++] = { cat, row, false, label };
     };
-    const wchar_t* displayLabels[3] = {
+    const wchar_t* displayLabels[4] = {
         SettingsText(L"FPS 제한", L"FPS CAP", L"FPS上限"),
         SettingsText(L"그래픽 품질", L"GRAPHICS", L"グラフィック品質"),
-        SettingsText(L"콤보 HUD", L"COMBO HUD", L"コンボHUD") };
+        SettingsText(L"콤보 HUD", L"COMBO HUD", L"コンボHUD"),
+        SettingsText(L"화면 어둡기", L"MENU DIMMING", L"画面の暗さ") };
     const wchar_t* audioLabels[5] = {
         SettingsText(L"마스터 볼륨", L"MASTER VOL", L"マスター音量"),
         SettingsText(L"BGM 채널", L"BGM BUS", L"BGM"),
@@ -622,17 +640,17 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // The left category index is an accordion; keep every right-side option
     // visible so changing categories does not collapse the settings board.
     addHeader(0, SettingsText(L"화면", L"DISPLAY", L"画面"));
-    if (tab == 0) for (int i = 0; i < 3; ++i) addItem(0, i, displayLabels[i]);
+    for (int i = 0; i < 4; ++i) addItem(0, i, displayLabels[i]);
     addHeader(1, SettingsText(L"소리", L"AUDIO", L"サウンド"));
-    if (tab == 1) for (int i = 0; i < 5; ++i) addItem(1, i, audioLabels[i]);
+    for (int i = 0; i < 5; ++i) addItem(1, i, audioLabels[i]);
     addHeader(2, SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"));
-    if (tab == 2) for (int i = 0; i < (kDebugSettingsVisible ? 4 : 3); ++i)
+    for (int i = 0; i < (kDebugSettingsVisible ? 4 : 3); ++i)
         addItem(2, i, gameplayLabels[i]);
     addHeader(3, SettingsText(L"조작", L"CONTROLS", L"操作"));
-    if (tab == 3) for (int i = 0; i < GAME_ACTION_COUNT + 1; ++i)
+    for (int i = 0; i < GAME_ACTION_COUNT + 1; ++i)
         addItem(3, i, controlsLabels[i]);
     addHeader(4, SettingsText(L"기록", L"ARCHIVE", L"記録"));
-    if (tab == 4) for (int i = 0; i < 2; ++i) addItem(4, i, archiveLabels[i]);
+    for (int i = 0; i < 2; ++i) addItem(4, i, archiveLabels[i]);
 
     SettingsListEntry rightList[32] = {};
     int rightListCount = 0;
@@ -663,7 +681,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     accordionFocusPending = false;
 
     auto isListItem = [&](int index) {
-        return index >= 0 && index < listCount && !list[index].header;
+        return index >= 0 && index < listCount && !list[index].header
+            && list[index].category == tab;
     };
     auto stepListCursor = [&](int direction) {
         int next = listCursor;
@@ -694,8 +713,27 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // The rendered y positions are pixels, so their scroll range must be
     // pixels too.  Row-count values here capped the previous list movement
     // to only a handful of pixels.
-    const float leftMaxScroll = std::max(0.0f,
-        (float)listCount * listRowH - listH);
+    // Accordion: every category's rows exist, but a category's rows only take
+    // height as far as it is open. The openness eases toward the selected
+    // category, so changing tab folds one group away while the next unfolds.
+    float listRowOff[32] = {};
+    float listRowHt[32] = {};
+    float leftTotalH = 0.0f;
+    {
+        const float openStep = 1.0f - std::exp(-dt * 12.0f);
+        for (int c2 = 0; c2 < 5; ++c2) {
+            const float goal = (c2 == tab) ? 1.0f : 0.0f;
+            if (std::fabs(goal - catOpen[c2]) < 0.004f) catOpen[c2] = goal;
+            else catOpen[c2] += (goal - catOpen[c2]) * openStep;
+        }
+        for (int i = 0; i < listCount; ++i) {
+            listRowOff[i] = leftTotalH;
+            listRowHt[i] = list[i].header ? listRowH
+                                          : listRowH * catOpen[list[i].category];
+            leftTotalH += listRowHt[i];
+        }
+    }
+    const float leftMaxScroll = std::max(0.0f, leftTotalH - listH);
     const float rightListTop = sepY + 34.0f * uiS;
     const float rightListBottom = sh - 206.0f * uiS;
     const float rightListH = std::max(1.0f, rightListBottom - rightListTop);
@@ -712,8 +750,14 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // The current scroll value deliberately trails the requested position.
     // This single shared easing drives the left index, right board and both
     // scroll thumbs together.
-    settingsScroll += (settingsScrollTarget - settingsScroll)
-                    * std::min(1.0f, dt * 15.0f);
+    // Exponential approach: the same glide at any frame rate (a plain dt * k
+    // step moves faster per second at high FPS), snapped once it is within
+    // a sliver of the target so the last frames do not crawl.
+    {
+        const float gap = settingsScrollTarget - settingsScroll;
+        if (std::fabs(gap) < 0.0004f) settingsScroll = settingsScrollTarget;
+        else settingsScroll += gap * (1.0f - std::exp(-dt * 10.0f));
+    }
     settingsScroll = std::max(0.0f, std::min(1.0f, settingsScroll));
     const float leftScroll = settingsScroll * leftMaxScroll;
     const float rightScroll = settingsScroll * rightMaxScroll;
@@ -739,9 +783,14 @@ void Scene_SettingsInline(const SceneCtx& c) {
                                  && mx >= listX - 30.0f * uiS
                                  && mx < rpX + rpW + 24.0f * uiS
                                  && my >= listTop && my < rightListBottom;
+    constexpr float kWheelNotchPx = 106.0f;
     if (keyCapturing) g_ScrollAccum = 0.0f;
     if (overSettingsCanvas && g_ScrollAccum != 0.0f) {
-        settingsScrollTarget -= g_ScrollAccum * 0.085f;
+        // One wheel notch moves a fixed, small pixel distance (about half a row)
+        // on the right board, not a share of the whole range: the old share
+        // grew with the page and jumped several rows per notch.
+        if (rightMaxScroll > 0.0f)
+            settingsScrollTarget -= g_ScrollAccum * (kWheelNotchPx * uiS) / rightMaxScroll;
         settingsScrollTarget = std::max(0.0f, std::min(1.0f, settingsScrollTarget));
         g_ScrollAccum = 0.0f;
         scrollFollowsBoard = true;
@@ -851,17 +900,41 @@ void Scene_SettingsInline(const SceneCtx& c) {
     DrawVisibleConstellNode(listRailBottomX, listBottom + 8.0f * uiS,
                             2.2f * uiS, 0.34f, 0.72f, 1.0f,
                             0.48f * dA, false, false);
+    // Hover/active plate for the category index. Its left edge lies on the
+    // leftmost rail line and its right edge runs parallel to it, so both ends
+    // lean with the rail; top and bottom sit on the row dividers. `width` is
+    // measured from the rail and is always wide enough to cover the label. A
+    // brighter bar closes the right end.
+    auto slantPlate = [&](float yTop, float yBottom, float width,
+                          float pr, float pg, float pb, float plateA, float edgeA) {
+        if (width < 2.0f || plateA + edgeA <= 0.002f) return;
+        BindMainShader();
+        const float lt = listRailXAt(yTop), lb = listRailXAt(yBottom);
+        BatchTri(lt, yTop, lt + width, yTop, lb + width, yBottom, pr, pg, pb, plateA);
+        BatchTri(lt, yTop, lb + width, yBottom, lb, yBottom, pr, pg, pb, plateA);
+        const float bar = 5.0f * uiS;
+        BatchTri(lt + width - bar, yTop, lt + width, yTop, lb + width, yBottom,
+                 0.40f, 0.78f, 1.0f, edgeA);
+        BatchTri(lt + width - bar, yTop, lb + width, yBottom, lb + width - bar, yBottom,
+                 0.40f, 0.78f, 1.0f, edgeA);
+    };
     for (int i = 0; i < listCount; ++i) {
-        const float y = listTop + i * listRowH - leftScroll;
-        if (y < listTop - listRowH || y > listBottom) {
+        const float y = listTop + listRowOff[i] - leftScroll;
+        const float rowHt = listRowHt[i];
+        // Rows of a folding category fade and slide in with their openness.
+        const float rowOpen = list[i].header ? 1.0f : catOpen[list[i].category];
+        if (rowOpen < 0.01f || y < listTop - listRowH || y > listBottom) {
             listHover[i] = UpdateMenuCommandHover(listHover[i], false, dt);
             continue;
         }
-        const float rowCenter = y + listRowH * 0.50f;
-        const float railX = listRailXAt(rowCenter);
+        const float dAr = dA * rowOpen * rowOpen;
+        const float rowCenter = y + rowHt * 0.50f;
+        const float railX = listRailXAt(rowCenter)
+            - (1.0f - rowOpen) * 18.0f * uiS;
         const bool hov = overList && mx >= listX - 10.0f * uiS
                       && mx < listX + listW + 18.0f * uiS
-                      && my >= y && my < y + listRowH;
+                      && my >= y && my < y + rowHt
+                      && (list[i].header || list[i].category == tab);
         if (hov && lmb && !g_LmbPrev) {
             int targetIndex = i;
             if (list[i].header) {
@@ -883,35 +956,46 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 }
             }
         }
-        listHover[i] = UpdateMenuCommandHover(listHover[i], hov && !list[i].header, dt);
+        listHover[i] = UpdateMenuCommandHover(listHover[i], hov, dt);
         if (list[i].header) {
             const float headerX = railX + 20.0f * uiS;
             const bool activeCategory = list[i].category == tab;
             const bool categoryHover = hov;
-            if (activeCategory || categoryHover)
-                drawRect(headerX - 10.0f * uiS,
-                         y + 2.0f * uiS,
-                         listW * 0.78f,
-                         listRowH - 5.0f * uiS,
-                         0.12f, 0.42f, 0.72f,
-                         (activeCategory ? 0.10f : 0.045f) * dA);
+            {
+                const float hv = listHover[i];
+                // The plate slides in from the left along its slant as the
+                // hover eases up; the active category keeps a resting plate.
+                const float reach = std::max(hv, activeCategory ? 1.0f : 0.0f);
+                // Wide enough for the whole label, never narrower than the
+                // divider extent (headerX .. 78% of the list).
+                const float labelEnd = headerX - railX
+                    + g_TextS.Width(list[i].label, settingsScale(
+                          g_TextS, 1.0f, UiTextLevel::Subtitle)) + 24.0f * uiS;
+                const float fullW = std::max(labelEnd,
+                                             listX + listW * 0.78f - railX);
+                slantPlate(y - 2.0f * uiS, y + rowHt - 2.0f * uiS,
+                           std::max(labelEnd, fullW * (0.55f + 0.45f * reach)),
+                           0.12f, 0.42f, 0.72f,
+                           std::max(activeCategory ? 0.10f : 0.0f, 0.13f * hv) * dAr,
+                           (activeCategory ? 0.10f : 0.0f) * dAr + 0.34f * hv * dAr);
+            }
             const float categoryScale = settingsScale(
                 g_TextS, 1.0f, UiTextLevel::Subtitle);
             const float categoryH = g_TextS.Height(list[i].label, categoryScale);
             drawSettingsTextAtLevel(
                 g_TextS, list[i].label, headerX,
-                y + (listRowH - categoryH) * 0.5f, 1.0f,
+                y + (rowHt - categoryH) * 0.5f, 1.0f,
                 activeCategory || categoryHover ? 0.58f : 0.34f,
                 activeCategory || categoryHover ? 0.86f : 0.72f,
                 1.0f,
                 (activeCategory ? 1.0f :
-                 categoryHover ? 0.92f : 0.68f) * dA,
+                 categoryHover ? 0.92f : 0.68f) * dAr,
                 UiTextLevel::Subtitle, 0.56f);
-            LogoLine(headerX, y + listRowH - 2.0f * uiS,
-                     listX + listW * 0.78f, y + listRowH - 2.0f * uiS,
+            LogoLine(headerX, y + rowHt - 2.0f * uiS,
+                     listX + listW * 0.78f, y + rowHt - 2.0f * uiS,
                      activeCategory ? 1.15f * uiS : 0.7f * uiS,
                      0.34f, 0.72f, 1.0f,
-                     (activeCategory ? 0.38f : 0.16f) * dA);
+                     (activeCategory ? 0.38f : 0.16f) * dAr);
         } else {
             const bool changed = settingChanged(list[i].category, list[i].row);
             // Clicking is navigation only.  Persistent colour is reserved
@@ -924,16 +1008,27 @@ void Scene_SettingsInline(const SceneCtx& c) {
             const float r = changed ? 1.0f : 0.68f + 0.10f * visual;
             const float g = changed ? 0.68f : 0.76f + 0.12f * visual;
             const float b = changed ? 0.32f : 1.0f;
+            if (listHover[i] > 0.02f) {
+                const float hv = listHover[i];
+                const float labelEnd = 42.0f * uiS
+                    + g_TextL.Width(list[i].label, settingsScale(
+                          g_TextL, 1.0f, UiTextLevel::Description)) + 24.0f * uiS;
+                const float fullW = std::max(labelEnd,
+                                             listX + listW * 0.78f - railX);
+                slantPlate(y - 2.0f * uiS, y + rowHt - 2.0f * uiS,
+                           std::max(labelEnd, fullW * (0.55f + 0.45f * hv)),
+                           0.12f, 0.42f, 0.72f, 0.10f * hv * dAr, 0.26f * hv * dAr);
+            }
             if (visual > 0.02f)
                 DrawConstellationDisc(nodeX, rowCenter,
                                       (11.0f + 7.0f * visual) * uiS,
-                                      r, g, b, 0.07f * visual * dA);
+                                      r, g, b, 0.07f * visual * dAr);
             DrawVisibleConstellLine(railX, rowCenter, nodeX, rowCenter,
                                     0.56f * uiS, r, g, b,
-                                    (0.08f + 0.22f * visual) * dA);
+                                    (0.08f + 0.22f * visual) * dAr);
             DrawVisibleConstellNode(nodeX, rowCenter,
                                     (2.8f + 1.0f * visual) * uiS,
-                                    r, g, b, a * dA,
+                                    r, g, b, a * dAr,
                                     false, false);
             const float textA = changed
                 ? (0.98f + 0.02f * visual)
@@ -949,9 +1044,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
             const float itemTextH = g_TextL.Height(list[i].label, itemTextScale);
             drawSettingsTextAtLevel(
                 g_TextL, list[i].label, itemTextX,
-                y + (listRowH - itemTextH) * 0.5f, 1.0f,
+                y + (rowHt - itemTextH) * 0.5f, 1.0f,
                 1.0f, changed ? 0.68f : 1.0f,
-                changed ? 0.32f : 1.0f, textA * dA,
+                changed ? 0.32f : 1.0f, textA * dAr,
                 UiTextLevel::Description, 0.62f);
         }
     }
@@ -959,7 +1054,6 @@ void Scene_SettingsInline(const SceneCtx& c) {
     glDisable(GL_SCISSOR_TEST);
     if (leftMaxScroll > 0.0f) {
         const float trackX = listX + listW + 12.0f * uiS;
-        const float leftTotalH = listCount * listRowH;
         const float thumbH = std::max(28.0f * uiS, listH * (listH / leftTotalH));
         const float thumbY = listTop + (listH - thumbH) * settingsScroll;
         LogoLine(trackX, listTop, trackX, listBottom,
@@ -976,14 +1070,20 @@ void Scene_SettingsInline(const SceneCtx& c) {
     bool resetPressed = false;
     bool keyChipClicked = false;
     const float rightRowX = rpX + 18.0f * uiS;
-    const float rightRowW = rClickW - 18.0f * uiS;
+    // The scroll track sits in its own gutter at the board's right edge; row
+    // containers and controls stop short of it so they never overlap the bar.
+    const float rightTrackX = rpX + rClickW - 8.0f * uiS;
+    const float rightRowRight = rightTrackX - 22.0f * uiS;
+    const float rightRowW = rightRowRight - rightRowX;
     // Controls are a left-anchored column inside the settings panel. This
     // leaves a comfortable readout area while avoiding the old far-right,
     // centered-looking option placement.
     const float rightControlInset = std::min(
         rpW * 0.34f, std::max(0.0f, rClickW - 160.0f * uiS));
-    const float rightControlX = rpX + rightControlInset;
-    const float rightControlEnd = rpX + rClickW - 18.0f * uiS;
+    // The whole control column sits a little left of the board edge.
+    const float kControlShiftX = 52.0f * uiS;
+    const float rightControlX = rpX + rightControlInset - kControlShiftX;
+    const float rightControlEnd = rightRowRight - 18.0f * uiS - kControlShiftX;
     const float rightControlW = std::max(1.0f,
                                          rightControlEnd - rightControlX);
     auto categoryColor = [&](int category, float& r, float& g, float& b) {
@@ -1183,7 +1283,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                                     UiTextLevel::Subtitle, 0.56f);
             const float headerRuleY = y + rightRowH - 10.0f * uiS;
             LogoLine(rightRowX, headerRuleY,
-                     rightControlEnd, headerRuleY,
+                     rightRowRight - 18.0f * uiS, headerRuleY,
                      1.05f * uiS, catR, catG, catB, 0.34f * dA);
             DrawVisibleConstellNode(rightRowX, headerRuleY,
                                     2.6f * uiS, catR, catG, catB,
@@ -1328,7 +1428,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                      0.18f, 0.04f, 0.04f, 0.55f * showA * rowA);
             if (holdT > 0.01f) {
                 drawRect(barX + 2.0f, barY + 2.0f,
-                         (barW - 4.0f) * (holdT / 1.5f), barH - 4.0f,
+                         (barW - 4.0f) * resetFill(holdT), barH - 4.0f,
                          1.0f, 0.22f, 0.14f, 0.92f * rowA);
             }
             static const wchar_t* resetLabelVariants[] = {
@@ -1340,7 +1440,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
             static const wchar_t* doneLabelVariants[] = {
                 L"초기화 완료", L"RESET COMPLETE", L"初期化完了"
             };
-            const bool showDone = resetDoneT > 0.0f && holdT <= 0.01f;
+            const bool showDone = resetDoneT > 0.0f && (holdT <= 0.01f || exiting);
             const wchar_t* const* labelVariants = showDone ? doneLabelVariants
                 : holdT > 0.01f ? erasingLabelVariants : resetLabelVariants;
             const wchar_t* resetLabel = labelVariants[std::clamp(LangIndex(), 0, 2)];
@@ -1523,7 +1623,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                                       rightListH * (rightListH / rightTotalH));
         const float thumbY = rightListTop
             + (rightListH - thumbH) * settingsScroll;
-        const float trackX = rightControlEnd + 12.0f * uiS;
+        const float trackX = rightTrackX;
         LogoLine(trackX, rightListTop, trackX, rightListBottom,
                  0.7f * uiS, 0.34f, 0.72f, 1.0f, 0.12f * dA);
         LogoLine(trackX, thumbY, trackX, thumbY + thumbH,
@@ -1720,20 +1820,24 @@ void Scene_SettingsInline(const SceneCtx& c) {
      // RESET DATA is armed only while the visible reset control is held.
      resetDoneT = std::max(0.0f, resetDoneT - dt);
      if (!resetPressed) resetLatched = false;   // released: a new hold may start
-     if (inputReady && resetPressed && !resetLatched) {
-         holdT = std::min(holdT + dt, 1.5f);
-         if (holdT >= 1.5f) {
+     if (exiting && resetDoneT > 0.0f) {
+         holdT = kResetHoldSec;   // committed: the bar stays full through the exit fade
+     } else if (inputReady && resetPressed && !resetLatched) {
+         holdT = std::min(holdT + dt, kResetHoldSec);
+         if (holdT >= kResetHoldSec) {
              ResetSaveProgress();
              SaveGame();
-             holdT = 0.0f;
              resetLatched = true;   // keep holding: no second fill until released
              resetDoneT = 2.5f;
+             exiting = true;        // the normal exit transition returns to the lobby
          }
      } else if (inputReady) {
          holdT = std::max(0.0f, holdT - dt * 3.0f);
      } else {
          holdT = std::max(0.0f, holdT - dt * 4.0f);
      }
+     g_UiShakePx = (holdT > 0.01f && !(exiting && resetDoneT > 0.0f))
+         ? 16.0f * uiS * std::pow(holdT / kResetHoldSec, 2.5f) : 0.0f;
 
     if (exiting && exitT >= kOutgameTransitionDuration) {
         // Settings are persisted only by SAVE CHANGES or SAVE & BACK.

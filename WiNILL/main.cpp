@@ -2958,6 +2958,12 @@ static void TriggerEliteKillHitStop(Monster& m) {
     m.eliteKillFx = true;                  // kill distortion (EntityDraw drawMob)
 }
 
+// The tutorial's pause menu: PAUSED whose resume target is the practice field.
+static bool TutorialPaused() {
+    return g_GameManager.currentState == GameState::PAUSED &&
+           g_GameManager.pauseResumeState == GameState::READY;
+}
+
 // ---- Overlay pieces drawn from the frame loop (kept out of main() body) ----
 static void DrawAchievementToast(float sw, float sh, float delta) {
     if (g_AchToastTimer > 0.0f && g_AchToastId >= 0 &&
@@ -3462,6 +3468,13 @@ int main() {
                 g_PlayDebugTainted = true;
         }
         delta *= g_SmokeTimeScale;   // 1 outside smoke captures
+        // After the tutorial launch: the HUD fades in and the ship is briefly safe.
+        if (ready_launch::g_RunIntro < 1.0f)
+            ready_launch::g_RunIntro = std::min(1.0f,
+                ready_launch::g_RunIntro + delta / ready_launch::kRunIntroSec);
+        if (ready_launch::g_StartGraceT > 0.0f &&
+            g_GameManager.currentState == GameState::RUNNING)
+            ready_launch::g_StartGraceT -= delta;
         // Arranging windows mid-fight slows the game down.
         if (os_pane::ArrangeMode() && g_GameManager.currentState == GameState::RUNNING)
             delta *= kArrangeSlow;
@@ -3862,6 +3875,17 @@ int main() {
                         // A fresh run held on the READY screen (practice field).
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
                         gm.currentState = GameState::READY;
+                    } else if (step == "TUTPAUSE") {
+                        // The tutorial's pause menu over the practice field (same as ESC there).
+                        if (gm.currentState != GameState::READY) RestartCurrentRun();
+                        ready_launch::g_TutorialMode = true;
+                        gm.pauseResumeState = GameState::READY;
+                        gm.currentState = GameState::PAUSED;
+                    } else if (step == "LAUNCH") {
+                        // READY -> RUNNING launch animation (same as pressing Space).
+                        if (gm.currentState != GameState::READY) RestartCurrentRun();
+                        gm.currentState = GameState::READY;
+                        ready_launch::StartLaunch();
                     } else if (step.rfind("READYSTEP=", 0) == 0) {
                         // READY with the first N practice objectives done.
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
@@ -4614,6 +4638,9 @@ int main() {
                         const float f = std::clamp(
                             (float)std::atof(step.c_str() + 3), 0.01f, 1.0f);
                         gm.playerHP = g_Stats.maxHP * f;
+                    } else if (step.rfind("DIM=", 0) == 0) {
+                        // DIM=<0..100>: menu darkness (settings > DISPLAY), for A/B captures.
+                        g_MenuDim = std::clamp(std::atoi(step.c_str() + 4), 0, 100);
                     } else if (step.rfind("DIFF=", 0) == 0) {
                         // DIFF=EASY|NORMAL|HARD|NIGHTMARE: run difficulty (wave count,
                         // elite schedule) for wave HUD captures.
@@ -4723,7 +4750,8 @@ int main() {
         }
 
         // ?�리?�이?�브 무적 ??�??�레??체력 ?�?고정 (?��? 죽�? ?�음)
-        if (g_CreativeGodmode && (g_CreativeMode || g_DebugMode) &&
+        if (((g_CreativeGodmode && (g_CreativeMode || g_DebugMode)) ||
+             ready_launch::g_StartGraceT > 0.0f) &&
             g_GameManager.currentState == GameState::RUNNING) {
             g_GameManager.playerHP = g_Stats.maxHP;
         }
@@ -6071,6 +6099,13 @@ CollisionSystem::Update(pCX, pCY,
             orthoShake[12] -= 2.0f * sx / (float)screenWidth;
             orthoShake[13] += 2.0f * sy / (float)screenHeight;
         }
+        if (g_UiShakePx > 0.0f) {
+            const float ux = ((float)(rand() % 200) - 100.0f) / 100.0f * g_UiShakePx;
+            const float uy = ((float)(rand() % 200) - 100.0f) / 100.0f * g_UiShakePx;
+            orthoShake[12] -= 2.0f * ux / (float)screenWidth;
+            orthoShake[13] += 2.0f * uy / (float)screenHeight;
+            g_UiShakePx = 0.0f;   // the page asks again next frame while it still needs it
+        }
         BatchFlush();   // ortho(�? 바꾸�??????�전 매트�?���??�인 ?�형 먼�? 그림
         glUniformMatrix4fv(g_MainProjLoc, 1, GL_FALSE, orthoShake);
         // 글로벌?�도 ?�기????BindMainShader() 가 ??�??�용
@@ -6108,7 +6143,7 @@ CollisionSystem::Update(pCX, pCY,
         for (int i = 0; i < kVignetteSteps; ++i) {
             const float t = (i + 0.5f) / (float)kVignetteSteps;
             const float fade = 1.0f - t * t * (3.0f - 2.0f * t);
-            const float a = kEdgeAlpha * fade;
+            const float a = kEdgeAlpha * fade * ready_launch::g_RunIntro;
             const float x0 = sideW * i / (float)kVignetteSteps;
             const float x1 = sideW * (i + 1) / (float)kVignetteSteps;
             const float y0 = topH * i / (float)kVignetteSteps;
@@ -6120,9 +6155,18 @@ CollisionSystem::Update(pCX, pCY,
             drawRect(0.0f, (float)screenHeight - y1, (float)screenWidth,
                      y1 - y0, 0.0f, 0.0f, 0.0f, a);
         }
-        if (g_StrongMenuDim) {
-            drawRect(0.0f, 0.0f, (float)screenWidth, (float)screenHeight,
-                     0.0f, 0.0f, 0.0f, 0.58f);
+        // Menu darkness setting: combat and the other in-run screens take 20%
+        // of it. Drawn with the vignette, under entities and the HUD.
+        {
+            const GameState dimState = g_GameManager.currentState;
+            const bool inRun = dimState == GameState::RUNNING || dimState == GameState::DYING ||
+                dimState == GameState::PAUSED || dimState == GameState::READY ||
+                dimState == GameState::AUG_SELECT || dimState == GameState::DEBUFF_SELECT ||
+                dimState == GameState::AUG_REPLACE;
+            const float combatDim = CombatDimAlpha(g_MenuDim);
+            if (inRun && combatDim > 0.002f)
+                drawRect(0.0f, 0.0f, (float)screenWidth, (float)screenHeight,
+                         0.0f, 0.0f, 0.0f, combatDim);
         }
         BatchFlush();
         glUniformMatrix4fv(g_MainProjLoc, 1, GL_FALSE, orthoShake);
@@ -6230,7 +6274,8 @@ CollisionSystem::Update(pCX, pCY,
             g_MonsterManager, sightPlayerX, sightPlayerY, sightPlayerSize,
             g_GameManager.currentState != GameState::DYING &&
                 g_GameManager.currentState != GameState::GAMEOVER &&
-                g_GameManager.currentState != GameState::READY);   // no world ship on READY
+                g_GameManager.currentState != GameState::READY &&   // no world ship on READY
+                !TutorialPaused());
 
         DrawRegulusBeams(g_MonsterManager, g_GameTime);
 
@@ -6299,14 +6344,15 @@ CollisionSystem::Update(pCX, pCY,
         // READY draws its own ship inside the practice field (SceneReady.cpp).
         if (g_GameManager.currentState != GameState::DYING &&
             g_GameManager.currentState != GameState::GAMEOVER &&
-            g_GameManager.currentState != GameState::READY) {
+            g_GameManager.currentState != GameState::READY &&
+            !TutorialPaused()) {
             const float pCX = playerWin.x + playerWin.width * 0.5f;
             const float pCY = playerWin.y + playerWin.height * 0.5f;
             const float playerSize = PLAYER_SIZE * g_Stats.playerSizeMult;
             BindMainShader();
             const GameState healthState = g_GameManager.currentState;
             if (healthState == GameState::RUNNING ||
-                (healthState == GameState::PAUSED && !g_ShowPauseInventory) ||
+                (healthState == GameState::PAUSED && !g_ShowPauseInventory && !TutorialPaused()) ||
                 healthState == GameState::AUG_SELECT ||
                 healthState == GameState::DEBUFF_SELECT) {
                 const float hpFraction = std::clamp(g_GameManager.playerHP /
@@ -6339,7 +6385,8 @@ CollisionSystem::Update(pCX, pCY,
         //    "??= ?�로?�스, 창을 ?�아 종료?�다" ?�체?? ?�드 좌표(�?반영)�?그림.
         {
             GameState gst = g_GameManager.currentState;
-            bool inGame = (gst == GameState::RUNNING || gst == GameState::PAUSED ||
+            bool inGame = (gst == GameState::RUNNING ||
+                           (gst == GameState::PAUSED && !TutorialPaused()) ||
                            gst == GameState::DYING || gst == GameState::AUG_SELECT ||
                            gst == GameState::DEBUFF_SELECT);
             if (inGame) {
@@ -6565,7 +6612,10 @@ CollisionSystem::Update(pCX, pCY,
                     break;
                 // Pause is drawn after the HUD and version so its veil dims
                 // the entire gameplay view, not just the world geometry.
-                case GameState::PAUSED: break;
+                case GameState::PAUSED:
+                    // The tutorial's pause menu sits over its (frozen) practice page.
+                    if (TutorialPaused()) Scene_Ready(ctx, sceneText);
+                    break;
                 case GameState::GAMEOVER: {
                     const GameOverSceneContext reportState{
                         g_GameManager.currentState,
@@ -6594,9 +6644,12 @@ CollisionSystem::Update(pCX, pCY,
                                       g_ShowCrosshair, g_DebugToolkit.IsVisible());
 
             // ?�단 HUD ???�제 게임 진행 ?�태?�서�?(메뉴/?�감/?�점?????�게)
-            if (st == GameState::RUNNING || st == GameState::PAUSED ||
-                st == GameState::DYING   || st == GameState::AUG_SELECT ||
-                st == GameState::DEBUFF_SELECT) {
+            // The HUD fades in over the first moments of a run (tutorial launch).
+            const float hudAlphaKeep = g_BatchAlpha;
+            g_BatchAlpha *= ready_launch::g_RunIntro;
+            if ((st == GameState::RUNNING || st == GameState::PAUSED ||
+                 st == GameState::DYING   || st == GameState::AUG_SELECT ||
+                 st == GameState::DEBUFF_SELECT) && !TutorialPaused()) {
                 const float hudScale = UiScale(sw, sh);
                 if (st == GameState::RUNNING) {
                     const float hpFrac = g_Stats.maxHP > 0.0f
@@ -6666,10 +6719,11 @@ CollisionSystem::Update(pCX, pCY,
 
             // Skill HUD (bottom centre): key cooldowns and cooldown passives.
             if (st == GameState::RUNNING ||
-                (st == GameState::PAUSED && !g_ShowPauseInventory)) {
+                (st == GameState::PAUSED && !g_ShowPauseInventory && !TutorialPaused())) {
                 DrawSkillHud(skill_hud::BuildSkillHudView(GatherSkillHudInputs(), g_SkillHudPulse),
                              UiScale(sw, sh), sw, sh);
             }
+            g_BatchAlpha = hudAlphaKeep;
 
         }
 

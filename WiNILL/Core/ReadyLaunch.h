@@ -31,7 +31,29 @@ inline bool g_RequestNerfPick = false;
 // must start from a clean loadout instead of carrying them over.
 inline bool g_PicksTaken = false;
 
+// Space on the practice field does not start the run at once: the field's wall
+// first shrinks a little (kLaunchShrinkSec), then swells out to the screen edge
+// (kLaunchExpandSec), and the run starts when it arrives. g_LaunchT counts the
+// seconds of that animation; negative = not launching.
+inline constexpr float kLaunchShrinkSec = 0.22f;
+inline constexpr float kLaunchExpandSec = 0.73f;
+inline constexpr float kLaunchShrinkTo = 0.93f;   // field scale at the bottom of the squeeze
+inline float g_LaunchT = -1.0f;
+// After the launch the run's HUD fades in over kRunIntroSec (g_RunIntro 0 -> 1)
+// and the ship cannot be hurt for kStartGraceSec, so the first frames are calm.
+inline constexpr float kRunIntroSec = 0.45f;
+inline constexpr float kStartGraceSec = 0.8f;
+inline float g_RunIntro = 1.0f;
+inline float g_StartGraceT = 0.0f;
+inline bool Launching() { return g_LaunchT >= 0.0f; }
+inline void StartLaunch() {
+    if (!Launching()) g_LaunchT = 0.0f;
+    else g_LaunchT = kLaunchShrinkSec + kLaunchExpandSec;   // a second press skips ahead
+}
+inline void CancelLaunch() { g_LaunchT = -1.0f; }
+
 inline void BeginTutorial() {
+    g_LaunchT = -1.0f;
     g_Stage = TutorialStage::Practice;
     g_NerfClock = kNerfWaitSeconds;
     g_RequestNerfPick = false;

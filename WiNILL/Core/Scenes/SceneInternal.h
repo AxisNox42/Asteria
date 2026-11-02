@@ -15,12 +15,12 @@ extern bool s_MainMenuResumeFromPanel;
 extern float g_SettingsEntryT;
 extern bool s_SettingsInlineNeedsReset;
 
-// Lobby rail (top to bottom): TUTORIAL, PLAY, SHOP, ASTRAL LOG, SETTINGS, EXIT.
+// Lobby rail (top to bottom): TUTORIAL, PLAY, ASTRAL LOG, SHOP, SETTINGS, EXIT.
 inline constexpr int kMainMenuRouteCount = 6;
 inline constexpr int kMainMenuTutorialIndex = 0;
 inline constexpr int kMainMenuPlayIndex = 1;
-inline constexpr int kMainMenuShopIndex = 2;
-inline constexpr int kMainMenuCodexIndex = 3;
+inline constexpr int kMainMenuCodexIndex = 2;
+inline constexpr int kMainMenuShopIndex = 3;
 inline constexpr int kMainMenuSettingsIndex = 4;
 inline constexpr int kMainMenuExitIndex = 5;
 const wchar_t* MainMenuRouteLabel(int language, int index);
@@ -57,6 +57,10 @@ void DrawSceneRadialVignette(float cx, float cy, float radius, float alpha);
 void DrawSettingsOrbitArc(float cx, float cy, float radiusX, float radiusY,
                           float startAngle, float endAngle,
                           float r, float g, float b, float thickness, float alpha);
+// Lobby title mark: size multiplier on MainLogoHeight and its centre as a share
+// of the screen width. The lobby and the page ghosts must use the same pair.
+inline constexpr float kLobbyLogoHeightMul = 1.25f;
+inline constexpr float kLobbyLogoCenterXFrac = 0.24f;
 float MainMenuCommandStartY(float sh, float uiScale = 1.0f);
 float MainMenuButtonRailStartY(float sh, float uiScale = 1.0f);
 void DrawVisibleConstellLine(float x1, float y1, float x2, float y2,
