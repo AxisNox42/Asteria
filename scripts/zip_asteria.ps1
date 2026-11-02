@@ -1,4 +1,4 @@
-# bin/Asteria → bin/Asteria.zip
+﻿# bin/Asteria → bin/Asteria.zip
 # 포함 파일은 scripts/package_manifest.txt 가 정한다 (zip_asteria.sh / macOS CI 와 같은 기준).
 # -Source / -Output 은 검증용 임시 fixture 를 위한 선택 인자다.
 param(

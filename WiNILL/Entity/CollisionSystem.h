@@ -206,6 +206,7 @@ public:
             const int shotSpace = bullet.space >= 0 ? bullet.space : space::kPlayerSource;
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
+                if (bullet.HasHit(monster)) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
                 const float hitRadius = (monster->kind == MobKind::NORMA
                     ? norma::kShotHitPx : MONSTER_BULLET_HIT_RADIUS) * monster->sizeScale;
@@ -247,6 +248,9 @@ public:
                     }
                     --bullet.bouncesLeft;
                     keepAlive = true;
+                    bullet.ResetHits(monster);  // 튕긴 뒤에는 직전 대상만 제외
+                } else if (keepAlive) {
+                    bullet.RememberHit(monster);
                 }
                 if (!keepAlive) bullet.active = false;
                 consumed = true;
@@ -256,6 +260,7 @@ public:
             if (consumed) continue;
             for (auto* ranged : manager.rangedMobs) {
                 if (!ranged->alive) continue;
+                if (bullet.HasHit(ranged)) continue;
                 if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) continue;
                 constexpr float HIT_RADIUS = 20.0f;
                 if (ranged->worldX < minX - HIT_RADIUS || ranged->worldX > maxX + HIT_RADIUS ||
@@ -313,6 +318,9 @@ public:
                     }
                     --bullet.bouncesLeft;
                     keepAlive = true;
+                    bullet.ResetHits(ranged);  // 튕긴 뒤에는 직전 대상만 제외
+                } else if (keepAlive) {
+                    bullet.RememberHit(ranged);
                 }
                 if (!keepAlive) bullet.active = false;
                 break;

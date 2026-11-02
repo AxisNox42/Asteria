@@ -46,6 +46,24 @@ public:
     bool  rainMissile = false;   // 탄환 세례 — 로켓 스프라이트로 렌더
     // Magnetar whose broken ward face this shot already passed through.
     const void* wardPassed = nullptr;
+    // 관통/리코셰 중인 탄이 이미 맞힌 대상 — 판정 반경 안에 머무는 동안 같은 적을 다시 맞히지 않음
+    static constexpr int kHitMemory = 4;
+    const void* recentHits[kHitMemory] = {};
+    int recentHitNext = 0;
+    bool HasHit(const void* target) const {
+        for (const void* hit : recentHits)
+            if (hit == target) return true;
+        return false;
+    }
+    void RememberHit(const void* target) {
+        recentHits[recentHitNext] = target;
+        recentHitNext = (recentHitNext + 1) % kHitMemory;
+    }
+    void ResetHits(const void* keep) {
+        for (const void*& hit : recentHits) hit = nullptr;
+        recentHits[0] = keep;
+        recentHitNext = 1;
+    }
     bool  crescentBlade = false; // 초승달 검기 — arc 모양 렌더
     // NORMA window space the shot was fired in (SpaceRules.h); -1 until its
     // first update. It dissolves on reaching any other space.

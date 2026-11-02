@@ -1418,8 +1418,9 @@ bool TryEscNavigateBack() {
         st = GS::MAIN_MENU;
         return true;
     case GS::SETTINGS:
-        SaveGame();
-        st = g_SettingsReturnTo;
+        // Scene_SettingsInline owns ESC here: it cancels a key capture, asks
+        // before discarding unsaved changes and plays the exit transition.
+        // Settings are persisted only by SAVE CHANGES or SAVE & BACK.
         return true;
     default:
         return false;

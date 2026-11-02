@@ -1,4 +1,4 @@
-# LTS 패키징 — bin/Asteria/ (Windows + macOS 슬롯)
+﻿# LTS 패키징 — bin/Asteria/ (Windows + macOS 슬롯)
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Asteria = Join-Path $Root "bin\Asteria"

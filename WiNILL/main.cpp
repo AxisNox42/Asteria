@@ -3809,12 +3809,20 @@ int main() {
                         } else if (action.rfind("PROBE=", 0) == 0) {
                             // PANE=PROBE=x,y  who receives a click at that overlay point
                             float px = 0.0f, py = 0.0f;
+#ifdef _MSC_VER
                             sscanf_s(action.c_str() + 6, "%f,%f", &px, &py);
+#else
+                            std::sscanf(action.c_str() + 6, "%f,%f", &px, &py);
+#endif
                             bool overlayHit = false;
                             const unsigned long pid = os_pane::DebugProcessAt(px, py, &overlayHit);
                             std::filesystem::create_directories("Screenshots");
                             FILE* pf = nullptr;
+#ifdef _MSC_VER
                             if (fopen_s(&pf, "Screenshots/pane_state.txt", "a") != 0) pf = nullptr;
+#else
+                            pf = std::fopen("Screenshots/pane_state.txt", "a");
+#endif
                             if (pf) {
                                 std::fprintf(pf, "PROBE %.0f,%.0f pid=%lu overlay=%d exstyle=0x%08lX\n",
                                              px, py, pid, overlayHit ? 1 : 0,
