@@ -174,6 +174,10 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     waveTransitionTimer = 0.0f;
     waveAdvancePending = false;
     waveClearDelay = 0.0f;
+    rewardTier = -1;
+    rewardSpeed = 0.0f;
+    rewardTierCap = 4;
+    rewardPityCount = 0;
     waveVictory = false;
     xp = 0;
     playerLevel = 1;
@@ -183,27 +187,45 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     lastState = GameState::READY;
 }
 
-// Rarity weight by player level: early picks lean common, epics open at L3,
-// legendaries at L8, mythics at L10. Luck raises the non-common weights.
-static int RarityWeight(AugRarity rarity, int level) {
+// Rarity weight: early tiers dominate; tiers above the wave's cap (set by
+// how far the run has come) never show. Luck raises the non-common weights.
+static int RarityWeight(AugRarity rarity, int cap) {
+    if ((int)rarity > cap) return 0;
     switch (rarity) {
     case AugRarity::COMMON:    return 50;
     case AugRarity::RARE:      return 25;
-    case AugRarity::EPIC:      return level < 3 ? 0 : std::min(12, (level - 2) * 3);
-    case AugRarity::LEGENDARY: return level < 8 ? 0 : std::min(5, level - 7);
-    case AugRarity::MYTHIC:    return level < 10 ? 0 : 3;
+    case AugRarity::EPIC:      return 12;
+    case AugRarity::LEGENDARY: return 5;
+    case AugRarity::MYTHIC:    return 3;
     }
     return 0;
 }
 
-// Five different cards: a rarity by weight (among rarities that still have
-// an offerable card), then a card of that rarity at random.
+// Three different cards: a rarity by weight (among rarities that still have
+// an offerable card), then a card of that rarity at random. A wave clear's
+// earned tier puts one card of that tier (or the nearest lower one with an
+// offerable card) in a random slot, and its speed raises the other cards'
+// non-common weights (up to x3).
 void GameManager::PickRewardChoices() {
     for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augChoiceCount = 0;
     bool used[AUG_TOTAL] = {};
-    const float luck = passive::LuckChanceMult();
-    for (int slot = 0; slot < kAugChoiceMax; ++slot) {
+    const float luck = passive::LuckChanceMult() * (1.0f + 2.0f * std::clamp(rewardSpeed, 0.0f, 1.0f));
+    int guaranteed = -1;
+    const int cap = std::clamp(rewardTierCap, 0, (int)AugRarity::MYTHIC);
+    // The guaranteed card may sit one tier above the cap (a lucky bump).
+    for (int r = std::min(rewardTier, (int)AugRarity::MYTHIC); r >= 0 && guaranteed < 0; --r) {
+        int pool[AUG_TOTAL], n = 0;
+        for (int i = 0; i < AUG_TOTAL; ++i)
+            if ((int)ALL_AUGS[i].rarity == r && !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i))
+                pool[n++] = i;
+        if (n > 0) guaranteed = pool[std::rand() % n];
+    }
+    rewardTier = -1;
+    rewardSpeed = 0.0f;
+    rewardTierCap = (int)AugRarity::MYTHIC;
+    if (guaranteed >= 0) used[guaranteed] = true;
+    for (int slot = guaranteed >= 0 ? 1 : 0; slot < kAugChoiceMax; ++slot) {
         float weights[5] = {};
         float total = 0.0f;
         for (int r = 0; r < 5; ++r) {
@@ -212,7 +234,7 @@ void GameManager::PickRewardChoices() {
                 any = !used[i] && (int)ALL_AUGS[i].rarity == r &&
                       !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i);
             if (!any) continue;
-            float w = (float)RarityWeight((AugRarity)r, playerLevel);
+            float w = (float)RarityWeight((AugRarity)r, cap);
             if (r != (int)AugRarity::COMMON) w *= luck;
             weights[r] = w;
             total += w;
@@ -231,6 +253,12 @@ void GameManager::PickRewardChoices() {
         const int pick = pool[std::rand() % n];
         used[pick] = true;
         augChoices[augChoiceCount++] = pick;
+    }
+    if (guaranteed >= 0 && augChoiceCount < kAugChoiceMax) {
+        const int at = std::rand() % (augChoiceCount + 1);
+        for (int i = augChoiceCount; i > at; --i) augChoices[i] = augChoices[i - 1];
+        augChoices[at] = guaranteed;
+        ++augChoiceCount;
     }
 }
 

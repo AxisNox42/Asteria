@@ -42,13 +42,19 @@ public:
 
     XpAmount  xp           = 0;        // 현재 레벨 안의 EXP (0.001 XP 단위)
     int       playerLevel  = 1;        // 레벨 (시작 1)
-    static constexpr int kAugChoiceMax = 5;   // cards per pick (card draw screen)
-    int       augChoices[kAugChoiceMax] = {-1,-1,-1,-1,-1}; // indices into ALL_AUGS for current pick
+    static constexpr int kAugChoiceMax = 3;   // cards per pick (card draw screen)
+    int       augChoices[kAugChoiceMax] = {-1,-1,-1}; // indices into ALL_AUGS for current pick
     int       augChoiceCount = 0;
     int       augmentSelectionSerial = 0;
     bool      augmentKeyboardFocus = false;
     int       hoveredCard  = -1;       // AUG_SELECT 호버 인덱스 (-1=none)
     int       pendingAugmentRewards = 0;   // wave clears: augment cards
+    // The wave clear's earned tier (AugRarity, -1 = none): the next augment
+    // pick guarantees one card of it, and rewardSpeed (0..1) tilts the rest up.
+    int       rewardTier = -1;
+    float     rewardSpeed = 0.0f;
+    int       rewardTierCap = 4;           // highest tier the pick may show (AugRarity)
+    int       rewardPityCount = 0;         // fastest clears since the last lucky bump
     int       pendingStatRewards = 0;      // level-ups: stat cards
     bool      activeRewardIsStat = false;  // the open pick is a level-up's
     bool      augmentRewardActive = false;

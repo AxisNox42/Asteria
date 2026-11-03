@@ -82,11 +82,11 @@ inline const wchar_t* kReadyExtraHint[LANG_COUNT][READY_EXTRA_HINT_COUNT] = {
 // Two-line explanation under the field: [0] cards (while picking).
 inline constexpr int READY_PICK_NOTE_COUNT = 1;
 inline const wchar_t* kReadyPickNote[LANG_COUNT][READY_PICK_NOTE_COUNT][2] = {
-    { { L"레벨 업마다 능력치 카드 3장 중 1장, 웨이브 클리어마다 증강 카드 5장 중 1장을 얻습니다",
+    { { L"레벨 업마다 능력치 카드 3장 중 1장, 웨이브 클리어마다 증강 카드 3장 중 1장을 얻습니다",
         L"카드를 클릭하거나 숫자 키로 고르고 Space로 확정하세요 — 효과는 카드에 적혀 있습니다" } },
-    { { L"Each level-up gives 1 of 3 stat cards; each wave clear gives 1 of 5 augment cards",
+    { { L"Each level-up gives 1 of 3 stat cards; each wave clear gives 1 of 3 augment cards",
         L"Click a card or press its number, then confirm with Space — each card lists its effect" } },
-    { { L"レベルアップごとに能力値カード3枚から1枚、ウェーブクリアごとに強化カード5枚から1枚を得ます",
+    { { L"レベルアップごとに能力値カード3枚から1枚、ウェーブクリアごとに強化カード3枚から1枚を得ます",
         L"カードをクリックするか数字キーで選び、Spaceで確定 — 効果はカードに書かれています" } },
 };
 inline const wchar_t* ReadyPickNote(int block, int line) {
@@ -233,8 +233,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"마우스를 카드·아이콘 위에 올리면 상세 설명이 표시됩니다",
 
         L"적 처치 → 경험치(EXP) → 레벨업 / "
-        L"레벨업하면 증강 카드 5장이 자동으로 열립니다 / "
-        L"숫자키 1~5로 후보를 고르고 Space로 확정합니다 / "
+        L"레벨업하면 증강 카드 3장이 자동으로 열립니다 / "
+        L"숫자키 1~3으로 후보를 고르고 Space로 확정합니다 / "
         L"증강은 공격·방어·이동·스킬·경제 등 빌드를 결정합니다. 중복·시너지를 고려하세요 / "
         L"일부 증강은 {SKILLS} 액티브를 해금하거나 기존 스킬을 강화합니다 / "
         L"도감에서 이미 본 증강은 이름·효과를 미리 확인할 수 있습니다(미발견은 ???)",
@@ -279,8 +279,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"Hover cards and icons for full descriptions",
 
         L"Kills → XP → level-up / "
-        L"On level-up, 5 augment cards open on their own / "
-        L"Keys 1-5 select; Space confirms / "
+        L"On level-up, 3 augment cards open on their own / "
+        L"Keys 1-3 select; Space confirms / "
         L"Augments define your build: damage, defense, mobility, skills, economy / "
         L"Some unlock or upgrade {SKILLS} actives / "
         L"Codex shows discovered augments in detail; unknown ones stay hidden",
@@ -325,8 +325,8 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"カード·アイコンにホバーで詳細表示",
 
         L"撃破→経験値→レベルアップ / "
-        L"レベルアップすると強化カード5枚が自動で開きます / "
-        L"1〜5で選択、Spaceで確定 / "
+        L"レベルアップすると強化カード3枚が自動で開きます / "
+        L"1〜3で選択、Spaceで確定 / "
         L"強化は攻撃·防御·移動·スキル·経済などビルドを決めます / "
         L"一部は{SKILLS}アクティブの解放·強化になります / "
         L"図鑑で発見済み強化の説明を確認(未発見は???)",

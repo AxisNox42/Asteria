@@ -186,22 +186,67 @@ struct WaveRewardTimes { float legendary, epic, rare; };
 inline constexpr WaveRewardTimes kEliteRewardTimes = { 30.0f,  60.0f,  90.0f };
 inline constexpr WaveRewardTimes kBossRewardTimes  = { 60.0f, 120.0f, 180.0f };
 
+// Highest augment tier (0 Common .. 4 Mythic) a clear of `wave` may offer,
+// by how far through the run it is: the first quarter tops out at Rare, then
+// Epic, Legendary, and Mythic in the last quarter.
+inline int WaveRewardTierCap(int wave, Difficulty difficulty) {
+    const float f = (float)wave / (float)std::max(1, FinalWaveCount(difficulty));
+    return f <= 0.25f ? 1 : f <= 0.5f ? 2 : f <= 0.75f ? 3 : 4;
+}
+
+// The clear's guaranteed tier: the cap for the fastest clear, one lower per
+// slower speed band (Common at the slowest).
+inline int WaveRewardGuaranteedTier(WaveRewardTier earned, int cap) {
+    return std::max(0, cap - ((int)WaveRewardTier::Legendary - (int)earned));
+}
+
+// A fastest-band clear has this chance (x luck) for its guaranteed card to
+// land one tier above the cap. Pity ceiling (hidden, per run): fastest clears
+// that miss the bump are counted in `pity`, and the kRewardPityCeiling-th one
+// gets it for sure. A bump resets the count; slower clears and tiers already
+// at Mythic leave it alone.
+inline constexpr float kRewardLuckyBumpChance = 0.12f;
+inline constexpr int kRewardPityCeiling = 4;
+inline int WaveRewardLuckyBump(int tier, WaveRewardTier earned, float roll01, float luck, int& pity) {
+    if (earned != WaveRewardTier::Legendary || tier >= 4) return tier;
+    if (roll01 < kRewardLuckyBumpChance * luck || pity >= kRewardPityCeiling - 1) {
+        pity = 0;
+        return tier + 1;
+    }
+    ++pity;
+    return tier;
+}
+
+// Regular waves: seconds per quota kill that still earn each tier, so the
+// window grows with the quota (30 kills: 30 s / 45 s / 60 s).
+inline constexpr WaveRewardTimes kRegularRewardSecondsPerKill = { 1.0f, 1.5f, 2.0f };
+
 inline const WaveRewardTimes& WaveRewardTimesFor(bool boss) {
     return boss ? kBossRewardTimes : kEliteRewardTimes;
 }
 
-inline WaveRewardTier WaveRewardTierFor(float killSeconds, bool boss) {
-    const WaveRewardTimes& t = WaveRewardTimesFor(boss);
+inline WaveRewardTimes RegularWaveRewardTimes(int quota) {
+    const WaveRewardTimes& k = kRegularRewardSecondsPerKill;
+    const float q = (float)std::max(1, quota);
+    return { k.legendary * q, k.epic * q, k.rare * q };
+}
+
+inline WaveRewardTier WaveRewardTierFor(float killSeconds, const WaveRewardTimes& t) {
     if (killSeconds <= t.legendary) return WaveRewardTier::Legendary;
     if (killSeconds <= t.epic)      return WaveRewardTier::Epic;
     if (killSeconds <= t.rare)      return WaveRewardTier::Rare;
     return WaveRewardTier::Common;
 }
+inline WaveRewardTier WaveRewardTierFor(float killSeconds, bool boss) {
+    return WaveRewardTierFor(killSeconds, WaveRewardTimesFor(boss));
+}
 
 // 1 for an instant kill, falling to 0 once only the Common tier is left.
+inline float WaveRewardSpeed(float killSeconds, const WaveRewardTimes& t) {
+    return std::clamp(1.0f - killSeconds / t.rare, 0.0f, 1.0f);
+}
 inline float WaveRewardSpeed(float killSeconds, bool boss) {
-    const float slowest = WaveRewardTimesFor(boss).rare;
-    return std::clamp(1.0f - killSeconds / slowest, 0.0f, 1.0f);
+    return WaveRewardSpeed(killSeconds, WaveRewardTimesFor(boss));
 }
 
 // Seconds the current tier still holds, and that tier's whole window, for the

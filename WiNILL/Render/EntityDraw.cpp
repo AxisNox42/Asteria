@@ -3180,8 +3180,9 @@ void drawMob(const Monster* m, float visualTime) {
         DrawQuasarFall(m, cr, cg, cb);
         DrawQuasarEruption(m, cr, cg, cb);
     } else if (m->kind == MobKind::GIMBAL) {
-        // Gimbal: a four-point concave star that spins (gimbalVisualAngle),
-        // faster and faster while charging; it flashes white as it fires.
+        // Gimbal: two nested triangles spinning in opposite directions
+        // (gimbalVisualAngle), faster and faster while charging; it flashes
+        // white as it fires.
         float bodyR = m->color.r, bodyG = m->color.g, bodyB = m->color.b;
         ApplyMobStyleTint(bodyR, bodyG, bodyB);
         ApplyMobHitFlash(bodyR, bodyG, bodyB, m->hitFlashTimer);
@@ -3194,22 +3195,25 @@ void drawMob(const Monster* m, float visualTime) {
                 (6.2831853f * Monster::GIMBAL_CHARGE_ROTATIONS))
             : (burst ? 1.0f : 0.0f);
         const float pulse = burst ? 0.5f + 0.5f * sinf(m->gimbalBurstTimer * 40.0f) : 0.0f;
-        const float tipR = base * 1.55f;
-        const float dentR = tipR * 0.40f;
+        const float outerR = base * 1.30f;
+        const float innerR = base * 0.85f;
         const float liteR = bodyR + (1.0f - bodyR) * 0.45f;
         const float liteG = bodyG + (1.0f - bodyG) * 0.45f;
         const float liteB = bodyB + (1.0f - bodyB) * 0.45f;
         const float lr = burst ? 1.0f : bodyR + (liteR - bodyR) * charge;
         const float lg = burst ? 1.0f : bodyG + (liteG - bodyG) * charge;
         const float lb = burst ? 1.0f : bodyB + (liteB - bodyB) * charge;
-        for (int k = 0; k < 8; ++k) {
-            const float a0 = spin + 0.7853982f * (float)k;
-            const float a1 = spin + 0.7853982f * (float)(k + 1);
-            const float r0 = (k & 1) ? dentR : tipR;
-            const float r1 = (k & 1) ? tipR : dentR;
-            drawLineQuad(x + cosf(a0) * r0, y + sinf(a0) * r0,
-                         x + cosf(a1) * r1, y + sinf(a1) * r1,
-                         1.6f, lr, lg, lb, 0.95f);
+        // Two triangles spinning opposite ways (the inner one is smaller).
+        for (int t = 0; t < 2; ++t) {
+            const float dir = t == 0 ? 1.0f : -1.0f;
+            const float R = t == 0 ? outerR : innerR;
+            for (int k = 0; k < 3; ++k) {
+                const float a0 = dir * spin + 2.0943951f * (float)k;
+                const float a1 = dir * spin + 2.0943951f * (float)(k + 1);
+                drawLineQuad(x + cosf(a0) * R, y + sinf(a0) * R,
+                             x + cosf(a1) * R, y + sinf(a1) * R,
+                             1.6f, lr, lg, lb, 0.95f);
+            }
         }
         if (burst) {
             drawCircle(x, y, base * (1.5f + 0.25f * pulse),

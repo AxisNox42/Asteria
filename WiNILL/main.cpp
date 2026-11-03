@@ -3132,6 +3132,16 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     const bool quotaMet = quota > 0 && gm.waveKills >= quota;
     if (((clear.cleared && clear.wave == gm.currentWave) || quotaMet) &&
         !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
+        // The faster the clear, the higher the guaranteed tier and the odds.
+        const WaveRewardTimes times = quotaMet
+            ? RegularWaveRewardTimes(quota) : WaveRewardTimesFor(clear.boss);
+        const float seconds = quotaMet ? g_GameTime - gm.waveStartTime : clear.killSeconds;
+        gm.rewardTierCap = WaveRewardTierCap(gm.currentWave, g_Difficulty);
+        const WaveRewardTier earned = WaveRewardTierFor(seconds, times);
+        gm.rewardTier = WaveRewardLuckyBump(WaveRewardGuaranteedTier(earned, gm.rewardTierCap), earned,
+                                            (float)(std::rand() % 10000) / 10000.0f,
+                                            passive::LuckChanceMult(), gm.rewardPityCount);
+        gm.rewardSpeed = WaveRewardSpeed(seconds, times);
         gm.QueueAugmentReward();
         passive::OnWaveCleared();
         Audio::Play(Audio::Cue::WaveClear);

@@ -269,17 +269,9 @@ float HookBulletDamageMult(const Bullet& bullet, const void* target,
         const float dx = tx - s.in.px, dy = ty - s.in.py;
         if (std::sqrt(dx * dx + dy * dy) * s.in.viewZoom >= 0.40f * s.in.screenW) m *= 1.30f;
     }
-    if (Has(AugType::P_HUNTER_REAR_TARGETING)) {
-        auto it = s.seen.find(target);
-        if (it != s.seen.end()) {
-            // Moving away: velocity points away from the player.
-            const float toPx = s.in.px - tx, toPy = s.in.py - ty;
-            const float v2 = it->second.vx * it->second.vx + it->second.vy * it->second.vy;
-            if (v2 > 1.0f && it->second.vx * toPx + it->second.vy * toPy <= 0.0f) m *= 1.25f;
-        }
-    }
     m *= 1.0f + CraneBonus();
     (void)bullet;
+    (void)target;
     return m * RollCrit(crit);
 }
 

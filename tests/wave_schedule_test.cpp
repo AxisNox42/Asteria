@@ -104,6 +104,41 @@ int main() {
     EXPECT(WaveRewardTierFor(kEliteRewardTimes.legendary + 0.1f, false) == WaveRewardTier::Epic, "epic");
     EXPECT(WaveRewardTierFor(kEliteRewardTimes.rare + 0.1f, false) == WaveRewardTier::Common, "common");
     EXPECT(WaveRewardSpeed(20.0f, false) > WaveRewardSpeed(40.0f, false), "speed falls with time");
+    // Tier cap climbs through the run: NORMAL 1-3 Rare, 4-6 Epic, 7-9
+    // Legendary, 10-12 Mythic; the guaranteed card is the cap only when fast.
+    EXPECT(WaveRewardTierCap(1, normal) == 1 && WaveRewardTierCap(3, normal) == 1, "early cap rare");
+    EXPECT(WaveRewardTierCap(4, normal) == 2 && WaveRewardTierCap(7, normal) == 3 &&
+           WaveRewardTierCap(12, normal) == 4, "cap climbs");
+    for (int d = 0; d < DIFFICULTY_COUNT; ++d)
+        for (int w = 2; w <= FinalWaveCount((Difficulty)d); ++w)
+            EXPECT(WaveRewardTierCap(w, (Difficulty)d) >= WaveRewardTierCap(w - 1, (Difficulty)d),
+                   "cap never drops d=%d w=%d", d, w);
+    EXPECT(WaveRewardGuaranteedTier(WaveRewardTier::Legendary, 1) == 1, "fast early clear: rare");
+    EXPECT(WaveRewardGuaranteedTier(WaveRewardTier::Epic, 1) == 0, "slower early clear: common");
+    EXPECT(WaveRewardGuaranteedTier(WaveRewardTier::Legendary, 4) == 4, "fast late clear: mythic");
+    // Lucky bump: fastest band only, one tier above, never past Mythic.
+    {
+        int pity = 0;
+        EXPECT(WaveRewardLuckyBump(1, WaveRewardTier::Legendary, 0.05f, 1.0f, pity) == 2 && pity == 0, "lucky bump");
+        EXPECT(WaveRewardLuckyBump(1, WaveRewardTier::Legendary, 0.50f, 1.0f, pity) == 1 && pity == 1, "no luck counts");
+        EXPECT(WaveRewardLuckyBump(0, WaveRewardTier::Epic, 0.0f, 1.0f, pity) == 0 && pity == 1, "slow clear: no count");
+        EXPECT(WaveRewardLuckyBump(4, WaveRewardTier::Legendary, 0.0f, 1.0f, pity) == 4 && pity == 1, "mythic: no count");
+        EXPECT(WaveRewardLuckyBump(1, WaveRewardTier::Legendary, 0.20f, 2.0f, pity) == 2 && pity == 0, "luck widens it, resets");
+        // Pity: three misses, then the fourth fastest clear is bumped for sure.
+        for (int i = 0; i < kRewardPityCeiling - 1; ++i)
+            EXPECT(WaveRewardLuckyBump(1, WaveRewardTier::Legendary, 0.99f, 1.0f, pity) == 1, "miss %d", i);
+        EXPECT(pity == kRewardPityCeiling - 1, "pity counted (%d)", pity);
+        EXPECT(WaveRewardLuckyBump(1, WaveRewardTier::Legendary, 0.99f, 1.0f, pity) == 2 && pity == 0,
+               "ceiling guarantees the bump");
+    }
+    // Regular waves: the windows scale with the quota (seconds per kill).
+    {
+        const WaveRewardTimes t30 = RegularWaveRewardTimes(30), t60 = RegularWaveRewardTimes(60);
+        EXPECT(t30.legendary == 30.0f && t30.rare == 60.0f, "regular 30-kill windows");
+        EXPECT(t60.legendary == 2.0f * t30.legendary, "windows grow with the quota");
+        EXPECT(WaveRewardTierFor(29.0f, t30) == WaveRewardTier::Legendary, "fast regular clear");
+        EXPECT(WaveRewardTierFor(61.0f, t30) == WaveRewardTier::Common, "slow regular clear");
+    }
 
     if (g_failures == 0) std::printf("wave schedule: all checks passed\n");
     return g_failures == 0 ? 0 : 1;

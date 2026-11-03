@@ -234,11 +234,6 @@ extern const AugDef ALL_AUGS[] = {
         L"All cooldowns -2s · move speed +25% · using the same active skill twice in a row turns this off for the wave",
         L"全クールダウン-2秒 · 移動速度+25% · 同じアクティブスキルを連続2回使うとそのウェーブ中は無効"),
     // ── 사냥꾼 ──
-    AUG(P_HUNTER_REAR_TARGETING, COMMON, false,
-        L"후방 조준", L"Rear Targeting", L"後方照準",
-        L"나에게 등을 보인(나와 반대 방향으로 움직이는) 적에게 탄환 피해 +25%",
-        L"+25% bullet damage to enemies moving away from you",
-        L"背を向けた (自分と反対方向へ動く) 敵への弾のダメージ+25%"),
     AUG(P_HUNTER_PROXIMITY_WARHEAD, RARE, false,
         L"근접 탄두", L"Proximity Warhead", L"近接弾頭",
         L"탄환 피해 +30% · 탄환 사거리 -20%",
