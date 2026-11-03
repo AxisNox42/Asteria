@@ -25,10 +25,15 @@ static void CheckFactor() {
     assert(Near(MenuDimFactor(0), 0.0f));
     assert(Near(MenuDimFactor(50), 1.0f));                // 50 = the original look
     assert(kMenuDimDefault == 80);
-    assert(Near(MenuDimFactor(100), kMenuDimMax));
-    assert(Near(MenuDimFactor(75), 2.5f));
+    assert(MenuDimFactor(100) <= kMenuDimMax && MenuDimFactor(100) > kMenuDimMax - 0.5f);
+    // Perceived darkness climbs evenly from 50 to 100 (no steep end).
+    const float step = (MenuDimEquivAlpha(100) - MenuDimEquivAlpha(50)) / 50.0f;
+    for (int v = 51; v <= 100; ++v) {
+        const float d = MenuDimEquivAlpha(v) - MenuDimEquivAlpha(v - 1);
+        assert(d > step * 0.9f && d < step * 1.1f);
+    }
     assert(Near(MenuDimFactor(-20), 0.0f));                // clamped
-    assert(Near(MenuDimFactor(900), kMenuDimMax));
+    assert(Near(MenuDimFactor(900), MenuDimFactor(100)));
 }
 
 static void CheckCombatShare() {

@@ -313,24 +313,36 @@ inline bool g_ShaderFx          = false;
 inline float g_UiShakePx = 0.0f;
 inline constexpr int kMenuDimDefault = 80;
 inline int g_MenuDim = kMenuDimDefault;
-// 0..100 -> 0..4 multiplier on the menu dim alphas: 0..50 ramps 0..1 (50 is the
-// original look), 50..100 ramps 1..4. Above ~1.5 the gradients are already
+// 0..100 -> 0..6 multiplier on the menu dim alphas (50 is the original look). Above ~1.5 the gradients are already
 // opaque, so DrawMenuBackground adds a flat veil for the extra darkness.
-inline constexpr float kMenuDimMax = 4.0f;
+inline constexpr float kMenuDimMax = 6.0f;
 // Combat and the other in-run screens take this share of the menu darkness.
 inline constexpr float kCombatDimShare = 0.20f;
-inline float MenuDimFactor(int value) {
-    const int v = value < 0 ? 0 : (value > 100 ? 100 : value);
-    return v <= 50 ? v / 50.0f : 1.0f + (v - 50) * ((kMenuDimMax - 1.0f) / 50.0f);
-}
-// How dark the menu backdrop is at this setting, as one black-equivalent alpha:
-// the navy base (0.16 x factor) combined with the extra veil above 50
-// (0.14 x (factor - 1)), as DrawMenuBackground stacks them.
-inline float MenuDimEquivAlpha(int value) {
-    const float f = MenuDimFactor(value);
+// Black-equivalent alpha of the menu backdrop for a given multiplier: the navy
+// base (0.16 x factor) combined with the extra veil above 1 (0.14 x (factor - 1)),
+// as DrawMenuBackground stacks them.
+inline float MenuDimAlphaOfFactor(float f) {
     const float base = f * 0.16f > 1.0f ? 1.0f : f * 0.16f;
     const float extra = f > 1.0f ? 0.14f * (f - 1.0f) : 0.0f;
     return 1.0f - (1.0f - base) * (1.0f - extra);
+}
+// The slider is spread by how dark the backdrop LOOKS: 0..50 ramps the original
+// look in (alpha 0..0.16), 50..100 climbs linearly in alpha 0.16..0.985, so each
+// step darkens about the same amount (the raw multiplier is steep near 100).
+inline float MenuDimFactor(int value) {
+    const int v = value < 0 ? 0 : (value > 100 ? 100 : value);
+    if (v <= 50) return v / 50.0f;
+    const float target = 0.16f + (0.985f - 0.16f) * (float)(v - 50) / 50.0f;
+    float lo = 1.0f, hi = kMenuDimMax;
+    for (int i = 0; i < 28; ++i) {
+        const float mid = 0.5f * (lo + hi);
+        if (MenuDimAlphaOfFactor(mid) < target) lo = mid; else hi = mid;
+    }
+    return 0.5f * (lo + hi);
+}
+// How dark the menu backdrop is at this setting, as one black-equivalent alpha.
+inline float MenuDimEquivAlpha(int value) {
+    return MenuDimAlphaOfFactor(MenuDimFactor(value));
 }
 // Black veil alpha for in-run screens: a fixed share of the menu darkness.
 inline float CombatDimAlpha(int value) {

@@ -1436,12 +1436,24 @@ void Scene_SettingsInline(const SceneCtx& c) {
             }
             const float showA = std::max(rowHover[category][row],
                                         holdT > 0.01f ? 1.0f : 0.0f);
-            drawRect(barX, barY, barW, barH,
-                     0.18f, 0.04f, 0.04f, 0.55f * showA * rowA);
+            // Feathered rect: stacked layers shrink toward the centre so the
+            // edge fades out instead of ending on a hard line.
+            auto softRect = [&](float x, float y, float w, float h,
+                                float r, float g, float b, float a, float feather) {
+                constexpr int kLayers = 7;
+                for (int i = 0; i < kLayers; ++i) {
+                    const float e = feather * (0.5f - (float)i / (kLayers - 1));
+                    const float lw = w + 2.0f * e, lh = h + 2.0f * e;
+                    if (lw <= 0.0f || lh <= 0.0f) continue;
+                    drawRect(x - e, y - e, lw, lh, r, g, b, a / (float)kLayers * 1.6f);
+                }
+            };
+            softRect(barX, barY, barW, barH,
+                     0.18f, 0.04f, 0.04f, 0.55f * showA * rowA, 10.0f * uiS);
             if (holdT > 0.01f) {
-                drawRect(barX + 2.0f, barY + 2.0f,
-                         (barW - 4.0f) * resetFill(holdT), barH - 4.0f,
-                         1.0f, 0.22f, 0.14f, 0.92f * rowA);
+                const float fillW = (barW - 4.0f) * resetFill(holdT);
+                softRect(barX + 2.0f, barY + 2.0f, fillW, barH - 4.0f,
+                         1.0f, 0.22f, 0.14f, 0.92f * rowA, 8.0f * uiS);
             }
             {   // Corner brackets: faint at rest, widen and brighten on hover / hold.
                 const float bo = (3.0f + 6.0f * showA) * uiS;

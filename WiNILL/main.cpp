@@ -5069,8 +5069,15 @@ int main() {
         // card selections it opens.
         {
             const GameState ts = g_GameManager.currentState;
+            // The tutorial's pause menu (and the settings opened from it) also
+            // keeps it: resuming returns to the practice field, where ESC must
+            // open the pause menu again instead of leaving for the lobby.
+            const bool tutorialPauseFlow =
+                (ts == GameState::PAUSED || ts == GameState::SETTINGS) &&
+                g_GameManager.pauseResumeState == GameState::READY;
             if (ts != GameState::READY && ts != GameState::AUG_SELECT &&
-                ts != GameState::AUG_REPLACE && ts != GameState::DEBUFF_SELECT)
+                ts != GameState::AUG_REPLACE && ts != GameState::DEBUFF_SELECT &&
+                !tutorialPauseFlow)
                 ready_launch::g_TutorialMode = false;
         }
         // Tutorial step 6: the wave clock ran out. Open the nerf pick the way a
