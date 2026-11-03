@@ -23,7 +23,7 @@ jobs:
       - name: Check fonts
         run: |
           test -f WiNILL/Resource/Font/Jua-Regular.ttf
-          test -f WiNILL/Resource/Font/KosugiMaru-Regular.ttf
+          test -f WiNILL/Resource/Font/NotoSansJP-Regular.ttf
 
       - name: Build GLFW (static, universal)
         run: |

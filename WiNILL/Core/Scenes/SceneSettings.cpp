@@ -1902,7 +1902,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
             { L"miniaudio   public domain / MIT-0", 1 },
             { L"", 3 },
             { SettingsText(L"글꼴", L"FONTS", L"フォント"), 0 },
-            { L"Chakra Petch · Orbit · Jua · Kosugi Maru · ZCOOL QingKe HuangYou", 1 },
+            { L"Chakra Petch · Orbit · Jua · Noto Sans JP · Noto Sans SC", 1 },
             { L"SIL Open Font License 1.1", 2 },
             { L"", 3 },
             { SettingsText(L"ESC 또는 클릭으로 닫기", L"ESC OR CLICK TO CLOSE", L"ESCまたはクリックで閉じる"), 2 },

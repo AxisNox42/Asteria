@@ -39,7 +39,7 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
     // This prevents a stale Resource/Font folder from changing the UI
     // after a user downloads only WiNILL.exe from GitHub.
     const char* embeddedFontNames[] = {
-        "FONT_CHAKRA", "FONT_ORBIT", "FONT_JUA", "FONT_KOSUGI", "FONT_ZCOOL"
+        "FONT_CHAKRA", "FONT_ORBIT", "FONT_JUA", "FONT_NOTO_JP", "FONT_NOTO_SC"
     };
     const unsigned char* memoryFonts[5] = {};
     int memoryFontSizes[5] = {};
@@ -85,14 +85,14 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
                          "../Resource/Font/Jua-Regular.ttf",
                          "../../Resource/Font/Jua-Regular.ttf",
                          "C:/Windows/Fonts/malgun.ttf"));
-        addFont(pickFont("Resource/Font/KosugiMaru-Regular.ttf",
-                         "../Resource/Font/KosugiMaru-Regular.ttf",
-                         "../../Resource/Font/KosugiMaru-Regular.ttf",
+        addFont(pickFont("Resource/Font/NotoSansJP-Regular.ttf",
+                         "../Resource/Font/NotoSansJP-Regular.ttf",
+                         "../../Resource/Font/NotoSansJP-Regular.ttf",
                          "C:/Windows/Fonts/meiryo.ttc"));
         // Simplified Chinese face: last in the chain (see TextRenderer::SetHanPriority).
-        addFont(pickFont("Resource/Font/ZCOOLQingKeHuangYou-Regular.ttf",
-                         "../Resource/Font/ZCOOLQingKeHuangYou-Regular.ttf",
-                         "../../Resource/Font/ZCOOLQingKeHuangYou-Regular.ttf"));
+        addFont(pickFont("Resource/Font/NotoSansSC-Regular.ttf",
+                         "../Resource/Font/NotoSansSC-Regular.ttf",
+                         "../../Resource/Font/NotoSansSC-Regular.ttf"));
         if (nFonts == 0) {
             addFont(pickFont("C:/Windows/Fonts/malgun.ttf",
                              "C:/Windows/Fonts/arial.ttf",

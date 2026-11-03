@@ -68,7 +68,7 @@ inline const char* LanguageFace(Language /*lang*/) {
 // 비-Windows(macOS/Linux): TTF 폴백 체인 — Resource/Font/ 두 파일
 inline int LanguageFontChain(Language /*lang*/, const char* out[2]) {
     out[0] = "Resource/Font/Jua-Regular.ttf";
-    out[1] = "Resource/Font/KosugiMaru-Regular.ttf";
+    out[1] = "Resource/Font/NotoSansJP-Regular.ttf";
     return 2;
 }
 
