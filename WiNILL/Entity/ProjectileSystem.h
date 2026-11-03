@@ -9,7 +9,6 @@ class SpatialBounds;
 void UpdateProjectiles(std::vector<Bullet>& bullets,
                        const MonsterManager& monsters,
                        const SpatialBounds& playerBounds,
-                       float fixedDelta, float timeStopTimer,
-                       float hyperFocusTimer,
+                       float fixedDelta,
                        float screenWidth, float screenHeight,
                        float viewZoom);

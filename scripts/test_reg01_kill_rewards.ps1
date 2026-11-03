@@ -21,22 +21,10 @@ try {
     # The test drives the kill entry points directly; this pins that main.cpp
     # still goes through them and has not grown kill-reward code of its own.
     $main = 'WiNILL\main.cpp'
-    foreach ($fn in 'CollectMonsterKill', 'CollectScopeKill', 'CreditLaserMonsterKill', 'CreditLaserScopeKill') {
+    foreach ($fn in 'CollectMonsterKill', 'CollectScopeKill') {
         if (-not (Select-String -Path $main -Pattern "\b$fn\(" -Quiet)) { throw "main.cpp no longer calls $fn" }
     }
     $own = Select-String -Path $main -Pattern 'MobKillReward\(|ApplyKillLifesteal|CreditThrownSwarmKill|RegisterCodexMobKill|\.RegisterKill\(|AddKillCombo\(|scoreAccum \+='
-    if ($own) { $own | Out-String | Write-Host; throw 'kill-reward code in main.cpp outside KillRewards.h' }
-    Write-Host 'source check: main.cpp kill paths go through KillRewards.h'
-
-    # All five entry paths now share one reward application.
-    $vampireCalls = @{ 'WiNILL\Entity\CollisionSystem.h' = 1; 'WiNILL\Entity\KillRewards.h' = 0; 'WiNILL\main.cpp' = 0 }
-    foreach ($file in $vampireCalls.Keys) {
-        $n = @(Select-String -Path $file -Pattern '\bApplyVampireKill\(').Count
-        if ($n -ne $vampireCalls[$file]) { throw "$file has $n ApplyVampireKill calls, expected $($vampireCalls[$file])" }
-    }
-    $streak = Get-ChildItem WiNILL -Recurse -Include *.cpp, *.h, *.inl |
-        Where-Object { $_.Name -ne 'PlayerStats.h' } |
-        Select-String -Pattern 'vampireKillStreak\s*(\+\+|>=|<)|\+\+\s*\w*\.?vampireKillStreak|GetVampireKillNeed\('
-    if ($streak) { $streak | Out-String | Write-Host; throw 'vampire streak handled outside PlayerStats::ApplyVampireKill' }
-    Write-Host 'source check: all 5 kill paths share one ApplyVampireKill'
+    if ($own) { $own | Out-String | Write-Host; throw 'kill-reward code in main.cpp outside CollisionSystem.h' }
+    Write-Host 'source check: main.cpp kill paths go through CollisionSystem.h'
 } finally { Pop-Location }

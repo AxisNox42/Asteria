@@ -4,8 +4,7 @@
 # snapshot line is appended to Screenshots/reg04_state.txt. Each path is
 # compared with the table below, worked out from the reset code.
 #   new run      ResetForNewGame
-#   restart      RestartCurrentRun (keeps the build, then a fresh run)
-#   rebuild      RebuildPlayerStatsFromOwned (augment replacement)
+#   restart      RestartCurrentRun (keeps the weapon, then a fresh run)
 #   abandon      AbandonCurrentRun (ends the run, report screen)
 #   READY x2     GAMEOVER -> READY through the frame's own transition, twice:
 #                the first resets once, the second must not reset again.
@@ -19,8 +18,7 @@ if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $stateFile = Join-Path $exeDir 'Screenshots\reg04_state.txt'
 Remove-Item -LiteralPath $stateFile -ErrorAction SilentlyContinue
 
-$steps = 'RUN~0.3;REG04=NEWRUN~0.05;RUN~0.3;REG04=RESTART~0.05;RUN~0.3;REG04=REBUILD~0.05;' +
-         'RUN~0.3;REG04=REBUILD_NO_TIME~0.05;' +
+$steps = 'RUN~0.3;REG04=NEWRUN~0.05;RUN~0.3;REG04=RESTART~0.05;' +
          'RUN~0.3;REG04=ABANDON~0.3;REG04=READY~0.05;REG04DUMP=READY1~0.05;' +
          'REG04=READY~0.05;REG04DUMP=READY2~0.05'
 $env:ASTERIA_SMOKE = $steps
@@ -45,35 +43,25 @@ foreach ($line in Get-Content $stateFile) {
 }
 
 # The filled run (REG04 fill): every field non-default.
-$filled = @{ drones='4'; chakrams='2'; laser='3'; orbs='2'; skills='3'; replaceIdx='2'
-    dashCd='1.50'; timeStop='0.80'; focus='0.60'; timeCd='11.00'; shield='25.0'; dashHeld='1'; skillHeld='1'; grace='0.40'
-    bullets='5'; monsters='4'; ranged='1'; stardust='6'; shocks='2'; debris='3'; queue='2'
-    owned='3'; typeOwned='3'; takenOnce='3'; score='4321'; xp='55.000'; level='3'; hp='42.0'
+$filled = @{ dashCd='1.50'; shield='25.0'; dashHeld='1'; grace='0.40'
+    bullets='5'; monsters='4'; ranged='1'; stardust='6'; shocks='2'; debris='3'
+    score='4321'; xp='55.000'; level='3'; hp='42.0'
     kills='777'; weapon='0'; time='99.0' }
 # A fresh run (ResetForNewGame + ResetRunProgress).
-$fresh = @{ drones='0'; chakrams='0'; laser='0'; orbs='0'; skills='0'; replaceIdx='0'
-    dashCd='0.00'; timeStop='0.00'; focus='0.00'; timeCd='0.00'; shield='0.0'
-    dashHeld='0'; skillHeld='0'; grace='0.00'
-    bullets='0'; monsters='0'; ranged='0'; stardust='0'; shocks='0'; debris='0'; queue='0'
-    owned='0'; typeOwned='0'; takenOnce='0'; score='0'; xp='0.000'; level='1'; hp='100.0'
+$fresh = @{ dashCd='0.00'; shield='0.0'; dashHeld='0'; grace='0.00'
+    bullets='0'; monsters='0'; ranged='0'; stardust='0'; shocks='0'; debris='0'
+    score='0'; xp='0.000'; level='1'; hp='100.0'
     kills='0'; weapon='-1'; time='0.0' }
 function With($base, $over) { $t = $base.Clone(); foreach ($k in $over.Keys) { $t[$k] = $over[$k] }; $t }
 
 $RUNNING = '6'; $READY = '5'; $GAMEOVER = '8'   # GameState ordinals
 $expected = [ordered]@{
     NEWRUN  = With $fresh @{}
-    # Restart keeps the build: owned cards, the weapon, the skill they grant;
-    # the ledger is reset and latched again for once-only owned cards.
-    RESTART = With $fresh @{ state=$RUNNING; skills='1'; owned='3'; typeOwned='3'; takenOnce='1'; weapon='0'; hp=$null }
-    # Rebuild re-derives augment objects; retained abilities keep their active
-    # timers and cooldown, removed abilities lose them.
-    REBUILD = With $filled @{ drones='0'; chakrams='0'; laser='0'; orbs='0'; skills='1'; replaceIdx='0'
-        focus='0.00' }
-    REBUILD_NO_TIME = With $filled @{ drones='0'; chakrams='0'; laser='0'; orbs='0'; skills='0'; replaceIdx='0'
-        timeStop='0.00'; focus='0.00'; timeCd='0.00'; owned='2'; typeOwned='2' }
-    # Abandon ends the run for the report: the arena is cleared, the build,
-    # score and skills stay; GAMEOVER -> READY resets the rest.
-    ABANDON = With $filled @{ state=$GAMEOVER; drones='0'; chakrams='0'; laser='0'; orbs='0'
+    # Restart keeps the weapon.
+    RESTART = With $fresh @{ state=$RUNNING; weapon='0'; hp=$null }
+    # Abandon ends the run for the report: the arena is cleared, the weapon
+    # and score stay; GAMEOVER -> READY resets the rest.
+    ABANDON = With $filled @{ state=$GAMEOVER
         bullets='0'; monsters='0'; ranged='0'; stardust='0'; shocks='0'; hp='0.0' }
     READY1  = With $fresh @{ state=$READY }
     READY2  = With $filled @{ state=$READY }             # second entry: no second reset

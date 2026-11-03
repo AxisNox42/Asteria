@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "PlayerStats.h"
+#include "Augment.h"   // CurLangIdx
 
 // The live player loadout contains only the rifle and the static field.
 enum class StartWeapon {

@@ -29,32 +29,10 @@ public:
         float fireInterval = 0.0f;
         float moveSpeedMult = 0.0f;
         float regenPerSec = 0.0f;
-        float damageReduction = 0.0f;
         float xpMult = 0.0f;
         float windowSize = 0.0f;
-        float flatDamageBonus = 0.0f;
-        float critMult = 0.0f;
         float bulletSpread = 0.0f;
-
-        int totalAugs = 0;
-        int pierceChance = 0;
-        int droneCount = 0;
-        int chakramCount = 0;
-        int laserTier = 0;
-        int critChance = 0;
         long long killCount = 0;
-
-        bool vampire = false;
-        bool miniaturize = false;
-        bool gigantify = false;
-        bool pierce = false;
-        bool twin = false;
-        bool chakram = false;
-        bool drone = false;
-        bool laser = false;
-        bool bulletRain = false;
-        bool berserk = false;
-        bool deathBlast = false;
     };
 
     GameplayTelemetry()
@@ -78,32 +56,10 @@ public:
         out.fireInterval = stats.fireInterval;
         out.moveSpeedMult = stats.moveSpeedMult;
         out.regenPerSec = stats.regenPerSec;
-        out.damageReduction = stats.damageReduction;
         out.xpMult = stats.xpMult;
         out.windowSize = stats.windowSize;
-        out.flatDamageBonus = stats.flatDamageBonus;
-        out.critMult = stats.critMult;
         out.bulletSpread = stats.bulletSpread;
-
-        out.totalAugs = stats.totalAugs;
-        out.pierceChance = stats.pierceChance;
-        out.droneCount = stats.droneCount;
-        out.chakramCount = stats.chakramCount;
-        out.laserTier = stats.laserTier;
-        out.critChance = stats.critChance;
         out.killCount = stats.killCount;
-
-        out.vampire = stats.vampire;
-        out.miniaturize = stats.miniaturize;
-        out.gigantify = stats.gigantify;
-        out.pierce = stats.pierce;
-        out.twin = stats.twin;
-        out.chakram = stats.chakram;
-        out.drone = stats.drone;
-        out.laser = stats.laser;
-        out.bulletRain = stats.bulletRain;
-        out.berserk = stats.berserk;
-        out.deathBlast = stats.deathBlast;
         return out;
     }
 
@@ -182,57 +138,6 @@ public:
                << "\n";
         m_lastLevelUpGameTime = gameTime;
         m_lastLevelUpTotalExperience = m_totalExperience;
-        m_file.flush();
-    }
-
-    void RecordAugment(float gameTime, int level, int augmentIndex,
-                       const PlayerStats& before, const PlayerStats& after) {
-        if (!m_active) return;
-
-        const StatsSnapshot b = Capture(before);
-        const StatsSnapshot a = Capture(after);
-        const char* code = "unknown";
-        const int augmentCount = AUG_TOTAL;
-        if (augmentIndex >= 0 && augmentIndex < augmentCount && ALL_AUGS[augmentIndex].name)
-            code = ALL_AUGS[augmentIndex].name;
-
-        m_file << "\nAUGMENT,game_sec=" << std::fixed << std::setprecision(2)
-               << gameTime << ",level=" << level
-               << ",index=" << augmentIndex << ",code=" << code << "\n";
-        WriteFloatDiff("base_damage", b.baseDamage, a.baseDamage);
-        WriteFloatDiff("effective_damage", b.effectiveDamage, a.effectiveDamage);
-        WriteFloatDiff("damage_multiplier", b.damageMultiplier, a.damageMultiplier);
-        WriteFloatDiff("max_hp", b.maxHP, a.maxHP);
-        WriteFloatDiff("bullet_speed", b.bulletSpeed, a.bulletSpeed);
-        WriteFloatDiff("fire_interval_sec", b.fireInterval, a.fireInterval);
-        WriteFloatDiff("move_speed_multiplier", b.moveSpeedMult, a.moveSpeedMult);
-        WriteFloatDiff("regen_per_sec", b.regenPerSec, a.regenPerSec);
-        WriteFloatDiff("damage_reduction", b.damageReduction, a.damageReduction);
-        WriteFloatDiff("xp_multiplier", b.xpMult, a.xpMult);
-        WriteFloatDiff("window_size", b.windowSize, a.windowSize);
-        WriteFloatDiff("flat_damage_bonus", b.flatDamageBonus, a.flatDamageBonus);
-        WriteFloatDiff("crit_multiplier", b.critMult, a.critMult);
-        WriteFloatDiff("bullet_spread", b.bulletSpread, a.bulletSpread);
-
-        WriteIntDiff("total_augments", b.totalAugs, a.totalAugs);
-        WriteIntDiff("pierce_chance_pct", b.pierceChance, a.pierceChance);
-        WriteIntDiff("drone_count", b.droneCount, a.droneCount);
-        WriteIntDiff("chakram_count", b.chakramCount, a.chakramCount);
-        WriteIntDiff("laser_tier", b.laserTier, a.laserTier);
-        WriteIntDiff("crit_chance_pct", b.critChance, a.critChance);
-        WriteIntDiff("kill_count", b.killCount, a.killCount);
-
-        WriteBoolDiff("vampire", b.vampire, a.vampire);
-        WriteBoolDiff("miniaturize", b.miniaturize, a.miniaturize);
-        WriteBoolDiff("gigantify", b.gigantify, a.gigantify);
-        WriteBoolDiff("pierce", b.pierce, a.pierce);
-        WriteBoolDiff("twin", b.twin, a.twin);
-        WriteBoolDiff("chakram", b.chakram, a.chakram);
-        WriteBoolDiff("drone", b.drone, a.drone);
-        WriteBoolDiff("laser", b.laser, a.laser);
-        WriteBoolDiff("bullet_rain", b.bulletRain, a.bulletRain);
-        WriteBoolDiff("berserk", b.berserk, a.berserk);
-        WriteBoolDiff("death_blast", b.deathBlast, a.deathBlast);
         m_file.flush();
     }
 
@@ -339,28 +244,7 @@ private:
                << ",move_speed_multiplier=" << s.moveSpeedMult
                << ",regen_per_sec=" << s.regenPerSec
                << ",xp_multiplier=" << s.xpMult
-               << ",total_augments=" << s.totalAugs
                << ",kill_count=" << s.killCount << "\n";
-    }
-
-    void WriteFloatDiff(const char* name, float before, float after) {
-        m_file << "  stat=" << name << ",before=" << std::fixed
-               << std::setprecision(4) << before
-               << ",after=" << after
-               << ",delta=" << (after - before) << "\n";
-    }
-
-    template <typename T>
-    void WriteIntDiff(const char* name, T before, T after) {
-        m_file << "  stat=" << name << ",before=" << before
-               << ",after=" << after
-               << ",delta=" << (after - before) << "\n";
-    }
-
-    void WriteBoolDiff(const char* name, bool before, bool after) {
-        m_file << "  stat=" << name << ",before=" << (before ? 1 : 0)
-               << ",after=" << (after ? 1 : 0)
-               << ",delta=" << ((after ? 1 : 0) - (before ? 1 : 0)) << "\n";
     }
 
     std::ofstream m_file;

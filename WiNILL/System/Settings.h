@@ -21,6 +21,10 @@ inline bool g_SmokeCapture = false;
 inline int g_SmokeAugFocus = -1;
 // Smoke-only game-time scale (SLOW=x step), for frame-by-frame captures.
 inline float g_SmokeTimeScale = 1.0f;
+// Smoke-only: hold fire at the nearest enemy (FIRE=1), as if the button were held.
+inline bool  g_SmokeFire = false;
+// Smoke-only: keep the player at full health (GOD=1).
+inline bool  g_SmokeGod = false;
 inline constexpr int LANG_COUNT = 3;    // languages with full text tables (KR, EN, JP)
 inline constexpr int LANG_TOTAL = 4;    // selectable languages (adds ZH)
 

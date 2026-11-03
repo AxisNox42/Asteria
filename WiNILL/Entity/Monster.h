@@ -145,12 +145,15 @@ class Monster {
 public:
     static constexpr float GIMBAL_CHARGE_ROTATIONS = 2.0f;
     static constexpr float GIMBAL_PREFERRED_DISTANCE = 700.0f;
-    // Elite HP (before the run's HP scaling). Exactly one elite appears per
-    // elite wave, so each is a long fight of its own - far tankier than a
-    // regular mob but still under NORMA (norma::kBaseHp = 30000).
-    static constexpr float QUASAR_BASE_HP = 9000.0f;
-    static constexpr float GENESIS_BASE_HP = 10000.0f;
-    static constexpr float REGULUS_BASE_HP = 8000.0f;
+    // Elite HP (before the run's HP scaling). Boss rush: every wave's elite
+    // must fall to move on, and a fast kill earns a better reward, so a wave-1
+    // elite is about 3,000 effective HP (~12 s of starting fire, 20-25 s in
+    // play) and grows with the per-elite-wave HP ramp (WaveHpRamp). The kinds
+    // are matched on effective HP: Regulus counts its own 90% shield, Antares
+    // its split fragments, Genesis sits a little lower for its summons.
+    static constexpr float QUASAR_BASE_HP = 3200.0f;
+    static constexpr float GENESIS_BASE_HP = 2800.0f;
+    static constexpr float REGULUS_BASE_HP = 1650.0f;
     // Regulus fires an instant shield laser at a random eligible ally in
     // range; the shield is granted at once and nothing stays connected.
     static constexpr float REGULUS_SHOT_RANGE = 750.0f;
@@ -336,7 +339,9 @@ public:
     static constexpr float QUASAR_FALL_RECOVER = 0.8f;
     static constexpr float QUASAR_FALL_IMPACT_FX = 0.36f;   // impact effect length
     static constexpr float QUASAR_FALL_HIT_GRACE = 0.35f;
-    static constexpr float ANTARES_BASE_HP = 6000.0f;   // x ANTARES_ELITE_HP_MULT = 9000 (see elite HP note above)
+    // x ANTARES_ELITE_HP_MULT for the first body; with both split generations
+    // the whole elite is ~3.2x this (see elite HP note above).
+    static constexpr float ANTARES_BASE_HP = 1000.0f;
     static constexpr int ANTARES_TRAIL_COUNT = 6;
     // Genesis shell core: three shells lock in one by one while tracking
     // (one stack each); at 3/3 it aims 0.8s and throws all three Swarms, then
@@ -555,6 +560,8 @@ public:
     std::array<float, 3> genesisShotY{};
     float genesisRecoil = 0.0f;       // 1 at a throw, decays back to 0
     float genesisChildHpMult = 1.0f;  // spawn-time HP ramp, passed to thrown Swarms
+    float antaresHpMult = 1.0f;       // spawn-time HP ramp, passed to split fragments
+    int antaresFamily = 0;            // shared by an Antares and all its fragments
     int genesisId = 0;                // owner key for the per-Genesis thrown cap
     // Alternate the existing Swarm volley with rear-produced Rotor launches.
     // Owner phases: 4 prepare, 5 burst, 6 recover. Child: 1 feed, 2 fly, 3 settle.
@@ -861,6 +868,9 @@ public:
             regulusShotTimer = 0.5f;
         } else if (kind == MobKind::ANTARES) {
             color = glm::vec3(0.91f, 0.275f, 0.227f);
+            antaresHpMult = hp / 90.0f;   // progression x trial ramp at spawn
+            static int s_nextAntaresFamily = 0;
+            antaresFamily = ++s_nextAntaresFamily;   // fragments take their parent's
             hp *= ANTARES_BASE_HP / 90.0f * ANTARES_ELITE_HP_MULT;
             sizeScale = 2.4f;   // last split generation (x0.8^2) still reads bigger than a Rotor
             antaresGen = 0;
@@ -2618,6 +2628,9 @@ public:
                     norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.8f });
                     enter(Stage::Act);
                 }
+            } else if (normaPattern == Pattern::Crash) {
+                // The storm opens (the game loop); the boss drifts to a stop.
+                if (normaTimer >= norma::kCrashBuild) enter(Stage::Act);
             } else if (normaPattern == Pattern::Reinforce) {
                 hover();
                 if (normaTimer >= norma::kReinforceTelegraph) {
@@ -2701,6 +2714,15 @@ public:
                     normaExposed = norma::kWarpExpose;
                     enter(Stage::Recover);
                 }
+            } else if (normaPattern == Pattern::Crash) {
+                // The countdown and the blue screen are the game loop's (in
+                // real time, through its hit-stop); the boss turns open as the
+                // screen shatters.
+                if (norma::g_CrashOver || normaTimer >= norma::kCrashCount + 8.0f) {
+                    norma::g_CrashOver = false;
+                    normaExposed = norma::kCrashExpose;
+                    enter(Stage::Recover);
+                }
             } else if (normaPattern == Pattern::Wall) {
                 // The game loop pushes the wall; the boss holds fire.
                 hover();
@@ -2780,6 +2802,10 @@ public:
         case Pattern::Warp:
             norma::g_Asks.push_back(norma::Ask::WarpPlan);
             normaStage = norma::Stage::Wait;
+            break;
+        case Pattern::Crash:
+            norma::g_Asks.push_back(norma::Ask::CrashStart);
+            normaStage = norma::Stage::Telegraph;
             break;
         case Pattern::Wall:
             norma::g_Asks.push_back(norma::Ask::BuildWall);

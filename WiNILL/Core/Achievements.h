@@ -33,9 +33,9 @@ enum AchId {
     ACH_SCORE_300K,        // 한 판 30만 점
     ACH_SCORE_1M,          // 한 판 100만 점
     ACH_KILLS_500,         // Cumulative kill milestone.
-    ACH_CRIT_SCORE,       // Crit score milestone.
-    ACH_DEATHBLAST_KILLS, // Death blast kill milestone.
-    ACH_DEBUFF_5,          // 디버프 5개 동시 보유
+    ACH_RESERVED_5,        // Retired with the augments (crit score).
+    ACH_RESERVED_6,        // Retired with the augments (death blast kills).
+    ACH_RESERVED_7,        // Retired with the debuffs (hold 5 debuffs).
     ACH_GAMES_10,          // 누적 10판 플레이
     ACH_SCORE_500K,        // Score milestone.
     ACH_RESERVED_9,
@@ -68,22 +68,13 @@ inline const AchDef ACH_DEFS[ACH_COUNT] = {
           L"500 kills in one play",
           L"1プレイで500撃破" },
         400, -1 },
-    /* ACH_CRIT_SCORE */ {
-        { L"급소 강타", L"Vital Strike", L"急所打ち" },
-        { L"치명타 보유 + 한 판 20만 점",
-          L"Own Crit + 200k in one play",
-          L"クリ所持 + 1プレイ20万点" },
-        350, -1 },
-    /* ACH_DEATHBLAST_KILLS */ {
-        { L"연쇄 학살", L"Chain Massacre", L"連鎖虐殺" },
-        { L"연쇄 폭발 보유 + 한 판 300 처치",
-          L"Own Death Blast + 300 kills",
-          L"連鎖爆発所持 + 300撃破" },
-        400, -1 },
-    /* ACH_DEBUFF_5 */ {
-        { L"위험 감수", L"Risk Taker", L"危険を冒す" },
-        { L"디버프 5개를 동시에 보유", L"Hold 5 debuffs at once", L"デバフを同時に5個所持" },
-        300, -1 },
+    /* Retired achievement save slots (augments and debuffs were removed). */
+    { { L"REMOVED", L"REMOVED", L"REMOVED" },
+      { L"", L"", L"" }, 0, -1 },
+    { { L"REMOVED", L"REMOVED", L"REMOVED" },
+      { L"", L"", L"" }, 0, -1 },
+    { { L"REMOVED", L"REMOVED", L"REMOVED" },
+      { L"", L"", L"" }, 0, -1 },
     /* ACH_GAMES_10 */ {
         { L"단골", L"Regular", L"常連" },
         { L"누적 10판 플레이", L"Play 10 runs total", L"累計10プレイ" },

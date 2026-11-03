@@ -60,17 +60,9 @@ constexpr int kTabCount = 4;
 } // namespace shopgrid
 
 // 0 = rifle, 1 = field, -1 = neither (the Codex-only shop entries).
-static int ShopAugWeaponGroup(AugType t) {
-    switch (t) {
-    case AugType::MINIGUN:
-    case AugType::RIFLE_STABILITY:
-        return 0;
-    case AugType::STATIC_FIELD:
-    case AugType::STATIC_FIELD_2:
-        return 1;
-    default:
-        return -1;
-    }
+static int ShopAugWeaponGroup(AugType) {
+    // The weapon augments (minigun, rifle stability, static field) left the card pool.
+    return -1;
 }
 
 // Fills `out` and `secs` for a tab. Returns the entry count.
@@ -129,7 +121,7 @@ static int ShopBuildEntries(int tab, shopgrid::Entry* out, shopgrid::Section* se
         s.first = n;
         s.count = 0;
         for (int i = 0; i < AUG_TOTAL && n < kMaxEntries; ++i) {
-            if (AugRemoved(ALL_AUGS[i].type) || ShopAugWeaponGroup(ALL_AUGS[i].type) != grp)
+            if (ShopAugWeaponGroup(ALL_AUGS[i].type) != grp)
                 continue;
             float r, g, b;
             GetRarityColor(ALL_AUGS[i].rarity, r, g, b);
@@ -203,10 +195,6 @@ static void ShopDrawThemeGlyph(float cx, float cy, float size,
 // frame with a core node so no entry is ever blank.
 static void ShopDrawPayloadGlyph(AugType t, float cx, float cy, float size,
                                  float r, float g, float b, float a) {
-    if (IconFor(t)) {
-        DrawAugIcon(t, cx - size * 0.5f, cy - size * 0.5f, size, r, g, b, a);
-        return;
-    }
     BindMainShader();
     const float rad = size * 0.5f;
     const float th = std::max(1.2f, size * 0.05f);

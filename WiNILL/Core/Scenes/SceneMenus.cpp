@@ -3,7 +3,6 @@
 #include <GLFW/glfw3.h>
 #include "GameManager.h"
 #include "GameContext.h"
-#include "SceneSkills.h"
 #include "SceneUI.h"
 #include "SceneInternal.h"
 #include "UiLayout.h"
@@ -32,7 +31,6 @@
 #include "Camera.h"
 #include "EntityDraw.h"
 #include "Monster.h"
-#include "AugmentSlots.h"
 #include "../../System/Input.h"
 #include "../../Render/Juice.h"
 #include <algorithm>
@@ -113,7 +111,6 @@ static float MenuDimScale() {
     switch (g_GameManager.currentState) {
     case GameState::RUNNING: case GameState::DYING: case GameState::PAUSED:
     case GameState::READY: case GameState::AUG_SELECT:
-    case GameState::DEBUFF_SELECT: case GameState::AUG_REPLACE:
         return 1.0f;
     default:
         return MenuDimFactor(g_MenuDim);
@@ -1429,9 +1426,7 @@ bool TryEscNavigateBack() {
     GameState& st = g_GameManager.currentState;
     switch (st) {
     case GS::AUG_SELECT:
-    case GS::DEBUFF_SELECT:
-    case GS::AUG_REPLACE:
-        // The tutorial's own card picks have no pause menu behind them.
+        // The tutorial's own card pick have no pause menu behind them.
         if (ready_launch::g_TutorialMode) return true;
         // Keep the selection screen as the resume target. ESC pauses the
         // run here; it must not cancel or consume the pending choice.

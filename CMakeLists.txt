@@ -21,13 +21,14 @@ add_executable(WiNILL
     ${CMAKE_SOURCE_DIR}/glad.c
     ${WINILL_DIR}/main.cpp
     ${WINILL_DIR}/Entity/AugmentCatalog.cpp
+    ${WINILL_DIR}/Entity/PassiveAugments.cpp
+    ${WINILL_DIR}/Entity/ActiveSkills.cpp
     ${WINILL_DIR}/Entity/PlayerRuntime.cpp
     ${WINILL_DIR}/Entity/EnemySpawner.cpp
     ${WINILL_DIR}/Entity/ProjectileSystem.cpp
     ${WINILL_DIR}/Entity/GravisField.cpp
     ${WINILL_DIR}/Core/GameManager.cpp
     ${WINILL_DIR}/Core/Scenes/SceneBoot.cpp
-    ${WINILL_DIR}/Core/Scenes/SceneSkills.cpp
     ${WINILL_DIR}/Core/Scenes/SceneUI.cpp
     ${WINILL_DIR}/Core/Scenes/SceneSettings.cpp
     ${WINILL_DIR}/Core/Scenes/SceneRunConfig.cpp

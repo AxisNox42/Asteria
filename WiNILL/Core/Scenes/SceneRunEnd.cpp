@@ -4,7 +4,6 @@
 #include "GameManager.h"
 #include "GameContext.h"
 
-#include "SceneSkills.h"
 #include "SceneUI.h"
 #include "SceneInternal.h"
 #include "UiLayout.h"
@@ -34,7 +33,6 @@
 #include "EntityDraw.h"
 #include "PlayerWeaponShell.h"
 #include "Monster.h"
-#include "AugmentSlots.h"
 #include "../../Render/Juice.h"
 #include "../../Render/WaveHud.h"
 #include <algorithm>
@@ -131,11 +129,9 @@ int WrapLines(TextRenderer& r, float scale, const wchar_t* text, float maxW,
     return count;
 }
 
-// ---- Player stats: weapon and meta, plus augments, plus trial -------------
-// The same stat set the augment cards preview, so the numbers match what was
-// shown while picking (wave debuffs are augments too).
+// ---- Player stats: weapon and meta, plus trial ----------------------------
 enum Metric { kAttack, kFireRate, kBulletSpeed, kMove, kMaxHp, kRegen,
-              kCritChance, kCritMult, kDamageCut, kMetricCount };
+              kMetricCount };
 
 float MetricValue(const PlayerStats& s, int m) {
     switch (m) {
@@ -145,46 +141,38 @@ float MetricValue(const PlayerStats& s, int m) {
     case kMove:        return s.moveSpeedMult * 100.0f;
     case kMaxHp:       return s.maxHP;
     case kRegen:       return s.regenPerSec;
-    case kCritChance:  return (float)s.critChance;
-    case kCritMult:    return s.critMult;
-    case kDamageCut:   return (1.0f - s.GetDamageTakenMult()) * 100.0f;
     default:           return 0.0f;
     }
 }
 
 struct StatRow {
-    float total = 0.0f, base = 0.0f, aug = 0.0f, trial = 0.0f;
+    float total = 0.0f, base = 0.0f, trial = 0.0f;
 };
 
-// total = base (weapon and meta) + augments + trial, so each part can be shown.
+// total = base (weapon and meta) + trial, so each part can be shown.
 void BuildStatRows(StatRow* rows) {
     const PlayerStats base = PreviewBaseStats(g_CurrentWeapon, g_Scale);
-    const PlayerStats trial = PreviewTrialStats(g_CurrentWeapon, g_Scale);
-    const PlayerStats owned = PreviewOwnedStats(g_CurrentWeapon, g_OwnedAugs, g_Scale);
+    PlayerStats trial = base;
+    ApplyTrialMaxHp(trial);
     for (int m = 0; m < kMetricCount; ++m) {
         const float b = MetricValue(base, m);
         const float tr = MetricValue(trial, m);
-        const float o = MetricValue(owned, m);
         rows[m].base = b;
         rows[m].trial = tr - b;
-        rows[m].aug = o - tr;
-        rows[m].total = o;
+        rows[m].total = tr;
     }
 }
 
 // Parts smaller than this are not worth a "+ x" term.
 float MetricEps(int m) {
-    return (m == kFireRate || m == kRegen || m == kCritMult) ? 0.005f : 0.05f;
+    return (m == kFireRate || m == kRegen) ? 0.005f : 0.05f;
 }
 void FormatMetric(wchar_t* out, int m, float v) {
     switch (m) {
     case kAttack:     swprintf_s(out, 32, L"%.1f", v); break;
     case kFireRate:   swprintf_s(out, 32, L"%.2f", v); break;
     case kRegen:      swprintf_s(out, 32, L"%.2f/s", v); break;
-    case kCritMult:   swprintf_s(out, 32, L"x%.1f", v); break;
-    case kMove:
-    case kCritChance:
-    case kDamageCut:  swprintf_s(out, 32, L"%.0f%%", v); break;
+    case kMove:       swprintf_s(out, 32, L"%.0f%%", v); break;
     default:          FormatGrouped(std::llround(v), out, 32); break;
     }
 }
@@ -231,13 +219,10 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
     static const wchar_t* kBuildStatsLabel[LANG_COUNT] = {
         L"\uD50C\uB808\uC774\uC5B4 \uB2A5\uB825\uCE58", L"PLAYER STATS", L"\u30D7\u30EC\u30A4\u30E4\u30FC\u80FD\u529B\u5024"
     };
-    static const wchar_t* kDebuffLabel[LANG_COUNT] = {
-        L"디버프", L"DEBUFFS", L"デバフ"
-    };
     static const wchar_t* kMetricLabel[LANG_COUNT][kMetricCount] = {
-        { L"\uACF5\uACA9\uB825", L"\uC5F0\uC0AC\uB825", L"\uD0C4\uC18D", L"\uC774\uB3D9\uC18D\uB3C4", L"HP", L"\uCCB4\uB825 \uC7AC\uC0DD", L"\uCE58\uBA85\uD0C0 \uD655\uB960", L"\uCE58\uBA85\uD0C0 \uD53C\uD574", L"\uD53C\uD574 \uAC10\uC18C" },
-        { L"ATTACK", L"FIRE RATE", L"BULLET SPEED", L"MOVE SPEED", L"HP", L"HP REGEN", L"CRIT CHANCE", L"CRIT DAMAGE", L"DMG REDUCTION" },
-        { L"\u653B\u6483\u529B", L"\u9023\u5C04\u529B", L"\u5F3E\u901F", L"\u79FB\u52D5\u901F\u5EA6", L"HP", L"HP\u56DE\u5FA9", L"\u30AF\u30EA\u30C6\u30A3\u30AB\u30EB\u7387", L"\u30AF\u30EA\u30C6\u30A3\u30AB\u30EB\u500D\u7387", L"\u88AB\u30C0\u30E1\u30FC\u30B8\u8EFD\u6E1B" }
+        { L"\uACF5\uACA9\uB825", L"\uC5F0\uC0AC\uB825", L"\uD0C4\uC18D", L"\uC774\uB3D9\uC18D\uB3C4", L"HP", L"\uCCB4\uB825 \uC7AC\uC0DD" },
+        { L"ATTACK", L"FIRE RATE", L"BULLET SPEED", L"MOVE SPEED", L"HP", L"HP REGEN" },
+        { L"\u653B\u6483\u529B", L"\u9023\u5C04\u529B", L"\u5F3E\u901F", L"\u79FB\u52D5\u901F\u5EA6", L"HP", L"HP\u56DE\u5FA9" }
     };
     static const wchar_t* kRoute[LANG_COUNT][kGameOverActionCount] = {
         { L"\uC7AC\uC2DC\uC791", L"\uBA54\uC778 \uBA54\uB274", L"\uC885\uB8CC" },
@@ -450,7 +435,7 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         drawValue(val, gainBuf, col1X, top + rowValY, false, 0.72f, 0.88f, 1.0f);
     }
 
-    // ---- Right panel: the player, the augment constellations, and stats -----
+    // ---- Right panel: the player and stats ------------------------------------
     float panelW = std::clamp(sw * 0.30f, 300.0f, 520.0f);
     float panelX = sw - margin - panelW;
     const float panelMinX = leftX + leftW + 48.0f * uiS;
@@ -463,83 +448,31 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         static float s_statsT = 0.0f;
         static bool s_rowsValid = false;
         static StatRow s_rows[kMetricCount];
-        static int s_descAug = -1;
-        static float s_descT = 0.0f;
-        static float s_augRot[AUG_TOTAL] = {};
-        static float s_augVel[AUG_TOTAL] = {};
-        static int s_dragAug = -1;
-        static float s_dragAngle = 0.0f;
         if (gof < 0.05f) {
-            for (int i = 0; i < AUG_TOTAL; ++i) { s_augRot[i] = 0.0f; s_augVel[i] = 0.0f; }
-            s_dragAug = -1;
             s_statsOpen = false; s_statsT = 0.0f; s_rowsValid = false;
-            s_descAug = -1; s_descT = 0.0f;
         }
         if (!s_rowsValid) { BuildStatRows(s_rows); s_rowsValid = true; }
 
-        // Owned augments, grouped and ordered like the in-run list.
-        int counts[AUG_TOTAL] = {};
-        for (int idx : state.ownedAugments)
-            if (idx >= 0 && idx < AUG_TOTAL && !AugRemoved(ALL_AUGS[idx].type))
-                counts[idx]++;
-        // Augments and debuffs are listed apart, each in its own grid.
-        int ord[AUG_TOTAL], nord = 0;
-        int dord[AUG_TOTAL], ndord = 0;
-        for (int i = 0; i < AUG_TOTAL; ++i) {
-            if (counts[i] <= 0) continue;
-            if (ALL_AUGS[i].rarity == AugRarity::DEBUFF) dord[ndord++] = i;
-            else                                         ord[nord++] = i;
-        }
-        std::sort(ord, ord + nord, [](int a, int b) { return AugTierIndexLess(a, b); });
-        std::sort(dord, dord + ndord, [](int a, int b) { return AugTierIndexLess(a, b); });
-
-        const bool statRowShown[kMetricCount] = {
-            true, true, true, true, true, true, true,
-            s_rows[kCritChance].total >= 0.5f, true };
+        const bool statRowShown[kMetricCount] = { true, true, true, true, true, true };
         int statRows = 0;
         for (int m = 0; m < kMetricCount; ++m) if (statRowShown[m]) ++statRows;
-        constexpr int kDescLines = 4;
 
         // The panel is a vertical stack; when it would run off the bottom the
         // graphic parts (player, cells, gaps) shrink, text stays at its size.
         float k = 1.0f;
-        float shellSize = 0, shellR = 0, shellCy = 0, augLabY = 0, augRuleY = 0;
-        float gridY = 0, cell = 0, gridH = 0, toggleY = 0, toggleRuleY = 0;
-        float tableY0 = 0, rowH = 0, descY = 0, descBottom = 0;
-        int cols = 1, shown = 0, dshown = 0;
-        float debLabY = 0, debRuleY = 0, debGridY = 0;
+        float shellSize = 0, shellR = 0, shellCy = 0;
+        float toggleY = 0, toggleRuleY = 0, tableY0 = 0, rowH = 0;
         for (int pass = 0; pass < 12; ++pass) {
             shellSize = 25.0f * 2.2f * uiS * k;
             shellR = shellSize * 1.2f;
             shellCy = top + shellR;
             // Below the outer orbit arc, so the label never sits on a ring.
-            augLabY = shellCy + shellR * 1.30f + 10.0f * uiS * k;
-            augRuleY = augLabY + labH + 8.0f * uiS * k;
-            gridY = augRuleY + 10.0f * uiS * k;
-            cell = 64.0f * uiS * k;
-            cols = std::max(1, (int)(panelW / cell));
-            const int maxCells = cols * 3;
-            shown = nord > maxCells ? maxCells - 1 : nord;
-            const int cells = std::max(1, std::min(nord, maxCells));
-            const int gridRows = (cells + cols - 1) / cols;
-            gridH = (float)gridRows * cell;
-            float afterY = gridY + gridH;
-            dshown = 0;
-            if (ndord > 0) {
-                const int dMax = cols;   // one row is enough for the debuffs
-                dshown = ndord > dMax ? dMax - 1 : ndord;
-                debLabY = afterY + 10.0f * uiS * k;
-                debRuleY = debLabY + labH + 8.0f * uiS * k;
-                debGridY = debRuleY + 10.0f * uiS * k;
-                afterY = debGridY + cell;
-            }
-            toggleY = afterY + 12.0f * uiS * k;
+            toggleY = shellCy + shellR * 1.30f + 10.0f * uiS * k;
             toggleRuleY = toggleY + labH + 8.0f * uiS * k;
             tableY0 = toggleRuleY + 12.0f * uiS * k;
             rowH = labH + 6.0f * uiS * k;
-            descY = tableY0 + (float)statRows * rowH + 14.0f * uiS * k;
-            descBottom = descY + labH * 1.3f + (float)kDescLines * (labH + 3.0f * uiS * k);
-            if (descBottom <= sh - 24.0f || k <= 0.50f) break;
+            const float tableBottom = tableY0 + (float)statRows * rowH;
+            if (tableBottom <= sh - 24.0f || k <= 0.50f) break;
             k -= 0.04f;
         }
 
@@ -555,79 +488,8 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         DrawPlayerWeaponShell(shellCx, shellCy, shellSize, now * 0.6f, now);
         BatchFlush();
 
-        // Owned augments as the constellations the cards use.
-        lab.r->Draw(T(StrId::OWNED_AUGS), Snap(panelX), Snap(augLabY), lab.scale,
-                    accentR, accentG, accentB, 0.92f * ge);
-        LogoLine(panelX, augRuleY, panelX + panelW, augRuleY,
-                 1.0f, accentR, accentG, accentB, 0.24f * ge);
-
-        int hoverAug = -1;
-        const bool canHover = gof >= 0.9f && !skippedCinematic;
-        // Constellations keep turning on their own; hovering speeds one up and
-        // dragging turns it by hand, letting go with a little momentum.
-        if (!lmb) s_dragAug = -1;
-        auto drawGrid = [&](const int* list, int total, int shown, float gridY) {
-        for (int i = 0; i < shown; ++i) {
-            const int idx = list[i];
-            const float ccx = panelX + ((float)(i % cols) + 0.5f) * cell;
-            const float ccy = gridY + ((float)(i / cols) + 0.5f) * cell;
-            const float dx = (float)mx - ccx, dy = (float)my - ccy;
-            const bool hov = canHover && dx * dx + dy * dy <= cell * cell * 0.20f;
-            if (hov && lmb && !state.previousLeftMouseDown && s_dragAug < 0) {
-                s_dragAug = idx;
-                s_dragAngle = atan2f(dy, dx);
-                s_augVel[idx] = 0.0f;
-            }
-            const bool grabbed = s_dragAug == idx && lmb;
-            if (grabbed) {
-                if (dx * dx + dy * dy > cell * cell * 0.004f) {   // near the centre the angle is noise
-                    const float ang = atan2f(dy, dx);
-                    float d = ang - s_dragAngle;
-                    while (d > 3.14159f) d -= 6.28318f;
-                    while (d < -3.14159f) d += 6.28318f;
-                    s_dragAngle = ang;
-                    s_augRot[idx] += d;
-                    if (delta > 0.0001f) s_augVel[idx] = s_augVel[idx] * 0.6f + (d / delta) * 0.4f;
-                }
-            } else {
-                s_augRot[idx] += s_augVel[idx] * delta;
-                s_augVel[idx] *= expf(-2.5f * delta);
-                s_augRot[idx] += (hov ? 0.9f : 0.35f + 0.05f * (float)(idx % 4)) * delta;
-            }
-            if (hov || grabbed) hoverAug = idx;
-            DrawOwnedAugConstellation(idx, ccx, ccy, cell * 0.30f,
-                                      0.95f * ge, hov || grabbed, uiS * k * 0.55f, now,
-                                      s_augRot[idx]);
-            if (counts[idx] > 1) {
-                wchar_t cb[16];
-                swprintf_s(cb, L"x%d", counts[idx]);
-                // Small, in the cell corner, clear of the shape.
-                const float cw = lab.r->Width(cb, lab.scale * 0.65f);
-                lab.r->Draw(cb, Snap(ccx + cell * 0.5f - cw),
-                            Snap(ccy + cell * 0.5f - labH * 0.65f),
-                            lab.scale * 0.65f, 1.0f, 1.0f, 1.0f, 0.95f * ge);
-            }
-        }
-        if (total > shown) {
-            wchar_t more[16];
-            swprintf_s(more, L"+%d", total - shown);
-            const float ccx = panelX + ((float)(shown % cols) + 0.5f) * cell;
-            const float ccy = gridY + ((float)(shown / cols) + 0.5f) * cell;
-            const float mw = lab.r->Width(more, lab.scale);
-            lab.r->Draw(more, Snap(ccx - mw * 0.5f), Snap(ccy - labH * 0.5f), lab.scale,
-                        0.64f, 0.76f, 0.88f, 0.90f * ge);
-        }
-        };
-        drawGrid(ord, nord, shown, gridY);
-        if (ndord > 0) {
-            lab.r->Draw(kDebuffLabel[li], Snap(panelX), Snap(debLabY), lab.scale,
-                        1.0f, 0.46f, 0.42f, 0.92f * ge);
-            LogoLine(panelX, debRuleY, panelX + panelW, debRuleY,
-                     1.0f, 1.0f, 0.46f, 0.42f, 0.24f * ge);
-            drawGrid(dord, ndord, dshown, debGridY);
-        }
-
         // Fold-out toggle: a label, a rule and a chevron.
+        const bool canHover = gof >= 0.9f && !skippedCinematic;
         const bool toggleHover = canHover &&
             mx >= panelX && mx <= panelX + panelW &&
             my >= toggleY - 6.0f * uiS && my <= toggleRuleY + 6.0f * uiS;
@@ -652,14 +514,12 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         LogoLine(panelX, toggleRuleY, panelX + panelW, toggleRuleY,
                  1.0f, accentR, accentG, accentB, (toggleHover ? 0.40f : 0.24f) * ge);
 
-        // Stat rows: total (white) = base (white) + augments (blue) + trial
-        // (yellow). Every part sits in its own left-aligned column so the
+        // Stat rows: total (white) = base (white) + trial (yellow). Every part sits in its own left-aligned column so the
         // rows line up under each other.
         if (openE > 0.01f) {
             const float tableY = tableY0 + (1.0f - openE) * -10.0f * uiS;
             const float a = openE * ge;
             const float wr = 0.95f, wg = 0.97f, wb = 1.0f;       // total, base
-            const float br = 0.45f, bg = 0.72f, bb = 1.0f;       // augments
             const float yr = 1.0f, yg = 0.84f, yb = 0.30f;       // trial
             const float dr = 0.55f, dg = 0.65f, db = 0.78f;      // operators
             TextPick rp = lab;
@@ -676,19 +536,11 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
             float xTotal = 0.0f, xEq = 0.0f, xBase = 0.0f;
             const float opGap = 5.0f * uiS;
             auto partUsed = [&](int m, float v) { return fabsf(v) >= MetricEps(m); };
-            // The row's parts in display order; kind 0 = augments, 1 = trial.
-            auto rowParts = [&](const StatRow& row, int m, float* vals, int* kinds) {
-                int n = 0;
-                const float cand[2] = { row.aug, row.trial };
-                for (int nerfPass = 0; nerfPass < 2; ++nerfPass)
-                    for (int kind = 0; kind < 2; ++kind) {
-                        const float v = cand[kind];
-                        if (!partUsed(m, v) || (v < 0.0f) != (nerfPass == 1)) continue;
-                        vals[n] = v;
-                        kinds[n] = kind;
-                        ++n;
-                    }
-                return n;
+            // The row's parts in display order (only the trial part is left).
+            auto rowParts = [&](const StatRow& row, int m, float* vals) {
+                if (!partUsed(m, row.trial)) return 0;
+                vals[0] = row.trial;
+                return 1;
             };
             auto partWidth = [&](int m, float v) {
                 wchar_t pb[32];
@@ -731,9 +583,8 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
                 float partsEnd = xBase + baseColW;
                 for (int m = 0; m < kMetricCount; ++m) {
                     if (!statRowShown[m]) continue;
-                    float pv[2];
-                    int pk[2];
-                    const int pn = rowParts(s_rows[m], m, pv, pk);
+                    float pv[1];
+                    const int pn = rowParts(s_rows[m], m, pv);
                     float ex = xPart0;
                     for (int i = 0; i < pn; ++i) ex += partWidth(m, pv[i]) + partGap;
                     if (pn > 0) partsEnd = std::max(partsEnd, ex - partGap);
@@ -755,39 +606,13 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
                 rp.r->Draw(L"=", Snap(xEq), Snap(y), rp.scale, dr, dg, db, 0.9f * a);
                 FormatMetric(fb, m, row.base);
                 drawValueText(fb, xBase, y, wr, wg, wb, 0.95f * a);
-                float pv[2];
-                int pk[2];
-                const int pn = rowParts(row, m, pv, pk);
+                float pv[1];
+                const int pn = rowParts(row, m, pv);
                 float px = xPart0;
                 for (int i = 0; i < pn; ++i) {
-                    if (pk[i] == 0) drawPart(m, pv[i], px, y, br, bg, bb);
-                    else            drawPart(m, pv[i], px, y, yr, yg, yb);
+                    drawPart(m, pv[i], px, y, yr, yg, yb);
                     px += partWidth(m, pv[i]) + partGap;
                 }
-            }
-        }
-        // Hovering a constellation explains it right below the stats.
-        const float descYDraw = tableY0 + openE * (float)statRows * rowH + 14.0f * uiS * k;
-        if (hoverAug >= 0) s_descAug = hoverAug;
-        s_descT += ((hoverAug >= 0 ? 1.0f : 0.0f) - s_descT) * std::min(1.0f, delta * 12.0f);
-        if (s_descAug >= 0 && s_descT > 0.01f) {
-            const AugDef& def = ALL_AUGS[s_descAug];
-            float rr, gg, bb;
-            GetRarityColor(def.rarity, rr, gg, bb);
-            const float a = s_descT * ge;
-            LogoLine(panelX, descYDraw - 8.0f * uiS * k, panelX + panelW, descYDraw - 8.0f * uiS * k,
-                     1.0f, rr, gg, bb, 0.45f * a);
-            lab.r->Draw(def.locName[li], Snap(panelX), Snap(descYDraw), lab.scale,
-                        0.45f + 0.55f * rr, 0.45f + 0.55f * gg, 0.45f + 0.55f * bb,
-                        0.98f * a);
-            wchar_t lines[kDescLines][kWrapChars];
-            const int n = WrapLines(*lab.r, lab.scale, def.locDesc[li], panelW,
-                                    lines, kDescLines);
-            float ly = descYDraw + labH * 1.3f;
-            for (int i = 0; i < n; ++i) {
-                lab.r->Draw(lines[i], Snap(panelX), Snap(ly), lab.scale,
-                            0.82f, 0.88f, 0.96f, 0.92f * a);
-                ly += labH + 3.0f * uiS * k;
             }
         }
     }

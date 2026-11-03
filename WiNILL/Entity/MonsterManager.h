@@ -199,8 +199,10 @@ public:
             for (int k = 0; k < Monster::ANTARES_SPLIT_COUNT; ++k) {
                 const float a = base + (float)k * 6.2831853f / (float)Monster::ANTARES_SPLIT_COUNT;
                 const float offset = 34.0f * powf(Monster::ANTARES_CHILD_SCALE, (float)m->antaresGen);
-                auto* c = new Monster(m->worldX + cosf(a) * offset, m->worldY + sinf(a) * offset);
+                auto* c = new Monster(m->worldX + cosf(a) * offset, m->worldY + sinf(a) * offset,
+                                      m->antaresHpMult);
                 c->MakeKind(MobKind::ANTARES);
+                c->antaresFamily = m->antaresFamily;
                 c->antaresGen = gen;
                 c->sizeScale *= powf(Monster::ANTARES_CHILD_SCALE, (float)gen);
                 c->hp = c->hp / Monster::ANTARES_ELITE_HP_MULT * powf(Monster::ANTARES_CHILD_HP, (float)gen);

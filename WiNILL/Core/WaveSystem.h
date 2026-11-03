@@ -78,6 +78,21 @@ inline bool IsSpecialWave(int wave, Difficulty difficulty) {
     return IsBossWave(wave, difficulty) || IsEliteWaveNumber(wave, difficulty);
 }
 
+// Elite waves the run has already passed on its way to `wave`.
+inline int EliteWavesBefore(int wave, Difficulty difficulty) {
+    int count = 0;
+    for (int w = 1; w < wave; ++w)
+        count += IsEliteWaveNumber(w, difficulty) ? 1 : 0;
+    return count;
+}
+
+// Every enemy's HP (regular, elite, boss) climbs once per elite wave behind
+// the run: +kWaveHpStep of the starting HP each time, so wave 1 is x1.
+inline constexpr float kWaveHpStep = 0.30f;
+inline float WaveHpRamp(int wave, Difficulty difficulty) {
+    return 1.0f + kWaveHpStep * (float)EliteWavesBefore(wave, difficulty);
+}
+
 // About when a wave begins in a typical run, for HP ramps that need a time
 // without a real run behind them (debug bosses).
 inline float NominalWaveStartSeconds(int wave, Difficulty difficulty) {

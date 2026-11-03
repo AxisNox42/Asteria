@@ -211,12 +211,12 @@ rp::Rules LiveRules(const PracticeView& v, bool firing) {
     r.worldW = kWorldW;
     r.worldH = kWorldH;
     r.playerRadius = PLAYER_SIZE_PX * g_Stats.playerSizeMult * 0.5f;
-    r.moveSpeed = PLAYER_MOVE_SPEED * g_Stats.GetMoveMultiplier(firing);
+    r.moveSpeed = PLAYER_MOVE_SPEED * g_Stats.moveSpeedMult;
     r.dashDist = DASH_DIST;
     r.dashDur = DASH_DUR;
     r.dashCooldown = DASH_CD;
-    r.fireInterval = g_Stats.fireInterval * g_Stats.GetFireIntervalMult();
-    r.bulletSpeed = g_Stats.bulletSpeed + g_Stats.GetBulletSpeedBonus();
+    r.fireInterval = g_Stats.fireInterval;
+    r.bulletSpeed = g_Stats.bulletSpeed;
     r.bulletDamage = g_Stats.GetBaseDamage() * g_Stats.GetDamageMultiplier();
     r.fieldPulse = g_CurrentWeapon == (int)StartWeapon::SMG;
     r.pulseInterval = STATIC_FIELD_PULSE_INTERVAL;
@@ -248,7 +248,7 @@ void ResetView(PracticeView& v) {
 }
 
 void TouchView(PracticeView& v) {
-    // Card picks (tutorial steps 5-6) leave this scene for a while; the field
+    // The card pick (tutorial step 5) leaves this scene for a while; the field
     // must come back as it was.
     const bool inPicks = ready_launch::g_TutorialMode &&
                          ready_launch::g_Stage != ready_launch::TutorialStage::Practice;
@@ -322,7 +322,7 @@ void StepNumber(rp::Objective current, bool dashOk, int& index, int& total) {
         ++total;
         if (i <= (int)current) index = total;
     }
-    // The augment and nerf picks follow the practice steps (tutorial only).
+    // The card pick follows the practice steps (tutorial only).
     if (ready_launch::g_TutorialMode) total += READY_EXTRA_OBJECTIVE_COUNT;
 }
 
@@ -456,19 +456,15 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
     const Stage stage = ready_launch::g_TutorialMode ? ready_launch::g_Stage : Stage::Practice;
     const wchar_t* hint = ReadyStepHint((int)current);
     if (stage != Stage::Practice && stage != Stage::Done) {
-        // Steps 5-6: the labels follow the practice steps.
+        // Step 5: the label follows the practice steps.
         int index = 0, total = 0;
         StepNumber(rp::Objective::Count, dashOk, index, total);
         const int step5 = total - READY_EXTRA_OBJECTIVE_COUNT + 1;
-        const bool augStep = stage == Stage::AugPick;
         const std::wstring label = std::wstring(kReadyStepLabel) + L" " +
-            std::to_wstring(augStep ? step5 : step5 + 1) + L" / " + std::to_wstring(total);
+            std::to_wstring(step5) + L" / " + std::to_wstring(total);
         Text(body, label.c_str(), mid, fy + cv.S(kStepLabelY) + rise, cv.S(kStepLabelPx), kCyan, 0.9f * in,
              Align::Center);
-        hint = augStep ? ReadyExtraHint(0)
-             : stage == Stage::NerfWait
-                 ? ReadyExtraHint(1, (int)std::ceil(std::max(0.0f, ready_launch::g_NerfClock)))
-                 : ReadyExtraHint(2);
+        hint = ReadyExtraHint(0);
     } else if (stage == Stage::Practice && current != rp::Objective::Count) {
         int index = 0, total = 0;
         StepNumber(current, dashOk, index, total);
@@ -521,13 +517,10 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
     const bool tutorial = ready_launch::g_TutorialMode;
     const Stage stage = ready_launch::g_Stage;
     if (tutorial) {
-        // Steps 5-6: the real augment and nerf picks.
+        // Step 5: the real card pick.
         for (int i = 0; i < READY_EXTRA_OBJECTIVE_COUNT; ++i) {
-            const bool aug = i == 0;
-            const bool done = aug ? (stage == Stage::NerfWait || stage == Stage::NerfPick || stage == Stage::Done)
-                                  : stage == Stage::Done;
-            const bool isCurrent = aug ? stage == Stage::AugPick
-                                       : (stage == Stage::NerfWait || stage == Stage::NerfPick);
+            const bool done = stage == Stage::Done;
+            const bool isCurrent = stage == Stage::AugPick;
             const Rgb c = done ? kDone : kCyan;
             const float boxA = done ? 0.95f : isCurrent ? pulse : 0.45f;
             const float s = cv.S(kCheckSize);
@@ -540,11 +533,6 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
             const float textA = done ? 0.95f : isCurrent ? 1.0f : 0.6f;
             Text(body, ReadyExtraObjective(i), x + s + cv.S(14.0f), y, cv.S(kObjectivePx),
                  done ? c : isCurrent ? kWhite : kText, textA);
-            if (!aug && stage == Stage::NerfWait) {
-                const std::wstring clock = L"0:0" + std::to_wstring(
-                    (int)std::ceil(std::max(0.0f, ready_launch::g_NerfClock)));
-                Text(body, clock.c_str(), x + cv.S(280.0f), y, cv.S(21.0f), kCyan, 0.95f, Align::Right);
-            }
             y += cv.S(kObjectiveRowH);
         }
     }
@@ -721,41 +709,21 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         switch (ready_launch::g_Stage) {
         case Stage::Practice:
             if (current == rp::Objective::Count) {
-                // The fourth kill is the level-up: open the real augment cards.
+                // The fourth kill is the level-up: open the real card screen.
                 ready_launch::g_Stage = Stage::AugPick;
                 GameManager& gm = g_GameManager;
                 ++gm.playerLevel;
                 gm.xp = 0;
-                // The tutorial offers three fixed, simple cards.
-                static const AugType kCards[3] = {
-                    AugType::TUT_ATK_UP, AugType::TUT_HP_UP, AugType::TUT_MOVE_UP };
-                gm.OpenFixedChoices(kCards, 3, false);
+                gm.OpenTutorialChoice();
             }
             break;
         case Stage::AugPick:
-            // Back on this screen: the card was taken. The wave clock starts.
-            ready_launch::g_Stage = Stage::NerfWait;
-            ready_launch::g_NerfClock = ready_launch::kNerfWaitSeconds;
-            break;
-        case Stage::NerfWait:
-            ready_launch::g_NerfClock -= dt;
-            if (ready_launch::g_NerfClock <= 0.0f) {
-                // The clock ran out: judge it as a wave boundary (main opens the nerf cards).
-                ready_launch::g_NerfClock = 0.0f;
-                ready_launch::g_Stage = Stage::NerfPick;
-                ready_launch::g_RequestNerfPick = true;
-            }
-            break;
-        case Stage::NerfPick:
-            if (!ready_launch::g_RequestNerfPick) {
-                // Back on this screen: the nerf was taken. Finishing every step
-                // unlocks the rest of the lobby.
-                ready_launch::g_Stage = Stage::Done;
-                if (!g_TutorialDone) {
-                    g_TutorialDone = true;
-                    g_TutorialVanishPending = true;   // the lobby glitches TUTORIAL out once
-                    SaveGame();
-                }
+            // Back on this screen: the card was taken. Finishing every step
+            // unlocks the rest of the lobby.
+            ready_launch::g_Stage = Stage::Done;
+            if (!g_TutorialDone) {
+                g_TutorialDone = true;
+                SaveGame();
             }
             break;
         case Stage::Done:
@@ -901,8 +869,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         // Explain the system the current step is about, under the field.
         using Stage = ready_launch::TutorialStage;
         const Stage stage = ready_launch::g_Stage;
-        const int block = stage == Stage::AugPick ? 0
-                        : (stage == Stage::NerfWait || stage == Stage::NerfPick) ? 1 : -1;
+        const int block = stage == Stage::AugPick ? 0 : -1;
         if (block >= 0) {
             const float maxW = cv.S(kFieldW + 2.0f * 150.0f);
             const float cx = cv.X(kCanvasW * 0.5f);

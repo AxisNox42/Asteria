@@ -123,22 +123,6 @@ void drawBullet(const Bullet& b) {
         drawCircle(b.x, b.y, r * 0.30f, 1.0f, 1.0f, 1.0f, 0.95f);
         return;
     }
-    if (b.rainMissile && g_RainMissileTex) {
-        float ang = std::atan2(b.dirX, -b.dirY);
-        // Dark keyline disc so the missile icon separates from bright
-        // wallpapers without a plate behind the battlefield.
-        drawCircle(b.x, b.y, 9.0f,
-                   b.color.r * 0.22f, b.color.g * 0.22f, b.color.b * 0.22f,
-                   0.40f * CombatKeylineStrength());
-        drawCircle(b.x - b.dirX * 10.0f, b.y - b.dirY * 10.0f, r * 1.3f,
-                   1.0f, 0.6f, 0.2f, 0.5f);
-        BatchFlush();
-        // The main projection already applies camera zoom to world geometry.
-        DrawIconRot(g_RainMissileTex, b.x, b.y, 12.0f, 15.5f, ang,
-                    b.color.r, b.color.g, b.color.b, 1.0f);
-        BindMainShader();
-        return;
-    }
     if (b.crescentBlade) {
         float spinAng   = atan2f(b.dirY, b.dirX) + 1.5708f;
         float grow      = 1.0f + b.traveled / 160.0f;

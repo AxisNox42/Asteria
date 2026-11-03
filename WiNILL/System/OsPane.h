@@ -61,13 +61,17 @@ struct Pane {
     // Mostly hidden behind another program's window (one the game cannot
     // stack under, e.g. an always-on-top one): it is no space meanwhile.
     bool covered = false;
+    // Decoration only (the blue screen's storm of error windows): no space,
+    // no brackets, wear or role; painted once and glitched cheaply.
+    bool decor = false;
 };
 
 void Init(GLFWwindow* overlay);
 void Shutdown();
 
 // Opens a pane whose outer frame sits at (x, y, w, h) in overlay pixels.
-int  Open(float x, float y, float w, float h);
+// decor: see Pane::decor; such a pane shows the error dialog from the start.
+int  Open(float x, float y, float w, float h, bool decor = false);
 // Claims DesktopWindows()[index] as a pane (see Pane::adopted). Returns the
 // pane id, or 0 when the window is gone.
 int  Adopt(int desktopIndex);
@@ -89,7 +93,7 @@ void SetUnstable(int id, float level);
 // The job a pattern gives a pane: it shows that system dialog instead of its
 // own contents, titled for it, until set back to Plain. a, b: Shutdown =
 // seconds left, total; Copy = shots loaded, total.
-enum class PaneRole { Plain, Error, Shutdown, Copy };
+enum class PaneRole { Plain, Error, Shutdown, Copy, Safe };
 void SetRole(int id, PaneRole role, float a = 0.0f, float b = 0.0f);
 // Title note from wear: durability left below 30%, "(Not Responding)" while
 // its fuse burns.

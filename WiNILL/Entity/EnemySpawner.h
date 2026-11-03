@@ -31,6 +31,9 @@ bool WaveFightIsBoss(int wave);
 // Hand testing: removes the current wave's elite or mid-run boss (no score),
 // so the wave clears as if it fell now. False when there is nothing to clear.
 bool DebugClearWaveObjective(MonsterManager& monsters, float gameTime);
+// Smoke fixtures: `wave` brings no elite or boss of its own and never clears,
+// so a harness that clears the field only sees the mobs it spawns.
+void DebugHoldWave(int wave);
 
 // The elite of an elite wave. Its kind is rolled when the run starts, so the
 // wave HUD can name it before it enters.

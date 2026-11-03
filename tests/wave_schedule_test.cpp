@@ -62,6 +62,13 @@ int main() {
         EXPECT(!IsEliteWaveNumber(0, diff) && !IsEliteWaveNumber(last + 1, diff), "outside the run (d=%d)", d);
     }
 
+    // HP ramp: +kWaveHpStep per elite wave behind, flat across a boss wave.
+    EXPECT(WaveHpRamp(1, normal) == 1.0f, "wave 1 at x1");
+    EXPECT(WaveHpRamp(2, normal) == 1.0f + kWaveHpStep, "one elite behind");
+    EXPECT(WaveHpRamp(4, normal) == WaveHpRamp(5, normal) &&
+           EliteWavesBefore(5, normal) == 3, "boss wave 4 adds no step");
+    EXPECT(EliteWavesBefore(FinalWaveCount(nightmare), nightmare) == 13, "nightmare elites");
+
     // Slowdown: on every wave of the run, the hook can opt out.
     EXPECT(SpecialWaveSpawnStretch(1, nightmare) == SPECIAL_WAVE_SPAWN_STRETCH, "elite slowdown");
     EXPECT(SpecialWaveSpawnStretch(9, nightmare) == SPECIAL_WAVE_SPAWN_STRETCH, "boss slowdown");

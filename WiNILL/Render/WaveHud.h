@@ -16,7 +16,6 @@
 #include <cmath>
 #include <cstdio>
 
-#include "Augment.h"
 #include "DrawPrim.h"
 #include "HudLines.h"
 #include "EnemySpawner.h"
@@ -221,37 +220,4 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
         : 1.0f;
     DrawWaveTrack(cx, trackY, hs, wave, finalWave, difficulty,
                   std::clamp(remainFrac, 0.0f, 1.0f), pulse);
-
-    // ── this wave's debuff: one line under the track until the wave ends ──
-    const int di = gm.lastWaveDebuff;
-    if (di >= 0 && di < AUG_TOTAL) {
-        wchar_t line[96];
-        swprintf_s(line, L"▼ %ls", AugName(ALL_AUGS[di]));
-        const float sc = UiTextScale(g_TextS, UiTextLevel::Supporting, hs);
-        // The toast phase (first 4s) is full strength, then it settles.
-        const float a = gm.waveDebuffToast > 0.0f ? 1.0f : 0.75f;
-        const float w = g_TextS.Width(line, sc);
-        HudText(g_TextS, line, cx - w * 0.5f, trackY + 30.0f * hs, sc, kDanger, a);
-    }
-}
-
-// Per-wave debuff record, one line per wave that brought one: "W04  Name".
-// Draws into a column that starts at (x, y) and stops at maxY; returns the
-// number of lines drawn. Used by the pause and result screens.
-inline int DrawWaveDebuffLog(TextRenderer& font, const GameManager& gm,
-                             float x, float y, float maxY, float scale, float alpha) {
-    if (!gm.showDebuffLog) return 0;
-    int drawn = 0;
-    const float lineH = font.Height(L"Ag", scale) * 1.25f;
-    for (int w = 2; w < 64; ++w) {
-        const int v = gm.waveDebuffLog[w] - 1;
-        if (v < 0 || v >= AUG_TOTAL) continue;
-        if (y + lineH > maxY) break;
-        wchar_t line[128];
-        swprintf_s(line, L"W%02d   %ls", w, AugName(ALL_AUGS[v]));
-        font.Draw(line, x, y, scale, 1.0f, 0.62f, 0.50f, alpha);
-        y += lineH;
-        ++drawn;
-    }
-    return drawn;
 }

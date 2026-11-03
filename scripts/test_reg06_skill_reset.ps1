@@ -12,7 +12,7 @@ New-Item -ItemType Directory -Force $out | Out-Null
 Push-Location $root
 try {
     $includes = '/I Include /I WiNILL\Core /I WiNILL\Core\Scenes /I WiNILL\Render /I WiNILL\Entity /I WiNILL\System'
-    $sources = 'tests\reg06_skill_reset_test.cpp WiNILL\Entity\PlayerRuntime.cpp WiNILL\Core\Scenes\SceneSkills.cpp WiNILL\Entity\AugmentCatalog.cpp'
+    $sources = 'tests\reg06_skill_reset_test.cpp WiNILL\Entity\PlayerRuntime.cpp'
     $command = "call `"$vcvars`" >nul && cl /nologo /utf-8 /std:c++17 /EHsc /MT /DNOMINMAX $includes $sources /Fo`"$out\\`" /Fe`"$out\reg06_skill_reset_test.exe`""
     & cmd.exe /d /s /c $command
     if ($LASTEXITCODE -ne 0) { throw 'REG-06 build failed' }

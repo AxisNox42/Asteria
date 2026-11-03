@@ -1,16 +1,13 @@
 ﻿#pragma once
 // ─────────────────────────────────────────────────────────────
-// 아이콘(픽토그램) 시스템 — game-icons.net 흰색 PNG 를 텍스처로 로드,
-//   AugType → 텍스처 매핑, 등급색 틴트로 그리는 drawIcon 헬퍼.
-//   파일명 = AugType 이넘명 (예: Resource/Icons/DMG_UP.png).
-//   흰색+투명배경 권장.
+// 아이콘 시스템 — 흰색 PNG 마스크를 텍스처로 로드하고 틴트로 그리는
+//   drawIcon 헬퍼. 흰색+투명배경 권장.
 // ─────────────────────────────────────────────────────────────
 #include <glad/glad.h>
 #include <cstdio>
 #include <cstring>
 #include <vector>
 #include "stb_image.h"
-#include "Augment.h"
 #include "DrawPrim.h"   // g_MainOrtho
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -22,75 +19,6 @@
 #  include <windows.h>   // 리소스(RCDATA)에서 아이콘 로드
 #endif
 
-// ── AugType → 파일명(이넘명) ──────────────────────────────
-inline const char* IconNameForAug(AugType t) {
-    switch (t) {
-    // 일반
-    case AugType::DMG_UP:        return "DMG_UP";
-    case AugType::RATE_UP:       return "RATE_UP";
-    case AugType::SPD_UP:        return "SPD_UP";
-    case AugType::MOVE_UP:       return "MOVE_UP";
-    case AugType::REGEN_UP:      return "REGEN_UP";
-    // 희귀
-    case AugType::GLASS_CANNON:  return "GLASS_CANNON";
-    case AugType::LIGHT_AMMO:    return "LIGHT_AMMO";
-    case AugType::LIGHT_STEP:    return "LIGHT_STEP";
-    case AugType::BULLET_RAIN:   return "BULLET_RAIN";
-    case AugType::CRIT:          return "CRIT";
-    case AugType::LIFESTEAL:     return "LIFESTEAL";
-    case AugType::BERSERK:       return "BERSERK";
-    // 에픽
-    case AugType::VAMPIRE:       return "VAMPIRE";
-    case AugType::MINIATURIZE:   return "MINIATURIZE";
-    case AugType::GIGANTIFY:     return "GIGANTIFY";
-    case AugType::PIERCE:        return "PIERCE";
-    case AugType::TWIN:          return "TWIN";
-    case AugType::CHAKRAM:       return "CHAKRAM";
-    case AugType::BULLET_RAIN_2: return "BULLET_RAIN_2";
-    case AugType::CHAKRAM_2:     return "CHAKRAM_2";
-    case AugType::DRONE:         return "DRONE";
-    case AugType::HACK_RANGED:   return "HACK_RANGED";
-    case AugType::PROB_CHAIN:    return "PROB_CHAIN";
-    case AugType::DEATH_BLAST:   return "DEATH_BLAST";
-    case AugType::SKILL_CLOSE:   return "SKILL_CLOSE";
-    case AugType::SKILL_OVERCLOCK: return "SKILL_OVERCLOCK";
-    // 전설
-    case AugType::RANDOM_AUG:    return "RANDOM_AUG";
-    case AugType::MK2:           return "MK2";
-    case AugType::CHAIN:         return "CHAIN";
-    case AugType::SKILL_TIMESTOP:return "SKILL_TIMESTOP";
-    case AugType::BULLET_RAIN_3: return "BULLET_RAIN_3";
-    case AugType::DRONE_2:       return "DRONE_2";
-    case AugType::CHAKRAM_3:     return "CHAKRAM_3";
-    // 디버프
-    case AugType::D_RMOB_MAX:    return "D_RMOB_MAX";
-    case AugType::D_RMOB_HP:     return "D_RMOB_HP";
-    case AugType::D_RMOB_DELAY:  return "D_RMOB_DELAY";
-    case AugType::D_MOB_SPAWN:   return "D_MOB_SPAWN";
-    case AugType::D_APPROACH:    return "D_APPROACH";
-    case AugType::D_MOB_SPEED:   return "D_MOB_SPEED";
-    case AugType::D_GLASS_HEART: return "D_GLASS_HEART";
-    case AugType::D_BULLET_STUCK:return "D_BULLET_STUCK";
-    case AugType::D_MOB_HP:      return "D_MOB_HP";
-    case AugType::D_SLOW_MOVE:   return "D_SLOW_MOVE";
-    case AugType::D_BLEED:       return "D_BLEED";
-    case AugType::D_WEAKEN:      return "D_WEAKEN";
-    // 특수
-    case AugType::S_CHAOS:       return "S_CHAOS";
-    case AugType::S_PANDORA:     return "S_PANDORA";
-    // 조합
-    case AugType::CB_BLOODLORD:   return "CB_BLOODLORD";
-    case AugType::LASER:         return "LASER_1";
-    case AugType::LASER_2:       return "LASER_2";
-    case AugType::HP_UP:           return "REGEN_UP";
-    case AugType::FIREWALL:        return "MK2";
-    case AugType::REGEN_2:         return "REGEN_UP";
-    default:                     return nullptr;
-    }
-}
-
-// (int)AugType 로 인덱싱 (이넘이 0부터 연속). Augment.h 의 AUG_TYPE_SLOTS 와 동기화.
-inline GLuint g_IconTex[AUG_TYPE_SLOTS] = { 0 };
 inline char   g_IconBaseDir[260] = "Resource/Icons"; // 런타임에 확정
 
 inline GLuint g_IconProg = 0, g_IconVAO = 0, g_IconVBO = 0;
@@ -371,7 +299,7 @@ inline GLuint IconLoad(const char* name) {
     return IconLoadFile(path);
 }
 
-// 아이콘 폴더 확정 — 실행 위치(exe) 기준 후보 경로 중 DMG_UP.png 가 있는 곳
+// 아이콘 폴더 확정 — 실행 위치(exe) 기준 후보 경로 중 CircleTexture.png 가 있는 곳
 inline void ResolveIconDir() {
     const char* cands[] = {
         "Resource/Icons", "../Resource/Icons", "../../Resource/Icons",
@@ -379,7 +307,7 @@ inline void ResolveIconDir() {
     };
     char probe[300];
     for (const char* base : cands) {
-        std::snprintf(probe, sizeof(probe), "%s/DMG_UP.png", base);
+        std::snprintf(probe, sizeof(probe), "%s/CircleTexture.png", base);
 #ifdef _MSC_VER
 #  pragma warning(push)
 #  pragma warning(disable:4996)
@@ -451,18 +379,9 @@ inline void LoadTitleLogos() {
     }
 }
 
-// 모든 증강/직업 아이콘 로드 —임베디드 리소스 우선(파일 폴백). 없으면 0 → 미표시.
+// 직업 아이콘·UI 텍스처 로드 —임베디드 리소스 우선(파일 폴백). 없으면 0 → 미표시.
 inline void LoadIcons() {
     ResolveIconDir();   // 파일 폴백 경로 확정 (리소스 없을 때만 사용)
-    for (int i = 0; i < AUG_TOTAL; i++) {
-        AugType t = ALL_AUGS[i].type;
-        const char* nm = IconNameForAug(t);
-        if (!nm) continue;
-        int idx = (int)t;
-        if (idx < 0 || idx >= AUG_TYPE_SLOTS) continue;
-        if (g_IconTex[idx]) continue;
-        g_IconTex[idx] = IconLoad(nm);
-    }
     for (int j = 1; j < 7; j++)
         if (g_JobIconNames[j][0] != '\0')
             g_JobIconTex[j] = IconLoad(g_JobIconNames[j]);
@@ -521,42 +440,6 @@ inline void LoadIcons() {
 inline GLuint JobIcon(int jobId) {
     if (jobId <= 0 || jobId >= 8) return 0;
     return g_JobIconTex[jobId];
-}
-
-// AugType 텍스처 (없으면 티어 폴백)
-inline GLuint IconFor(AugType t) {
-    int idx = (int)t;
-    if (idx >= 0 && idx < AUG_TYPE_SLOTS && g_IconTex[idx]) return g_IconTex[idx];
-    switch (t) {  // 티어 II/III → 기본 티어 그림 재사용
-    case AugType::BULLET_RAIN_2:
-    case AugType::BULLET_RAIN_3:
-    case AugType::BULLET_RAIN_ETERNAL: return g_IconTex[(int)AugType::BULLET_RAIN];
-    case AugType::CHAKRAM_2:
-    case AugType::CHAKRAM_3:     return g_IconTex[(int)AugType::CHAKRAM];
-    case AugType::DRONE_2:       return g_IconTex[(int)AugType::DRONE];
-    // 티어 II → 기본 티어 그림 재사용 (별도 아이콘 없는 것만)
-    case AugType::PIERCE_2:      return g_IconTex[(int)AugType::PIERCE];
-    case AugType::PIERCE_RAILSLUG: return g_IconTex[(int)AugType::PIERCE];
-    case AugType::TWIN_2:        return g_IconTex[(int)AugType::TWIN];
-    case AugType::DRONE_HIVE:    return g_IconTex[(int)AugType::DRONE];
-    case AugType::LASER_CONVERGE:return g_IconTex[(int)AugType::LASER];
-    // 프로세스류 디버프 확장 — 전용 아이콘 없으면 유사 디버프 아이콘 재사용
-    case AugType::LIFESTEAL_2:    return g_IconTex[(int)AugType::LIFESTEAL];
-    case AugType::CHAIN_2:        return g_IconTex[(int)AugType::CHAIN];
-    case AugType::CHAKRAM_SINGULARITY: return g_IconTex[(int)AugType::CHAKRAM];
-    case AugType::SKILL_DASH_UP:  return g_IconTex[(int)AugType::LIGHT_STEP];
-    case AugType::RIFLE_STABILITY:return 0;
-    case AugType::HP_UP:           return g_IconTex[(int)AugType::REGEN_UP];
-    case AugType::FIREWALL:        return g_IconTex[(int)AugType::MK2];
-    case AugType::REGEN_2:         return g_IconTex[(int)AugType::REGEN_UP];
-    case AugType::DEATH_BLAST_2:   return g_IconTex[(int)AugType::DEATH_BLAST];
-    default:                     break;
-    }
-    // 조합 증강 — 전용 아이콘(CB_*.png) 없으면 레시피 첫 재료 아이콘 재사용
-    for (int c = 0; c < COMBO_COUNT; c++)
-        if (COMBO_DEFS[c].result == t)
-            return IconFor(COMBO_DEFS[c].reqs[0]);
-    return 0;
 }
 
 // 화면(y-down ortho) 좌표에 틴트 적용해 아이콘 그리기
@@ -655,45 +538,4 @@ inline void DrawIconRot(GLuint tex, float cx, float cy, float halfW, float halfH
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-// ── 탄환 세례 미사일 스프라이트 ──
-//   원본 PNG 가 흰 배경+검정 로켓+하단 출처표기라, 그대로는 못 씀.
-//   → 하단 출처표기 크롭 + 휘도 반전(흰배경 투명/검정 로켓 불투명) + RGB 흰색(틴트 가능)
-inline GLuint g_RainMissileTex = 0;
-inline GLuint MakeRocketSprite(unsigned char* d, int w, int h) {
-    int cropH = (int)(h * 0.80f); if (cropH < 1) cropH = h;   // 하단 20%(출처표기) 제거
-    for (int i = 0; i < w * cropH; i++) {
-        unsigned char* p = d + i * 4;
-        int lum = (p[0]*299 + p[1]*587 + p[2]*114) / 1000;    // 0=검정 255=흰
-        // 알파 = min(기존 알파, 255-휘도). 흰 배경/투명 배경 둘 다 안전하게 제거:
-        //   흰 불투명배경(a=255,lum255)→0, 검정로켓(a=255,lum0)→255,
-        //   투명배경(a=0)→0 (기존알파 0 우선 → 검정-투명 배경이 불투명 사각형 되던 버그 fix)
-        int na = 255 - lum; if ((int)p[3] < na) na = p[3];
-        p[0] = 255; p[1] = 255; p[2] = 255;
-        p[3] = (unsigned char)na;
-    }
-    return IconTexFromRGBA(d, w, cropH);
-}
-inline void InitRainMissileTex() {
-#ifdef _WIN32
-    HMODULE hm = GetModuleHandleW(NULL);
-    HRSRC hr = FindResourceA(hm, "ICON_RAIN_MISSILE", MAKEINTRESOURCEA(10));
-    if (hr) {
-        HGLOBAL hg = LoadResource(hm, hr); const void* pp = LockResource(hg);
-        DWORD sz = SizeofResource(hm, hr);
-        if (pp && sz) {
-            int w,h,n; unsigned char* d = stbi_load_from_memory((const unsigned char*)pp,(int)sz,&w,&h,&n,4);
-            if (d) { g_RainMissileTex = MakeRocketSprite(d,w,h); stbi_image_free(d); return; }
-        }
-    }
-#endif
-    char path[320]; std::snprintf(path, sizeof(path), "%s/BULLET_RAIN.png", g_IconBaseDir);
-    int w,h,n; unsigned char* d = stbi_load(path,&w,&h,&n,4);
-    if (d) { g_RainMissileTex = MakeRocketSprite(d,w,h); stbi_image_free(d); }
-}
-
-inline void DrawAugIcon(AugType t, float x, float y, float sz,
-                        float r, float g, float b, float a) {
-    DrawIcon(IconFor(t), x, y, sz, sz, r, g, b, a);
 }

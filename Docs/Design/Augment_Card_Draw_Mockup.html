@@ -1,0 +1,731 @@
+<title>Asteria Augment Cards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600&family=Orbit&family=IBM+Plex+Sans+KR:wght@400;600&display=swap">
+<style>
+/* Layout: one wide stage (the game screen), then reference sections in a two-column grid that stacks on phones. */
+:root {
+  --bg: #060a14;
+  --bg-2: #0b1222;
+  --line: #1c2b46;
+  --fg: #e8f0ff;
+  --sub: #93a7c2;
+  --accent: #1aadff;
+  --frame: #2e9ef5;
+  --warn: #ff5247;
+  --font-display: "Chakra Petch", "Orbit", system-ui, sans-serif;
+  --font-game-kr: "Orbit", "Chakra Petch", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--font-display); letter-spacing: .22em; font-size: 12px; color: var(--accent); text-transform: uppercase; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(26px, 4vw, 40px); margin: 0; letter-spacing: .04em; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 0 0 12px; letter-spacing: .06em; display: flex; align-items: center; gap: 10px; }
+h2::before { content: ""; width: 9px; height: 9px; border: 1.4px solid var(--accent); transform: rotate(45deg); flex: none; }
+p { margin: 0; max-width: 68ch; color: var(--sub); }
+.stage-box { display: grid; gap: 12px; }
+#stage { width: 100%; aspect-ratio: 1640 / 910; display: block; border: 1px solid var(--line); outline: none; cursor: pointer; background: var(--bg); touch-action: manipulation; }
+#stage:focus-visible { border-color: var(--accent); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+button { font-family: var(--font-display); font-size: 14px; letter-spacing: .06em; color: var(--fg); background: transparent; border: 1px solid var(--line); padding: 7px 14px; cursor: pointer; }
+button:hover { border-color: var(--frame); color: #fff; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.keys { color: var(--sub); font-size: 13px; margin-left: auto; }
+kbd { font-family: var(--font-display); border: 1px solid var(--line); padding: 0 6px; color: var(--fg); }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 32px; }
+@media (max-width: 860px) { .grid2 { grid-template-columns: minmax(0, 1fr); } .keys { margin-left: 0; } }
+section { min-width: 0; display: grid; gap: 12px; align-content: start; }
+canvas.fig { width: 100%; display: block; border: 1px solid var(--line); background: var(--bg-2); }
+.timeline { border: 1px solid var(--line); background: var(--bg-2); padding: 14px 16px 10px; overflow-x: auto; }
+.tl-inner { min-width: 520px; display: grid; gap: 5px; }
+.tl-row { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 10px; font-size: 13px; color: var(--sub); }
+.tl-track { position: relative; height: 14px; border-left: 1px solid var(--line); }
+.tl-bar { position: absolute; top: 3px; height: 8px; border: 1.4px solid var(--frame); }
+.tl-bar.draw { border-color: var(--line); border-width: 1px; }
+.tl-bar.reveal { opacity: .45; }
+.tl-bar.leg.flip, .tl-bar.leg.charge, .tl-bar.leg.reveal { border-color: #f6c95e; }
+.tl-key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--sub); margin-top: 6px; }
+.tl-key i { display: inline-block; width: 22px; height: 8px; border: 1.4px solid var(--frame); margin-right: 6px; vertical-align: middle; }
+.tl-axis { position: relative; height: 18px; margin-left: 130px; font-family: var(--font-display); font-size: 11px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.tl-axis span { position: absolute; transform: translateX(-50%); }
+.fam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.fam { border: 1px solid var(--line); background: var(--bg-2); display: grid; justify-items: center; padding-bottom: 8px; min-width: 0; }
+.fam canvas { width: 100%; aspect-ratio: 1 / 1; display: block; }
+.fam b { font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: .14em; color: var(--fg); }
+.fam span { font-size: 12px; color: var(--sub); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-display); font-weight: 600; letter-spacing: .08em; color: var(--accent); font-size: 12px; text-transform: uppercase; }
+td { color: var(--sub); }
+td:first-child { color: var(--fg); white-space: nowrap; }
+.table-box { overflow-x: auto; }
+ol.q { margin: 0; padding-left: 20px; color: var(--sub); display: grid; gap: 6px; max-width: 70ch; }
+ol.q strong { color: var(--fg); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">ASTERIA · Level-up Augment</div>
+    <h1>증강 카드 드로우</h1>
+    <p>레벨업마다 덱에서 카드 5장을 뽑아 뒤집는다. 카드는 윤곽선만 있고 채운 면이 없어서 뒤의 전투 화면이 비친다. 최상단은 제목, 나머지는 모두 설명이며, 카드 뒤에는 증강 계열의 별자리가 반투명하게 깔린다. 고르지 않은 카드는 조각나 흩어지고, 그 별자리 노드는 배경으로 떠올라 새 별이 된다.</p>
+  </header>
+
+  <div class="stage-box">
+    <canvas id="stage" tabindex="0" aria-label="증강 카드 드로우 시연. 1~5 키 또는 클릭으로 카드를 고른다."></canvas>
+    <div class="controls">
+      <button id="bDraw" type="button">레벨업</button>
+      <button id="bDraw2" type="button">레벨업 ×2 (연속)</button>
+      <button id="bLeg" type="button">전설·신화 섞어 뽑기</button>
+      <button id="bSlow" type="button" aria-pressed="false">0.25× 속도</button>
+      <button id="bBg" type="button" aria-pressed="false">밝은 회색 바탕</button>
+      <span class="keys"><kbd>1</kbd>~<kbd>5</kbd> 선택 · <kbd>←</kbd><kbd>→</kbd> + <kbd>Enter</kbd> · 연출 중 클릭 = 건너뛰기</span>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <section>
+      <h2>카드 구성</h2>
+      <canvas id="anat" class="fig" aria-label="카드 앞면 구성도"></canvas>
+      <p>등급은 글자 배지 대신 프레임 색과 상단 마름모 개수(일반 1 · 희귀 2 · 에픽 3 · 전설 4 · 신화 5)로 표시한다. 별자리 선이 글자 줄과 겹치는 구간은 알파를 0.45배로 낮춰 글자를 비켜 간다. 글자 뒤에 막을 깔지 않는다.</p>
+    </section>
+    <section>
+      <h2>뒷면과 플립</h2>
+      <canvas id="backs" class="fig" aria-label="뒷면, 전설 충전, 플립 중간 상태"></canvas>
+      <p>뒷면은 틈 있는 링과 8방 노드로 된 ASTERIA 문양이다. 전설·신화는 뒤집기 전 0.2초 동안 링이 등급색으로 12시부터 시계방향으로 차오르고, 같은 드로우에서 가장 마지막에 뒤집힌다.</p>
+    </section>
+  </div>
+
+  <section>
+    <h2>드로우 타임라인</h2>
+    <p>예시: 희귀 · 전설 · 일반 · 에픽 · 일반. 5장이 0.09초 간격으로 뽑히고, 마지막 장이 자리 잡으면 왼쪽부터 0.08초 간격으로 뒤집힌다. 전설 카드(2번)는 순서를 미뤄 맨 마지막에 뒤집힌다. 어떤 클릭이든 끝 상태로 건너뛴다.</p>
+    <div class="timeline"><div class="tl-inner" id="tl"></div><div class="tl-axis" id="tlAxis"></div>
+      <div class="tl-key"><span><i style="border-color:var(--line);border-width:1px"></i>드로우 이동</span><span><i></i>플립</span><span><i style="opacity:.45"></i>별자리·글자</span><span><i style="border-color:#f6c95e"></i>전설 (충전 포함)</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>계열 별자리 20종</h2>
+    <p>증강 enum 접두어(<code>P_FLAME_…</code>, <code>A_FLAME_…</code>)가 계열이다. 같은 계열의 패시브와 액티브는 같은 별자리를 써서 시너지 계열이 한눈에 묶인다. 모양은 계열, 색은 등급이 맡는다.</p>
+    <div class="fam-grid" id="fams"></div>
+  </section>
+
+  <section>
+    <h2>UI 규칙과의 관계</h2>
+    <div class="table-box">
+      <table>
+        <thead><tr><th>규칙</th><th>카드에서 지키는 방식</th></tr></thead>
+        <tbody>
+          <tr><td>판·막 금지</td><td>카드에 채운 면이 없다. 모서리 깎은 윤곽선과 키라인뿐이라 전투 화면이 비친다. 가이드 §1-1의 "카드 금지"는 이 화면에 한해 예외로 명시한다.</td></tr>
+          <tr><td>선만, 채움 금지</td><td>별자리·뒷면 문양 모두 선과 노드. 유일한 채움 성격은 전설 충전 호(타이머 부채꼴 규칙과 같은 12시 시계방향).</td></tr>
+          <tr><td>점선 금지</td><td>흐린 상태는 전부 실선 + 알파.</td></tr>
+          <tr><td>모든 바탕에서 읽힘</td><td>선 아래 자기 색 × 0.18 키라인, 글자 halo. 위의 "밝은 회색 바탕" 버튼으로 확인.</td></tr>
+          <tr><td>장식은 조용히</td><td>별자리는 반투명(0.30, 호버 0.46)으로 Interactive(0.58) 아래에 둔다. 전설·신화만 플립 파편 연출.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>결정 사항 (2026-11-03)</h2>
+    <ol class="q">
+      <li><strong>별자리는 반투명.</strong> 카드 면은 채우지 않고, 별자리 선만 알파 0.30(호버 0.46)으로 그린다. 글자 줄과 겹치는 구간은 ×0.45.</li>
+      <li><strong>리롤·봉인 없음.</strong> 뽑힌 5장 중 하나를 고르는 것이 전부다.</li>
+      <li><strong>고르지 않은 카드는 별들의 양분으로 해체된다.</strong> 덱으로 돌아가지 않는다. 고른 카드에서 멀어지는 방향으로 차례로 윤곽선이 조각나 흩어지고, 별자리 노드는 위로 떠올라 배경의 새 별이 되며 주변 별을 잠깐 밝힌다. 연출이며 게임 수치에는 영향이 없다.</li>
+    </ol>
+  </section>
+</div>
+
+<script>
+(() => {
+// Cards are authored at 300×440 and drawn at CS so five fit the 1640 base width.
+const W = 1640, H = 910, CW = 300, CHH = 440, CUT = 18;
+const N = 5, CS = 0.93, PITCH = CW * CS + 24;
+const IDX = [...Array(N).keys()];
+const SLOT_Y = 410;
+const DECK = { x: W / 2, y: 812, s: 0.30 };
+const RAD = Math.PI / 180;
+
+// Display colours: GetRarityColor() lifted toward white so thin lines stay readable.
+const RAR = [
+  { k: "일반", c: [0.15, 0.65, 0.20], n: 1 },
+  { k: "희귀", c: [0.10, 0.30, 0.85], n: 2 },
+  { k: "에픽", c: [0.55, 0.10, 0.80], n: 3 },
+  { k: "전설", c: [0.95, 0.70, 0.10], n: 4 },
+  { k: "신화", c: [1.00, 0.25, 0.35], n: 5 },
+].map(r => ({ ...r, d: r.c.map(v => v * 0.68 + 0.32) }));
+const UI_BLUE = [0.18, 0.62, 0.96];
+const TXT = [0.92, 0.96, 1.0], TXT_SUB = [0.76, 0.84, 0.94];
+const rgba = (c, a) => `rgba(${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0},${Math.max(0, Math.min(1, a))})`;
+const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const cl = v => Math.max(0, Math.min(1, v));
+const quintOut = t => 1 - Math.pow(1 - t, 5);
+const quintIn = t => t * t * t * t * t;
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ---------- Family constellations (normalised 0..1, lines + nodes only) ----------
+function poly(cx, cy, r, n, a0 = -90) { return Array.from({ length: n }, (_, i) => { const a = (a0 + i * 360 / n) * RAD; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }); }
+function loopE(off, n, skip = -1) { const e = []; for (let i = 0; i < n; i++) if (i !== skip) e.push([off + i, off + (i + 1) % n]); return e; }
+function chainE(off, n) { const e = []; for (let i = 0; i < n - 1; i++) e.push([off + i, off + i + 1]); return e; }
+const FAM = {
+  NIGHT: { kr: "밤", f: () => {
+    const o = []; for (let a = 120; a <= 240; a += 24) o.push([0.62 + 0.40 * Math.cos(a * RAD), 0.5 + 0.40 * Math.sin(a * RAD)]);
+    const i = []; for (let a = 130; a <= 230; a += 25) i.push([0.76 + 0.32 * Math.cos(a * RAD), 0.5 + 0.32 * Math.sin(a * RAD)]);
+    const v = [...o, ...i, [0.80, 0.18], [0.92, 0.34], [0.86, 0.52]];
+    return { v, e: [...chainE(0, 6), ...chainE(6, 5), [0, 6], [5, 10], [11, 12], [12, 13]] }; } },
+  CHRONO: { kr: "시간", f: () => ({ v: [...poly(0.5, 0.5, 0.42, 8), [0.5, 0.5], [0.70, 0.62]], e: [...loopE(0, 8, 2), [8, 0], [8, 9]] }) },
+  GALE: { kr: "질풍", f: () => ({ v: [[0.06, 0.32], [0.32, 0.16], [0.54, 0.36], [0.34, 0.54], [0.60, 0.68], [0.88, 0.56], [0.74, 0.88]], e: chainE(0, 7) }) },
+  SHADOW: { kr: "그림자", f: () => ({ v: [[0.12, 0.78], [0.44, 0.18], [0.76, 0.78], [0.26, 0.88], [0.58, 0.28], [0.90, 0.88]], e: [[0, 1], [1, 2], [2, 0], [3, 4], [4, 5], [5, 3], [1, 4]] }) },
+  STONE: { kr: "바위", f: () => ({ v: [...poly(0.5, 0.5, 0.42, 6), [0.5, 0.5]], e: [...loopE(0, 6), [6, 0], [6, 2], [6, 4]] }) },
+  FLAME: { kr: "화염", f: () => ({ v: [[0.5, 0.94], [0.30, 0.56], [0.20, 0.28], [0.5, 0.48], [0.5, 0.06], [0.70, 0.56], [0.80, 0.30]], e: [[0, 1], [1, 2], [0, 3], [3, 4], [0, 5], [5, 6], [1, 3], [3, 5]] }) },
+  GEM: { kr: "보석", f: () => ({ v: [[0.30, 0.20], [0.70, 0.20], [0.08, 0.40], [0.92, 0.40], [0.5, 0.94], [0.5, 0.40]], e: [[0, 1], [0, 2], [1, 3], [2, 3], [2, 4], [3, 4], [0, 5], [1, 5], [5, 4]] }) },
+  STORM: { kr: "폭풍", f: () => ({ v: [[0.64, 0.04], [0.32, 0.46], [0.56, 0.46], [0.28, 0.96], [0.80, 0.66]], e: [[0, 1], [1, 2], [2, 3], [2, 4]] }) },
+  LUCK: { kr: "행운", f: () => {
+    const v = [[0.5, 0.5]], e = [];
+    for (let k = 0; k < 4; k++) { const a = -90 + k * 90; const p = (r, d) => [0.5 + r * Math.cos((a + d) * RAD), 0.5 + r * Math.sin((a + d) * RAD)];
+      const b = v.length; v.push(p(0.26, -30), p(0.44, 0), p(0.26, 30)); e.push([0, b], [b, b + 1], [b + 1, b + 2], [b + 2, 0]); }
+    return { v, e }; } },
+  LIFE: { kr: "생명", f: () => ({ v: [[0.5, 0.96], [0.5, 0.62], [0.5, 0.32], [0.22, 0.44], [0.80, 0.48], [0.28, 0.12], [0.72, 0.14], [0.5, 0.04]], e: [[0, 1], [1, 2], [1, 3], [1, 4], [2, 5], [2, 6], [2, 7]] }) },
+  ABYSS: { kr: "심연", f: () => { const v = []; for (let k = 0; k < 11; k++) { const a = k / 10 * 3.4 * Math.PI, r = 0.46 * (1 - k / 11.5) + 0.03; v.push([0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a)]); } return { v, e: chainE(0, 11) }; } },
+  SPARK: { kr: "전기", f: () => ({ v: [[0.5, 0.5], ...poly(0.5, 0.5, 0.18, 6), ...poly(0.5, 0.5, 0.44, 6, -70)], e: [1, 2, 3, 4, 5, 6].flatMap(i => [[0, i], [i, i + 6]]) }) },
+  FLIGHT: { kr: "비행", f: () => ({ v: [[0.5, 0.62], [0.34, 0.50], [0.18, 0.36], [0.04, 0.18], [0.14, 0.56], [0.66, 0.50], [0.82, 0.36], [0.96, 0.18], [0.86, 0.56], [0.5, 0.88]], e: [[0, 1], [1, 2], [2, 3], [2, 4], [0, 5], [5, 6], [6, 7], [6, 8], [0, 9]] }) },
+  EDGE: { kr: "칼날", f: () => ({ v: [[0.5, 0.03], [0.5, 0.66], [0.26, 0.66], [0.74, 0.66], [0.5, 0.84], [0.5, 0.96]], e: [[0, 1], [2, 1], [1, 3], [1, 4], [4, 5]] }) },
+  HERESY: { kr: "이단", f: () => ({ v: [...poly(0.5, 0.28, 0.22, 8), [0.5, 0.58], [0.5, 0.98], [0.24, 0.74], [0.76, 0.70]], e: [...loopE(0, 8), [4, 8], [8, 9], [10, 11]] }) },
+  HUNTER: { kr: "사냥", f: () => ({ v: [...poly(0.5, 0.58, 0.28, 8), [0.5, 0.02], [0.36, 0.20], [0.64, 0.20], [0.5, 0.98]], e: [...loopE(0, 8), [9, 8], [8, 10], [8, 11]] }) },
+  PERFORM: { kr: "공연", f: () => ({ v: [...poly(0.42, 0.36, 0.30, 10), [0.62, 0.72], [0.80, 0.80], [0.66, 0.90], [0.92, 0.97]], e: [...loopE(0, 10), [5, 10], ...chainE(10, 4)] }) },
+  STILL: { kr: "정적", f: () => ({ v: [[0.04, 0.78], [0.28, 0.78], [0.72, 0.78], [0.96, 0.78], [0.5, 0.36], [0.5, 0.08]], e: [[0, 1], [1, 2], [2, 3], [1, 4], [4, 2]] }) },
+  VEIN: { kr: "광맥", f: () => ({ v: [[0.04, 0.16], [0.34, 0.34], [0.50, 0.60], [0.94, 0.78], [0.44, 0.04], [0.26, 0.94], [0.76, 0.42]], e: [[0, 1], [1, 2], [2, 3], [1, 4], [2, 5], [2, 6]] }) },
+  NOVA: { kr: "신성", f: () => { const v = [[0.5, 0.5]]; for (let k = 0; k < 8; k++) { const a = (-90 + k * 45) * RAD, r = k % 2 ? 0.28 : 0.46; v.push([0.5 + r * Math.cos(a), 0.5 + r * Math.sin(a)]); } return { v, e: [1, 2, 3, 4, 5, 6, 7, 8].map(i => [0, i]) }; } },
+};
+for (const k in FAM) {
+  const s = FAM[k].f(); FAM[k].v = s.v; FAM[k].e = s.e;
+  FAM[k].first = s.v.map((_, vi) => { const j = s.e.findIndex(e => e[0] === vi || e[1] === vi); return j < 0 ? s.e.length : j; });
+}
+
+// ---------- Augment pool (from AugmentCatalog.cpp, KR) ----------
+const POOL = [
+  ["화염탄", "FLAME", 1, 9, "착탄 시 폭발하는 화염탄 발사 (직격 공격력 500% + 폭발 반경 공격력 300%)"],
+  ["쌍둥이자리 목걸이", "CHRONO", 3, 0, "액티브 스킬·대시를 쓸 때마다 30% 확률로 쿨다운 없이 바로 다시 쓸 수 있음"],
+  ["참새 깃털", "GALE", 0, 0, "사격 10발마다 화면 안 모든 적에게 공격력 50% 피해"],
+  ["초신성 핵", "NOVA", 4, 0, "처치 20회마다 화면 안 모든 적에게 공격력 1500% + 모든 적탄 소거"],
+  ["잠자는 화살", "NIGHT", 1, 8, "조준 방향으로 느린 대형 관통탄 발사 (공격력 600%) · 날아가며 닿는 적탄 소거"],
+  ["되감기", "CHRONO", 2, 20, "3초 전 위치로 돌아가고, 그 3초 동안 잃은 체력의 50% 회복"],
+  ["시노비 버선", "SHADOW", 2, 0, "1초간 멈춰 서면 주변 적탄 소거 + 쿨다운이 가장 많이 남은 액티브 스킬 1개 초기화 (10초 쿨)"],
+  ["거대 돌곤봉", "STONE", 2, 0, "탄환 피해 +70% · 탄환 크기 +30% · 연사 간격 +0.08초 · 이동속도 -10%"],
+  ["루비 서클릿", "GEM", 3, 0, "액티브 스킬 피해 +80% · 탄환 피해 +25% · 1회 피격 시 파손"],
+  ["폭풍의 왕관", "STORM", 3, 0, "다른 확률 증강이 터질 때마다 모든 적에게 공격력 400% 낙뢰 추가"],
+  ["여왕의 왕관", "LUCK", 3, 0, "이번 런 별가루 20 이상이면 행운 +1, 50 이상이면 행운 +3"],
+  ["딸기 케이크", "LIFE", 3, 0, "조각 2개: 피격 시 조각 1개를 써서 체력 30 회복 · 남은 조각 1개당 피해 +10%"],
+  ["심연의 문", "ABYSS", 4, 40, "조준 지점에 3초간 블랙홀을 열어 적과 적탄을 빨아들임. 닫힐 때 공격력 1000% + 빨아들인 적탄 1개당 50% 폭발"],
+  ["연쇄 번개", "SPARK", 2, 12, "가장 가까운 적부터 8번 튕기는 번개 (각 공격력 350%)"],
+  ["순간이동", "FLIGHT", 1, 9, "조준 방향으로 짧게 순간이동 (대시와 별개) · 출발점과 도착점 주변 적탄 소거"],
+  ["저격", "EDGE", 2, 12, "0.6초 조준 후 화면 끝까지 관통탄 1발 (공격력 1500%, 항상 치명타)"],
+  ["낮과 밤", "HERESY", 4, 6, "[낮] 전방 빛줄기 (공격력 500%, 관통) → 3회 쓰면 [밤]: 주변 어둠 폭발 (공격력 400%) + 적탄 소거 → 3회 쓰면 다시 [낮]"],
+  ["처형", "HUNTER", 2, 15, "조준 방향의 가장 가까운 적 1마리에게 공격력 1000% · 이걸로 처치하면 쿨다운 초기화"],
+  ["앙코르", "PERFORM", 2, 20, "직전에 쓴 다른 액티브 스킬을 쿨다운 소모 없이 한 번 더 시전"],
+  ["고요한 포탑", "STILL", 1, 15, "내 자리에 포탑 설치 (10초 유지). 0.4초마다 가장 가까운 적에게 사격 (공격력 100%)"],
+  ["다이너마이트", "VEIN", 1, 9, "조준 지점에 폭탄 투척, 1초 뒤 폭발 (공격력 1000%)"],
+  ["생명의 씨앗", "LIFE", 0, 0, "최대 체력 +15 (중첩 가능)"],
+  ["숫돌", "EDGE", 0, 0, "치명타 확률 +8% (중첩 가능)"],
+  ["작은 날개", "FLIGHT", 0, 0, "이동속도 +10% (중첩 가능)"],
+  ["정전기 귀걸이", "SPARK", 0, 0, "10타마다 모든 적에게 공격력 200% 피해"],
+].map(([name, fam, r, cd, desc]) => ({ name, fam, r, cd, desc }));
+// First hand: rare, legendary, common, epic, common — the legendary flips last.
+const START_HAND = [0, 1, 2, 13, 23].map(i => POOL[i]);
+
+// ---------- Text layout inside a card ----------
+const mctx = document.createElement("canvas").getContext("2d");
+const TITLE_FONT = s => `600 ${s}px ${getComputedStyle(document.documentElement).getPropertyValue("--font-display")}`;
+const BODY_FONT = s => `400 ${s}px ${getComputedStyle(document.documentElement).getPropertyValue("--font-game-kr")}`;
+function wrap(text, font, maxW) {
+  mctx.font = font; const out = []; let line = "";
+  for (const word of text.split(" ")) {
+    const t = line ? line + " " + word : word;
+    if (mctx.measureText(t).width <= maxW) { line = t; continue; }
+    if (line) out.push(line);
+    line = "";
+    let chunk = "";
+    for (const ch of word) { if (mctx.measureText(chunk + ch).width > maxW) { out.push(chunk); chunk = ch; } else chunk += ch; }
+    line = chunk;
+  }
+  if (line) out.push(line);
+  return out;
+}
+function layoutCard(aug) {
+  const inner = CW - 56;
+  let ts = 27; mctx.font = TITLE_FONT(ts);
+  while (ts > 16 && mctx.measureText(aug.name).width > inner) { ts -= 1; mctx.font = TITLE_FONT(ts); }
+  const meta = aug.cd ? `액티브 · 쿨다운 ${aug.cd}초` : "패시브";
+  let bs = 17, lines;
+  for (;;) { lines = wrap(aug.desc, BODY_FONT(bs), inner); if (lines.length <= 7 || bs <= 13) break; bs -= 1; }
+  const lh = Math.round(bs * 1.5);
+  const out = [{ t: meta, y: -76, meta: true }];
+  lines.forEach((t, i) => out.push({ t, y: -46 + i * lh }));
+  const rects = [{ x0: -CW / 2 + 22, x1: CW / 2 - 22, y0: -160, y1: -122 }];
+  out.forEach(l => { mctx.font = BODY_FONT(l.meta ? 15 : bs); const w = mctx.measureText(l.t).width; rects.push({ x0: -CW / 2 + 24, x1: -CW / 2 + 32 + w, y0: l.y - lh / 2 - 2, y1: l.y + lh / 2 + 2 }); });
+  return { ts, bs, lines: out, rects };
+}
+
+// ---------- Drawing primitives ----------
+function chamferPath(c, w, h, cut) {
+  const x = -w / 2, y = -h / 2;
+  c.beginPath();
+  c.moveTo(x + cut, y); c.lineTo(x + w - cut, y); c.lineTo(x + w, y + cut); c.lineTo(x + w, y + h - cut);
+  c.lineTo(x + w - cut, y + h); c.lineTo(x + cut, y + h); c.lineTo(x, y + h - cut); c.lineTo(x, y + cut); c.closePath();
+}
+function strokeK(c, col, a, lw) {
+  c.strokeStyle = rgba(col.map(v => v * 0.18), a * 0.88); c.lineWidth = lw + 3.2; c.stroke();
+  c.strokeStyle = rgba(col, a); c.lineWidth = lw; c.stroke();
+}
+function seg(c, x0, y0, x1, y1, col, a, lw) { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); strokeK(c, col, a, lw); }
+function diamond(c, x, y, r, col, a, lw = 1.3, dot = false) {
+  c.beginPath(); c.moveTo(x, y - r); c.lineTo(x + r, y); c.lineTo(x, y + r); c.lineTo(x - r, y); c.closePath(); strokeK(c, col, a, lw);
+  if (dot) { c.beginPath(); c.arc(x, y, Math.max(0.8, r * 0.28), 0, 7); c.fillStyle = rgba(col, a); c.fill(); }
+}
+function node(c, x, y, r, col, a) {
+  c.beginPath(); c.arc(x, y, r, 0, 7); strokeK(c, col, a, 1.1);
+  c.beginPath(); c.arc(x, y, r * 0.38, 0, 7); c.fillStyle = rgba(col, a); c.fill();
+}
+function haloText(c, t, x, y, col, a, font, align = "left") {
+  c.font = font; c.textAlign = align; c.textBaseline = "middle";
+  c.shadowColor = `rgba(2,6,16,${0.92 * a})`; c.shadowBlur = 6; c.shadowOffsetY = 1;
+  c.fillStyle = rgba(col, a); c.fillText(t, x, y);
+  c.shadowColor = "transparent"; c.shadowBlur = 0; c.shadowOffsetY = 0;
+}
+const CON_BOX = { x: -118, y: -18, w: 236, h: 190 };
+function famPoint(fam, i, box) { const p = FAM[fam].v[i]; return [box.x + p[0] * box.w, box.y + p[1] * box.h]; }
+function drawConstellation(c, fam, col, alpha, trace, rects, time, phase, box = CON_BOX, lw = 1.25) {
+  const F = FAM[fam], E = F.e.length, prog = trace * E;
+  const inText = (x, y) => rects && rects.some(r => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
+  F.e.forEach((e, k) => {
+    const f = cl(prog - k); if (f <= 0) return;
+    const [x0, y0] = famPoint(fam, e[0], box), [x1, y1] = famPoint(fam, e[1], box);
+    const N = 14, upto = Math.max(1, Math.ceil(N * f));
+    for (let s = 0; s < upto; s++) {
+      const t0 = s / N, t1 = Math.min(f, (s + 1) / N);
+      const ax = lerp(x0, x1, t0), ay = lerp(y0, y1, t0), bx = lerp(x0, x1, t1), by = lerp(y0, y1, t1);
+      const a = alpha * (inText((ax + bx) / 2, (ay + by) / 2) ? 0.45 : 1);
+      seg(c, ax, ay, bx, by, col, a, lw);
+    }
+  });
+  F.v.forEach((_, i) => {
+    const na = cl(prog - F.first[i] + (F.first[i] >= E ? 0 : 0.2)); if (na <= 0) return;
+    const [x, y] = famPoint(fam, i, box);
+    const tw = 0.72 + 0.28 * Math.sin(time * (2 * Math.PI) / (2.4 + (i % 4) * 0.4) + phase + i * 1.7);
+    node(c, x, y, 2.6, col, alpha * 1.5 * na * tw * (inText(x, y) ? 0.45 : 1));
+  });
+}
+
+function drawFront(c, aug, L, o) {
+  const R = RAR[aug.r], col = R.d;
+  const frameA = o.alpha * (0.62 + 0.32 * o.hover);
+  // A dissolving card's frame is drawn as loose fragments instead (drawDissolve).
+  if (!o.noFrame) {
+    chamferPath(c, CW, CHH, CUT); strokeK(c, col, frameA, 1.4 + 0.8 * o.hover);
+    chamferPath(c, CW - 14, CHH - 14, CUT - 5); strokeK(c, col, o.alpha * 0.14, 1);
+    const cx = CW / 2 - CUT / 2, cy = CHH / 2 - CUT / 2;
+    [[-cx, -cy], [cx, -cy], [-cx, cy], [cx, cy]].forEach(([x, y]) => diamond(c, x, y, 4, col, frameA));
+  }
+  // Semi-transparent constellation: 0.30, 0.46 on hover (×0.45 under text lines).
+  drawConstellation(c, aug.fam, col, (o.conA ?? o.alpha) * (0.30 + 0.16 * o.hover), o.trace, L.rects, o.time, o.phase);
+  const n = R.n, gx = 14;
+  for (let i = 0; i < n; i++) diamond(c, (i - (n - 1) / 2) * gx, -CHH / 2 + 32, 4, col, o.alpha * 0.9 * o.textA[0], 1.3, true);
+  haloText(c, aug.name, 0, -141, TXT, o.alpha * o.textA[0], TITLE_FONT(L.ts), "center");
+  const dv = cl(o.textA[0] * 1.4);
+  seg(c, -96 * dv, -108, 96 * dv, -108, col, o.alpha * 0.34, 0.9);
+  diamond(c, 0, -108, 3.2, col, o.alpha * 0.6 * dv, 1.1, true);
+  L.lines.forEach((l, i) => {
+    const a = o.alpha * (o.textA[i + 1] ?? 1);
+    if (l.meta) haloText(c, l.t, -CW / 2 + 28, l.y, mix(col, TXT, 0.35), a * 0.92, BODY_FONT(15));
+    else haloText(c, l.t, -CW / 2 + 28, l.y, TXT_SUB, a * 0.9, BODY_FONT(L.bs));
+  });
+  haloText(c, `[${o.key}]`, 0, CHH / 2 - 26, mix(UI_BLUE, TXT, 0.4), o.alpha * 0.7 * o.textA[0], `400 15px ${getComputedStyle(document.documentElement).getPropertyValue("--font-display")}`, "center");
+}
+function drawBack(c, rIdx, o) {
+  const col = mix(UI_BLUE, RAR[rIdx].d, 0.28);
+  chamferPath(c, CW, CHH, CUT); strokeK(c, UI_BLUE, o.alpha * 0.62, 1.4);
+  chamferPath(c, CW - 14, CHH - 14, CUT - 5); strokeK(c, UI_BLUE, o.alpha * 0.14, 1);
+  const cx = CW / 2 - CUT / 2, cy = CHH / 2 - CUT / 2;
+  [[-cx, -cy], [cx, -cy], [-cx, cy], [cx, cy]].forEach(([x, y]) => diamond(c, x, y, 4, UI_BLUE, o.alpha * 0.6));
+  const sy = -14, rr = 72;
+  for (let k = 0; k < 4; k++) { c.beginPath(); c.arc(0, sy, rr, (k * 90 - 80 + 45) * RAD, (k * 90 - 10 + 45) * RAD); strokeK(c, col, o.alpha * 0.5, 1.4); }
+  c.beginPath(); c.arc(0, sy, rr - 14, 0, 7); strokeK(c, UI_BLUE, o.alpha * 0.16, 1);
+  for (let k = 0; k < 8; k++) {
+    const a = (-90 + k * 45) * RAD, r1 = rr + 10, r2 = rr + (k % 2 ? 26 : 40);
+    seg(c, Math.cos(a) * r1, sy + Math.sin(a) * r1, Math.cos(a) * r2, sy + Math.sin(a) * r2, UI_BLUE, o.alpha * 0.3, 1);
+    diamond(c, Math.cos(a) * (r2 + 5), sy + Math.sin(a) * (r2 + 5), k % 2 ? 2.6 : 3.6, col, o.alpha * 0.55);
+  }
+  diamond(c, 0, sy, 26, col, o.alpha * 0.55, 1.3); diamond(c, 0, sy, 12, UI_BLUE, o.alpha * 0.3, 1, true);
+  if (o.charge > 0) {
+    c.beginPath(); c.arc(0, sy, rr, -90 * RAD, (-90 + 360 * o.charge) * RAD);
+    strokeK(c, RAR[rIdx].d, o.alpha * 0.95, 3);
+  }
+  c.font = `600 13px ${getComputedStyle(document.documentElement).getPropertyValue("--font-display")}`;
+  if ("letterSpacing" in c) c.letterSpacing = "6px";
+  haloText(c, "ASTERIA", 3, CHH / 2 - 40, mix(UI_BLUE, TXT, 0.3), o.alpha * 0.45, c.font, "center");
+  if ("letterSpacing" in c) c.letterSpacing = "0px";
+}
+function drawCard(c, aug, L, pose, o) {
+  c.save(); c.translate(pose.x, pose.y); c.rotate(pose.rot);
+  const sx = Math.abs(Math.cos(Math.PI * pose.flip));
+  c.scale(pose.s * Math.max(0.02, sx), pose.s * (1 + 0.05 * Math.sin(Math.PI * pose.flip)));
+  if (pose.flip >= 0.5) { if (sx > 0.15 || pose.flip >= 1) drawFront(c, aug, L, o); else { chamferPath(c, CW, CHH, CUT); strokeK(c, RAR[aug.r].d, o.alpha * 0.8, 1.6); } }
+  else drawBack(c, aug.r, o);
+  c.restore();
+}
+
+// ---------- Stage state ----------
+const cv = document.getElementById("stage"), ctx = cv.getContext("2d");
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let clock = 0, timeScale = 1, lightBg = false;
+const S = { draw: null, queue: 0, sel: -1, selT0: 0, focus: -1, hov: [0, 0, 0], done: false, doneT: 0, owned: [], parts: [], flashSlot: null, frags: [], seeds: [] };
+const rnd = n => Math.floor(Math.random() * n);
+function pickN(forceHigh) {
+  const out = [], used = new Set();
+  while (out.length < N) { const i = rnd(POOL.length); if (used.has(i)) continue; used.add(i); out.push(POOL[i]); }
+  if (forceHigh && !out.some(a => a.r >= 3)) { const hi = POOL.filter(a => a.r >= 3 && !out.includes(a)); out[rnd(N)] = hi[rnd(hi.length)]; }
+  return out;
+}
+// Draw stagger 0.09s; flips start once the last card lands, 0.08s apart, legendary+ last.
+const DRAW_STEP = 0.09, FLIP0 = 0.20 + DRAW_STEP * (N - 1) + 0.46, FLIP_STEP = 0.08;
+function flipStarts(augs) {
+  const order = IDX.filter(i => augs[i].r < 3).concat(IDX.filter(i => augs[i].r >= 3));
+  const fs = Array(N).fill(0); let tcur = FLIP0;
+  order.forEach(i => { if (augs[i].r >= 3) tcur += 0.20; fs[i] = tcur; tcur += FLIP_STEP; });
+  return fs;
+}
+function startDraw(augs, deckVisible) {
+  const fs = flipStarts(augs);
+  const end = Math.max(...fs) + 0.24 + 0.55;
+  S.draw = { augs, L: augs.map(layoutCard), fs, end, deckVisible, burst: Array(N).fill(false), phase: IDX.map(() => Math.random() * 6) };
+  S.t0 = clock - (deckVisible ? 0.2 : 0); S.sel = -1; S.focus = -1; S.done = false; S.hov = Array(N).fill(0);
+  if (reduce) S.t0 = clock - end;
+}
+function levelUp(n, forceHigh) { S.queue = n - 1; S.owned = S.owned.slice(-6); startDraw(pickN(forceHigh), false); }
+
+const slotPos = i => ({ x: W / 2 + (i - (N - 1) / 2) * PITCH, y: SLOT_Y });
+function cardPose(i, t) {
+  const d = S.draw, sp = slotPos(i);
+  const mp = cl((t - (0.20 + DRAW_STEP * i)) / 0.42);
+  if (mp <= 0) return null;
+  const e = quintOut(mp);
+  const ctrl = { x: lerp(DECK.x, sp.x, 0.75), y: SLOT_Y - 150 };
+  const u = 1 - e;
+  const x = u * u * DECK.x + 2 * u * e * ctrl.x + e * e * sp.x;
+  const y = u * u * DECK.y + 2 * u * e * ctrl.y + e * e * sp.y;
+  const flip = cl((t - d.fs[i]) / 0.24);
+  return { x, y, s: lerp(DECK.s, CS, e), rot: lerp(-8, 0, e) * RAD, flip };
+}
+function cardOpts(i, t) {
+  const d = S.draw, fe = d.fs[i] + 0.24;
+  const textA = [cl((t - fe - 0.05) / 0.2)];
+  d.L[i].lines.forEach((_, j) => textA.push(cl((t - fe - 0.10 - 0.03 * j) / 0.15)));
+  return { alpha: 1, hover: S.hov[i], trace: cl((t - fe) / 0.35), textA, time: clock, phase: d.phase[i], key: i + 1,
+           charge: d.augs[i].r >= 3 ? cl((t - (d.fs[i] - 0.20)) / 0.20) : 0 };
+}
+const interactive = () => S.draw && S.sel < 0 && !S.done && clock - S.t0 >= S.draw.end - 0.25;
+const HUD = { act: [{ x: 96, y: 846 }, { x: 160, y: 846 }, { x: 224, y: 846 }], pas: { x: 300, y: 852 } };
+
+function choose(i) {
+  if (!interactive()) return;
+  S.sel = i; S.selT0 = clock; S.focus = i;
+  const d = S.draw, aug = d.augs[i], p = slotPos(i);
+  const lift = 14 * S.hov[i];
+  const target = aug.cd ? HUD.act[S.owned.filter(o => o.cd).length % 3] : HUD.pas;
+  S.fly = FAM[aug.fam].v.map((_, k) => { const [x, y] = famPoint(aug.fam, k, CON_BOX); return { x0: p.x + x * CS, y0: p.y - lift + y * CS, k }; });
+  S.flyTarget = target; S.flyCol = RAR[aug.r].d;
+  // Unpicked cards dissolve into nourishment for the stars: the frame breaks into
+  // fragments in a wave moving away from the pick, and each constellation node
+  // rises into the background and settles there as a new star.
+  IDX.forEach(j => {
+    if (j === i) return;
+    const q = slotPos(j), cy = q.y - 14 * S.hov[j], col = RAR[d.augs[j].r].d, dist = Math.abs(j - i);
+    const pts = chamferPts(CW * CS, CHH * CS, CUT * CS);
+    pts.forEach((a, k) => {
+      const b = pts[(k + 1) % pts.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(len / 34));
+      for (let m = 0; m < n; m++) {
+        const ax = lerp(a[0], b[0], m / n), ay = lerp(a[1], b[1], m / n), bx = lerp(a[0], b[0], (m + 1) / n), by = lerp(a[1], b[1], (m + 1) / n);
+        const mx = (ax + bx) / 2, my = (ay + by) / 2, nl = Math.hypot(mx, my) || 1;
+        S.frags.push({ x: q.x + mx, y: cy + my, len: Math.hypot(bx - ax, by - ay), ang: Math.atan2(by - ay, bx - ax),
+          vx: mx / nl * 70 + (Math.random() - 0.5) * 40, vy: my / nl * 50 - 40 - Math.random() * 50, spin: (Math.random() - 0.5) * 5,
+          t0: clock + 0.05 + 0.06 * dist + Math.random() * 0.12, life: 0.55, col });
+      }
+    });
+    FAM[d.augs[j].fam].v.forEach((_, k) => {
+      const [x, y] = famPoint(d.augs[j].fam, k, CON_BOX);
+      S.seeds.push({ x0: q.x + x * CS, y0: cy + y * CS, vx: (Math.random() - 0.5) * 50, vy: -70 - Math.random() * 70,
+        t0: clock + 0.12 + 0.06 * dist + k * 0.015, life: 0.75, col });
+    });
+  });
+}
+
+function update(dt) {
+  const t = clock - S.t0;
+  if (!S.draw) return;
+  for (let i = 0; i < N; i++) {
+    const tgt = interactive() && S.focus === i ? 1 : 0;
+    S.hov[i] += (tgt - S.hov[i]) * Math.min(1, dt * 10);
+    const fsMid = S.draw.fs[i] + 0.12;
+    if (S.draw.augs[i].r >= 3 && !S.draw.burst[i] && t >= fsMid) {
+      S.draw.burst[i] = true; const p = slotPos(i);
+      for (let k = 0; k < 8; k++) { const a = k * 45 * RAD + 0.2; S.parts.push({ x: p.x + Math.cos(a) * 110, y: p.y + Math.sin(a) * 160, vx: Math.cos(a) * 320, vy: Math.sin(a) * 320, life: 0.4, col: RAR[S.draw.augs[i].r].d }); }
+    }
+  }
+  S.parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }); S.parts = S.parts.filter(p => p.life > 0);
+  S.frags = S.frags.filter(f => clock - f.t0 < f.life);
+  S.seeds.forEach(s => { if (clock - s.t0 >= s.life) { s.done = true; feedStars(s.x0 + s.vx * s.life, s.y0 + s.vy * s.life, s.col); } });
+  S.seeds = S.seeds.filter(s => !s.done);
+  stars.forEach(s => { if (s.glow) s.glow *= Math.exp(-dt * 1.4); });
+  if (S.sel >= 0) {
+    const st = clock - S.selT0;
+    if (st >= 0.6 && !S.absorbed) { S.absorbed = true; S.owned.push(S.draw.augs[S.sel]); S.flashSlot = { ...S.flyTarget, t0: clock, col: S.flyCol }; }
+    if (st >= 0.95) {
+      S.absorbed = false;
+      if (S.queue > 0) { S.queue--; startDraw(pickN(false), true); }
+      else { S.done = true; S.doneT = clock; S.sel = -1; }
+    }
+  }
+}
+
+// Background: a calm stand-in for the running game behind the selector.
+const STAR_BASE = 140;
+const stars = Array.from({ length: STAR_BASE }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.3, v: Math.random() * 6 + 2 }));
+const starY = s => ((s.y + clock * s.v) % H + H) % H;
+// A dissolved card's node becomes a lasting star and brightens its three nearest neighbours.
+function feedStars(x, y, col) {
+  stars.map(s => [s, Math.hypot(s.x - x, starY(s) - y)]).sort((a, b) => a[1] - b[1]).slice(0, 3)
+       .forEach(([s]) => { s.glow = Math.min(1, (s.glow || 0) + 0.45); });
+  const v = Math.random() * 6 + 2;
+  stars.push({ x, y: y - clock * v, r: 1.1, v, glow: 0.9, col });
+  if (stars.length > 320) stars.splice(STAR_BASE, 1);
+}
+function chamferPts(w, h, cut) {
+  const x = -w / 2, y = -h / 2;
+  return [[x + cut, y], [x + w - cut, y], [x + w, y + cut], [x + w, y + h - cut], [x + w - cut, y + h], [x + cut, y + h], [x, y + h - cut], [x, y + cut]];
+}
+function drawDissolve(c) {
+  S.frags.forEach(f => {
+    const age = clock - f.t0;
+    if (age < 0) { seg(c, f.x - Math.cos(f.ang) * f.len / 2, f.y - Math.sin(f.ang) * f.len / 2, f.x + Math.cos(f.ang) * f.len / 2, f.y + Math.sin(f.ang) * f.len / 2, f.col, 0.62, 1.4); return; }
+    const e = cl(age / f.life), mx = f.x + f.vx * age, my = f.y + f.vy * age - 40 * age * age;
+    const a = f.ang + f.spin * age, h = f.len / 2 * (1 - 0.6 * e);
+    seg(c, mx - Math.cos(a) * h, my - Math.sin(a) * h, mx + Math.cos(a) * h, my + Math.sin(a) * h, mix(f.col, TXT, e * 0.7), 0.62 * Math.pow(1 - e, 1.4), 1.4 * (1 - 0.4 * e));
+  });
+  S.seeds.forEach(s => {
+    const age = clock - s.t0; if (age < 0) return;
+    const e = cl(age / s.life), x = s.x0 + s.vx * age, y = s.y0 + s.vy * age;
+    seg(c, x - s.vx * 0.08, y - s.vy * 0.08, x, y, s.col, 0.45 * (1 - e), 1);
+    c.beginPath(); c.arc(x, y, 2.4 - 1.2 * e, 0, 7); c.fillStyle = rgba(mix(s.col, TXT, e), 0.9); c.fill();
+  });
+}
+const mobs = [[260, 220, 6, 26], [1380, 180, 3, 22], [1460, 610, 5, 30], [180, 560, 4, 20], [1250, 760, 6, 18]];
+function drawBg(c) {
+  c.fillStyle = lightBg ? "#c3c8cf" : "#060a14"; c.fillRect(0, 0, W, H);
+  if (!lightBg) { const g = c.createRadialGradient(W / 2, H * 0.45, 40, W / 2, H * 0.45, W * 0.6); g.addColorStop(0, "rgba(30,60,120,0.20)"); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(0, 0, W, H); }
+  stars.forEach(s => {
+    const g = s.glow || 0; c.beginPath(); c.arc(s.x, starY(s), s.r + g * 1.6, 0, 7);
+    c.fillStyle = s.col ? rgba(lightBg ? s.col.map(v => v * 0.6) : mix(s.col, TXT, 0.5), 0.6 + g * 0.4)
+                        : lightBg ? `rgba(20,30,50,${0.25 + g * 0.4})` : `rgba(200,220,255,${0.45 + g * 0.5})`;
+    c.fill();
+  });
+  mobs.forEach(([x, y, n, r], i) => { c.save(); c.translate(x + Math.sin(clock * 0.4 + i) * 10, y + Math.cos(clock * 0.3 + i) * 8); c.rotate(clock * 0.2 + i);
+    c.beginPath(); for (let k = 0; k <= n; k++) { const a = k / n * Math.PI * 2; c[k ? "lineTo" : "moveTo"](Math.cos(a) * r, Math.sin(a) * r); }
+    c.strokeStyle = lightBg ? "rgba(140,30,40,0.35)" : "rgba(255,110,120,0.28)"; c.lineWidth = 1.4; c.stroke(); c.restore(); });
+  c.save(); c.translate(1520, 470); c.rotate(-Math.PI / 2 + Math.sin(clock) * 0.1);
+  c.beginPath(); c.moveTo(16, 0); c.lineTo(-10, -10); c.lineTo(-5, 0); c.lineTo(-10, 10); c.closePath(); c.strokeStyle = lightBg ? "rgba(10,60,120,0.6)" : "rgba(120,200,255,0.6)"; c.lineWidth = 1.6; c.stroke(); c.restore();
+}
+function drawHud(c) {
+  const now = clock;
+  HUD.act.forEach((p, i) => {
+    const owned = S.owned.filter(o => o.cd)[i];
+    c.beginPath(); c.arc(p.x, p.y, 24, 0, 7); strokeK(c, owned ? RAR[owned.r].d : UI_BLUE, owned ? 0.8 : 0.35, 1.4);
+    haloText(c, ["Q", "E", "R"][i], p.x, p.y, TXT, owned ? 0.9 : 0.45, `600 15px ${getComputedStyle(document.documentElement).getPropertyValue("--font-display")}`, "center");
+  });
+  const pas = S.owned.filter(o => !o.cd);
+  for (let k = 0; k < Math.max(1, pas.length); k++) {
+    const x = HUD.pas.x + k * 22, y = HUD.pas.y, a = pas[k];
+    c.beginPath(); c.moveTo(x, y - 9); c.lineTo(x + 8, y + 6); c.lineTo(x - 8, y + 6); c.closePath(); strokeK(c, a ? RAR[a.r].d : UI_BLUE, a ? 0.85 : 0.3, 1.3);
+  }
+  if (S.flashSlot) {
+    const ft = now - S.flashSlot.t0;
+    if (ft < 0.5) { c.beginPath(); c.arc(S.flashSlot.x, S.flashSlot.y, 24 + ft * 50, 0, 7); strokeK(c, S.flashSlot.col, (1 - ft / 0.5) * 0.9, 1.6); }
+  }
+}
+function drawDeck(c, t) {
+  if (!S.draw || S.done) return;
+  const a = S.draw.deckVisible ? 1 : cl(t / 0.18);
+  for (let k = 3; k >= 0; k--) {
+    c.save(); c.translate(DECK.x + k * 2.5, DECK.y - k * 2.5); c.scale(DECK.s, DECK.s);
+    chamferPath(c, CW, CHH, CUT); strokeK(c, UI_BLUE, a * (k === 0 ? 0.6 : 0.22), 1.4 / DECK.s * 0.9); c.restore();
+  }
+  for (let q = 0; q < S.queue; q++) diamond(c, DECK.x + 70 + q * 16, DECK.y, 5, UI_BLUE, a * 0.85, 1.3, true);
+  if (S.queue > 0) haloText(c, `남은 드로우 ${S.queue}`, DECK.x + 70 + S.queue * 16 + 4, DECK.y, TXT_SUB, a * 0.75, `400 15px ${getComputedStyle(document.documentElement).getPropertyValue("--font-game-kr")}`);
+}
+function drawStage() {
+  const c = ctx; drawBg(c); drawHud(c);
+  if (!S.draw) return;
+  const t = clock - S.t0, d = S.draw;
+  drawDeck(c, t);
+  const st = S.sel >= 0 ? clock - S.selT0 : -1;
+  const hovMax = Math.max(...S.hov);
+  for (let i = 0; i < N; i++) {
+    let pose = cardPose(i, t); if (!pose) continue;
+    const o = cardOpts(i, t);
+    o.alpha = cl(1 - 0.45 * (hovMax - S.hov[i]));
+    pose.y -= 14 * S.hov[i];
+    if (S.done) { const e = cl((clock - S.doneT) / 0.3); o.alpha *= 1 - e; pose.y += 28 * e; }
+    if (st >= 0) {
+      if (i === S.sel) {
+        if (st < 0.15) o.alpha *= Math.sin(2 * Math.PI * 18 * st) > 0 ? 1 : 0.55;
+        else { const e = cl((st - 0.15) / 0.2); o.alpha *= 1 - e; o.trace = 1 - e; }
+      } else {
+        // Frame goes to drawDissolve; text fades first, then the constellation as its nodes lift off.
+        const dist = Math.abs(i - S.sel);
+        o.noFrame = true;
+        o.conA = o.alpha * (1 - cl((st - 0.12 - 0.06 * dist) / 0.12));
+        o.alpha *= 1 - cl((st - 0.03) / 0.15);
+      }
+    }
+    if (o.alpha > 0.01 || (o.conA ?? 0) > 0.01) drawCard(c, d.augs[i], d.L[i], pose, o);
+    if (interactive()) {
+      const h = S.hov[i]; if (h > 0.02) {
+        const by = pose.y + CHH * CS / 2 + 22, ext = 18 + 66 * h;
+        seg(c, pose.x - 14, by, pose.x - ext, by, RAR[d.augs[i].r].d, 0.8 * h * o.alpha, 1.4);
+        seg(c, pose.x + 14, by, pose.x + ext, by, RAR[d.augs[i].r].d, 0.8 * h * o.alpha, 1.4);
+        diamond(c, pose.x - ext - 5, by, 4, RAR[d.augs[i].r].d, h * o.alpha);
+        diamond(c, pose.x + ext + 5, by, 4, RAR[d.augs[i].r].d, h * o.alpha);
+      }
+    }
+  }
+  drawDissolve(c);
+  if (st >= 0.15 && S.fly) {
+    S.fly.forEach(f => {
+      const p = cl((st - 0.15 - f.k * 0.02) / 0.4); if (p >= 1) return;
+      const e = quintIn(p), e2 = quintIn(cl(p - 0.12));
+      const x = lerp(f.x0, S.flyTarget.x, e), y = lerp(f.y0, S.flyTarget.y, e);
+      const xb = lerp(f.x0, S.flyTarget.x, e2), yb = lerp(f.y0, S.flyTarget.y, e2);
+      seg(c, xb, yb, x, y, S.flyCol, 0.7, 1.2); diamond(c, x, y, 3.2, S.flyCol, 0.95, 1.2, true);
+    });
+  }
+  S.parts.forEach(p => { const a = p.life / 0.4; seg(c, p.x, p.y, p.x - p.vx * 0.06, p.y - p.vy * 0.06, p.col, a, 1.6); });
+  if (!S.done && t < d.end - 0.25 && S.sel < 0) haloText(c, "클릭하면 건너뛰기", W / 2, 70, TXT_SUB, 0.35 + 0.15 * Math.sin(clock * 3), `400 16px ${getComputedStyle(document.documentElement).getPropertyValue("--font-game-kr")}`, "center");
+  if (interactive()) haloText(c, "1 ~ 5 또는 카드를 선택", W / 2, 70, TXT_SUB, 0.7, `400 18px ${getComputedStyle(document.documentElement).getPropertyValue("--font-game-kr")}`, "center");
+  if (S.done) { const a = cl((clock - S.doneT - 0.2) / 0.3); haloText(c, "게임 재개 — 위의 레벨업 버튼으로 다시 뽑기", W / 2, 70, TXT_SUB, a * 0.8, `400 18px ${getComputedStyle(document.documentElement).getPropertyValue("--font-game-kr")}`, "center"); }
+}
+
+function fit(cvs, lw, lh) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1), w = cvs.clientWidth;
+  cvs.width = Math.round(w * dpr); cvs.height = Math.round(w * lh / lw * dpr);
+  const k = cvs.width / lw; cvs.getContext("2d").setTransform(k, 0, 0, k, 0, 0);
+}
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000) * timeScale; last = now; clock += dt;
+  update(dt); drawStage(); requestAnimationFrame(frame);
+}
+
+function toLogical(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H }; }
+function hit(p) {
+  for (let i = 0; i < N; i++) { const s = slotPos(i); if (Math.abs(p.x - s.x) <= CW * CS / 2 + 4 && Math.abs(p.y - (s.y - 14 * S.hov[i])) <= CHH * CS / 2 + 4) return i; }
+  return -1;
+}
+cv.addEventListener("pointermove", e => { if (interactive() && e.pointerType === "mouse") S.focus = hit(toLogical(e)); });
+cv.addEventListener("pointerleave", () => { if (interactive()) S.focus = -1; });
+cv.addEventListener("click", e => {
+  if (!S.draw) return;
+  if (!interactive() && S.sel < 0 && !S.done) { S.t0 = clock - S.draw.end; S.draw.burst.fill(true); return; }
+  const i = hit(toLogical(e)); if (i < 0) return;
+  if (e.pointerType !== "mouse" && S.focus !== i) { S.focus = i; return; }
+  choose(i);
+});
+cv.addEventListener("keydown", e => {
+  if (/^[1-9]$/.test(e.key) && +e.key <= N) { choose(+e.key - 1); e.preventDefault(); }
+  else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { if (interactive()) { S.focus = S.focus < 0 ? (N - 1) / 2 : (S.focus + (e.key === "ArrowLeft" ? N - 1 : 1)) % N; } e.preventDefault(); }
+  else if (e.key === "Enter" && S.focus >= 0) { choose(S.focus); e.preventDefault(); }
+});
+document.getElementById("bDraw").onclick = () => { levelUp(1, false); cv.focus(); };
+document.getElementById("bDraw2").onclick = () => { levelUp(2, false); cv.focus(); };
+document.getElementById("bLeg").onclick = () => { levelUp(1, true); cv.focus(); };
+document.getElementById("bSlow").onclick = e => { timeScale = timeScale === 1 ? 0.25 : 1; e.currentTarget.setAttribute("aria-pressed", timeScale !== 1); };
+document.getElementById("bBg").onclick = e => { lightBg = !lightBg; e.currentTarget.setAttribute("aria-pressed", lightBg); };
+
+// ---------- Static figures ----------
+function drawAnatomy() {
+  const c = document.getElementById("anat"), LW = 700, LH = 520; fit(c, LW, LH); const x = c.getContext("2d");
+  x.fillStyle = "#0b1222"; x.fillRect(0, 0, LW, LH);
+  const aug = POOL[0], L = layoutCard(aug), cx = 190, cy = 262;
+  x.save(); x.translate(cx, cy); x.scale(1.05, 1.05);
+  drawFront(x, aug, L, { alpha: 1, hover: 0, trace: 1, textA: [1, ...L.lines.map(() => 1)], time: 1.3, phase: 0, key: 1, charge: 0 });
+  x.restore();
+  const sc = 1.05, P = (px, py) => [cx + px * sc, cy + py * sc];
+  const callouts = [
+    [P(14, -188), "등급 마름모 1~5개 · 프레임 = 등급색"],
+    [P(70, -141), "제목 — 카드 최상단, 단독"],
+    [P(100, -108), "구분선 + 중앙 노드"],
+    [P(110, -76), "설명 1줄: 종류 · 쿨다운"],
+    [P(118, -20), "설명 본문 (Description, 최대 7줄)"],
+    [P(100, 120), "계열 별자리 · 반투명 0.30, 글자 위 ×0.45"],
+    [P(16, 194), "단축키"],
+    [P(141, 211), "윤곽선 + 키라인만, 면 채움 없음"],
+  ];
+  callouts.forEach(([[px, py], label], i) => {
+    const ly = 46 + i * 60, lx = 400;
+    x.beginPath(); x.moveTo(px, py); x.lineTo(lx - 30, ly); x.lineTo(lx - 8, ly); x.strokeStyle = "rgba(46,158,245,0.45)"; x.lineWidth = 1; x.stroke();
+    diamond(x, px, py, 3, UI_BLUE, 0.9, 1.1, true);
+    haloText(x, String(i + 1), lx, ly, UI_BLUE, 1, `600 15px ${getComputedStyle(document.documentElement).getPropertyValue("--font-display")}`);
+    haloText(x, label, lx + 22, ly, TXT, 0.92, `400 16px ${getComputedStyle(document.documentElement).getPropertyValue("--font-body")}`);
+  });
+}
+function drawBacks() {
+  const c = document.getElementById("backs"), LW = 560, LH = 520; fit(c, LW, LH); const x = c.getContext("2d");
+  x.fillStyle = "#0b1222"; x.fillRect(0, 0, LW, LH);
+  const s = 0.52, ys = 230, xs = [100, 280, 460];
+  const o = { alpha: 1, hover: 0, trace: 1, textA: [1, 1, 1, 1, 1, 1, 1, 1, 1], time: 0, phase: 0, key: 2 };
+  x.save(); x.translate(xs[0], ys); x.scale(s, s); drawBack(x, 1, { ...o, charge: 0 }); x.restore();
+  x.save(); x.translate(xs[1], ys); x.scale(s, s); drawBack(x, 3, { ...o, charge: 0.62 }); x.restore();
+  x.save(); x.translate(xs[2], ys); x.scale(s * 0.36, s * 1.03); drawBack(x, 1, { ...o, charge: 0 }); x.restore();
+  const lab = ["뒷면", "전설 충전 중", "플립 (가로 스케일)"], f = `400 15px ${getComputedStyle(document.documentElement).getPropertyValue("--font-body")}`;
+  xs.forEach((px, i) => haloText(x, lab[i], px, ys + CHH * s / 2 + 34, TXT_SUB, 0.95, f, "center"));
+  haloText(x, "글자는 가로 스케일 0.15 미만에서 그리지 않는다", LW / 2, LH - 26, TXT_SUB, 0.7, f, "center");
+}
+function drawTimeline() {
+  const augs = START_HAND, fs = flipStarts(augs), T = 2.5;
+  const end = Math.max(...fs) + 0.79;
+  const rows = [
+    ["덱 등장", [[0, 0.18, "draw"]]],
+    ...IDX.map(i => {
+      const leg = augs[i].r >= 3, a = 0.20 + DRAW_STEP * i;
+      const spans = [[a, a + 0.42, "draw"]];
+      if (leg) spans.push([fs[i] - 0.20, fs[i], "charge"]);
+      spans.push([fs[i], fs[i] + 0.24, "flip"], [fs[i] + 0.24, fs[i] + 0.79, "reveal"]);
+      return [`카드 ${i + 1} · ${RAR[augs[i].r].k}`, spans, leg];
+    }),
+    ["입력 가능", [[end - 0.25, T, "flip"]]],
+  ];
+  const tl = document.getElementById("tl");
+  tl.innerHTML = rows.map(([name, spans, leg]) => `<div class="tl-row"><span>${name}</span><div class="tl-track">${spans.map(([a, b, kind]) => `<div class="tl-bar ${kind}${leg ? " leg" : ""}" style="left:${a / T * 100}%;width:${(Math.min(b, T) - a) / T * 100}%"></div>`).join("")}</div></div>`).join("");
+  document.getElementById("tlAxis").innerHTML = [0, 0.5, 1, 1.5, 2, 2.5].map(v => `<span style="left:${v / T * 100}%">${v.toFixed(1)}s</span>`).join("");
+}
+function drawFams() {
+  const host = document.getElementById("fams");
+  if (!host.childElementCount) host.innerHTML = Object.keys(FAM).map(k => `<div class="fam"><canvas data-f="${k}"></canvas><b>${k}</b><span>${FAM[k].kr}</span></div>`).join("");
+  host.querySelectorAll("canvas").forEach(cvs => {
+    fit(cvs, 140, 140); const x = cvs.getContext("2d");
+    x.fillStyle = "#0b1222"; x.fillRect(0, 0, 140, 140);
+    drawConstellation(x, cvs.dataset.f, mix(UI_BLUE, TXT, 0.25), 0.75, 1, null, 0.4, 0, { x: 18, y: 14, w: 104, h: 108 }, 1.1);
+  });
+}
+function layoutAll() { fit(cv, W, H); drawAnatomy(); drawBacks(); drawFams(); }
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(layoutAll, 120); });
+
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => {
+  layoutAll(); drawTimeline();
+  S.queue = 1; startDraw(START_HAND, false);
+  requestAnimationFrame(t => { last = t; frame(t); });
+});
+})();
+</script>

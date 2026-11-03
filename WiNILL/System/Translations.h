@@ -5,7 +5,6 @@
 // ─────────────────────────────────────────────────────────────
 // i18n — UI 라벨 번역 테이블
 //   g_Language 에 따라 적절한 wchar_t* 반환
-//   증강 상세 설명(KR): AugmentDescKR.h — EN/JP 는 Augment.h locDesc
 // ─────────────────────────────────────────────────────────────
 
 enum class StrId {
@@ -16,10 +15,8 @@ enum class StrId {
     GAMEOVER,
     RESTART_ESC,
     CHOOSE_AUG,
-    CHOOSE_DEBUFF,
     KEY_HINT_NO_HOVER,
     KEY_HINT_HOVER,
-    OWNED_AUGS,
     SCORE,
     FPS,
     LV_PREFIX,
@@ -99,11 +96,6 @@ inline const wchar_t* kStrings[(int)StrId::_COUNT][LANG_COUNT] = {
         L"Choose an Augment",
         L"強化を選択してください",
     },
-    /* CHOOSE_DEBUFF */ {
-        L"디버프를 선택하세요  (피할 수 없음)",
-        L"Choose a Debuff  (unavoidable)",
-        L"デバフを選択してください  (回避不可)",
-    },
     /* KEY_HINT_NO_HOVER */ {
         L"[ 1 ]  ·  [ 2 ]  ·  [ 3 ]   증강 선택  |  SPACE : 확정",
         L"1  /  2  /  3  to highlight  ·  Space to confirm",
@@ -113,11 +105,6 @@ inline const wchar_t* kStrings[(int)StrId::_COUNT][LANG_COUNT] = {
         L"[ SPACE : 시스템 인가 ]",
         L"Press Space to confirm",
         L"Space で確定",
-    },
-    /* OWNED_AUGS */ {
-        L"보유 증강",
-        L"Owned Augments",
-        L"所持強化",
     },
     /* SCORE */ {
         L"Score",
@@ -219,14 +206,14 @@ inline const wchar_t* kStrings[(int)StrId::_COUNT][LANG_COUNT] = {
         L"- 크리에이티브  [OFF]", L"- Creative  [OFF]", L"- クリエイティブ  [OFF]",
     },
     /* CREATIVE_DESC_ON */ {
-        L"샌드박스 · F키 증강(디버프 포함) · G키 무적 · 코인/기록 제외",
-        L"Sandbox · F augment(+debuff) · G godmode · no coins/records",
-        L"サンドボックス · F強化(デバフ含) · G無敵 · コイン/記録なし",
+        L"샌드박스 · F키 카드 · G키 무적 · 코인/기록 제외",
+        L"Sandbox · F card · G godmode · no coins/records",
+        L"サンドボックス · Fカード · G無敵 · コイン/記録なし",
     },
     /* CREATIVE_DESC_OFF */ {
-        L"10만점부터 시작 + F키 증강",
-        L"Start at 100k + F-key augments",
-        L"10万点開始 + Fキー強化",
+        L"10만점부터 시작 + F키 카드",
+        L"Start at 100k + F-key cards",
+        L"10万点開始 + Fキーカード",
     },
 };
 

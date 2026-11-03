@@ -9,9 +9,13 @@
 PlayerStats g_Stats;
 int g_CurrentWeapon = 0;
 GameState g_SettingsReturnTo = GameState::MAIN_MENU;
-int g_HoveredAug = -1, g_AugExitSlot = -1, g_RepExitSlot = -1;
-float g_AugExitT = 0.0f, g_RepExitT = 0.0f;
+int g_HoveredAug = -1, g_AugExitSlot = -1;
+float g_AugExitT = 0.0f;
 bool TryEscNavigateBack() { return false; }
+namespace passive {   // the card draw's filter (PassiveAugments.cpp)
+bool CanOffer(int) { return true; }
+float LuckChanceMult() { return 1.0f; }
+}
 
 static int lateDeletes = 0;
 static void APIENTRY CountVertexArrays(GLsizei, const GLuint*) { ++lateDeletes; }
