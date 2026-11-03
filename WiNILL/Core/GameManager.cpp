@@ -314,6 +314,19 @@ bool GameManager::ActivateNextAugmentReward() {
         PickStatChoices();
     }
     augmentRewardActive = true;
+    {
+        std::string cards;
+        for (int i = 0; i < augChoiceCount; ++i) {
+            const AugDef& d = ALL_AUGS[augChoices[i]];
+            cards += (i ? "|" : "");
+            cards += d.name;
+            cards += ":";
+            cards += AugRarityName(d.rarity);
+        }
+        gamelog::Event("AUG_OFFER", "reward=%s,cards=%s,pending_aug=%d,pending_stat=%d",
+                       activeRewardIsStat ? "level_up" : "wave_clear", cards.c_str(),
+                       pendingAugmentRewards, pendingStatRewards);
+    }
     ResetCardScreen(*this);
     return true;
 }

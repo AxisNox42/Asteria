@@ -461,6 +461,10 @@ int AcquiredCount(int augIdx) {
 void Acquire(int augIdx) {
     if (augIdx < 0 || augIdx >= AUG_TOTAL) return;
     RecordTaken(augIdx);
+    gamelog::Event("AUG_ACQUIRE", "aug=%s,rarity=%s,kind=%s,count=%d,level=%d", ALL_AUGS[augIdx].name,
+                   AugRarityName(ALL_AUGS[augIdx].rarity),
+                   AugIsStatCard(ALL_AUGS[augIdx]) ? "stat" : AugIsActive(ALL_AUGS[augIdx]) ? "active" : "passive",
+                   s.taken[augIdx], g_GameManager.playerLevel);
     if (AugIsActive(ALL_AUGS[augIdx])) {
         active::Acquire(augIdx);
         return;
@@ -606,6 +610,8 @@ void OnShot() {
 bool DashSealed() { return Has(AugType::P_HERESY_BOUND_AMP); }
 
 void OnDashStarted() {
+    gamelog::Dash();
+    gamelog::Event("DASH", "hp=%.1f", g_GameManager.playerHP);
     float cd = DASH_CD;
     if (Has(AugType::P_ABYSS_ERRATIC_ORBIT)) cd = 1.0f + 5.0f * Rand01();
     if (Has(AugType::P_NIGHT_DWARF_COOLING)) cd -= 1.0f;

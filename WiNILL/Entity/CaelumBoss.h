@@ -575,7 +575,7 @@ inline float DealtFactor() { return g.active && g.weaken > 0.0f ? (g.weakHard ? 
 struct HitInfo { int src = 0; float age = 99.0f; float dmg = 0.0f; float x = 0.0f, y = 0.0f; };
 inline HitInfo g_LastHit;
 inline void Hit(float& playerHP, float dmg, int src, float x, float y) {
-    HurtPlayer(playerHP, dmg);
+    HurtPlayer(playerHP, dmg, src == 1 ? "CAELUM_CORRUPTION" : src == 2 ? "CAELUM_OVERFLOW" : "CAELUM_SHOT");
     if (g_LastHit.src == src && g_LastHit.age < 0.3f) g_LastHit.dmg += dmg; else g_LastHit.dmg = dmg;
     g_LastHit.src = src; g_LastHit.age = 0.0f; g_LastHit.x = x; g_LastHit.y = y;
 }

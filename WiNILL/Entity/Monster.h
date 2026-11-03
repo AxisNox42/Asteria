@@ -81,6 +81,24 @@ enum class MobKind {
     CAELUM,     // wallpaper boss (CaelumBoss.h): the mid-run boss, after NORMA
 };
 
+// Short names for the balance log (System/GameLog.h).
+inline const char* MobKindName(MobKind kind) {
+    switch (kind) {
+    case MobKind::ROTOR:    return "ROTOR";
+    case MobKind::GENESIS:  return "GENESIS";
+    case MobKind::SWARM:    return "SWARM";
+    case MobKind::GRAVIS:   return "GRAVIS";
+    case MobKind::QUASAR:   return "QUASAR";
+    case MobKind::GIMBAL:   return "GIMBAL";
+    case MobKind::REGULUS:  return "REGULUS";
+    case MobKind::ANTARES:  return "ANTARES";
+    case MobKind::MAGNETAR: return "MAGNETAR";
+    case MobKind::NORMA:    return "NORMA";
+    case MobKind::CAELUM:   return "CAELUM";
+    }
+    return "?";
+}
+
 // The run-deciding bosses: no stun, no crowding, no regular-mob buffs.
 inline constexpr bool IsBossMob(MobKind kind) {
     return kind == MobKind::NORMA || kind == MobKind::CAELUM;
@@ -1716,12 +1734,12 @@ public:
         if (!quasarEruptBlasted && quasarEruptTimer >= QUASAR_ERUPT_BLAST_TIME) {
             quasarEruptBlasted = true;
             if (QuasarEruptCovers(glm::vec2(playerX, playerY), 0))
-                HurtPlayer(playerHP, QUASAR_ERUPT_DAMAGE);
+                HurtPlayer(playerHP, QUASAR_ERUPT_DAMAGE, "QUASAR_ERUPT");
         }
         if (!quasarEruptBlasted2 && quasarEruptTimer >= QUASAR_ERUPT_SECOND_BLAST) {
             quasarEruptBlasted2 = true;
             if (QuasarEruptCovers(glm::vec2(playerX, playerY), 1))
-                HurtPlayer(playerHP, QUASAR_ERUPT_DAMAGE);
+                HurtPlayer(playerHP, QUASAR_ERUPT_DAMAGE, "QUASAR_ERUPT");
         }
         if (quasarEruptBlasted2 && quasarEruptTimer >= QUASAR_ERUPT_SECOND_BLAST + QUASAR_FALL_IMPACT_FX) {
             quasarEruptActive = false;
@@ -1814,7 +1832,7 @@ public:
             const glm::vec2 d = glm::vec2(playerX, playerY) - quasarFallTargets[i];
             if (quasarTimer >= quasarFallHitUntil &&
                 glm::dot(d, d) <= QuasarFallRadius(i) * QuasarFallRadius(i)) {
-                HurtPlayer(playerHP, QuasarFallDamage(i));
+                HurtPlayer(playerHP, QuasarFallDamage(i), "QUASAR_FALL");
                 quasarFallHitUntil = quasarTimer + QUASAR_FALL_HIT_GRACE;
             }
         }
@@ -1973,7 +1991,7 @@ public:
                 // One landing hit, never direct flight damage or repeated pulse damage.
                 const float dx=px-worldX,dy=py-worldY;
                 if(singularityGrace<=0 && dx*dx+dy*dy<GENESIS_ROTOR_BLAST_RADIUS*GENESIS_ROTOR_BLAST_RADIUS)
-                    HurtPlayer(hp,GENESIS_ROTOR_BLAST_DAMAGE);
+                    HurtPlayer(hp,GENESIS_ROTOR_BLAST_DAMAGE,"GENESIS_ROTOR_BLAST");
             }
         } else {
             if(genesisNaturalScale>0.0f)                // a random unit settles into its own size on landing
@@ -2021,7 +2039,7 @@ public:
             worldX = thrownStartX + (thrownTargetX - thrownStartX) * u;
             worldY = thrownStartY + (thrownTargetY - thrownStartY) * u;
             if (singularityGrace <= 0.0f && distance < 26.0f * sizeScale + 6.0f) {
-                HurtPlayer(playerHP, THROWN_SWARM_DAMAGE);
+                HurtPlayer(playerHP, THROWN_SWARM_DAMAGE, "THROWN_SWARM");
                 alive = false;
                 scored = true;      // vanished on impact: no kill reward
                 noBlast = true;
@@ -2032,7 +2050,7 @@ public:
                 thrownTimer = 0.0f;
                 // A miss is still dangerous: the landing sends out a shockwave.
                 if (singularityGrace <= 0.0f && distance < THROWN_SWARM_BLAST_RADIUS)
-                    HurtPlayer(playerHP, THROWN_SWARM_BLAST_DAMAGE);
+                    HurtPlayer(playerHP, THROWN_SWARM_BLAST_DAMAGE, "THROWN_SWARM_BLAST");
             }
         } else if (thrownTimer >= THROWN_SWARM_STUN) {
             thrownPhase = 0;
@@ -2071,7 +2089,7 @@ public:
         const float contactRange = threshold >= 0.0f
             ? threshold : 26.0f * sizeScale;
         if (distance < contactRange)
-            HurtPlayer(playerHP, dps * deltaTime);
+            HurtPlayer(playerHP, dps * deltaTime, MobKindName(kind));
     }
 
     // CAELUM (CaelumBoss.h): drifts at a distance like NORMA and lets the
@@ -2690,7 +2708,8 @@ public:
                 // Each split generation hits softer than the elite.
                 HurtPlayer(playerHP, IMPACT_DAMAGE * antaresMoveSpeed /
                                      ANTARES_MAX_SPEED *
-                                     powf(ANTARES_CHILD_SCALE, (float)antaresGen));
+                                     powf(ANTARES_CHILD_SCALE, (float)antaresGen),
+                           "ANTARES_RAM");
                 const float knock = KNOCK_PER_SPEED * antaresMoveSpeed;
                 antaresKnockX += toX * knock;
                 antaresKnockY += toY * knock;
@@ -3039,7 +3058,7 @@ public:
                     const float hy = ay + aby * u - playerCY;
                     const float hitR = BEAM_RADIUS * QuasarBeamWidth();      // thins out with the beam
                     if (hx * hx + hy * hy <= hitR * hitR) {
-                        HurtPlayer(playerHP, BEAM_DPS * deltaTime);   // once per frame
+                        HurtPlayer(playerHP, BEAM_DPS * deltaTime, "QUASAR_BEAM");   // once per frame
                         break;
                     }
                 }

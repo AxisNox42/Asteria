@@ -6,6 +6,7 @@
 #include "Monster.h"
 #include "RangedMob.h"
 #include "SpaceRules.h"
+#include "../System/GameLog.h"
 
 class MonsterManager {
 public:
@@ -42,6 +43,7 @@ public:
                       float hitDirX = 0.0f, float hitDirY = 0.0f) {
         if (!space::Reaches(source, target.worldX, target.worldY)) return 0.0f;
         const float dealt = target.ApplyDamage(damage);
+        gamelog::Dealt(MobKindName(target.kind), dealt);
         if (dealt > 0.0f && target.alive && IsEliteMob(target.kind))
             target.EliteHitFeel(hitDirX, hitDirY);
         HandleShieldBreak(target);
@@ -52,6 +54,7 @@ public:
                       int source = space::kPlayerSource) {
         if (!space::Reaches(source, target.worldX, target.worldY)) return 0.0f;
         const float dealt = target.ApplyDamage(damage);
+        gamelog::Dealt("SCOPE", dealt);
         HandleShieldBreak(target);
         return dealt;
     }

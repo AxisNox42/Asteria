@@ -1,4 +1,5 @@
-﻿#include "EnemySpawner.h"
+﻿#include "../System/GameLog.h"
+#include "EnemySpawner.h"
 
 #include "Monster.h"
 #include "MonsterManager.h"
@@ -77,6 +78,7 @@ static void BeginWaveObjective(WaveObjective objective, int wave, float gameTime
     g_EnemySpawnState.objective = objective;
     g_EnemySpawnState.objectiveWave = wave;
     g_EnemySpawnState.objectiveSpawnTime = gameTime;
+    gamelog::Event("WAVE_OBJECTIVE", "objective=%d,objective_wave=%d", (int)objective, wave);
 }
 
 // The wave's elite always enters (outside the wave's spawn budget): the wave

@@ -3,6 +3,7 @@
 #include <cmath>
 #include "SpaceRules.h"
 #include "PassiveHooks.h"
+#include "../System/GameLog.h"
 
 struct PlayerStats {
     float damageMultiplier = 1.0f;
@@ -49,7 +50,8 @@ inline void TickPlayerShield(float dt) {
     }
 }
 
-inline void HurtPlayer(float& hp, float raw) {
+// src names the attacker for the balance log (System/GameLog.h).
+inline void HurtPlayer(float& hp, float raw, const char* src = "?") {
     if (raw <= 0.0f) return;
     // NORMA window spaces: an attacker in another space cannot reach.
     if (!space::PlayerExposed()) return;
@@ -57,11 +59,14 @@ inline void HurtPlayer(float& hp, float raw) {
     if (g_PlayerShield > 0.0f) {
         if (dmg <= g_PlayerShield) {
             g_PlayerShield -= dmg;
+            gamelog::Taken("SHIELD_ABSORBED", dmg);
             return;
         }
+        gamelog::Taken("SHIELD_ABSORBED", g_PlayerShield);
         dmg -= g_PlayerShield;
         g_PlayerShield = 0.0f;
     }
+    gamelog::Taken(src, dmg);
     if (passive_hooks::hurt) passive_hooks::hurt(hp, dmg);
     else                     hp -= dmg;
     // Notify the combat HUD at the source of the hit, including tiny hits

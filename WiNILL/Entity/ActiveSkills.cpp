@@ -336,6 +336,8 @@ void CastBookOfCheats() {
 }
 
 void Cast(int aug) {
+    gamelog::Cast();
+    gamelog::Event("SKILL_CAST", "aug=%s", ALL_AUGS[aug].name);
     Audio::Play(Audio::Cue::SkillCast);
     const float px = s.in.px, py = s.in.py;
     float dx, dy;

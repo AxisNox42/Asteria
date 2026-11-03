@@ -12,6 +12,7 @@
 #include <string>
 
 #include "ExpSystem.h"
+#include "GameLog.h"
 #include "Platform.h"
 #include "PlayerStats.h"
 
@@ -68,6 +69,8 @@ public:
         if (m_active) {
             // A run reset can happen from the menu without a separate end
             // event. Close the old section before starting the new one.
+            gamelog::WriteWindow();
+            gamelog::Detach();
             m_file << "RUN_END,reason=replaced_by_new_run\n";
             m_file.flush();
             m_file.close();
@@ -82,6 +85,7 @@ public:
         }
 
         m_active = true;
+        gamelog::Attach(&m_file);
         ++m_runSerial;
         m_totalExperience = 0;
         m_lastSampleGameTime = gameTime;
@@ -143,7 +147,14 @@ public:
 
     void Update(float gameTime, int level, XpAmount xp, XpAmount requiredXp,
                 const PlayerStats& stats) {
-        if (!m_active || gameTime + 0.0001f < m_nextSampleGameTime) return;
+        if (!m_active) return;
+        // Event lines are buffered; push them out about once a second so a
+        // crash loses little.
+        if (gameTime - m_lastFlushGameTime >= 1.0f || gameTime < m_lastFlushGameTime) {
+            m_file.flush();
+            m_lastFlushGameTime = gameTime;
+        }
+        if (gameTime + 0.0001f < m_nextSampleGameTime) return;
 
         // Normally only one sample is due per frame. The loop keeps the
         // cadence correct if a debugger or a long frame skips an interval.
@@ -156,6 +167,7 @@ public:
             m_lastSampleGameTime = gameTime;
             m_lastSampleTotalExperience = m_totalExperience;
             m_nextSampleGameTime += m_sampleIntervalSeconds;
+            gamelog::WriteWindow();
         }
         m_file.flush();
     }
@@ -173,6 +185,8 @@ public:
 
         const double averagePerMinute = gameTime > 0.001f
             ? XpToDouble(m_totalExperience) * 60.0 / (double)gameTime : 0.0;
+        gamelog::WriteWindow();
+        gamelog::Detach();
         m_file << "RUN_END,game_sec=" << std::fixed << std::setprecision(2)
                << gameTime << ",level=" << level << ",current_xp=" << FormatXp(xp)
                << ",total_xp=" << FormatXp(m_totalExperience)
@@ -255,6 +269,7 @@ private:
     double m_lastSampleGameTime = 0.0;
     XpAmount m_totalExperience = 0;
     XpAmount m_lastSampleTotalExperience = 0;
+    float m_lastFlushGameTime = 0.0f;
     double m_lastLevelUpGameTime = 0.0;
     XpAmount m_lastLevelUpTotalExperience = 0;
 };

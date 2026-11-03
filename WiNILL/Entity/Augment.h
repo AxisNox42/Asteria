@@ -87,6 +87,17 @@ inline int CurLangIdx() {
 static constexpr int AUG_TOTAL = (int)AugType::COUNT;
 extern const AugDef ALL_AUGS[];
 
+inline const char* AugRarityName(AugRarity r) {
+    switch (r) {
+    case AugRarity::COMMON:    return "COMMON";
+    case AugRarity::RARE:      return "RARE";
+    case AugRarity::EPIC:      return "EPIC";
+    case AugRarity::LEGENDARY: return "LEGENDARY";
+    case AugRarity::MYTHIC:    return "MYTHIC";
+    }
+    return "?";
+}
+
 inline bool AugIsActive(const AugDef& d) { return d.kind != SkillKind::None; }
 // Level-up stat cards: drawn on level-ups only, never on a wave clear.
 inline bool AugIsStatCard(const AugDef& d) { return (int)d.type >= (int)AugType::S_ATTACK; }

@@ -113,6 +113,10 @@ inline void CollectMonsterKill(KillRewardSink& s, Monster& m) {
     }
     SpawnKillStardust(m, stardust, s.playerCX, s.playerCY, pickupXp);
     CreditRegularKill(s, CodexMobIdForKind(m.kind), scoreBase);
+    gamelog::Kill(MobKindName(m.kind));
+    gamelog::Event("KILL", "mob=%s,xp=%s,score=%.0f,stardust=%d%s", MobKindName(m.kind),
+                   FormatXp(pickupXp).c_str(), scoreBase, stardust,
+                   m.genesisSummoned ? ",summoned=1" : "");
 }
 
 inline void CollectScopeKill(KillRewardSink& s, RangedMob& r) {
@@ -127,6 +131,10 @@ inline void CollectScopeKill(KillRewardSink& s, RangedMob& r) {
     SpawnStardust(r.worldX, r.worldY, 3,
                   s.playerCX, s.playerCY, pickupXp);
     CreditRegularKill(s, CM_SCOPE, scopeScore);
+    gamelog::Kill("SCOPE");
+    gamelog::Event("KILL", "mob=SCOPE,xp=%s,score=%.0f%s",
+                   FormatXp(pickupXp).c_str(), scopeScore,
+                   r.genesisSummoned ? ",summoned=1" : "");
 }
 
 // Releases held kill stardust whose moment has come. Call every frame.
@@ -181,7 +189,8 @@ public:
                     const float damage = bullet.enemyDmg > 0.0f
                         ? bullet.enemyDmg : 10.0f;
                     HurtPlayer(playerHP, damage *
-                                         BalanceFor((int)g_Difficulty).rangedDmg);
+                                         BalanceFor((int)g_Difficulty).rangedDmg,
+                               "ENEMY_BULLET");
                     bullet.active = false;
                     playerHit = true;
                 }

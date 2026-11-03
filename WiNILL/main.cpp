@@ -1573,7 +1573,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                     const float ky = m == toT ? -1.0f : m == toB ? 1.0f : 0.0f;
                     {
                         space::HurtSourceScope source(space::kUntracked);
-                        HurtPlayer(g_GameManager.playerHP, norma::kWarpDamage);
+                        HurtPlayer(g_GameManager.playerHP, norma::kWarpDamage, "NORMA_WARP");
                     }
                     ApplyPlayerKnockback(kx * norma::kWarpKnock, ky * norma::kWarpKnock);
                     SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
@@ -2018,7 +2018,7 @@ static void TickOneRam(PaneRam& ram, float dt) {
             ram.hitPlayer = true;
             {
                 space::HurtSourceScope source(space::kUntracked);
-                HurtPlayer(g_GameManager.playerHP, norma::kRamDamage);
+                HurtPlayer(g_GameManager.playerHP, norma::kRamDamage, "NORMA_RAM");
             }
             ApplyPlayerKnockback(ram.dirX * norma::kRamKnock, ram.dirY * norma::kRamKnock);
             SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
@@ -2281,7 +2281,7 @@ static void TickPaneWall(float dt) {
                     const float ky = m == toT ? -1.0f : m == toB ? 1.0f : 0.0f;
                     {
                         space::HurtSourceScope source(space::kUntracked);
-                        HurtPlayer(g_GameManager.playerHP, norma::kWallDamage);
+                        HurtPlayer(g_GameManager.playerHP, norma::kWallDamage, "NORMA_WALL");
                     }
                     ApplyPlayerKnockback(kx * norma::kWallKnock, ky * norma::kWallKnock);
                     SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
@@ -2324,7 +2324,7 @@ static void TickNormaCountdown(float dt) {
     const int id = g_NormaCountdown.id;
     {
         space::HurtSourceScope source(id);
-        HurtPlayer(g_GameManager.playerHP, norma::kCloseDamage);
+        HurtPlayer(g_GameManager.playerHP, norma::kCloseDamage, "NORMA_CLOSE");
     }
     for (Monster* m : g_MonsterManager.monsters)
         if (m->alive && m->kind != MobKind::NORMA && space::SpaceAt(m->worldX, m->worldY) == id)
@@ -2528,7 +2528,7 @@ static void TickCrash(float dt) {
         const float scx = safe ? safe->frame.x + safe->frame.w * 0.5f : sw * 0.5f;
         const float scy = safe ? safe->frame.y + safe->frame.h * 0.5f : sh * 0.5f;
         if (!(safe && space::g_PlayerSpace == g_Crash.safeId)) {
-            HurtPlayer(g_GameManager.playerHP, norma::kCrashDamage);
+            HurtPlayer(g_GameManager.playerHP, norma::kCrashDamage, "NORMA_CRASH");
             float kx = W2SX(g_NormaPlayerX) - scx, ky = W2SY(g_NormaPlayerY) - scy;
             const float len = std::max(1.0f, std::sqrt(kx * kx + ky * ky));
             ApplyPlayerKnockback(kx / len * norma::kCrashKnock, ky / len * norma::kCrashKnock);
@@ -3119,6 +3119,23 @@ static void TickNormaJudgment(float dt) {
     TriggerFlash(1.0f, 0.3f, 0.32f, 0.9f);
 }
 
+// "ROTOR:3|GRAVIS:1": live mobs by kind, for the balance log's WINDOW lines.
+static std::string AliveMobCensus() {
+    std::map<std::string, int> count;
+    for (const Monster* m : g_MonsterManager.monsters)
+        if (m && m->alive) ++count[MobKindName(m->kind)];
+    int scopes = 0;
+    for (const RangedMob* r : g_MonsterManager.rangedMobs)
+        if (r && r->alive) ++scopes;
+    if (scopes > 0) count["SCOPE"] = scopes;
+    std::string out;
+    for (const auto& kv : count) {
+        if (!out.empty()) out += '|';
+        out += kv.first + ":" + std::to_string(kv.second);
+    }
+    return out;
+}
+
 // Boss rush: a wave ends only when its elite (or mid-run boss) falls. The
 // clear queues a reward pick and starts the next wave.
 static void ProcessWaveTransitions(int scrW, int scrH) {
@@ -3142,6 +3159,10 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
                                             (float)(std::rand() % 10000) / 10000.0f,
                                             passive::LuckChanceMult(), gm.rewardPityCount);
         gm.rewardSpeed = WaveRewardSpeed(seconds, times);
+        gamelog::Event("WAVE_CLEAR", "cleared_wave=%d,clear_sec=%.2f,by=%s,kills=%d,quota=%d,"
+                       "earned_tier=%d,reward_tier=%d,tier_cap=%d,reward_speed=%.2f,hp=%.1f",
+                       gm.currentWave, seconds, quotaMet ? "quota" : "objective", gm.waveKills, quota,
+                       (int)earned, gm.rewardTier, gm.rewardTierCap, gm.rewardSpeed, gm.playerHP);
         gm.QueueAugmentReward();
         passive::OnWaveCleared();
         Audio::Play(Audio::Cue::WaveClear);
@@ -3168,6 +3189,10 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         gm.waveKillStart = g_Stats.killCount;
         gm.waveKills = 0;
         gm.waveTransitionTimer = 2.0f;
+        gamelog::SetClock(g_GameTime, gm.currentWave, gm.playerHP, gm.maxHP);
+        gamelog::Event("WAVE_START", "quota=%d,level=%d,score=%lld,hp=%.1f",
+                       RegularWaveKillQuota(gm.currentWave, g_Difficulty),
+                       gm.playerLevel, (long long)gm.score, gm.playerHP);
     }
     // The run is won only by felling the final boss (CompleteBossRun).
 }
@@ -5654,6 +5679,20 @@ CollisionSystem::Update(pCX, pCY,
             accumulator -= FIXED_DT;
         }
 
+        gamelog::SetClock(g_GameTime, g_GameManager.currentWave,
+                          g_GameManager.playerHP, g_GameManager.maxHP);
+        if (!gamelog::g_aliveFn) gamelog::g_aliveFn = &AliveMobCensus;
+        {
+            static GameState s_loggedState = GameState::MAIN_MENU;
+            if (g_GameManager.currentState != s_loggedState) {
+                static const char* const kNames[] = { "MAIN_MENU", "CREATIVE_CONFIG", "CODEX", "TUTORIAL",
+                    "SETTINGS", "READY", "RUNNING", "PAUSED", "GAMEOVER", "AUG_SELECT", "DYING" };
+                const int from = (int)s_loggedState, to = (int)g_GameManager.currentState;
+                if (from >= 0 && from < 11 && to >= 0 && to < 11)
+                    gamelog::Event("STATE", "from=%s,to=%s", kNames[from], kNames[to]);
+                s_loggedState = g_GameManager.currentState;
+            }
+        }
         g_GameplayTelemetry.Update(
             g_GameTime,
             g_GameManager.playerLevel,
@@ -5914,6 +5953,7 @@ CollisionSystem::Update(pCX, pCY,
                 Audio::Play(Audio::Cue::Shoot);
                 spawnOne(tx, ty);
                 passive::OnShot();
+                gamelog::Shot();
             };
 
             auto aimTarget = [&](float& tx, float& ty) -> bool {
