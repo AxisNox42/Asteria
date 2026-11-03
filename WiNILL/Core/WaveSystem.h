@@ -134,12 +134,14 @@ inline float WaveHpRamp(int wave, Difficulty difficulty) {
     return 1.0f + kWaveHpStep * (float)EliteWavesBefore(wave, difficulty);
 }
 
+// Base spawn rate multiplier for every wave (regular and ranged mobs).
+inline constexpr float kBaseSpawnRateMult = 1.8f;
 // Spawns climb the same way: the spawn rate gains +kWaveSpawnStep and the
 // regular-wave refill floor +kRegularWaveMinAliveStep per elite wave behind.
-inline constexpr float kWaveSpawnStep = 0.25f;
+inline constexpr float kWaveSpawnStep = 0.40f;
 inline constexpr int kRegularWaveMinAliveStep = 3;
 inline float WaveSpawnRamp(int wave, Difficulty difficulty) {
-    return 1.0f + kWaveSpawnStep * (float)EliteWavesBefore(wave, difficulty);
+    return kBaseSpawnRateMult * (1.0f + kWaveSpawnStep * (float)EliteWavesBefore(wave, difficulty));
 }
 inline int RegularWaveMinAlive(int wave, Difficulty difficulty) {
     return kRegularWaveMinAlive + kRegularWaveMinAliveStep * EliteWavesBefore(wave, difficulty);

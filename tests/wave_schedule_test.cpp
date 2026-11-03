@@ -88,7 +88,8 @@ int main() {
     EXPECT(WaveHpRamp(5, normal) == 1.0f + kWaveHpStep, "one elite behind");
     EXPECT(EliteWavesBefore(13, nightmare) == 2, "nightmare mid boss is not an elite");
     // Spawns ramp per elite wave behind too.
-    EXPECT(WaveSpawnRamp(3, normal) == 1.0f && WaveSpawnRamp(5, normal) == 1.0f + kWaveSpawnStep,
+    EXPECT(WaveSpawnRamp(3, normal) == kBaseSpawnRateMult &&
+           WaveSpawnRamp(5, normal) == kBaseSpawnRateMult * (1.0f + kWaveSpawnStep),
            "spawn ramp per elite wave");
     EXPECT(RegularWaveMinAlive(1, normal) == kRegularWaveMinAlive &&
            RegularWaveMinAlive(9, normal) == kRegularWaveMinAlive + 2 * kRegularWaveMinAliveStep,
