@@ -13,70 +13,105 @@
 #include "../../Render/HudLines.h"
 #include "../../Render/AugCardModel.h"
 #include "../../Render/Juice.h"
+#include "../../Render/StatIcons.h"
 #include <algorithm>
 #include <vector>
 #include <string>
 #include <cmath>
 
-std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
-                                            float maxWidth) {
-    std::vector<std::wstring> lines;
-    const wchar_t* text = src ? src : L"";
-    auto wrapSegment = [&](std::wstring segment) {
-        while (!segment.empty() && segment.front() == L' ') segment.erase(segment.begin());
-        std::wstring line;
-        size_t start = 0;
-        while (start < segment.size()) {
-            const size_t end = segment.find(L' ', start);
-            const std::wstring word = segment.substr(start,
-                end == std::wstring::npos ? std::wstring::npos : end - start);
-            if (word.empty()) {
-                if (end == std::wstring::npos) break;
-                start = end + 1;
-                continue;
-            }
-            const std::wstring candidate = line.empty() ? word : line + L" " + word;
-            if (g_TextS.Width(word.c_str(), scale) > maxWidth) {
-                if (!line.empty()) {
-                    lines.push_back(line);
-                    line.clear();
-                }
-                std::wstring part;
-                for (wchar_t ch : word) {
-                    const std::wstring next = part + ch;
-                    if (!part.empty() &&
-                        g_TextS.Width(next.c_str(), scale) > maxWidth) {
-                        lines.push_back(part);
-                        part.clear();
-                    }
-                    part += ch;
-                }
-                line = std::move(part);
-            } else if (!line.empty() &&
-                       g_TextS.Width(candidate.c_str(), scale) > maxWidth) {
-                lines.push_back(line);
-                line = word;
-            } else {
-                line = candidate;
-            }
+// One description segment wrapped to maxWidth, appended to lines.
+static void WrapSegment(std::wstring segment, float scale, float maxWidth,
+                        std::vector<std::wstring>& lines) {
+    while (!segment.empty() && segment.front() == L' ') segment.erase(segment.begin());
+    std::wstring line;
+    size_t start = 0;
+    while (start < segment.size()) {
+        const size_t end = segment.find(L' ', start);
+        const std::wstring word = segment.substr(start,
+            end == std::wstring::npos ? std::wstring::npos : end - start);
+        if (word.empty()) {
             if (end == std::wstring::npos) break;
             start = end + 1;
+            continue;
         }
-        if (!line.empty()) lines.push_back(line);
-    };
+        const std::wstring candidate = line.empty() ? word : line + L" " + word;
+        if (g_TextS.Width(word.c_str(), scale) > maxWidth) {
+            if (!line.empty()) {
+                lines.push_back(line);
+                line.clear();
+            }
+            std::wstring part;
+            for (wchar_t ch : word) {
+                const std::wstring next = part + ch;
+                if (!part.empty() &&
+                    g_TextS.Width(next.c_str(), scale) > maxWidth) {
+                    lines.push_back(part);
+                    part.clear();
+                }
+                part += ch;
+            }
+            line = std::move(part);
+        } else if (!line.empty() &&
+                   g_TextS.Width(candidate.c_str(), scale) > maxWidth) {
+            lines.push_back(line);
+            line = word;
+        } else {
+            line = candidate;
+        }
+        if (end == std::wstring::npos) break;
+        start = end + 1;
+    }
+    if (!line.empty()) lines.push_back(line);
+}
+
+// Description segments: split at '·' and at a spaced " / ".
+static std::vector<std::wstring> DescSegments(const wchar_t* src) {
+    std::vector<std::wstring> segments;
+    const wchar_t* text = src ? src : L"";
     std::wstring segment;
     for (const wchar_t* p = text; *p; ++p) {
         const bool spacedSlash = *p == L'/' && p > text && p[1] != L'\0'
                               && p[-1] == L' ' && p[1] == L' ';
         if (*p == L'\xB7' || spacedSlash) {
-            wrapSegment(std::move(segment));
+            segments.push_back(std::move(segment));
             segment.clear();
             continue;
         }
         segment.push_back(*p);
     }
-    wrapSegment(std::move(segment));
+    segments.push_back(std::move(segment));
+    return segments;
+}
+
+std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
+                                            float maxWidth) {
+    std::vector<std::wstring> lines;
+    for (std::wstring& segment : DescSegments(src))
+        WrapSegment(std::move(segment), scale, maxWidth, lines);
     return lines;
+}
+
+IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui) {
+    IconDesc out;
+    out.iconSize = g_TextS.Height(L"가Ag", scale) * 1.15f;
+    out.iconIndent = out.iconSize + 8.0f * ui;
+    std::vector<std::wstring> wrapped;
+    for (std::wstring& segment : DescSegments(desc)) {
+        stat_icon::Stat stat;
+        const bool icon = stat_icon::FromText(segment, stat);
+        wrapped.clear();
+        WrapSegment(std::move(segment), scale, icon ? maxWidth - out.iconIndent : maxWidth, wrapped);
+        for (size_t j = 0; j < wrapped.size(); ++j)
+            out.lines.push_back({ std::move(wrapped[j]), icon && j == 0 ? (int)stat : -1, icon });
+    }
+    return out;
+}
+
+void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,
+                      float x, float y, float lineH, float alpha) {
+    if (line.stat < 0) return;
+    stat_icon::Draw((stat_icon::Stat)line.stat, x + desc.iconSize * 0.5f, y + lineH * 0.5f,
+                    desc.iconSize, alpha);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -252,7 +287,7 @@ void DrawBack(const Xf& X, Rgb rarity, float a, float charge, float ui, float ke
 
 struct CardText {
     std::wstring meta;
-    std::vector<std::wstring> lines;
+    IconDesc desc;   // description lines with their stat icons
     float titleScale = 1.0f, metaScale = 1.0f, descScale = 1.0f;
 };
 
@@ -280,9 +315,9 @@ CardText LayoutCardText(const AugDef& def, float ui) {
     float d = ui;
     for (;;) {
         t.descScale = UiTextScale(g_TextS, UiTextLevel::Description, d);
-        t.lines = TarotWrap(AugDesc(def), t.descScale, inner);
+        t.desc = WrapIconDesc(AugDesc(def), t.descScale, inner, ui);
         float h = 0.0f;
-        for (const auto& l : t.lines) h += g_TextS.Height(l.c_str(), t.descScale) + 4.0f * ui;
+        for (const auto& l : t.desc.lines) h += g_TextS.Height(l.text.c_str(), t.descScale) + 4.0f * ui;
         if (h <= room || t.descScale <= floorScale) break;
         d -= 0.04f * ui;
     }
@@ -490,9 +525,9 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         const float metaH = g_TextS.Height(tx.meta.c_str(), tx.metaScale);
         rects[i].push_back({ left, y - 2.0f * ui, left + g_TextS.Width(tx.meta.c_str(), tx.metaScale) + 6.0f * ui, y + metaH + 2.0f * ui });
         y = d.y - 60.0f * ui;
-        for (const auto& l : tx.lines) {
-            const float lh = g_TextS.Height(l.c_str(), tx.descScale);
-            rects[i].push_back({ left, y - 2.0f * ui, left + g_TextS.Width(l.c_str(), tx.descScale) + 6.0f * ui, y + lh + 2.0f * ui });
+        for (const DescLine& l : tx.desc.lines) {
+            const float lh = g_TextS.Height(l.text.c_str(), tx.descScale);
+            rects[i].push_back({ left, y - 2.0f * ui, tx.desc.TextX(l, left) + g_TextS.Width(l.text.c_str(), tx.descScale) + 6.0f * ui, y + lh + 2.0f * ui });
             y += lh + 4.0f * ui;
         }
 
@@ -541,12 +576,14 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         DrawShadowedText(g_TextS, tx.meta.c_str(), left, d.y - 88.0f * ui, tx.metaScale,
                          metaCol.r, metaCol.g, metaCol.b, d.textA * 0.92f * ac::LineAlpha(d.P, 0, t), 0.70f);
         float y = d.y - 60.0f * ui;
-        for (size_t j = 0; j < tx.lines.size(); ++j) {
-            const std::wstring& l = tx.lines[j];
-            DrawShadowedText(g_TextS, l.c_str(), left, y, tx.descScale,
-                             kTextSub.r, kTextSub.g, kTextSub.b,
-                             d.textA * 0.90f * ac::LineAlpha(d.P, (int)j + 1, t), 0.70f);
-            y += g_TextS.Height(l.c_str(), tx.descScale) + 4.0f * ui;
+        for (size_t j = 0; j < tx.desc.lines.size(); ++j) {
+            const DescLine& l = tx.desc.lines[j];
+            const float lineA = d.textA * 0.90f * ac::LineAlpha(d.P, (int)j + 1, t);
+            const float lh = g_TextS.Height(l.text.c_str(), tx.descScale);
+            DrawIconDescIcon(tx.desc, l, left, y, lh, lineA / 0.90f);
+            DrawShadowedText(g_TextS, l.text.c_str(), tx.desc.TextX(l, left), y,
+                             tx.descScale, kTextSub.r, kTextSub.g, kTextSub.b, lineA, 0.70f);
+            y += lh + 4.0f * ui;
         }
         wchar_t keyLabel[8];
         swprintf_s(keyLabel, L"[%d]", i + 1);

@@ -1165,9 +1165,25 @@ static void Scene_CodexInline(const SceneCtx& c) {
                      summarySc, cr, cg, cb, 0.72f * rightWake, 0.54f);
     const float descriptionY = descY + g_TextS.Height(summaryText, summarySc)
                              + 8.0f * uiS;
-    const float descriptionEndY = drawScanDescription(
-        selectedDesc(), detailX, descriptionY, detailW, descSc,
-        0.76f, 0.84f, 0.94f, 0.86f * rightWake, selKey + 13);
+    float descriptionEndY = descriptionY;
+    if (selectedCategory == 1 && seen) {
+        // Augment records: one line per effect, stat icon in front (as on the cards).
+        const IconDesc desc = WrapIconDesc(selectedDesc(), descSc, detailW, uiS);
+        const float lineH = std::max(22.0f * uiS, g_TextS.Height(L"Ag", descSc) + 5.0f * uiS);
+        for (size_t i = 0; i < desc.lines.size(); ++i) {
+            const DescLine& l = desc.lines[i];
+            const float ly = descriptionY + (float)i * lineH;
+            DrawIconDescIcon(desc, l, detailX, ly, g_TextS.Height(l.text.c_str(), descSc),
+                             rightWake);
+            drawScanTextS(l.text.c_str(), desc.TextX(l, detailX), ly, descSc,
+                          0.76f, 0.84f, 0.94f, 0.86f * rightWake, selKey + 13 + (int)i);
+        }
+        descriptionEndY += (float)desc.lines.size() * lineH;
+    } else {
+        descriptionEndY = drawScanDescription(
+            selectedDesc(), detailX, descriptionY, detailW, descSc,
+            0.76f, 0.84f, 0.94f, 0.86f * rightWake, selKey + 13);
+    }
 
     const float metaY = descriptionEndY + 14.0f * uiS;
     drawScanTextS(statBuf, detailX, metaY,

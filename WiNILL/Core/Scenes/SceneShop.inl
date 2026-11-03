@@ -664,11 +664,15 @@ void Scene_Shop(const SceneCtx& c) {
         if (e.kind == Kind::Aug) {
             const wchar_t* desc = AugDesc(ALL_AUGS[e.id]);
             if (desc && desc[0]) {
-                const std::vector<std::wstring> segs = TarotWrap(desc, sBody, panelW);
+                const IconDesc segs = WrapIconDesc(desc, sBody, panelW, ui);
                 int line = 0;
-                for (const std::wstring& seg : segs) {
+                for (const DescLine& seg : segs.lines) {
                     if (line >= 6) break;
-                    drawText(g_TextS, seg.c_str(), px, y + line * lineH, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da, panelW);
+                    const float ly = y + line * lineH;
+                    DrawIconDescIcon(segs, seg, px, ly, g_TextS.Height(seg.text.c_str(), sBody), da);
+                    const float lx = segs.TextX(seg, px);
+                    drawText(g_TextS, seg.text.c_str(), lx, ly, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da,
+                             panelW - (lx - px));
                     ++line;
                 }
                 y += std::max(1, line) * lineH;

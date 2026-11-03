@@ -26,6 +26,20 @@ inline constexpr int kMainMenuExitIndex = 5;
 const wchar_t* MainMenuRouteLabel(int language, int index);
 std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
                                     float maxWidth);
+// Augment description wrapped like TarotWrap, with a stat icon in front of
+// each segment that starts with a stat name ("최대 체력 +12"); the rest of
+// that segment hangs at iconIndent.
+struct DescLine { std::wstring text; int stat = -1; bool indented = false; };
+struct IconDesc {
+    std::vector<DescLine> lines;
+    float iconSize = 0.0f, iconIndent = 0.0f;
+    float TextX(const DescLine& l, float x) const { return l.indented ? x + iconIndent : x; }
+};
+IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui);
+// Draws line's icon (if any) for a text line whose top-left is (x, y) and
+// height lineH; text goes at desc.TextX(line, x).
+void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,
+                      float x, float y, float lineH, float alpha);
 void DrawArchiveConstellation(float cx, float cy, float radius,
                               int category, int key, float now,
                               float r, float g, float b,
