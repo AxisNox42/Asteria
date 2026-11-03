@@ -8,6 +8,7 @@
 #include "UiLayout.h"
 #include "Settings.h"
 #include "Augment.h"
+#include "../../System/Audio.h"
 #include "DrawPrim.h"
 #include "TextRenderer.h"
 #include "../../Render/HudLines.h"
@@ -379,6 +380,9 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     static float focusT[ac::kMaxCards] = {};
     static float phase[ac::kMaxCards] = {};
     static bool burst[ac::kMaxCards] = {};
+    static bool dealtSfx[ac::kMaxCards] = {};
+    static bool flippedSfx[ac::kMaxCards] = {};
+    static bool wasExit = false;
     static bool flashed = false;
     static Shard shards[ac::kMaxCards * 8];
     static double previousMx = -1.0, previousMy = -1.0;
@@ -397,7 +401,9 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             focusT[i] = 0.0f;
             phase[i] = ac::Hash01((unsigned)(seenSerial * 31 + i)) * 6.2832f;
             burst[i] = false;
+            dealtSfx[i] = flippedSfx[i] = false;
         }
+        wasExit = false;
         for (Shard& s : shards) s.life = 0.0f;
         previousMx = c.mx;
         previousMy = c.my;
@@ -421,6 +427,20 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const bool inputReady = !inExit && t >= T.InputReady();
     if (!inExit && !inputReady && lmbClick) t = T.end;   // click skips the deal
     if (t >= T.end) for (int i = 0; i < count; ++i) burst[i] = true;
+    // Deal and flip sounds follow the same timeline as the drawing; a skipped
+    // deal fires them together and the cue throttle thins them out.
+    for (int i = 0; i < count; ++i) {
+        if (!dealtSfx[i] && t >= ac::kDrawStart + ac::kDrawStep * (float)i) {
+            dealtSfx[i] = true;
+            Audio::Play(Audio::Cue::CardDeal);
+        }
+        if (!flippedSfx[i] && t >= T.flipStart[i]) {
+            flippedSfx[i] = true;
+            Audio::Play(Audio::Cue::CardFlip);
+        }
+    }
+    if (inExit && !wasExit) Audio::Play(Audio::Cue::CardPick);
+    wasExit = inExit;
 
     if (g_SmokeCapture && g_SmokeAugFocus >= 0) {
         g_HoveredAug = std::min(g_SmokeAugFocus, count - 1);

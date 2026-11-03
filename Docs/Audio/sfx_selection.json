@@ -1,0 +1,611 @@
+{
+ "sfx_kill": {
+  "pool": 27,
+  "eligible": 2,
+  "pick": "536766",
+  "pick_meta": {
+   "user": "egomassive",
+   "title": "Thud.ogg",
+   "url": "https://freesound.org/people/egomassive/sounds/536766/"
+  },
+  "alternatives": [
+   {
+    "id": "536766",
+    "user": "egomassive",
+    "title": "Thud.ogg",
+    "total": 2.95,
+    "fit": 2.95,
+    "cohesion": 0.0
+   },
+   {
+    "id": "803828",
+    "user": "Logicogonist",
+    "title": "snaretrig 6x13 inches DW Edge",
+    "total": 1.0,
+    "fit": 1.0,
+    "cohesion": 0.0
+   }
+  ]
+ },
+ "enemy_hit": {
+  "pool": 30,
+  "eligible": 2,
+  "pick": "864480",
+  "pick_meta": {
+   "user": "CAT-FOX_ALEX",
+   "title": "Frenchcore Punch-Heavy 2",
+   "url": "https://freesound.org/people/CAT-FOX_ALEX/sounds/864480/"
+  },
+  "alternatives": [
+   {
+    "id": "864480",
+    "user": "CAT-FOX_ALEX",
+    "title": "Frenchcore Punch-Heavy 2",
+    "total": 0.77,
+    "fit": 2.05,
+    "cohesion": -1.28
+   },
+   {
+    "id": "477804",
+    "user": "Saltbearer",
+    "title": "lo-fi flange perc.wav",
+    "total": 0.15,
+    "fit": 1.03,
+    "cohesion": -0.88
+   }
+  ]
+ },
+ "sfx_hurt": {
+  "pool": 27,
+  "eligible": 3,
+  "pick": "667654",
+  "pick_meta": {
+   "user": "DeltaCode",
+   "title": "wooden-crate-impact2.wav",
+   "url": "https://freesound.org/people/DeltaCode/sounds/667654/"
+  },
+  "alternatives": [
+   {
+    "id": "667654",
+    "user": "DeltaCode",
+    "title": "wooden-crate-impact2.wav",
+    "total": 1.96,
+    "fit": 2.4,
+    "cohesion": -0.44
+   },
+   {
+    "id": "629976",
+    "user": "Flem0527",
+    "title": "Clothed Body Hit 2.wav",
+    "total": 0.85,
+    "fit": 1.58,
+    "cohesion": -0.73
+   },
+   {
+    "id": "82027",
+    "user": "raubana",
+    "title": "Body Fall Over.wav",
+    "total": 0.56,
+    "fit": 1.51,
+    "cohesion": -0.95
+   }
+  ]
+ },
+ "sfx_shoot": {
+  "pool": 36,
+  "eligible": 5,
+  "pick": "617034",
+  "pick_meta": {
+   "user": "D4XX",
+   "title": "Laser Shot",
+   "url": "https://freesound.org/people/D4XX/sounds/617034/"
+  },
+  "alternatives": [
+   {
+    "id": "617034",
+    "user": "D4XX",
+    "title": "Laser Shot",
+    "total": 1.82,
+    "fit": 2.88,
+    "cohesion": -1.06
+   },
+   {
+    "id": "334227",
+    "user": "jradcoolness",
+    "title": "laser.wav",
+    "total": 1.56,
+    "fit": 2.52,
+    "cohesion": -0.96
+   },
+   {
+    "id": "146725",
+    "user": "Leszek_Szary",
+    "title": "laser",
+    "total": 1.54,
+    "fit": 2.72,
+    "cohesion": -1.18
+   },
+   {
+    "id": "584196",
+    "user": "unfa",
+    "title": "Weapons Plasma Shot 04",
+    "total": 1.2,
+    "fit": 2.53,
+    "cohesion": -1.33
+   }
+  ]
+ },
+ "sfx_death": {
+  "pool": 32,
+  "eligible": 6,
+  "pick": "159399",
+  "pick_meta": {
+   "user": "noirenex",
+   "title": "Power Down",
+   "url": "https://freesound.org/people/noirenex/sounds/159399/"
+  },
+  "alternatives": [
+   {
+    "id": "159399",
+    "user": "noirenex",
+    "title": "Power Down",
+    "total": 1.71,
+    "fit": 2.4,
+    "cohesion": -0.7
+   },
+   {
+    "id": "492651",
+    "user": "Rvgerxini",
+    "title": "power down.mp3",
+    "total": 0.81,
+    "fit": 2.36,
+    "cohesion": -1.55
+   },
+   {
+    "id": "467405",
+    "user": "SergeyIonov",
+    "title": "MnG - Power Down.wav",
+    "total": 0.67,
+    "fit": 1.73,
+    "cohesion": -1.06
+   },
+   {
+    "id": "331424",
+    "user": "supersnd",
+    "title": "Old computer shutdown1",
+    "total": 0.6,
+    "fit": 1.79,
+    "cohesion": -1.18
+   }
+  ]
+ },
+ "sfx_explode_m": {
+  "pool": 39,
+  "eligible": 8,
+  "pick": "873742",
+  "pick_meta": {
+   "user": "The_Elementus",
+   "title": "Low_Mid_End_Void_Energy_Blast_Punch_06",
+   "url": "https://freesound.org/people/The_Elementus/sounds/873742/"
+  },
+  "alternatives": [
+   {
+    "id": "71274",
+    "user": "qubodup",
+    "title": "Dull Decompression Punch Impact Explodes 96kHz",
+    "total": 1.34,
+    "fit": 2.2,
+    "cohesion": -0.86
+   },
+   {
+    "id": "873742",
+    "user": "The_Elementus",
+    "title": "Low_Mid_End_Void_Energy_Blast_Punch_06",
+    "total": 1.22,
+    "fit": 2.1,
+    "cohesion": -0.88
+   },
+   {
+    "id": "350976",
+    "user": "cabled_mess",
+    "title": "Boom_C_01",
+    "total": 1.03,
+    "fit": 1.94,
+    "cohesion": -0.91
+   },
+   {
+    "id": "350978",
+    "user": "cabled_mess",
+    "title": "Boom_C_05",
+    "total": 0.92,
+    "fit": 2.03,
+    "cohesion": -1.11
+   }
+  ]
+ },
+ "sfx_dash": {
+  "pool": 20,
+  "eligible": 4,
+  "pick": "485279",
+  "pick_meta": {
+   "user": "Joao_Janz",
+   "title": "Wooden Stick Swing 1_4",
+   "url": "https://freesound.org/people/Joao_Janz/sounds/485279/"
+  },
+  "alternatives": [
+   {
+    "id": "485279",
+    "user": "Joao_Janz",
+    "title": "Wooden Stick Swing 1_4",
+    "total": 0.15,
+    "fit": 0.61,
+    "cohesion": -0.47
+   },
+   {
+    "id": "796900",
+    "user": "CVLTIV8R",
+    "title": "alien garble sfx fast.wav",
+    "total": -0.11,
+    "fit": 0.52,
+    "cohesion": -0.62
+   },
+   {
+    "id": "683181",
+    "user": "NearTheAtmoshphere",
+    "title": "Magic Item",
+    "total": -0.28,
+    "fit": 1.12,
+    "cohesion": -1.41
+   },
+   {
+    "id": "796947",
+    "user": "CVLTIV8R",
+    "title": "electric stab.wav",
+    "total": -0.46,
+    "fit": 1.02,
+    "cohesion": -1.47
+   }
+  ]
+ },
+ "sfx_chain_zap": {
+  "pool": 30,
+  "eligible": 6,
+  "pick": "643923",
+  "pick_meta": {
+   "user": "deadrobotmusic",
+   "title": "Cool Lil Laser 1",
+   "url": "https://freesound.org/people/deadrobotmusic/sounds/643923/"
+  },
+  "alternatives": [
+   {
+    "id": "643923",
+    "user": "deadrobotmusic",
+    "title": "Cool Lil Laser 1",
+    "total": 0.82,
+    "fit": 1.57,
+    "cohesion": -0.76
+   },
+   {
+    "id": "195600",
+    "user": "bramstoy",
+    "title": "Blip01",
+    "total": 0.22,
+    "fit": 0.64,
+    "cohesion": -0.43
+   },
+   {
+    "id": "131332",
+    "user": "nahmandub",
+    "title": "clap 1.wav",
+    "total": -0.05,
+    "fit": 1.17,
+    "cohesion": -1.22
+   },
+   {
+    "id": "536422",
+    "user": "Rudmer_Rotteveel",
+    "title": "Setting Electronic Timer 1 Beep",
+    "total": -0.27,
+    "fit": 1.27,
+    "cohesion": -1.53
+   }
+  ]
+ },
+ "sfx_pickup_stardust": {
+  "pool": 25,
+  "eligible": 11,
+  "pick": "146727",
+  "pick_meta": {
+   "user": "Leszek_Szary",
+   "title": "energy",
+   "url": "https://freesound.org/people/Leszek_Szary/sounds/146727/"
+  },
+  "alternatives": [
+   {
+    "id": "146727",
+    "user": "Leszek_Szary",
+    "title": "energy",
+    "total": 1.25,
+    "fit": 1.87,
+    "cohesion": -0.62
+   },
+   {
+    "id": "334227",
+    "user": "jradcoolness",
+    "title": "laser.wav",
+    "total": 0.98,
+    "fit": 1.69,
+    "cohesion": -0.71
+   },
+   {
+    "id": "752015",
+    "user": "Dishings",
+    "title": "Futuristic Collect Sound",
+    "total": 0.79,
+    "fit": 1.66,
+    "cohesion": -0.88
+   },
+   {
+    "id": "55704",
+    "user": "guitarmaster",
+    "title": "C_minor_skank_Low.wav",
+    "total": 0.05,
+    "fit": 0.7,
+    "cohesion": -0.65
+   }
+  ]
+ },
+ "skill_cast": {
+  "pool": 26,
+  "eligible": 4,
+  "pick": "467400",
+  "pick_meta": {
+   "user": "SergeyIonov",
+   "title": "MnG - Activate.wav",
+   "url": "https://freesound.org/people/SergeyIonov/sounds/467400/"
+  },
+  "alternatives": [
+   {
+    "id": "467400",
+    "user": "SergeyIonov",
+    "title": "MnG - Activate.wav",
+    "total": 0.27,
+    "fit": 1.81,
+    "cohesion": -1.53
+   },
+   {
+    "id": "622060",
+    "user": "rydra_wong",
+    "title": "button click",
+    "total": -0.36,
+    "fit": 1.07,
+    "cohesion": -1.43
+   },
+   {
+    "id": "720111",
+    "user": "BaggoNotes",
+    "title": "Teleport_Aim",
+    "total": -0.61,
+    "fit": 0.84,
+    "cohesion": -1.45
+   },
+   {
+    "id": "375920",
+    "user": "Glitchedtones",
+    "title": "Device On.wav",
+    "total": -1.11,
+    "fit": 0.91,
+    "cohesion": -2.02
+   }
+  ]
+ },
+ "sfx_levelup": {
+  "pool": 33,
+  "eligible": 15,
+  "pick": "523655",
+  "pick_meta": {
+   "user": "LilMati",
+   "title": "Powerup 09.wav",
+   "url": "https://freesound.org/people/LilMati/sounds/523655/"
+  },
+  "alternatives": [
+   {
+    "id": "523655",
+    "user": "LilMati",
+    "title": "Powerup 09.wav",
+    "total": 1.55,
+    "fit": 2.68,
+    "cohesion": -1.13
+   },
+   {
+    "id": "478343",
+    "user": "Joao_Janz",
+    "title": "Bouncing Power Up 1_4",
+    "total": 1.28,
+    "fit": 2.07,
+    "cohesion": -0.79
+   },
+   {
+    "id": "328120",
+    "user": "kianda",
+    "title": "PowerUp.wav",
+    "total": 1.23,
+    "fit": 2.31,
+    "cohesion": -1.08
+   },
+   {
+    "id": "220173",
+    "user": "GameAudio",
+    "title": "Spacey 1up/Power up",
+    "total": 1.22,
+    "fit": 2.14,
+    "cohesion": -0.93
+   }
+  ]
+ },
+ "ui_confirm": {
+  "pool": 72,
+  "eligible": 64,
+  "pick": "790532",
+  "pick_meta": {
+   "user": "Weak_Hero",
+   "title": "mouse click",
+   "url": "https://freesound.org/people/Weak_Hero/sounds/790532/"
+  },
+  "alternatives": [
+   {
+    "id": "671105",
+    "user": "adh.dreaming",
+    "title": "Classic Click",
+    "score": 2.24
+   },
+   {
+    "id": "790532",
+    "user": "Weak_Hero",
+    "title": "mouse click",
+    "score": 2.24
+   },
+   {
+    "id": "710779",
+    "user": "cristhss",
+    "title": "mouse-sound-effect",
+    "score": 2.19
+   },
+   {
+    "id": "457657",
+    "user": "pafello_jot",
+    "title": "click.wav",
+    "score": 2.19
+   }
+  ],
+  "note": "요청: '딸깍' 마우스 클릭. 누르는 '딸'+놓는 '깍' 두 번 타격(106 ms 간격), 제목에 mouse. 원음 그대로"
+ },
+ "ui_back": {
+  "pool": 28,
+  "eligible": 2,
+  "pick": "407465",
+  "pick_meta": {
+   "user": "Loyalty_Freak_Music",
+   "title": "cancel.mp3",
+   "url": "https://freesound.org/people/Loyalty_Freak_Music/sounds/407465/"
+  },
+  "alternatives": [
+   {
+    "id": "407465",
+    "user": "Loyalty_Freak_Music",
+    "title": "cancel.mp3",
+    "total": 1.07,
+    "fit": 1.68,
+    "cohesion": -0.61
+   },
+   {
+    "id": "788602",
+    "user": "el_boss",
+    "title": "Cancel or No Button Sound",
+    "total": 0.96,
+    "fit": 1.86,
+    "cohesion": -0.9
+   }
+  ]
+ },
+ "ui_hover": {
+  "pool": 0,
+  "eligible": 0,
+  "pick": "orig_shoot",
+  "pick_meta": {
+   "user": "Asteria",
+   "title": "원래 사격음 (git c703f92)",
+   "url": ""
+  },
+  "alternatives": [],
+  "note": "요청: 처음에 넣어 둔 사격음이 호버에 가장 어울림. 원음 그대로"
+ },
+ "ui_deny": {
+  "pool": 39,
+  "eligible": 5,
+  "pick": "136787",
+  "pick_meta": {
+   "user": "mitchelk",
+   "title": "FX019",
+   "url": "https://freesound.org/people/mitchelk/sounds/136787/"
+  },
+  "alternatives": [
+   {
+    "id": "136787",
+    "user": "mitchelk",
+    "title": "FX019",
+    "total": 0.45,
+    "fit": 1.17,
+    "cohesion": -0.72
+   },
+   {
+    "id": "136789",
+    "user": "mitchelk",
+    "title": "FX017",
+    "total": 0.02,
+    "fit": 0.74,
+    "cohesion": -0.71
+   },
+   {
+    "id": "840903",
+    "user": "hotpin7",
+    "title": "random UI sound",
+    "total": -0.46,
+    "fit": 0.77,
+    "cohesion": -1.24
+   },
+   {
+    "id": "136813",
+    "user": "mitchelk",
+    "title": "INDUSTHIT016",
+    "total": -0.78,
+    "fit": 0.46,
+    "cohesion": -1.24
+   }
+  ]
+ },
+ "aug_flip": {
+  "pool": 44,
+  "eligible": 17,
+  "pick": "8399",
+  "pick_meta": {
+   "user": "SpeedY",
+   "title": "Clean_Finger_slide_delay.wav",
+   "url": "https://freesound.org/people/SpeedY/sounds/8399/"
+  },
+  "alternatives": [
+   {
+    "id": "8399",
+    "user": "SpeedY",
+    "title": "Clean_Finger_slide_delay.wav",
+    "total": 1.04,
+    "fit": 1.68,
+    "cohesion": -0.64
+   },
+   {
+    "id": "60007",
+    "user": "qubodup",
+    "title": "Swipe Whoosh",
+    "total": 0.8,
+    "fit": 1.29,
+    "cohesion": -0.49
+   },
+   {
+    "id": "375997",
+    "user": "DragonTrance",
+    "title": "sfx_sword_swipe.wav",
+    "total": 0.6,
+    "fit": 1.17,
+    "cohesion": -0.57
+   },
+   {
+    "id": "108333",
+    "user": "Qat",
+    "title": "whip-click.wav",
+    "total": 0.58,
+    "fit": 1.31,
+    "cohesion": -0.73
+   }
+  ]
+ }
+}

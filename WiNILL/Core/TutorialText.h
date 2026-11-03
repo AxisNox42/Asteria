@@ -143,6 +143,12 @@ inline const wchar_t* kReadyAllDone[LANG_COUNT] = {
     L"Done — launch an Easy run with {START}",
     L"完了 — {START}でイージー出撃",
 };
+// Space pressed before every tutorial step is cleared.
+inline const wchar_t* kReadyLaunchLocked[LANG_COUNT] = {
+    L"튜토리얼의 모든 단계를 마치면 출격할 수 있습니다",
+    L"Clear every tutorial step to launch",
+    L"チュートリアルの全ステップを終えると出撃できます",
+};
 inline const wchar_t* kReadyAim[LANG_COUNT] = {
     L"조준 · 좌클릭 유지 사격",
     L"Aim · hold left click to fire",
@@ -167,6 +173,7 @@ inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
 inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }
 inline const wchar_t* ReadyKills()     { return kReadyKills[LangIndexTutorial()]; }
 inline const wchar_t* ReadyAim()       { return kReadyAim[LangIndexTutorial()]; }
+inline const wchar_t* ReadyLaunchLocked() { return kReadyLaunchLocked[LangIndexTutorial()]; }
 inline const wchar_t* ReadyObjective(int i) {
     if (i < 0 || i >= READY_OBJECTIVE_COUNT) return L"";
     return kReadyObjective[LangIndexTutorial()][i];

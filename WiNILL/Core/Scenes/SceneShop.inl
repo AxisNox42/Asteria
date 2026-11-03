@@ -749,8 +749,11 @@ void Scene_Shop(const SceneCtx& c) {
             const bool hovBtn = inputReady && mx >= btnX - 12.0f * ui && mx <= btnX + btnW + 12.0f * ui
                              && my >= btnY && my <= btnY + btnH;
             s_buyHov = UpdateMenuCommandHover(s_buyHov, hovBtn && canBuy, dt);
-            const bool doBuy = canBuy && inputReady && ((hovBtn && lmbClick) || keyEdge[4]);
+            const bool pressBuy = inputReady && ((hovBtn && lmbClick) || keyEdge[4]);
+            const bool doBuy = canBuy && pressBuy;
+            if (pressBuy && !canBuy) Audio::Play(Audio::Cue::UiDeny);   // 별가루 부족·최대 레벨
             if (doBuy) {
+                Audio::Play(Audio::Cue::ShopBuy);
                 g_Coins -= cost;
                 if (isMeta) ++g_MetaLv[e.id];
                 else g_ThemeOwned |= (1 << e.id);

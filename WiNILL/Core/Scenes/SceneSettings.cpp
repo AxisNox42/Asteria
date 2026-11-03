@@ -384,12 +384,14 @@ void Scene_SettingsInline(const SceneCtx& c) {
 
     // \uC88C\uCE21 ghost \uBC84\uD2BC \u2014 \uCEE8\uD14D\uC2A4\uD2B8\uC5D0 \uB530\uB77C \uBA54\uC778\uBA54\uB274 vs \uC77C\uC2DC\uC815\uC9C0 \uBA54\uB274
     if ((g_LobbyPanel == LobbyPanel::Settings)) {
-        const float mainMenuGap = 10.0f * uiS;
+        // Same rail as the lobby, so the hand-off back to the real buttons is seamless.
+        const float mainMenuGap = 8.0f * uiS;
+        const float railX = std::max(58.0f * uiS, sw * 0.075f) + 8.0f;
         for (int i = 0; i < kMainMenuRouteCount; ++i) {
             if (i == kMainMenuTutorialIndex && TutorialRouteHidden()) continue;
             const float y = MainMenuButtonRailStartY(sh, uiS) + i * (mainBH + mainMenuGap);
             const bool focus = i == kMainMenuSettingsIndex;
-            const float x = mainX - 250.0f * (1.0f - oldA) - (focus ? 0.0f : 24.0f * (1.0f - oldA));
+            const float x = railX - 250.0f * (1.0f - oldA) - (focus ? 0.0f : 24.0f * (1.0f - oldA));
             const float a = (focus ? 0.82f : 0.34f) * oldA;
             const wchar_t* route = MainMenuRouteLabel(LangIndex(), i);
             const float routeScale = settingsScale(
@@ -968,7 +970,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 }
             }
         }
-        listHover[i] = UpdateMenuCommandHover(listHover[i], hov, dt);
+        // Settings rows sit densely; only the accordion headers tick on hover.
+        listHover[i] = UpdateMenuCommandHover(listHover[i], hov, dt, list[i].header);
         if (list[i].header) {
             const float headerX = railX + 20.0f * uiS;
             const bool activeCategory = list[i].category == tab;
@@ -1316,7 +1319,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
             hoverSettingRow = row;
         }
         rowHover[category][row] = UpdateMenuCommandHover(
-            rowHover[category][row], itemHover && !setting.readOnly, dt);
+            rowHover[category][row], itemHover && !setting.readOnly, dt, false);
         const float focus = rowHover[category][row];
         // While a key is being captured, every other row recedes (glyph alpha
         // only, no backdrop) so the waiting row reads as the active one.
@@ -1601,7 +1604,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                     && mx >= ox && mx < ox + cellW
                     && my >= controlHitY && my < controlHitY + controlHitH;
                 optHover[category][row][j] = UpdateMenuCommandHover(
-                    optHover[category][row][j], optionHover, dt);
+                    optHover[category][row][j], optionHover, dt, false);
                 if (optionHover) {
                     hoverCategory = category;
                     hoverSettingRow = row;
@@ -1737,6 +1740,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                            settingsSaveVariants, 3);
 
     if (ready && !confirmBack && lmb && !g_LmbPrev && backHit) {
+        Audio::Play(Audio::Cue::UiConfirm);
         if (settingsDirty) confirmBack = true;
         else exiting = true;
     }

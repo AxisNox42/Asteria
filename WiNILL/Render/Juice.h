@@ -96,7 +96,7 @@ inline void AddKillCombo() {
     ++g_Combo;
     g_ComboTimer = COMBO_WINDOW;
     g_ComboPulse = 1.0f;
-    Audio::PlaySfx(Audio::Sfx::Kill);   // 적 처치음
+    Audio::Play(Audio::Cue::Kill);   // 적 처치음
     // 콤보 마일스톤(10/25/50/100/…) — 카운터 강조 연출 + 칩 사운드 (전체화면 번쩍 X — 눈뽕 방지)
     if (ComboIsMilestone(g_Combo)) {
         g_ComboMilestone = 0.7f;

@@ -53,8 +53,8 @@ using hud_lines::Rgb;
 // ── Canvas layout (1920x1080 px) ──
 using ready_launch::kCanvasW;
 using ready_launch::kCanvasH;
-constexpr float kTitleY = 68.0f, kTitlePx = 56.0f;
-constexpr float kBriefY = 122.0f, kBriefPx = 24.0f;
+constexpr float kTitleY = 56.0f, kTitlePx = 56.0f;
+constexpr float kBriefY = 108.0f, kBriefPx = 24.0f;
 using ready_launch::kFieldW;
 using ready_launch::kFieldH;
 using ready_launch::kFieldX;
@@ -64,18 +64,20 @@ constexpr float kFieldCorner = 26.0f;
 constexpr float kStepLabelY = 26.0f, kStepLabelPx = 16.0f;   // inside the field, from its top
 constexpr float kStepHintY = 54.0f, kStepHintPx = 25.0f;
 constexpr float kStepFadeIn = 0.35f, kStepRise = 10.0f;
-constexpr float kObjectivesX = kFieldX + kFieldW + 70.0f;
+constexpr float kObjectivesX = kFieldX + kFieldW + 40.0f;
 constexpr float kObjectiveRowH = 44.0f, kObjectivePx = 23.0f, kCheckSize = 26.0f;
 constexpr float kObjectiveNotePx = 16.0f;
-constexpr float kKeyPitch = 50.0f, kKeyGap = 6.0f;
-constexpr float kLegendGap = 50.0f, kLegendW = 300.0f;
+constexpr float kKeyPitch = 44.0f, kKeyGap = 5.0f;
+// Legend right of the keyboard: the mouse, and beside it the aim line and one
+// line per key role.
+constexpr float kMouseW = 118.0f, kMouseH = 180.0f, kMouseSplit = 0.40f;
+constexpr float kLegendGap = 110.0f, kLegendW = kMouseW;
 constexpr float kKeyboardX = (kCanvasW - (kb::kLayoutW * kKeyPitch + kLegendGap + kLegendW)) * 0.5f;
-constexpr float kKeyboardY = 708.0f;
+constexpr float kKeyboardY = 780.0f;
 constexpr float kCaptionMinW = 1.5f;   // key units
 constexpr float kKeyPx = 19.0f, kKeyLongPx = 14.0f, kKeyCaptionPx = 13.0f, kSpacePx = 20.0f;
 constexpr float kLegendRowH = 34.0f, kLegendPx = 20.0f, kLegendMark = 16.0f;
-constexpr float kMouseW = 56.0f, kMouseH = 86.0f, kMouseSplit = 0.40f;
-constexpr float kLegendRowsY = 132.0f;   // below the mouse
+constexpr float kLegendBlockY = kFieldY + 350.0f;   // key legend, under the objectives
 
 // The arena in world px. At 1:1 on the 1920x1080 canvas the ship, Swarms,
 // bullets, dash and field radius are exactly the size they are in a run.
@@ -174,6 +176,29 @@ void Line(float x0, float y0, float x1, float y1, float thick, Rgb c, float a, f
 void Chevron(float x, float y, float s, float thick, Rgb c, float a, float keyline) {
     Line(x - s, y - s, x, y, thick, c, a, keyline);
     Line(x, y, x - s, y + s, thick, c, a, keyline);
+}
+
+// Title with a constellation line on each side that ends in a node, the same
+// anchor motif as the lobby commands.
+void DrawTitle(const Canvas& cv, TextRenderer& title, float a) {
+    const float cx = cv.X(kCanvasW * 0.5f), cy = cv.Y(kTitleY);
+    const float px = cv.S(kTitlePx);
+    Text(title, ReadyTitle(), cx, cy, px, kCyan, 0.98f * a, Align::Center);
+    if (title.LineHeightPixels() <= 0.0f) return;
+    const float halfW = title.Width(ReadyTitle(), px / title.LineHeightPixels()) * 0.5f;
+    const float key = cv.S(1.5f), gap = cv.S(34.0f), len = cv.S(210.0f), r = cv.S(5.0f);
+    for (int side = -1; side <= 1; side += 2) {
+        const float x0 = cx + side * (halfW + gap), x1 = x0 + side * len;
+        // Bright at the title, fading to the node.
+        const int kSeg = 6;
+        for (int i = 0; i < kSeg; ++i) {
+            const float t0 = (float)i / kSeg, t1 = (float)(i + 1) / kSeg;
+            Line(x0 + (x1 - x0) * t0, cy, x0 + (x1 - x0) * t1, cy, cv.S(1.6f), kCyan,
+                 (0.62f - 0.42f * t0) * a, key);
+        }
+        hud_lines::DiamondOutline(x1, cy, r, cv.S(1.6f), kCyan, 0.85f * a, key);
+        hud_lines::Dot(x0 - side * cv.S(12.0f), cy, cv.S(2.2f), kCyan, 0.9f * a, key);
+    }
 }
 
 // ── Practice state (lives while the READY screen is shown) ──
@@ -353,6 +378,14 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         Line(cx[i] + dx[i] * L, cy[i], cx[i], cy[i], t, kCyan, 0.75f, key);
         Line(cx[i], cy[i], cx[i], cy[i] + dy[i] * L, t, kCyan, 0.75f, key);
     }
+    // A node on the middle of each edge ties the frame into the constellation look.
+    {
+        const float nr = cv.S(4.5f);
+        hud_lines::DiamondOutline(fx + fw * 0.5f, fy, nr, cv.S(1.5f), kCyan, 0.7f, key);
+        hud_lines::DiamondOutline(fx + fw * 0.5f, fy + fh, nr, cv.S(1.5f), kCyan, 0.7f, key);
+        hud_lines::DiamondOutline(fx, fy + fh * 0.5f, nr, cv.S(1.5f), kCyan, 0.7f, key);
+        hud_lines::DiamondOutline(fx + fw, fy + fh * 0.5f, nr, cv.S(1.5f), kCyan, 0.7f, key);
+    }
     const float labelY = fy - cv.S(kFieldLabelGap);
     const float labelPx = cv.S(kFieldLabelPx);
     Text(body, kReadyFieldTitle, fx, labelY, labelPx, kCyan, 0.85f);
@@ -491,6 +524,28 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
     const float key = cv.S(1.5f);
     Text(body, kReadyObjectivesTitle, x, y0, cv.S(20.0f), kCyan, 0.85f);
     float y = y0 + cv.S(46.0f);
+    // Steps are nodes on one constellation line; finished ones fill and light the
+    // line up to them, the current one pulses.
+    const float nodeX = x + cv.S(kCheckSize) * 0.5f, nodeR = cv.S(kCheckSize) * 0.36f;
+    float prevY = -1.0f;
+    bool prevDone = false;
+    auto node = [&](float ny, bool done, bool isCurrent, bool skipped, Rgb c) {
+        if (prevY >= 0.0f)
+            Line(nodeX, prevY + nodeR * 1.6f, nodeX, ny - nodeR * 1.6f, cv.S(1.6f),
+                 prevDone && done ? kDone : kCyan, prevDone ? 0.7f : 0.22f, key);
+        if (done) {
+            hud_lines::SectorFill(nodeX, ny, nodeR, hud_lines::FillShape::Diamond, 1.0f, c, 0.85f);
+            hud_lines::DiamondOutline(nodeX, ny, nodeR, cv.S(1.8f), c, 0.95f, key);
+        } else if (isCurrent) {
+            hud_lines::SectorFill(nodeX, ny, nodeR, hud_lines::FillShape::Diamond, 1.0f, kCyan, 0.30f * pulse);
+            hud_lines::DiamondOutline(nodeX, ny, nodeR * 1.15f, cv.S(2.4f), kCyan, pulse, key);
+            hud_lines::Ring(nodeX, ny, nodeR * 2.1f, cv.S(1.4f), kCyan, 0.4f * pulse, 0.0f);
+        } else {
+            hud_lines::DiamondOutline(nodeX, ny, nodeR, cv.S(1.5f), c, skipped ? 0.3f : 0.5f, key);
+        }
+        prevY = ny;
+        prevDone = done;
+    };
     for (int i = 0; i < rp::kObjectiveCount; ++i) {
         const rp::Objective o = (rp::Objective)i;
         const bool skipped = o == rp::Objective::Dash && !dashOk;
@@ -499,12 +554,8 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
         const Rgb c = done ? kDone : kCyan;
         const float boxA = done ? 0.95f : isCurrent ? pulse : skipped ? 0.3f : 0.45f;
         const float s = cv.S(kCheckSize);
-        if (isCurrent) Chevron(x - cv.S(12.0f), y, cv.S(7.0f), cv.S(2.4f), kCyan, pulse, key);
-        Box(x, y - s * 0.5f, s, s, cv.S(isCurrent ? 2.6f : 2.0f), c, boxA, key);
-        if (done) {
-            Line(x + s * 0.23f, y, x + s * 0.42f, y + s * 0.23f, cv.S(2.4f), c, 0.95f, key);
-            Line(x + s * 0.42f, y + s * 0.23f, x + s * 0.81f, y - s * 0.27f, cv.S(2.4f), c, 0.95f, key);
-        }
+        (void)boxA;
+        node(y, done, isCurrent, skipped, c);
         const float textA = done ? 0.95f : isCurrent ? 1.0f : skipped ? 0.4f : 0.6f;
         Text(body, ReadyObjective(i), x + s + cv.S(14.0f), y, cv.S(kObjectivePx),
              done ? c : isCurrent ? kWhite : kText, textA);
@@ -531,12 +582,8 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
             const Rgb c = done ? kDone : kCyan;
             const float boxA = done ? 0.95f : isCurrent ? pulse : 0.45f;
             const float s = cv.S(kCheckSize);
-            if (isCurrent) Chevron(x - cv.S(12.0f), y, cv.S(7.0f), cv.S(2.4f), kCyan, pulse, key);
-            Box(x, y - s * 0.5f, s, s, cv.S(isCurrent ? 2.6f : 2.0f), c, boxA, key);
-            if (done) {
-                Line(x + s * 0.23f, y, x + s * 0.42f, y + s * 0.23f, cv.S(2.4f), c, 0.95f, key);
-                Line(x + s * 0.42f, y + s * 0.23f, x + s * 0.81f, y - s * 0.27f, cv.S(2.4f), c, 0.95f, key);
-            }
+            (void)boxA;
+            node(y, done, isCurrent, false, c);
             const float textA = done ? 0.95f : isCurrent ? 1.0f : 0.6f;
             Text(body, ReadyExtraObjective(i), x + s + cv.S(14.0f), y, cv.S(kObjectivePx),
                  done ? c : isCurrent ? kWhite : kText, textA);
@@ -553,10 +600,11 @@ bool CapHeld(int glfwKey) { return glfwKey >= 0 && glfwKey < 1024 && keys[glfwKe
 void DrawMouse(float x, float y, const Canvas& cv, const GuideLook& look, bool lmb, float now) {
     const float key = cv.S(1.5f);
     const float w = cv.S(kMouseW), h = cv.S(kMouseH), split = h * kMouseSplit;
-    const float a = lmb ? 1.0f : look.a;
-    // The left button is what the lesson asks for: filled while it is the step.
-    if (look.current || lmb)
-        Fill(x, y, w * 0.5f, split, kCyan, lmb ? 0.7f : kCurrentFillA * look.a + 0.18f);
+    const float a = lmb ? 1.0f : look.a * 0.7f;
+    // The left button fires: always tinted cyan like the move keys, filled
+    // while it is the step and solid while held.
+    const float fireFill = lmb ? 0.7f : look.current ? kCurrentFillA * look.a + 0.18f : 0.18f;
+    Fill(x, y, w * 0.5f, split, kCyan, fireFill);
     Box(x, y, w, h, cv.S(look.current ? 2.8f : 2.0f), kCyan, a, key);
     Line(x + w * 0.5f, y, x + w * 0.5f, y + split, cv.S(2.0f), kCyan, a, key);
     Line(x, y + split, x + w, y + split, cv.S(2.0f), kCyan, a, key);
@@ -565,8 +613,8 @@ void DrawMouse(float x, float y, const Canvas& cv, const GuideLook& look, bool l
         const float t = std::fmod(now * 1.4f, 1.0f);
         const float bx = x + w * 0.25f;
         for (int i = 0; i < 2; ++i) {
-            const float r = cv.S(12.0f + 10.0f * i) + cv.S(8.0f) * t;
-            hud_lines::Arc(bx, y, r, cv.S(2.2f), -2.5f, 1.4f, kCyan, (1.0f - t) * (i ? 0.55f : 0.95f));
+            const float r = cv.S(22.0f + 18.0f * i) + cv.S(14.0f) * t;
+            hud_lines::Arc(bx, y, r, cv.S(2.4f), -2.5f, 1.4f, kCyan, (1.0f - t) * (i ? 0.55f : 0.95f));
         }
     }
 }
@@ -630,23 +678,36 @@ void DrawKeyboard(const PracticeView& v, rp::Objective current, const Canvas& cv
                  tc, ta, Align::Center);
     }
 
-    // Legend: mouse, then one line per key role in the same colours and levels.
+    // The mouse sits right of the keyboard; its legend (aim line and one line per
+    // key role, same colours and levels) lives under the objectives.
     const float lx = cv.X(kKeyboardX + kb::kLayoutW * kKeyPitch + kLegendGap);
-    const float ly = cv.Y(kKeyboardY + 6.0f);
+    const float ly = cv.Y(kKeyboardY + (kb::kLayoutH * kKeyPitch - kKeyGap - kMouseH) * 0.5f);
     const GuideLook mouse = LookOf(v, (int)Guide::Mouse, current, pulse);
     DrawMouse(lx, ly, cv, mouse, lmb, now);
-    Text(body, ReadyAim(), lx + cv.S(kMouseW + 16.0f), ly + cv.S(kMouseH * kMouseSplit * 0.5f),
-         cv.S(kLegendPx), mouse.current ? kWhite : kCyan, mouse.current ? 1.0f : std::min(1.0f, mouse.a + 0.2f));
 
+    const float tx = cv.X(kObjectivesX);
+    const float by = cv.Y(kLegendBlockY);
+    const float s = cv.S(kLegendMark);
+    const float textX = tx + cv.S(kCheckSize + 14.0f);
+    const float markX = tx + cv.S(kCheckSize) * 0.5f;
+    {
+        const bool lit = mouse.current || lmb;
+        const float a = lit ? 1.0f : mouse.a;
+        if (lit) hud_lines::SectorFill(markX, by, s * 0.5f, hud_lines::FillShape::Diamond, 1.0f, kCyan, 0.75f * a);
+        hud_lines::DiamondOutline(markX, by, s * 0.5f, cv.S(lit ? 2.4f : 1.8f), kCyan, a, key);
+        Text(body, ReadyAim(), textX, by, cv.S(kLegendPx), lit ? kWhite : kCyan,
+             lit ? 1.0f : std::min(1.0f, mouse.a + 0.3f));
+    }
     for (int role = (int)kb::KeyRole::Move; role < kRoleCount; ++role) {
         const GuideLook look = LookOf(v, GuideOfRole((kb::KeyRole)role), current, pulse);
         const Rgb c = RoleColor((kb::KeyRole)role);
-        const float y = ly + cv.S(kLegendRowsY + kLegendRowH * (role - 1));
-        const float s = cv.S(kLegendMark);
+        const float y = by + cv.S(kLegendRowH * role);
         const float a = roleHeld[role] ? 1.0f : look.a;
-        if (roleHeld[role] || look.current) Fill(lx, y - s * 0.5f, s, s, c, 0.75f * a);
-        Box(lx, y - s * 0.5f, s, s, cv.S(look.current ? 2.6f : 2.0f), c, a, key);
-        Text(body, ReadyLegend(role - 1), lx + s + cv.S(12.0f), y, cv.S(kLegendPx),
+        // A diamond node per role, filled while its keys are held or the step.
+        if (roleHeld[role] || look.current)
+            hud_lines::SectorFill(markX, y, s * 0.5f, hud_lines::FillShape::Diamond, 1.0f, c, 0.75f * a);
+        hud_lines::DiamondOutline(markX, y, s * 0.5f, cv.S(look.current ? 2.4f : 1.8f), c, a, key);
+        Text(body, ReadyLegend(role - 1), textX, y, cv.S(kLegendPx),
              look.current ? kWhite : kText, look.current ? 1.0f : std::min(1.0f, a + 0.25f));
     }
 }
@@ -691,6 +752,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         }
     }
     const bool launching = ready_launch::Launching();
+    ready_launch::g_LaunchLockedT = std::max(0.0f, ready_launch::g_LaunchLockedT - dt);
 
     PracticeView& v = View();
     TouchView(v);
@@ -771,8 +833,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         auto drawPage = [&](float alpha) {
             if (alpha <= 0.004f) return;
             g_BatchAlpha = alpha;
-            Text(text.title, ReadyTitle(), cv.X(kCanvasW * 0.5f), cv.Y(kTitleY), cv.S(kTitlePx),
-                 kCyan, 0.98f, Align::Center);
+            DrawTitle(cv, text.title, 1.0f);
             Text(text.body, ReadyBrief(), cv.X(kCanvasW * 0.5f), cv.Y(kBriefY), cv.S(kBriefPx),
                  kText, 0.9f, Align::Center);
             DrawObjectives(v.field, current, dashOk, cv, text.body, pulse);
@@ -872,8 +933,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     }
 
     BindMainShader();
-    Text(text.title, ReadyTitle(), cv.X(kCanvasW * 0.5f), cv.Y(kTitleY), cv.S(kTitlePx),
-         kCyan, 0.98f, Align::Center);
+    DrawTitle(cv, text.title, 1.0f);
     Text(text.body, ReadyBrief(), cv.X(kCanvasW * 0.5f), cv.Y(kBriefY), cv.S(kBriefPx),
          kText, 0.9f, Align::Center);
 
@@ -897,6 +957,13 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
                 Text(text.body, t, cx, y, px, l == 0 ? kWhite : kText, l == 0 ? 0.95f : 0.8f, Align::Center);
                 y += cv.S(28.0f);
             }
+        } else if (ready_launch::g_LaunchLockedT > 0.0f) {
+            // Space before every step is cleared: say why nothing happened.
+            const float t = ready_launch::g_LaunchLockedT;
+            const float a = std::min(1.0f, t / 0.4f) *
+                            std::min(1.0f, (ready_launch::kLaunchLockedSec - t) / 0.12f);
+            Text(text.body, ReadyLaunchLocked(), cv.X(kCanvasW * 0.5f),
+                 cv.Y(kFieldY + kFieldH + 30.0f), cv.S(22.0f), kAmber, 0.95f * a, Align::Center);
         }
     }
     DrawKeyboard(v, current, cv, text.body, pulse, c.lmb, now);

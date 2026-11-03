@@ -214,7 +214,7 @@ void Scene_CreativeConfig(const SceneCtx& c) {
                     const float SW = 280.0f * uiS, SH = footH, SX = (sw - SW) * 0.5f;
                     const bool sHov = (mx >= SX - 12.0f && mx <= SX + SW + 12.0f &&
                                        my >= footY && my <= footY + SH);
-                    s_creStartHov += ((sHov ? 1.0f : 0.0f) - s_creStartHov) * std::min(1.0f, fdt * 10.0f);
+                    s_creStartHov += ((sHov ? 1.0f : 0.0f) - s_creStartHov) * (1.0f - std::exp(-fdt * 10.0f));
                     DrawUnifiedMenuCommand(L"START", SX, footY, SW, SH,
                                           0.38f, 0.95f, 0.62f, 1.0f,
                                           s_creStartHov, false, 0.0f, fnow,
@@ -228,7 +228,7 @@ void Scene_CreativeConfig(const SceneCtx& c) {
                     const float BX = BottomLeftActionX(uiS);
                     const bool bHov = (mx >= BX - 12.0f && mx <= BX + BW + 12.0f &&
                                        my >= footY && my <= footY + BH);
-                    s_creBackHov += ((bHov ? 1.0f : 0.0f) - s_creBackHov) * std::min(1.0f, fdt * 10.0f);
+                    s_creBackHov += ((bHov ? 1.0f : 0.0f) - s_creBackHov) * (1.0f - std::exp(-fdt * 10.0f));
                     DrawUnifiedMenuCommand(T(StrId::BTN_BACK), BX, footY, BW, BH,
                                           0.48f, 0.82f, 1.0f, 1.0f,
                                           s_creBackHov, false, 0.0f, fnow + 0.17f,
@@ -564,6 +564,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
                              sr, sg, sb, a, kPlayTextShadow);
         }
         if (nameMidY) *nameMidY = y0 + 2.0f * uiS + layoutH * 0.5f;
+        if (hov && lmbClick) Audio::Play(Audio::Cue::UiConfirm);
         return hov && lmbClick;
     };
 
@@ -722,8 +723,9 @@ void Scene_RunConfigInline(const SceneCtx& c) {
                            uiS, true, true, true,
                            kTxtPlay.t, LANG_COUNT);
 
-    if (backHov && lmbClick && ready) exiting = true;
+    if (backHov && lmbClick && ready) { exiting = true; Audio::Play(Audio::Cue::UiConfirm); }
     if (playHov && lmbClick && ready) {
+        Audio::Play(Audio::Cue::UiConfirm);
         // 시련 시스템은 UI에서 빠졌으므로 선택 없는 상태로 고정한다.
         ResetTrials();
         g_TrialPoolReady = true;

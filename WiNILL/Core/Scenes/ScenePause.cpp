@@ -230,6 +230,8 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
 
         if (((hov && lmb && !state.previousLeftMouseDown) || (kbHot && kbConfirm))
             && s_ExitSel < 0) {
+            // RESUME sounds from the state change itself (main.cpp).
+            if (actions[i] != PauseAction::Resume) Audio::Play(Audio::Cue::UiConfirm);
             if (actions[i] == PauseAction::Abandon) {
                 s_ConfirmAbandon = true;   // abandoning asks first
             } else {

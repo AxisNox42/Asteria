@@ -196,7 +196,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
         const int ghostLang = LangIndex();
         const float ghostSlide = 250.0f * oldOut;
         const float ghostRailY = MainMenuButtonRailStartY(sh, uiS);
-        const float ghostGap = 10.0f * uiS;
+        const float ghostGap = 8.0f * uiS;   // = the lobby rail gap
         const float anchorX = mainX - ghostSlide - 36.0f;
         BindMainShader();
         drawRect(anchorX, std::max(22.0f, MainLogoTop(sh) - 20.0f),
@@ -845,7 +845,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
     {
         const float diff = s_displayTarget[orbitState] - s_displaySlot[orbitState];
         const float speed = 10.0f;
-        s_displaySlot[orbitState] += diff * std::min(1.0f, dt * speed);
+        s_displaySlot[orbitState] += diff * (1.0f - std::exp(-dt * speed));
         if (fabsf(diff) < 0.002f) {
             s_displaySlot[orbitState] = s_displayTarget[orbitState];
         }

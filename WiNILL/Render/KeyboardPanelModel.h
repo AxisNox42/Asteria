@@ -1,7 +1,7 @@
 #pragma once
 // ─────────────────────────────────────────────────────────────
-// READY screen keyboard panel model: a full ANSI keyboard (function row,
-// main block, navigation cluster, arrows, numpad) as key caps in key units,
+// READY screen keyboard panel model: a tenkeyless ANSI keyboard (function
+// row, main block, navigation cluster, arrows; no numpad) as key caps in key units,
 // and what each cap means right now. No GL, so
 // tests/keyboard_panel_test.cpp can build it alone.
 //   The layout only says where each physical key sits. Which caps light up
@@ -25,11 +25,9 @@ inline constexpr int LeftBracket = 91, Backslash = 92, RightBracket = 93, Grave 
 inline constexpr int Enter = 257, Tab = 258, Backspace = 259, Insert = 260, Delete = 261;
 inline constexpr int Right = 262, Left = 263, Down = 264, Up = 265;
 inline constexpr int PageUp = 266, PageDown = 267, Home = 268, End = 269;
-inline constexpr int CapsLock = 280, ScrollLock = 281, NumLock = 282;
+inline constexpr int CapsLock = 280, ScrollLock = 281;
 inline constexpr int PrintScreen = 283, Pause = 284;
 inline constexpr int F1 = 290;
-inline constexpr int Kp0 = 320, KpDecimal = 330, KpDivide = 331, KpMultiply = 332;
-inline constexpr int KpSubtract = 333, KpAdd = 334, KpEnter = 335;
 inline constexpr int LeftSuper = 343, RightSuper = 347, Menu = 348;
 }
 
@@ -38,7 +36,7 @@ struct KeyCap {
     float x, y, w, h;   // key units; one standard key is 1 x 1
 };
 
-inline constexpr float kLayoutW = 22.5f;
+inline constexpr float kLayoutW = 18.25f;
 inline constexpr float kLayoutH = 6.5f;
 
 namespace detail {
@@ -56,28 +54,24 @@ inline std::vector<KeyCap> BuildLayout() {
         }
     };
     auto fn = [](int n) { return Item{ F1 + n - 1 }; };
-    auto kp = [](int n) { return Item{ Kp0 + n }; };
     row(0.0f, { { kBindKeyEscape }, Gap(1.0f), fn(1), fn(2), fn(3), fn(4), Gap(0.5f),
                 fn(5), fn(6), fn(7), fn(8), Gap(0.5f), fn(9), fn(10), fn(11), fn(12),
                 Gap(0.25f), { PrintScreen }, { ScrollLock }, { Pause } });
     row(1.5f, { { Grave }, { '1' }, { '2' }, { '3' }, { '4' }, { '5' }, { '6' }, { '7' },
                 { '8' }, { '9' }, { '0' }, { Minus }, { Equal }, { Backspace, 2.0f },
-                Gap(0.25f), { Insert }, { Home }, { PageUp },
-                Gap(0.25f), { NumLock }, { KpDivide }, { KpMultiply }, { KpSubtract } });
+                Gap(0.25f), { Insert }, { Home }, { PageUp } });
     row(2.5f, { { Tab, 1.5f }, { 'Q' }, { 'W' }, { 'E' }, { 'R' }, { 'T' }, { 'Y' }, { 'U' },
                 { 'I' }, { 'O' }, { 'P' }, { LeftBracket }, { RightBracket }, { Backslash, 1.5f },
-                Gap(0.25f), { Delete }, { End }, { PageDown },
-                Gap(0.25f), kp(7), kp(8), kp(9), { KpAdd, 1.0f, 2.0f } });
+                Gap(0.25f), { Delete }, { End }, { PageDown } });
     row(3.5f, { { CapsLock, 1.75f }, { 'A' }, { 'S' }, { 'D' }, { 'F' }, { 'G' }, { 'H' },
-                { 'J' }, { 'K' }, { 'L' }, { Semicolon }, { Apostrophe }, { Enter, 2.25f },
-                Gap(3.5f), kp(4), kp(5), kp(6) });
+                { 'J' }, { 'K' }, { 'L' }, { Semicolon }, { Apostrophe }, { Enter, 2.25f } });
     row(4.5f, { { kBindKeyLeftShift, 2.25f }, { 'Z' }, { 'X' }, { 'C' }, { 'V' }, { 'B' },
                 { 'N' }, { 'M' }, { Comma }, { Period }, { Slash }, { kBindKeyRightShift, 2.75f },
-                Gap(1.25f), { Up }, Gap(1.25f), kp(1), kp(2), kp(3), { KpEnter, 1.0f, 2.0f } });
+                Gap(1.25f), { Up } });
     row(5.5f, { { kBindKeyLeftCtrl, 1.25f }, { LeftSuper, 1.25f }, { kBindKeyLeftAlt, 1.25f },
                 { kBindKeySpace, 6.25f }, { kBindKeyRightAlt, 1.25f }, { RightSuper, 1.25f },
                 { Menu, 1.25f }, { kBindKeyRightCtrl, 1.25f },
-                Gap(0.25f), { Left }, { Down }, { Right }, Gap(0.25f), { Kp0, 2.0f }, { KpDecimal } });
+                Gap(0.25f), { Left }, { Down }, { Right } });
     return caps;
 }
 } // namespace detail
@@ -106,11 +100,9 @@ inline KeyRole RoleOf(int glfwKey) {
     return KeyRole::None;
 }
 
-// Text printed on the cap. Short forms where the settings name is long;
-// numpad caps show only their symbol because the cluster says "numpad".
+// Text printed on the cap. Short forms where the settings name is long.
 inline std::wstring CapLabel(int glfwKey) {
     using namespace key;
-    if (glfwKey >= Kp0 && glfwKey <= Kp0 + 9) return std::wstring(1, (wchar_t)(L'0' + glfwKey - Kp0));
     switch (glfwKey) {
     case kBindKeyEscape: return L"Esc";
     case Backspace:      return L"Back";
@@ -131,13 +123,6 @@ inline std::wstring CapLabel(int glfwKey) {
     case PrintScreen: return L"PrtSc";
     case ScrollLock:  return L"ScrLk";
     case Pause:       return L"Pause";
-    case NumLock:     return L"Num";
-    case KpDivide:    return L"/";
-    case KpMultiply:  return L"*";
-    case KpSubtract:  return L"-";
-    case KpAdd:       return L"+";
-    case KpEnter:     return L"Ent";
-    case KpDecimal:   return L".";
     case Up: case Down: case Left: case Right: return L"";   // drawn as an arrow
     default:          return KeyName(glfwKey);
     }

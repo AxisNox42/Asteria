@@ -137,6 +137,9 @@ void DamageAll(float pct, float r, float g, float b, bool canCrit, float extra) 
     for (auto* m : g_MonsterManager.monsters) hit(*m);
     for (auto* rm : g_MonsterManager.rangedMobs) hit(*rm);
     TriggerFlash(r, g, b, 0.10f);
+    // Small, frequent procs crackle; big ones land as a blast.
+    Audio::Play(pct >= 500.0f ? Audio::Cue::ExplodeL
+              : pct >= 150.0f ? Audio::Cue::Lightning : Audio::Cue::FieldPulse);
 }
 
 // pct of attack to every enemy within radius of (x, y).
@@ -154,6 +157,8 @@ void DamageRadius(float x, float y, float radius, float pct,
     for (auto* rm : g_MonsterManager.rangedMobs) hit(*rm);
     SpawnEnemyExplosion(x, y, r, g, b, true);
     Ring(x, y, radius, r, g, b);
+    Audio::Play(radius >= 250.0f ? Audio::Cue::ExplodeL
+              : radius >= 170.0f ? Audio::Cue::ExplodeM : Audio::Cue::ExplodeS);
 }
 
 // Clears enemy bullets within radius of (x, y); radius < 0 clears them all.

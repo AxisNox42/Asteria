@@ -33,7 +33,8 @@ void DrawShadowedText(TextRenderer& renderer, const wchar_t* text,
                       float shadowAlpha = 0.68f);
 void BeginDeferredSceneText();
 void EndDeferredSceneText();
-float UpdateMenuCommandHover(float current, bool hovered, float dt);
+float UpdateMenuCommandHover(float current, bool hovered, float dt,
+                             bool playSound = true);
 void DrawPanelButton(const wchar_t* label, float x, float y, float w, float h,
                      float r, float g, float b, float alpha,
                      float hover, bool selected, float pulse, float now,

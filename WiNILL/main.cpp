@@ -1800,6 +1800,7 @@ static void PlayCaelumFall(float x, float y) {
         SpawnShockWave(x, y, 280.0f + 240.0f * (float)i, 0.5f + 0.25f * (float)i, ar, ag, ab);
     SpawnEnemyExplosion(x, y, ar, ag, ab, true);
     SpawnSparks(x, y, 50, 1.0f, 0.95f, 0.82f, 600.0f);
+    Audio::Play(Audio::Cue::BossDeath);
     Shake(0.7f, 26.0f);
     TriggerHitStop(0.16f);
     TriggerFlash(1.0f, 0.88f, 0.6f, 0.26f);
@@ -1870,6 +1871,7 @@ static void PlayNormaEvents() {
                            0.5f + 0.25f * (float)i, 0.92f, 0.99f, 1.0f);
         SpawnEnemyExplosion(g_NormaLastX, g_NormaLastY, 0.72f, 0.94f, 1.0f, true);
         SpawnSparks(g_NormaLastX, g_NormaLastY, 60, 0.92f, 0.99f, 1.0f, 640.0f);
+        Audio::Play(Audio::Cue::BossDeath);
         Shake(0.8f, 30.0f);
         TriggerHitStop(0.18f);
         TriggerFlash(0.92f, 0.99f, 1.0f, 0.30f);
@@ -3132,6 +3134,7 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
         gm.QueueAugmentReward();
         passive::OnWaveCleared();
+        Audio::Play(Audio::Cue::WaveClear);
         // Wave clear: every drop left on the map flies to the player.
         g_StardustCollectAll = true;
         // The next wave waits until the reward is picked.
@@ -3194,6 +3197,7 @@ static void GrantLevelUpReward(int oldLevel, XpAmount need, XpAmount oldXp,
                                       g_GameManager.playerLevel, need,
                                       oldXp, g_GameManager.xp, manual);
     g_GameManager.QueueStatReward();
+    Audio::Play(Audio::Cue::LevelUp);
 
     // XP level-ups play a short full-speed signal and then open the
     // selection on their own. Extra levels gained meanwhile only queue;
@@ -3301,6 +3305,18 @@ static void TriggerEliteKillHitStop(Monster& m) {
     if (g_GameManager.currentState != GameState::RUNNING) return;
     if (m.kind != MobKind::GENESIS && m.kind != MobKind::QUASAR) return;
     TriggerHitStop(ELITE_KILL_HIT_STOP);   // longest remaining wins; no stacking
+}
+
+// The resume cue comes from the state change itself, so every way out of the
+// pause menu sounds the same. Pausing is silent (by request). Settings opened
+// from the pause menu and back is not a resume.
+static void PlayStateTransitionAudio() {
+    static GameState prev = GameState::MAIN_MENU;
+    const GameState cur = g_GameManager.currentState;
+    if (cur == prev) return;
+    if (prev == GameState::PAUSED && cur == g_GameManager.pauseResumeState)
+        Audio::Play(Audio::Cue::Resume);
+    prev = cur;
 }
 
 // The tutorial's pause menu: PAUSED whose resume target is the practice field.
@@ -3798,6 +3814,7 @@ int main() {
     // 메인 루프
     // ============================================================
     while (!glfwWindowShouldClose(window)) {
+        PlayStateTransitionAudio();
         s_PlayerBoundsRef = &playerWin;
         float now   = (float)glfwGetTime();
         float delta = now - lastFrame;
@@ -3822,6 +3839,19 @@ int main() {
         if (os_pane::ArrangeMode() && g_GameManager.currentState == GameState::RUNNING)
             delta *= kArrangeSlow;
         lastFrame = now;
+        // Scenes animate on a lightly smoothed frame time: the frame cap's sleep
+        // and spin leave +-1-2 ms of jitter that reads as stutter in eased motion.
+        // Long frames (hitches) pass through so nothing falls behind.
+        float uiDelta = delta;
+        {
+            static float s_uiDt = 1.0f / 60.0f;
+            if (realDelta > 0.0f && realDelta < 0.05f) {
+                s_uiDt += (realDelta - s_uiDt) * 0.2f;
+                if (delta > 0.0f) uiDelta = delta * (s_uiDt / realDelta);
+            } else if (realDelta >= 0.05f) {
+                s_uiDt = realDelta;
+            }
+        }
 
         // ?�래??추적 브레?�크????마�?�??�태�??�겨 강종(E23) ??로그�??�치 ?�정
         {
@@ -4211,6 +4241,13 @@ int main() {
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
                         gm.currentState = GameState::READY;
                         ready_launch::StartLaunch();
+                    } else if (step.rfind("TUTSTEP=", 0) == 0) {
+                        // The lobby tutorial with the first N practice objectives done.
+                        if (gm.currentState != GameState::READY) RestartCurrentRun();
+                        gm.currentState = GameState::READY;
+                        ready_launch::g_TutorialMode = true;
+                        ready_launch::BeginTutorial();
+                        Ready_SmokeCompleteSteps(std::atoi(step.c_str() + 8));
                     } else if (step.rfind("READYSTEP=", 0) == 0) {
                         // READY with the first N practice objectives done.
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
@@ -5023,6 +5060,7 @@ int main() {
             g_GameManager.currentState = GameState::DYING;
             g_GameManager.playerHP     = 0.0f;
             Audio::StopBgm();
+            Audio::Play(Audio::Cue::Death);
             float pCX = playerWin.x + playerWin.width  * 0.5f;
             float pCY = playerWin.y + playerWin.height * 0.5f;
             g_DeathCX = pCX; g_DeathCY = pCY;
@@ -5365,6 +5403,7 @@ int main() {
                                     ccX - halfW, ccX + halfW,
                                     topLimit, ccY + halfH);
                     passive::OnDashStarted();
+                    Audio::Play(Audio::Cue::Dash);
                     TriggerFlash(0.35f, 0.85f, 1.0f, 0.12f);
                     SpawnShockWave(g_PlayerRuntime.dashFromX, g_PlayerRuntime.dashFromY, 70.0f, 0.25f, 0.4f, 1.0f, 1.0f);
                 }
@@ -5512,6 +5551,7 @@ int main() {
                             pulseTarget(m->worldX, m->worldY, *m);
                         for (auto* r : g_MonsterManager.rangedMobs)
                             pulseTarget(r->worldX, r->worldY, *r);
+                        Audio::Play(Audio::Cue::FieldPulse);
                         g_StaticFieldPulseTimer += STATIC_FIELD_PULSE_INTERVAL;
                     }
                 } else {
@@ -5564,6 +5604,7 @@ CollisionSystem::Update(pCX, pCY,
                         // A CAELUM that withdrew for NORMA still has health: no send-off.
                         if (m->kind == MobKind::CAELUM && m->hp <= 0.0f) PlayCaelumFall(m->worldX, m->worldY);
                         m->SpawnDeathEffect((float)now);
+                        if (IsEliteMob(m->kind)) Audio::Play(Audio::Cue::EliteKill);
                         TriggerEliteKillHitStop(*m);
                     }
                 }
@@ -5637,6 +5678,7 @@ CollisionSystem::Update(pCX, pCY,
             g_GameManager.waveTransitionTimer > 0.0f) {
             g_GameManager.waveTransitionTimer = std::max(
                 0.0f, g_GameManager.waveTransitionTimer - delta);
+            if (g_GameManager.waveTransitionTimer <= 0.0f) Audio::Play(Audio::Cue::WaveStart);
         }
         if (g_GameManager.currentState == GameState::RUNNING &&
             g_GameManager.waveClearDelay > 0.0f) {
@@ -5679,6 +5721,7 @@ CollisionSystem::Update(pCX, pCY,
                 if (hpDelta < -0.0001f) {
                     g_HurtVignette = 0.5f;
                     g_HpBarPop = 2.2f;
+                    if (hpNow > 0.0f) Audio::Play(Audio::Cue::Hurt);
                 }
                 g_WinPrevHP = hpNow;
 
@@ -5786,6 +5829,7 @@ CollisionSystem::Update(pCX, pCY,
                                 STARDUST_MIN_HOMING_SECONDS &&
                     dist < STARDUST_PICKUP_RADIUS) {
                     GrantExperience(dust.xpValue);
+                    Audio::Play(Audio::Cue::Pickup);
                     if (PlayEarnsStardust()) {
                         AddSaveValue(g_Coins, dust.value);
                         AddSaveValue(g_RunStardust, dust.value);
@@ -5857,7 +5901,7 @@ CollisionSystem::Update(pCX, pCY,
 
             auto spawnAimed = [&](float tx, float ty) {
                 TriggerMuzzle(pCX, pCY, atan2f(ty - pCY, tx - pCX));
-                Audio::PlaySfx(Audio::Sfx::Shoot);
+                Audio::Play(Audio::Cue::Shoot);
                 spawnOne(tx, ty);
                 passive::OnShot();
             };
@@ -5949,6 +5993,8 @@ CollisionSystem::Update(pCX, pCY,
             TickMenuDim(ds == GameState::RUNNING || ds == GameState::DYING ||
                         ds == GameState::PAUSED || ds == GameState::READY ||
                         ds == GameState::AUG_SELECT,
+                        // the tutorial page; the launch swell eases it to combat
+                        ready_launch::g_TutorialMode && !ready_launch::Launching(),
                         (float)(dimNow - s_dimLastT));
             s_dimLastT = dimNow;
         }
@@ -6390,7 +6436,7 @@ CollisionSystem::Update(pCX, pCY,
                 // ������ ũ�� ����(���?64px) ���� Ŭ���� ���� �������� ����
                 bool sceneLmb = (!g_DebugToolkit.IsInputCaptured() &&
                                  my >= BROWSER_CHROME_H) ? lmb : false;
-                SceneCtx ctx{ sw, sh, mx, my, sceneLmb, delta, window, &fireTimer,
+                SceneCtx ctx{ sw, sh, mx, my, sceneLmb, uiDelta, window, &fireTimer,
                               resetFn, restartRunFn, abandonRunFn,
                               inputFocusChanged };
                 const SceneTextContext sceneText{ g_TextL, g_TextS };
@@ -6590,7 +6636,7 @@ CollisionSystem::Update(pCX, pCY,
             const bool sceneLmb = !g_DebugToolkit.IsInputCaptured() &&
                                   my >= BROWSER_CHROME_H && lmb;
             const SceneCtx ctx{ (float)screenWidth, (float)screenHeight, mx, my,
-                                sceneLmb, delta, window, &fireTimer,
+                                sceneLmb, uiDelta, window, &fireTimer,
                                 ResetForNewGame, RestartCurrentRun, AbandonCurrentRun,
                                 inputFocusChanged };
             const SceneTextContext sceneText{ g_TextL, g_TextS };

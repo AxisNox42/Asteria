@@ -328,6 +328,8 @@ inline int g_MenuDim = kMenuDimDefault;
 inline constexpr float kMenuDimMax = 6.0f;
 // Combat and the other in-run screens take this share of the menu darkness.
 inline constexpr float kCombatDimShare = 0.20f;
+// The tutorial's practice page (and its pause / card screens) is darker.
+inline constexpr float kTutorialDimShare = 0.55f;
 // Black-equivalent alpha of the menu backdrop for a given multiplier: the navy
 // base (0.16 x factor) combined with the extra veil above 1 (0.14 x (factor - 1)),
 // as DrawMenuBackground stacks them.
@@ -364,9 +366,10 @@ inline float CombatDimAlpha(int value) {
 // slider drags therefore fade instead of popping. Ticked once per frame in main.cpp.
 inline float g_MenuDimFactorLive = -1.0f;   // < 0: not initialised yet
 inline float g_CombatDimLive = 0.0f;
-inline void TickMenuDim(bool inRun, float dt) {
+inline void TickMenuDim(bool inRun, bool tutorial, float dt) {
     const float targetFactor = inRun ? 1.0f : MenuDimFactor(g_MenuDim);
-    const float targetCombat = inRun ? CombatDimAlpha(g_MenuDim) : 0.0f;
+    const float share = tutorial ? kTutorialDimShare : kCombatDimShare;
+    const float targetCombat = inRun ? share * MenuDimEquivAlpha(g_MenuDim) : 0.0f;
     if (g_MenuDimFactorLive < 0.0f) {
         g_MenuDimFactorLive = targetFactor;
         g_CombatDimLive = targetCombat;

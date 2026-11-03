@@ -1,0 +1,41 @@
+Asteria — 효과음 출처
+=====================
+
+방향: 묵직한 SF 임팩트 + 선명한 '딱'. 효과음 16개는 Freesound 의 CC0(퍼블릭 도메인) 소리다.
+SFX 마다 후보 20~44개(총 461개, 이전에 쓴 소리 제외)를 모아 분석하고, 무게(80~250 Hz)와 어택 선명함(1~5 kHz)을
+함께 보며 서로 느낌이 비슷한 것을 골랐다 (Docs/Audio/SFX_후보풀_설계.md, 기록 Docs/Audio/sfx_selection.json).
+HQ 미리듣기(128kbps)를 받아 scripts/build_sfx.py 로 다듬었다. 표기 의무는 없지만 교체·추적을 위해 기록한다.
+원본: Docs/Audio/sfx_src/<파일>__<소리ID>.wav
+
+sfx_kill.wav             egomassive — Thud.ogg
+                         https://freesound.org/people/egomassive/sounds/536766/
+enemy_hit.wav            NoisyRedFox — HitSound2 (짧고 단단한 '탁', 자연 감쇠)
+                         https://freesound.org/people/NoisyRedFox/sounds/760563/
+sfx_hurt.wav             stumpbutt — retro taking damage sfx (짧고 둥근 피격, 자연 감쇠)
+                         https://freesound.org/people/stumpbutt/sounds/629656/
+sfx_shoot.wav            D4XX — Laser Shot
+                         https://freesound.org/people/D4XX/sounds/617034/
+sfx_death.wav            noirenex — Power Down
+                         https://freesound.org/people/noirenex/sounds/159399/
+sfx_explode_m.wav        The_Elementus — Low_Mid_End_Void_Energy_Blast_Punch_06
+                         https://freesound.org/people/The_Elementus/sounds/873742/
+sfx_dash.wav             Joao_Janz — Wooden Stick Swing 1_4
+                         https://freesound.org/people/Joao_Janz/sounds/485279/
+sfx_chain_zap.wav        deadrobotmusic — Cool Lil Laser 1
+                         https://freesound.org/people/deadrobotmusic/sounds/643923/
+sfx_pickup_stardust.wav  Leszek_Szary — energy
+                         https://freesound.org/people/Leszek_Szary/sounds/146727/
+skill_cast.wav           SergeyIonov — MnG - Activate.wav
+                         https://freesound.org/people/SergeyIonov/sounds/467400/
+sfx_levelup.wav          LilMati — Powerup 09.wav
+                         https://freesound.org/people/LilMati/sounds/523655/
+ui_confirm.wav           Weak_Hero — mouse click (누름 '딸' + 뗌 '깍')
+                         https://freesound.org/people/Weak_Hero/sounds/790532/
+ui_back.wav              Loyalty_Freak_Music — cancel.mp3
+                         https://freesound.org/people/Loyalty_Freak_Music/sounds/407465/
+ui_hover.wav             원래 게임에 있던 사격음 (git c703f92, 2026-06-07) — 원음 그대로, 앞부분·라우드니스만 정리
+
+ui_deny.wav              mitchelk — FX019
+                         https://freesound.org/people/mitchelk/sounds/136787/
+aug_flip.wav             SpeedY — Clean_Finger_slide_delay.wav
+                         https://freesound.org/people/SpeedY/sounds/8399/

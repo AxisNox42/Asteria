@@ -146,6 +146,7 @@ void AddLine(std::vector<float> pts, Rgb col, float life) {
 }
 
 void AddStrike(float x, float y, Rgb col) {   // a lightning bolt from above
+    Audio::Play(Audio::Cue::Lightning);
     Obj o;
     o.kind = ObjKind::Strike;
     o.x = x; o.y = y;
@@ -335,6 +336,7 @@ void CastBookOfCheats() {
 }
 
 void Cast(int aug) {
+    Audio::Play(Audio::Cue::SkillCast);
     const float px = s.in.px, py = s.in.py;
     float dx, dy;
     AimDir(dx, dy);

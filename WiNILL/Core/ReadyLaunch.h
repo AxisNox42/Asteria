@@ -45,12 +45,18 @@ inline void StartLaunch() {
     else g_LaunchT = kLaunchShrinkSec + kLaunchExpandSec;   // a second press skips ahead
 }
 inline void CancelLaunch() { g_LaunchT = -1.0f; }
+// The tutorial's Easy launch opens only once every step (practice and the card
+// pick) is cleared. A press before that shows a notice for g_LaunchLockedT s.
+inline bool LaunchUnlocked() { return !g_TutorialMode || g_Stage == TutorialStage::Done; }
+inline constexpr float kLaunchLockedSec = 1.8f;
+inline float g_LaunchLockedT = 0.0f;
 
 inline void BeginTutorial() {
     g_LaunchT = -1.0f;
     g_Stage = TutorialStage::Practice;
     g_PicksTaken = false;
     g_FieldResetPending = true;
+    g_LaunchLockedT = 0.0f;
 }
 
 // Set by the main loop for the frames the tutorial card screen is up. The READY scene then only draws, and the card screen is drawn
@@ -61,8 +67,8 @@ inline bool g_SelectionUp = false;
 // field is centred horizontally; SceneReady.cpp lays everything else out from
 // these same values.
 inline constexpr float kCanvasW = 1920.0f, kCanvasH = 1080.0f;
-inline constexpr float kFieldW = 800.0f, kFieldH = 450.0f;
-inline constexpr float kFieldX = (kCanvasW - kFieldW) * 0.5f, kFieldY = 180.0f;
+inline constexpr float kFieldW = 960.0f, kFieldH = 540.0f;
+inline constexpr float kFieldX = (kCanvasW - kFieldW) * 0.5f, kFieldY = 158.0f;
 
 // The practice field's rectangle on a window of sw x sh.
 inline void FieldRect(float sw, float sh, float& x, float& y, float& w, float& h) {

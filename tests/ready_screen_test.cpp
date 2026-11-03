@@ -232,7 +232,7 @@ static void CheckLayout() {
             assert(apart);
         }
     }
-    assert(caps.size() == 104);   // full ANSI keyboard
+    assert(caps.size() == 87);    // tenkeyless ANSI keyboard (no numpad)
     for (int k = 'A'; k <= 'Z'; ++k) assert(seen.count(k));
     for (int k = '0'; k <= '9'; ++k) assert(seen.count(k));
     assert(seen.count(kBindKeySpace) && seen.count(kBindKeyEscape));
@@ -263,7 +263,6 @@ static void CheckRolesFollowBindings() {
 static void CheckLabels() {
     assert(kb::CapLabel('W') == L"W");
     assert(kb::CapLabel(kBindKeyRightShift) == L"Shift");
-    assert(kb::CapLabel(kb::key::Kp0 + 7) == L"7");
     assert(kb::CapLabel(kb::key::Up).empty());
     assert(kb::CapArrow(kb::key::Left).x == -1.0f);
     for (const kb::KeyCap& cap : kb::Layout()) {

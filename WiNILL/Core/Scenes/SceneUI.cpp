@@ -5,6 +5,7 @@
 #include "UiLayout.h"
 #include "Settings.h"
 #include "Translations.h"
+#include "../../System/Audio.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
@@ -252,8 +253,11 @@ static void DrawPanelButtonCore(const wchar_t* label,
 
 }
 
-float UpdateMenuCommandHover(float current, bool hovered, float dt) {
-    const float step = std::min(1.0f, dt * 10.0f);
+float UpdateMenuCommandHover(float current, bool hovered, float dt, bool playSound) {
+    // A command that lights up from rest ticks once; one that is still
+    // fading out from the last hover stays quiet.
+    if (playSound && hovered && current < 0.02f) Audio::Play(Audio::Cue::UiHover);
+    const float step = 1.0f - std::exp(-dt * 10.0f);
     return current + ((hovered ? 1.0f : 0.0f) - current) * step;
 }
 
@@ -373,7 +377,9 @@ bool DrawBottomLeftBackButton(float& hover, float sw, float sh, float uiScale,
                            hover, hov, 0.0f, now,
                            uiScale, true, true, true,
                            kStrings[(int)StrId::BTN_BACK], LANG_COUNT);
-    return hov && lmb && !lmbPrev;
+    const bool clicked = hov && lmb && !lmbPrev;
+    if (clicked) Audio::Play(Audio::Cue::UiConfirm);
+    return clicked;
 }
 
 bool EscPressedEdge(const SceneCtx& c, bool& prev) {
@@ -408,7 +414,9 @@ bool MenuKeyboardNav(const SceneCtx& c, int& focus, int count, bool active,
     };
     if (eUp) step(-1);
     else if (eDown) step(1);
-    return eOk && focus >= 0 && focus < count && (!locked || !locked[focus]);
+    const bool confirmed = eOk && focus >= 0 && focus < count && (!locked || !locked[focus]);
+    if (confirmed) Audio::Play(Audio::Cue::UiConfirm);
+    return confirmed;
 }
 
 float CenterTextX(float containerW, TextRenderer& tr, const wchar_t* text, float scale) {
@@ -428,7 +436,7 @@ bool UIButton(float x, float y, float w, float h, const wchar_t* label,
         ? std::min(0.05f, std::max(0.0f, (float)(now - motion.lastTime)))
         : (1.0f / 60.0f);
     motion.lastTime = now;
-    const float step = std::min(1.0f, dt * 10.0f);
+    const float step = 1.0f - std::exp(-dt * 10.0f);
     motion.hover += ((hover ? 1.0f : 0.0f) - motion.hover) * step;
     const float active = std::max(motion.hover, selected ? 1.0f : 0.0f);
 
@@ -544,8 +552,10 @@ ConfirmChoice DrawConfirmDialog(bool open, const ConfirmText& text,
                                now + 0.2f * (float)i, uiS, true, true, true,
                                variants, 3);
         // The click that opened the dialog must not answer it.
-        if (hov && lmb && !lmbPrev && s_openT > 0.12f)
+        if (hov && lmb && !lmbPrev && s_openT > 0.12f) {
             result = yes ? ConfirmChoice::Yes : ConfirmChoice::No;
+            Audio::Play(Audio::Cue::UiConfirm);
+        }
     }
     return result;
 }

@@ -595,7 +595,7 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         if (toggleHover && lmb && !state.previousLeftMouseDown)
             s_statsOpen = !s_statsOpen;
         const float target = s_statsOpen ? 1.0f : 0.0f;
-        s_statsT += (target - s_statsT) * std::min(1.0f, delta * 10.0f);
+        s_statsT += (target - s_statsT) * (1.0f - std::exp(-delta * 10.0f));
         if (fabsf(target - s_statsT) < 0.002f) s_statsT = target;
         const float openE = Smoothstep(s_statsT);
         const float tA = (toggleHover ? 1.0f : 0.82f) * ge;

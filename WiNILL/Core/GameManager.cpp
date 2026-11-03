@@ -116,8 +116,12 @@ void GameManager::HandleInput(GLFWwindow* window) {
             // Lobby tutorial: Space launches an Easy run with the loadout the
             // TUTORIAL button already set up (ESC opens the tutorial pause menu).
             // The practice wall squeezes and swells out first; the READY scene
-            // starts the run when that animation ends.
-            ready_launch::StartLaunch();
+            // starts the run when that animation ends. Locked until every
+            // tutorial step is cleared.
+            if (ready_launch::LaunchUnlocked())
+                ready_launch::StartLaunch();
+            else
+                ready_launch::g_LaunchLockedT = ready_launch::kLaunchLockedSec;
         } else if (currentState == GameState::RUNNING) {
             // Augment selection opens by itself after a level-up.
             pauseResumeState = GameState::RUNNING;

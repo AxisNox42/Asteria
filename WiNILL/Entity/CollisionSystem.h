@@ -222,6 +222,7 @@ public:
                                                         crit ? bullet.dirX : 0.0f,
                                                         crit ? bullet.dirY : 0.0f);
                 SpawnDamageNumber(monster->worldX, monster->worldY, dealt, crit);
+                if (monster->alive) Audio::Play(Audio::Cue::EnemyHit);
                 const bool regular = !IsBossMob(monster->kind) && !IsEliteMob(monster->kind);
                 if (monster->alive && passive_hooks::executes &&
                     passive_hooks::executes(monster, monster->hp, regular))
@@ -267,6 +268,7 @@ public:
                     stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
                 const float dealt = manager.ApplyDamage(*ranged, baseDamage, shotSpace);
                 SpawnDamageNumber(ranged->worldX, ranged->worldY, dealt, crit);
+                if (ranged->alive) Audio::Play(Audio::Cue::EnemyHit);
                 if (ranged->alive && passive_hooks::executes &&
                     passive_hooks::executes(ranged, ranged->hp, true))
                     manager.ApplyDamage(*ranged, ranged->hp + 1.0f, shotSpace);

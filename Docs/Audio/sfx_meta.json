@@ -1,0 +1,82 @@
+{
+ "ui_hover": {
+  "kind": "external",
+  "source": "원래 게임 사격음 (git c703f92)",
+  "notes": []
+ },
+ "sfx_kill": {
+  "kind": "punch",
+  "source": "freesound:536766",
+  "notes": []
+ },
+ "enemy_hit": {
+  "kind": "punch",
+  "source": "freesound:760563",
+  "notes": []
+ },
+ "sfx_hurt": {
+  "kind": "punch",
+  "source": "freesound:629656",
+  "notes": []
+ },
+ "sfx_shoot": {
+  "kind": "external",
+  "source": "freesound:617034",
+  "notes": []
+ },
+ "sfx_death": {
+  "kind": "external",
+  "source": "freesound:159399",
+  "notes": []
+ },
+ "sfx_explode_m": {
+  "kind": "external",
+  "source": "freesound:873742",
+  "notes": []
+ },
+ "sfx_dash": {
+  "kind": "external",
+  "source": "freesound:485279",
+  "notes": []
+ },
+ "sfx_chain_zap": {
+  "kind": "external",
+  "source": "freesound:643923",
+  "notes": []
+ },
+ "sfx_pickup_stardust": {
+  "kind": "external",
+  "source": "freesound:146727",
+  "notes": []
+ },
+ "skill_cast": {
+  "kind": "external",
+  "source": "freesound:467400",
+  "notes": []
+ },
+ "sfx_levelup": {
+  "kind": "external",
+  "source": "freesound:523655",
+  "notes": []
+ },
+ "ui_confirm": {
+  "kind": "external",
+  "source": "freesound:790532",
+  "notes": []
+ },
+ "ui_back": {
+  "kind": "external",
+  "source": "freesound:407465",
+  "notes": []
+ },
+ "ui_deny": {
+  "kind": "external",
+  "source": "freesound:136787",
+  "notes": []
+ },
+ "aug_flip": {
+  "kind": "external",
+  "source": "freesound:8399",
+  "notes": []
+ }
+}

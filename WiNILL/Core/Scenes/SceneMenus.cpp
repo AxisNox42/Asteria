@@ -56,9 +56,8 @@ bool  s_MainMenuResumeFromPanel = false;
 // slots; this UI state packs enabled definitions into those slots on PLAY.
 
 float UiApproach(float v, float target, float dt, float speed) {
-    float k = dt * speed;
-    if (k > 1.0f) k = 1.0f;
-    return v + (target - v) * k;
+    // Exponential, so the ease looks the same at any frame rate and never overshoots.
+    return v + (target - v) * (1.0f - std::exp(-dt * speed));
 }
 
 // One source of truth for labels that remain visible while a page is being

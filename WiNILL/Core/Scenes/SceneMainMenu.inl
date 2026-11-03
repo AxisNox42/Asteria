@@ -43,6 +43,7 @@ void Scene_MainMenu(const SceneCtx& c) {
 
     // Intro animation (original)
     static float s_introT = 0.0f;
+    static float s_returnT = 1.0f;   // 0..1 button re-entry after coming back from a page
     static int   s_menuSelect = -1;
     static float s_menuExitT  = 0.0f;
     static bool  s_confirmQuit = false;
@@ -59,6 +60,7 @@ void Scene_MainMenu(const SceneCtx& c) {
 
     if (g_MainMenuEntryT <= 0.0f) {
         s_introT = 0.0f;
+        s_returnT = 1.0f;
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
         s_confirmQuit = false;
@@ -74,7 +76,13 @@ void Scene_MainMenu(const SceneCtx& c) {
         s_menuExitT = 0.0f;
         for (int i = 0; i < kMainMenuRouteCount; ++i) kHoverT[i] = 0.0f;
         s_MainMenuResumeFromPanel = false;
+        s_returnT = 0.0f;
     }
+    // Coming back, the page's own ghost route list has already slid the buttons
+    // into place at a dimmed level; the real ones start from that look and settle
+    // to full strength, with no second slide.
+    constexpr float kReturnSpan = 0.30f, kReturnFromA = 0.42f;
+    if (s_returnT < 1.0f) s_returnT = std::min(1.0f, s_returnT + std::min(delta, 0.05f) / kReturnSpan);
     const bool exitActive = (s_menuSelect >= 0);
     const float menuExitDuration = s_menuSelect == kMainMenuExitIndex
         ? 0.52f : kOutgameTransitionDuration;
@@ -201,6 +209,8 @@ void Scene_MainMenu(const SceneCtx& c) {
         const bool hov = ptr;
         float t = kHoverT[i];
         float rowA = reveal * uiA * (locked ? 0.42f : 1.0f);
+        if (s_returnT < 1.0f)
+            rowA *= kReturnFromA + (1.0f - kReturnFromA) * Smoothstep(s_returnT);
         if (exitActive && !selected) rowA *= (1.0f - exitP * 0.86f);
         float slide = (1.0f - reveal) * 34.0f;
         float bx = baseBx + slide - 10.0f * t;
@@ -269,6 +279,7 @@ void Scene_MainMenu(const SceneCtx& c) {
         }
 
         if (((hov && lmb && !g_LmbPrev) || (kbHot && kbConfirm)) && !locked) {
+            if (!kbConfirm) Audio::Play(Audio::Cue::UiConfirm);   // keys already ticked in MenuKeyboardNav
             if (i == kMainMenuExitIndex) {
                 s_confirmQuit = true;   // EXIT asks first
             } else {
