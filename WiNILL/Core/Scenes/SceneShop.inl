@@ -251,6 +251,9 @@ void Scene_Shop(const SceneCtx& c) {
         for (float& v : s_cellSel) v = 0.0f;
     }
     g_ShopEntryT = std::min(1.0f, g_ShopEntryT + dt);
+    // Same side contrast fields as SETTINGS, scaled by the menu darkness setting.
+    DrawPersistentSceneSideVignettes(sw, sh, kWideSceneLinearAlpha *
+                                     std::min(1.0f, g_ShopEntryT * 2.0f));
 
     // ── Input edges and exit ───────────────────────────────────────────
     const bool rawRmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;

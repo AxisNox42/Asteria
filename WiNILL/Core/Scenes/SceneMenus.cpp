@@ -108,13 +108,9 @@ static void DrawInfiniteConstellationField(float sw, float sh, float strength);
 // pause, card picks) always gets 1.0 here, so the pause veil keeps its fixed
 // look; in-run screens take a fixed 20% of the darkness from main.cpp instead. SETTINGS opened from pause counts as a menu.
 static float MenuDimScale() {
-    switch (g_GameManager.currentState) {
-    case GameState::RUNNING: case GameState::DYING: case GameState::PAUSED:
-    case GameState::READY: case GameState::AUG_SELECT:
-        return 1.0f;
-    default:
-        return MenuDimFactor(g_MenuDim);
-    }
+    // Eased in main.cpp (TickMenuDim): 1.0 in-run, the setting elsewhere.
+    return g_MenuDimFactorLive >= 0.0f ? g_MenuDimFactorLive
+                                       : MenuDimFactor(g_MenuDim);
 }
 
 // 메인메뉴·난이도선택 공용 앰비언트 배경 (파티클 + 스캔라인 + 선택적 비네트)

@@ -248,12 +248,14 @@ void ResetView(PracticeView& v) {
 }
 
 void TouchView(PracticeView& v) {
-    // The card pick (tutorial step 5) leaves this scene for a while; the field
-    // must come back as it was.
-    const bool inPicks = ready_launch::g_TutorialMode &&
-                         ready_launch::g_Stage != ready_launch::TutorialStage::Practice;
-    const bool reentered = glfwGetTime() - v.lastSeen > kReenterGap && !inPicks;
-    if (v.lastSeen < 0.0 || reentered) ResetView(v);
+    // The tutorial starts over only when it is opened from the lobby. The card
+    // pick and the settings opened from its pause menu leave this scene for a
+    // while; the field must come back as it was.
+    const bool requested = ready_launch::g_FieldResetPending;
+    ready_launch::g_FieldResetPending = false;
+    const bool reentered = !ready_launch::g_TutorialMode &&
+                           glfwGetTime() - v.lastSeen > kReenterGap;
+    if (v.lastSeen < 0.0 || requested || reentered) ResetView(v);
     v.lastSeen = glfwGetTime();
 }
 
@@ -670,6 +672,13 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
             ready_launch::g_RunIntro = 0.0f;
             ready_launch::g_StartGraceT = ready_launch::kStartGraceSec;
             g_UiShakePx = 0.0f;
+            if (ready_launch::g_PicksTaken) {
+                // The tutorial's card (and its level-up) was only a demonstration:
+                // the run starts from a clean loadout.
+                ready_launch::g_PicksTaken = false;
+                if (c.reset) c.reset();
+                FinalizeLoadout(c, FixedWeaponForSelectedJob());
+            }
             ready_launch::g_TutorialMode = false;
             g_Difficulty = Difficulty::EASY;
             g_GameManager.currentState = GameState::RUNNING;
@@ -723,6 +732,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
             ready_launch::g_Stage = Stage::Done;
             if (!g_TutorialDone) {
                 g_TutorialDone = true;
+                g_TutorialVanishPending = true;   // the lobby glitches TUTORIAL out once
                 SaveGame();
             }
             break;

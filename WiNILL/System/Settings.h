@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include <cmath>
 
 // ── 게임 설정 (런타임 변경 가능, 추후 설정 메뉴) ──
 
@@ -351,6 +352,24 @@ inline float MenuDimEquivAlpha(int value) {
 // Black veil alpha for in-run screens: a fixed share of the menu darkness.
 inline float CombatDimAlpha(int value) {
     return kCombatDimShare * MenuDimEquivAlpha(value);
+}
+
+// Live (eased) darkness. The target depends on the screen: menus use the full
+// setting, in-run screens use factor 1.0 plus the combat veil. Scene changes and
+// slider drags therefore fade instead of popping. Ticked once per frame in main.cpp.
+inline float g_MenuDimFactorLive = -1.0f;   // < 0: not initialised yet
+inline float g_CombatDimLive = 0.0f;
+inline void TickMenuDim(bool inRun, float dt) {
+    const float targetFactor = inRun ? 1.0f : MenuDimFactor(g_MenuDim);
+    const float targetCombat = inRun ? CombatDimAlpha(g_MenuDim) : 0.0f;
+    if (g_MenuDimFactorLive < 0.0f) {
+        g_MenuDimFactorLive = targetFactor;
+        g_CombatDimLive = targetCombat;
+        return;
+    }
+    const float k = 1.0f - std::exp(-5.0f * (dt < 0.0f ? 0.0f : (dt > 0.1f ? 0.1f : dt)));
+    g_MenuDimFactorLive += (targetFactor - g_MenuDimFactorLive) * k;
+    g_CombatDimLive += (targetCombat - g_CombatDimLive) * k;
 }
 
 // Combat elements (bullets, HP/XP rings) sit straight on the desktop.

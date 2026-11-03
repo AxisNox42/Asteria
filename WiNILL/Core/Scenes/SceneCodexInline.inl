@@ -299,57 +299,88 @@ static void Scene_CodexInline(const SceneCtx& c) {
         const wchar_t* label;
         bool seen;
         float r, g, b;
+        int tier;   // signal tier / augment rarity, for sorting and tier jumps
     };
     const bool searchActive = !currentSearch.empty();
     CItem items[512];
     int itemCount = 0;
     auto addGroup = [&](int category, const wchar_t* label, float r, float g, float b) {
-        if (itemCount < 512) items[itemCount++] = { true, category, -1, label, true, r, g, b };
+        if (itemCount < 512) items[itemCount++] = { true, category, -1, label, true, r, g, b, -1 };
     };
     auto addItem = [&](int category, int key, const wchar_t* label, bool seen,
                        const wchar_t* const* searchNames, int searchNameCount,
-                       float r, float g, float b) {
+                       float r, float g, float b, int tier) {
         if (searchActive && (!seen ||
             !CodexSearchMatchesAny(searchNames, searchNameCount))) return;
         if (itemCount < 512)
-            items[itemCount++] = { false, category, key, label, seen, r, g, b };
+            items[itemCount++] = { false, category, key, label, seen, r, g, b, tier };
+    };
+
+    // Records are listed by tier: signals by spawn tier (unknown last), augments
+    // by rarity; ties keep their original order.
+    auto mobTierOf = [](int id) {
+        return std::max(0, std::min(11, CodexMobSpawnTierHalfSteps(id)));
+    };
+    auto augTierOf = [](int i) { return std::max(0, std::min(7, (int)ALL_AUGS[i].rarity)); };
+    // The rosters are static, so the sorted orders are built once.
+    static int s_mobOrder[64], s_mobOrderN = -1;
+    static int s_augOrder[512], s_augOrderN = -1;
+    if (s_mobOrderN < 0) {
+        s_mobOrderN = 0;
+        ForEachCodexMobEntry([&](int id) { if (s_mobOrderN < 64) s_mobOrder[s_mobOrderN++] = id; });
+        std::stable_sort(s_mobOrder, s_mobOrder + s_mobOrderN, [&](int a, int b) {
+            const int ta = mobTierOf(a), tb = mobTierOf(b);
+            return (ta == 0 ? 12 : ta) < (tb == 0 ? 12 : tb);
+        });
+        s_augOrderN = 0;
+        for (int i = 0; i < AUG_TOTAL && s_augOrderN < 512; ++i) s_augOrder[s_augOrderN++] = i;
+        std::stable_sort(s_augOrder, s_augOrder + s_augOrderN,
+                         [&](int a, int b) { return augTierOf(a) < augTierOf(b); });
+    }
+    auto forEachMobByTier = [&](auto&& fn) {
+        for (int k = 0; k < s_mobOrderN; ++k) fn(s_mobOrder[k]);
+    };
+    auto forEachAugByRarity = [&](auto&& fn) {
+        for (int k = 0; k < s_augOrderN; ++k) fn(s_augOrder[k]);
     };
 
     if (searchActive) {
         int groupStart = itemCount;
         addGroup(0, ROOTS[0].label[rootLanguage], 0.48f, 0.82f, 1.00f);
-        ForEachCodexMobEntry([&](int i) {
+        forEachMobByTier([&](int i) {
             const bool nameUnlocked = CodexMobNameUnlocked(i);
             addItem(0, i, CodexMobListLabel(i), nameUnlocked,
                     nameUnlocked ? MobLocalizedNames(i) : nullptr,
                     nameUnlocked ? LANG_COUNT : 0,
-                    0.48f, 0.82f, 1.00f);
+                    0.48f, 0.82f, 1.00f, mobTierOf(i));
         });
         if (itemCount == groupStart + 1) itemCount = groupStart;
 
         groupStart = itemCount;
         addGroup(1, ROOTS[1].label[rootLanguage], 0.62f, 0.52f, 1.00f);
-        for (int i = 0; i < AUG_TOTAL; ++i) {
+        forEachAugByRarity([&](int i) {
             float rr, rg, rb; GetRarityColor(ALL_AUGS[i].rarity, rr, rg, rb);
             addItem(1, i, CodexAugSeen(i) ? AugName(ALL_AUGS[i]) : L"???",
-                    CodexAugSeen(i), ALL_AUGS[i].locName, LANG_COUNT, rr, rg, rb);
-        }
+                    CodexAugSeen(i), ALL_AUGS[i].locName, LANG_COUNT, rr, rg, rb,
+                    augTierOf(i));
+        });
         if (itemCount == groupStart + 1) itemCount = groupStart;
     } else if (s_cat == 0) {
         addGroup(0, L"SIGNAL CLASS", 0.48f, 0.82f, 1.00f);
-        ForEachCodexMobEntry([&](int i) {
+        forEachMobByTier([&](int i) {
             const bool nameUnlocked = CodexMobNameUnlocked(i);
             addItem(0, i, CodexMobListLabel(i), CodexMobSeen(i),
                     nameUnlocked ? MobLocalizedNames(i) : nullptr,
                     nameUnlocked ? LANG_COUNT : 0,
-                    0.48f, 0.82f, 1.00f);
+                    0.48f, 0.82f, 1.00f, mobTierOf(i));
         });
     } else if (s_cat == 1) {
-        for (int i = 0; i < AUG_TOTAL; ++i) {
+        forEachAugByRarity([&](int i) {
             float rr, rg, rb; GetRarityColor(ALL_AUGS[i].rarity, rr, rg, rb);
             addItem(1, i, CodexAugSeen(i) ? AugName(ALL_AUGS[i]) : L"???",
-                    CodexAugSeen(i), ALL_AUGS[i].locName, LANG_COUNT, rr, rg, rb);
-        }
+                    CodexAugSeen(i), ALL_AUGS[i].locName, LANG_COUNT, rr, rg, rb,
+                    augTierOf(i));
+        });
     }
 
     // Count the visible roster, not CM_COUNT: reserved save slots keep enum
@@ -367,7 +398,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
 
     // Per-tier unlock counts for the current category: signals by spawn tier,
     // augments by rarity. Same "seen" rule as the totals above.
-    struct TierStat { wchar_t label[40]; int seen, total; float r, g, b; };
+    struct TierStat { wchar_t label[40]; int seen, total; float r, g, b; int id; };
     TierStat tierRows[12];
     int tierRowCount = 0;
     if (s_cat == 0) {
@@ -384,31 +415,32 @@ static void Scene_CodexInline(const SceneCtx& c) {
             if (v % 2) swprintf_s(num, L"%d.5", v / 2); else swprintf_s(num, L"%d", v / 2);
             swprintf_s(t.label, ShopText(L"티어 %ls", L"TIER %ls", L"ティア %ls"), num);
             t.seen = seenBy[v]; t.total = totalBy[v];
-            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f;
+            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f; t.id = v;
         }
         if (totalBy[0] > 0) {
             TierStat& t = tierRows[tierRowCount++];
             swprintf_s(t.label, L"%ls", ShopText(L"티어 ?", L"TIER ?", L"ティア ?"));
             t.seen = seenBy[0]; t.total = totalBy[0];
-            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f;
+            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f; t.id = 0;
         }
     } else {
         int seenBy[8] = {}, totalBy[8] = {};
         for (int i = 0; i < AUG_TOTAL; ++i) {
-            const int r = std::max(0, std::min(7, (int)ALL_AUGS[i].rarity));
+            const int r = augTierOf(i);
             ++totalBy[r];
             if (CodexAugSeen(i)) ++seenBy[r];
         }
-        static const wchar_t* kRar[3][8] = {
-            { L"일반", L"희귀", L"에픽", L"전설", L"디버프", L"특수", L"조합", L"신화" },
-            { L"COMMON", L"RARE", L"EPIC", L"LEGENDARY", L"DEBUFF", L"SPECIAL", L"COMBO", L"MYTHIC" },
-            { L"コモン", L"レア", L"エピック", L"伝説", L"デバフ", L"特殊", L"コンボ", L"神話" },
+        // Mirrors enum AugRarity (5 grades); MYTHIC is index 4.
+        static const wchar_t* kRar[3][5] = {
+            { L"일반", L"희귀", L"에픽", L"전설", L"신화" },
+            { L"COMMON", L"RARE", L"EPIC", L"LEGENDARY", L"MYTHIC" },
+            { L"コモン", L"レア", L"エピック", L"伝説", L"神話" },
         };
-        for (int r = 0; r < 8; ++r) {
+        for (int r = 0; r < 5; ++r) {
             if (totalBy[r] == 0) continue;
             TierStat& t = tierRows[tierRowCount++];
             swprintf_s(t.label, L"%ls", kRar[rootLanguage][r]);
-            t.seen = seenBy[r]; t.total = totalBy[r];
+            t.seen = seenBy[r]; t.total = totalBy[r]; t.id = r;
             GetRarityColor((AugRarity)r, t.r, t.g, t.b);
         }
     }
@@ -582,6 +614,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
                                         std::min(320.0f * uiS,
                                                  utilityW - 16.0f * uiS));
     const float resultSc = UiTextScale(g_TextS, UiTextLevel::Supporting, uiS);
+    int tierJumpReq = -1;   // tier row clicked this frame: jump to its first record
     if (hasSearch) {
         DrawShadowedText(g_TextS, searchResultSummary, progressBarX, progressTitleY,
                          resultSc, 0.62f, 0.72f, 0.86f, 0.80f * wake, 0.52f);
@@ -592,7 +625,13 @@ static void Scene_CodexInline(const SceneCtx& c) {
         // A track + fill + node under a label row; returns nothing.
         auto drawProgressRow = [&](const wchar_t* label, float labelScale, int seen, int total,
                                    float rowY, float lr, float lg, float lb,
-                                   float cr, float cg, float cb, float a) {
+                                   float cr, float cg, float cb, float a, int tierId = -1) {
+            const float rowH = g_TextS.Height(label, labelScale) + 12.0f * uiS;
+            const bool rowHover = tierId >= 0 && inputReady && mx >= progressBarX &&
+                mx <= progressBarX + progressBarW && my >= rowY - 4.0f * uiS &&
+                my <= rowY + rowH;
+            if (rowHover && lmb && !g_LmbPrev) tierJumpReq = tierId;
+            if (rowHover) a = std::min(1.0f, a + 0.10f);
             DrawShadowedText(g_TextS, label, utilityX, rowY, labelScale,
                              lr, lg, lb, a * wake, 0.54f);
             wchar_t buf[32];
@@ -605,13 +644,15 @@ static void Scene_CodexInline(const SceneCtx& c) {
                              0.86f, 0.92f, 1.00f, 0.88f * a * wake, 0.54f);
             const float trackY = rowY + lh + 7.0f * uiS;
             const float fillW = progressBarW * (total > 0 ? (float)seen / (float)total : 0.0f);
-            DrawVisibleConstellLine(progressBarX, trackY, progressBarX + progressBarW, trackY,
-                                    0.75f * uiS, cr, cg, cb, 0.18f * wake);
+            // Plain lines (no desktop-contrast boost) so the gauge blends with the
+            // darkened backdrop like the text does.
+            LogoLine(progressBarX, trackY, progressBarX + progressBarW, trackY,
+                     0.9f * uiS, cr, cg, cb, 0.20f * wake);
             if (fillW > 0.0f)
-                DrawVisibleConstellLine(progressBarX, trackY, progressBarX + fillW, trackY,
-                                        1.7f * uiS, cr, cg, cb, 0.76f * wake);
-            DrawVisibleConstellNode(progressBarX + fillW, trackY, 2.4f * uiS,
-                                    cr, cg, cb, 0.64f * wake, false);
+                LogoLine(progressBarX, trackY, progressBarX + fillW, trackY,
+                         1.5f * uiS, cr, cg, cb, 0.66f * wake);
+            drawDiamond(progressBarX + fillW, trackY, 2.4f * uiS,
+                        cr, cg, cb, 0.60f * wake);
         };
         // The category's own total first, then its tiers.
         drawProgressRow(catRoot.label[rootLanguage], catScale, unlockSeen[s_cat],
@@ -627,7 +668,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
             const float lr = ts.r + (1.0f - ts.r) * 0.45f, lg = ts.g + (1.0f - ts.g) * 0.45f,
                         lb = ts.b + (1.0f - ts.b) * 0.45f;
             drawProgressRow(ts.label, tierScale, ts.seen, ts.total, rowY,
-                            lr, lg, lb, ts.r, ts.g, ts.b, 0.90f);
+                            lr, lg, lb, ts.r, ts.g, ts.b, 0.90f, ts.id);
             rowY += tierStep;
         }
     }
@@ -778,6 +819,23 @@ static void Scene_CodexInline(const SceneCtx& c) {
     if (overOrbit && g_ScrollAccum != 0.0f)
         stepRequest = g_ScrollAccum > 0.0f ? -1 : 1; // reversed wheel direction
     g_ScrollAccum = 0.0f;
+    // Select a record slot and spin the orbit the short way round to it.
+    auto jumpToSlot = [&](int slot) {
+        float jump = (float)slot - (float)selectedSlot;
+        while (jump > (float)recordSlotCount * 0.5f) jump -= (float)recordSlotCount;
+        while (jump < -(float)recordSlotCount * 0.5f) jump += (float)recordSlotCount;
+        const CItem& target = items[recordSlots[slot]];
+        setCurrentSelection(target.category, target.key);
+        selectedSlot = slot;
+        s_displayTarget[orbitState] += jump;
+    };
+    if (recordSlotCount > 0 && tierJumpReq >= 0) {
+        for (int slot = 0; slot < recordSlotCount; ++slot) {
+            if (items[recordSlots[slot]].tier != tierJumpReq) continue;
+            jumpToSlot(slot);
+            break;
+        }
+    }
     if (recordSlotCount > 0 && stepRequest != 0) {
         selectedSlot = (selectedSlot + stepRequest + recordSlotCount) % recordSlotCount;
         const CItem& next = items[recordSlots[selectedSlot]];
@@ -841,12 +899,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
                          mx >= ax - 80.0f * uiS && mx <= ax + hitW &&
                          my >= ay - hitH * 0.5f && my <= ay + hitH * 0.5f;
         if (hov && lmb && !g_LmbPrev && !s_dragMoved) {
-            float jump = (float)slot - (float)selectedSlot;
-            while (jump > (float)recordSlotCount * 0.5f) jump -= (float)recordSlotCount;
-            while (jump < -(float)recordSlotCount * 0.5f) jump += (float)recordSlotCount;
-            setCurrentSelection(itm.category, itm.key);
-            selectedSlot = slot;
-            s_displayTarget[orbitState] += jump;
+            jumpToSlot(slot);
         }
         const float targetFocus = isSel ? 1.0f : (hov ? 0.72f : 0.0f);
         // Per-record focus smoothing makes the horizontal datum grow/shrink
