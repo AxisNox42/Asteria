@@ -4,6 +4,7 @@
 // main.cpp calls the event functions below; the shared combat headers report
 // through PassiveHooks.h (InstallHooks wires them).
 #include "Augment.h"
+#include <vector>
 
 class Bullet;
 
@@ -24,6 +25,11 @@ bool CanOffer(int augIdx);            // may this card appear in a pick?
 int  Luck();
 float LuckChanceMult();               // chance multiplier from luck
 void Acquire(int augIdx);             // a card was taken
+
+// Cards taken this run, not the level-up stat cards: each card once, in the
+// order first taken, and how many times it was taken (run report).
+const std::vector<int>& AcquiredOrder();
+int AcquiredCount(int augIdx);
 
 struct StepInput {
     float dt = 0.0f;

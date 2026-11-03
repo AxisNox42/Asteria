@@ -94,7 +94,7 @@ static void SpawnScheduledElite(MonsterManager& monsters, int screenWidth,
     const size_t before = monsters.monsters.size();
     // Natural spawns share the wave budget, but have no concurrent population cap.
     monsters.SpawnMob(screenWidth, screenHeight,
-                      (int)before + 1, hpMultiplier);
+                      (int)before + 1, hpMultiplier * kEliteWaveHpMult);
     if (monsters.monsters.size() == before) return;
     Monster& mob = *monsters.monsters.back();
     mob.MakeKind(elite);
@@ -118,15 +118,24 @@ static void SpawnScheduledElite(MonsterManager& monsters, int screenWidth,
 // Drops the elite handle once it is no longer a living member of the field.
 // An Antares lives on in its split fragments: the handle moves to one of them
 // until the last falls, so the wave waits for the whole elite.
+// A body that just fell but has not split yet still stands: its fragments
+// only appear in the next mob update (MonsterManager::SpawnAntaresSplits).
+static bool AntaresStanding(const Monster* mob) {
+    if (mob->kind != MobKind::ANTARES) return false;
+    return mob->alive || (!mob->antaresSplit && !mob->noBlast &&
+                          mob->antaresGen < Monster::ANTARES_MAX_GEN);
+}
+
 static void TrackScheduledElite(const MonsterManager& monsters) {
     const Monster* elite = g_EnemySpawnState.eliteMob;
     if (!elite) return;
+    const bool antares = g_EnemySpawnState.eliteKind == MobKind::ANTARES;
     for (const Monster* mob : monsters.monsters)
-        if (mob == elite && mob->alive) return;
+        if (mob == elite && (mob->alive || (antares && AntaresStanding(mob)))) return;
     g_EnemySpawnState.eliteMob = nullptr;
-    if (g_EnemySpawnState.eliteKind != MobKind::ANTARES) return;
+    if (!antares) return;
     for (const Monster* mob : monsters.monsters)
-        if (mob->alive && mob->kind == MobKind::ANTARES) { g_EnemySpawnState.eliteMob = mob; return; }
+        if (AntaresStanding(mob)) { g_EnemySpawnState.eliteMob = mob; return; }
 }
 
 // A boss enters once per boss wave, at its start, from above the middle of
@@ -314,7 +323,8 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
     }
     const float minutePressure = waveSeconds < 60.0f ? 1.0f
         : waveSeconds < 120.0f ? 1.15f : 1.30f;
-    const float spawnPressure = (1.0f + balance.spawnPressureWave * (wave - 1)) * minutePressure;
+    const float spawnPressure = (1.0f + balance.spawnPressureWave * (wave - 1)) * minutePressure *
+                                WaveSpawnRamp(wave, difficulty);
     // Balance table: the wave band scales the rate; the in-wave curve
     // (average 1) speeds the spawn clocks, so a wave's total stays the same.
     const float balanceRate = WaveBandMult(balance, wave);
@@ -340,7 +350,21 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         return;
     }
 
-    // Regular mobs keep coming, thinned, around the wave's elite.
+    // Regular waves run on their kill quota: no spawn budget, and the field is
+    // refilled at once whenever it runs thin, so faster kills bring more mobs.
+    // Elite waves keep the regular pace around the elite, within the budget.
+    // Regulus is a support elite that lives off its allies, so its wave is
+    // filled like a regular wave and never runs out of mobs.
+    const bool regularWave = IsRegularWave(wave, difficulty);
+    const bool regulusWave = IsEliteWaveNumber(wave, difficulty) &&
+                             ScheduledEliteKind(wave) == MobKind::REGULUS;
+    const bool fillField = regularWave || regulusWave;
+    const bool underBudget = fillField || g_EnemySpawnState.spawnedThisWave < waveSpawnCap;
+    int aliveRegular = 0;
+    if (fillField)
+        for (const Monster* mob : monsters.monsters)
+            aliveRegular += mob->alive && !IsEliteMob(mob->kind) && !IsBossMob(mob->kind);
+    const bool refill = fillField && aliveRegular < RegularWaveMinAlive(wave, difficulty);
     const float bossFight = 1.0f;
     const float bossStretch = std::max(bossFight,
         SpecialWaveSpawnStretch(wave, difficulty, SpawnSource::Regular));
@@ -351,15 +375,15 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         2.4f * balance.spawnInterval * kEnemySpawnIntervalScale *
         bossStretch / std::max(0.01f, spawnPressure * TrialSpawnRateMult(score) *
                                difficultyParams.spawnRateMultiplier * balanceRate));
-    if (g_EnemySpawnState.spawnedThisWave < waveSpawnCap &&
-        g_EnemySpawnState.mobTimer >= spawnInterval) {
+    if (underBudget && (refill || g_EnemySpawnState.mobTimer >= spawnInterval)) {
         const size_t before = monsters.monsters.size();
         monsters.SpawnMob(screenWidth, screenHeight,
                           (int)before + 1, hpMultiplier);
         if (monsters.monsters.size() > before) {
             SpecializeRegularMob(*monsters.monsters.back(), wave, difficulty);
             ++g_EnemySpawnState.spawnedThisWave;
-            g_EnemySpawnState.mobTimer -= spawnInterval;
+            if (g_EnemySpawnState.mobTimer >= spawnInterval)
+                g_EnemySpawnState.mobTimer -= spawnInterval;
         }
     }
 
@@ -376,8 +400,7 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
                         scopeRate * balanceRate) *
         kEnemySpawnIntervalScale * 2.5f * rangedStretch *
         balance.scopeInterval * balance.spawnInterval;
-    if (g_EnemySpawnState.spawnedThisWave < waveSpawnCap &&
-        g_EnemySpawnState.rangedTimer >= rangedInterval) {
+    if (underBudget && g_EnemySpawnState.rangedTimer >= rangedInterval) {
         const size_t before = monsters.rangedMobs.size();
         monsters.SpawnRangedMob(screenWidth, screenHeight,
                                 difficultyParams.enemyHpMultiplier *

@@ -17,8 +17,8 @@
 // (also used by the READY practice field).
 inline constexpr float MONSTER_BULLET_HIT_RADIUS = 15.0f;
 
-// Kill stardust: spawned now, or held on the mob for a delayed death and
-// released on the blast ring (Quasar supernova, Genesis first wave).
+// Kill stardust: spawned now, or held on the mob (Quasar, Genesis) and
+// released by ReleasePendingStardust.
 inline void SpawnKillStardust(Monster& m, int value, float playerCX, float playerCY,
                               XpAmount xp) {
     if (m.kind == MobKind::QUASAR || m.kind == MobKind::GENESIS) {
@@ -217,7 +217,10 @@ public:
                     : 1.0f;
                 const float baseDamage = stats.GetBaseDamage() *
                     stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
-                const float dealt = manager.ApplyDamage(*monster, baseDamage, shotSpace);
+                // Only a crit dents an elite (the shot's direction is the dent's).
+                const float dealt = manager.ApplyDamage(*monster, baseDamage, shotSpace,
+                                                        crit ? bullet.dirX : 0.0f,
+                                                        crit ? bullet.dirY : 0.0f);
                 SpawnDamageNumber(monster->worldX, monster->worldY, dealt, crit);
                 const bool regular = !IsBossMob(monster->kind) && !IsEliteMob(monster->kind);
                 if (monster->alive && passive_hooks::executes &&

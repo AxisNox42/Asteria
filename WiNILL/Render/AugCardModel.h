@@ -33,11 +33,15 @@ struct Layout {
 
 // UiScale (1640×910 base), then shrunk until the row fits 94% of the width
 // and a card 62% of the height (the tutorial's mini card screen is small).
+// A row of three or fewer (the level-up stat pick) has room, so its cards
+// grow by kFewBoost.
+inline constexpr float kFewBoost = 1.18f;
 inline Layout MakeLayout(float sw, float sh, int count) {
     Layout L;
     L.count = std::max(0, std::min(kMaxCards, count));
     float s = std::max(0.70f, std::min(1.35f,
         std::min(sw * 0.94f / 1640.0f, sh * 0.90f / 910.0f)));
+    if (L.count <= 3) s *= kFewBoost;
     const int n = std::max(1, L.count);
     const float rowW = n * kCardW + (n - 1) * kGap;
     s = std::min(s, sw * 0.94f / rowW);
@@ -128,24 +132,37 @@ inline float LineAlpha(const CardPhase& P, int line, float t) {
 }
 
 // ── pick exit (g_AugExitT) ──
-inline constexpr float kExitDur = 1.70f;
+// Short on purpose: combat is frozen under the pick, so a long tail read as
+// slow motion. Everything vanishes while the dim lifts, and the dim's end is
+// the scene's end.
+inline float Smooth01(float t) { t = Clamp01(t); return t * t * (3.0f - 2.0f * t); }
+inline constexpr float kExitDur = 0.95f;
 inline constexpr float kPickPulse = 0.15f;                 // 18 Hz blink on the pick
-inline constexpr float kAbsorbStart = 0.15f, kAbsorbDur = 0.45f, kAbsorbStep = 0.02f;
-inline constexpr float kSceneFadeStart = 1.40f;
-inline float SceneAlpha(float exitT) { return 1.0f - Clamp01((exitT - kSceneFadeStart) / (kExitDur - kSceneFadeStart)); }
+inline constexpr float kPickFade = 0.25f;                  // the pick's frame, after the pulse
+inline constexpr float kAbsorbStart = 0.12f, kAbsorbDur = 0.38f, kAbsorbStep = 0.012f;
+inline constexpr float kAbsorbRing = 0.30f;
+// Card effects fade out over the last stretch, under whatever is still moving.
+inline constexpr float kSceneFadeStart = 0.70f;
+inline float SceneAlpha(float exitT) { return 1.0f - Smooth01((exitT - kSceneFadeStart) / (kExitDur - kSceneFadeStart)); }
+// The dim (backdrop) fades in when the pick opens and out over the exit.
+inline constexpr float kDimIn = 0.35f, kDimOutStart = 0.10f;
+inline float DimIn(float t) { return Smooth01(t / kDimIn); }
+inline float DimOut(float exitT) { return 1.0f - Smooth01((exitT - kDimOutStart) / (kExitDur - kDimOutStart)); }
+// Combat HUD hidden under the pick fades back in as the dim lifts.
+inline float HudReturn(float exitT) { return exitT < 0.0f ? 0.0f : 1.0f - DimOut(exitT); }
 
 // Unpicked cards dissolve into nourishment for the stars: text fades, the
 // frame breaks into fragments in a wave moving away from the pick, and each
-// constellation node rises and settles as a star.
-inline constexpr float kFragLen = 34.0f, kFragLife = 0.55f, kSeedLife = 0.75f;
+// constellation node rises, whitens and goes out.
+inline constexpr float kFragLen = 34.0f, kFragLife = 0.42f, kSeedLife = 0.45f;
 inline float Hash01(unsigned x) {
     x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
     return (float)(x & 0xFFFFFFu) / 16777215.0f;
 }
 inline float TextFade(float exitT) { return 1.0f - Clamp01((exitT - 0.03f) / 0.15f); }
-inline float FragStart(int dist, unsigned seed) { return 0.05f + 0.06f * dist + Hash01(seed) * 0.12f; }
-inline float ConstellFade(int dist, float exitT) { return 1.0f - Clamp01((exitT - 0.12f - 0.06f * dist) / 0.12f); }
-inline float SeedStart(int dist, int node) { return 0.12f + 0.06f * dist + 0.015f * node; }
+inline float FragStart(int dist, unsigned seed) { return 0.05f + 0.04f * dist + Hash01(seed) * 0.08f; }
+inline float ConstellFade(int dist, float exitT) { return 1.0f - Clamp01((exitT - 0.08f - 0.04f * dist) / 0.12f); }
+inline float SeedStart(int dist, int node) { return 0.08f + 0.04f * dist + 0.01f * node; }
 
 // Card outline corners (card-local), clockwise from the top-left cut.
 inline void ChamferCorners(float w, float h, float cut, float* px, float* py) {
@@ -168,7 +185,7 @@ inline const char* FamilyCode(Family f) {
     return k[(int)f];
 }
 
-// "P_FLAME_DEMON_HORNS" / "A_FLAME_FIREBALL" → FLAME (AugDef::name); COUNT if unknown.
+// "P_FLAME_LIMIT_BREAK" / "A_FLAME_PROMINENCE_SHELL" → FLAME (AugDef::name); COUNT if unknown.
 inline Family FamilyFromCode(const char* code) {
     if (!code || (code[0] != 'P' && code[0] != 'A') || code[1] != '_') return Family::COUNT;
     const char* fam = code + 2;

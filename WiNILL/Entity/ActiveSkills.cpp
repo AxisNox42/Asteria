@@ -53,14 +53,14 @@ struct State {
     Slot slots[kSlots];
     bool sealed[kSlots] = {};
     int  nextOrder = 1;
-    int  lastUsedAug = -1;        // Encore's target / Dark Wings repeat
+    int  lastUsedAug = -1;        // Echo Cast's target / Unstable Drive repeat
     int  dayNightUses = 0;
     int  waveKills = 0;
     float ribbonWindow = 0.0f;
     bool  dashWas = false;
     float clock = 0.0f;
     bool keyHeld[kSlots] = {};
-    // Rewind: positions and damage taken over the last few seconds.
+    // Orbital Return: positions and damage taken over the last few seconds.
     struct Pos { float t, x, y; };
     std::deque<Pos> trail;
     std::deque<std::pair<float, float>> damage;
@@ -340,40 +340,40 @@ void Cast(int aug) {
     AimDir(dx, dy);
     const float extra = DamageMult();
     switch (TypeOf(aug)) {
-    case AugType::A_NIGHT_NIGHTSTAR_GRIMOIRE:
+    case AugType::A_NIGHT_STARFALL:
         passive::DamageAll(1500.0f, 0.75f, 0.70f, 1.0f, false, extra);
         break;
-    case AugType::A_NIGHT_SLEEPING_ARROW: {
+    case AugType::A_NIGHT_METEOR_LANCE: {
         Bullet b = SkillShot(px, py, dx, dy, 600.0f, TAG_ARROW, 420.0f, { 0.75f, 0.70f, 1.0f }, 2.6f);
         b.piercing = true;
         g_Bullets.push_back(b);
         break;
     }
-    case AugType::A_CHRONO_REWIND: CastRewind(); break;
-    case AugType::A_CHRONO_COG_SPIN:
+    case AugType::A_CHRONO_ORBITAL_RETURN: CastRewind(); break;
+    case AugType::A_CHRONO_RESONANT_SYNC:
         for (Slot& o : s.slots)
             if (o.aug >= 0 && o.aug != aug) o.cd *= 0.5f;
         passive::Ring(px, py, 90.0f, 0.85f, 0.75f, 1.0f);
         break;
-    case AugType::A_GALE_GUST: CastGust(); break;
-    case AugType::A_SHADOW_KNIFE_FAN:
+    case AugType::A_GALE_STELLAR_GALE: CastGust(); break;
+    case AugType::A_SHADOW_SHARD_VOLLEY:
         for (int i = 0; i < 8; ++i) {
             const float a = kTwoPi * (float)i / 8.0f;
             g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 300.0f,
                                           TAG_KNIFE, 950.0f, { 0.60f, 0.50f, 0.95f }));
         }
         break;
-    case AugType::A_SHADOW_SHADOW_CLONE: {
+    case AugType::A_SHADOW_TWIN_STAR_CLONE: {
         Obj o; o.kind = ObjKind::Clone; o.x = px; o.y = py; o.life = 8.0f;
         o.col = { 0.60f, 0.50f, 0.95f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_STONE_GRANITE_SLAM:
+    case AugType::A_STONE_GRAVITY_SLAM:
         passive::DamageRadius(px, py, 380.0f, 1400.0f, 0.85f, 0.70f, 0.50f, extra);
         passive::ClearEnemyBullets(px, py, 380.0f);
         break;
-    case AugType::A_STONE_BOULDER_WALL: {
+    case AugType::A_STONE_ASTEROID_WALL: {
         Obj o; o.kind = ObjKind::Wall; o.life = 6.0f;
         o.x = px + dx * 130.0f; o.y = py + dy * 130.0f;
         o.x2 = -dy * 120.0f; o.y2 = dx * 120.0f;    // half-extent along the wall
@@ -381,25 +381,25 @@ void Cast(int aug) {
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_FLAME_FIREBALL: {
+    case AugType::A_FLAME_PROMINENCE_SHELL: {
         Bullet b = SkillShot(px, py, dx, dy, 500.0f, TAG_FIREBALL, 800.0f, { 1.0f, 0.45f, 0.15f }, 1.6f);
         b.maxRange = 1100.0f;
         g_Bullets.push_back(b);
         break;
     }
-    case AugType::A_FLAME_METEOR_FALL: {
+    case AugType::A_FLAME_METEOR_BARRAGE: {
         Obj o; o.kind = ObjKind::Meteor; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 1.0f;
         o.col = { 1.0f, 0.45f, 0.15f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_GEM_DIAMOND_PRISM: {
+    case AugType::A_GEM_REFRACTION_CRYSTAL: {
         Obj o; o.kind = ObjKind::Prism; o.x = px; o.y = py; o.life = 4.0f;
         o.col = { 0.75f, 0.95f, 1.0f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_GEM_GARNET_SHARDS: {
+    case AugType::A_GEM_BARRAGE_RECYCLE: {
         const int n = std::min(24, passive::ClearEnemyBullets(px, py, 220.0f));
         for (int i = 0; i < n; ++i) {
             const float a = kTwoPi * passive::Rand01();
@@ -410,42 +410,42 @@ void Cast(int aug) {
         }
         break;
     }
-    case AugType::A_STORM_LIGHTNING_STRIKE: CastLightningStrike(); break;
-    case AugType::A_STORM_THUNDERCLOUD: {
+    case AugType::A_STORM_TRIPLE_BOLT: CastLightningStrike(); break;
+    case AugType::A_STORM_STORM_NEBULA: {
         Obj o; o.kind = ObjKind::Cloud; o.life = 6.0f; o.col = { 0.65f, 0.80f, 1.0f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_LUCK_BOOK_OF_CHEATS: CastBookOfCheats(); break;
-    case AugType::A_LIFE_BLOOM:
+    case AugType::A_LUCK_DICE_OF_FATE: CastBookOfCheats(); break;
+    case AugType::A_LIFE_STARLIGHT_MEND:
         g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 15.0f);
         passive::ClearEnemyBullets(px, py, 220.0f);
         break;
-    case AugType::A_ABYSS_TIDAL_WAVE:
+    case AugType::A_ABYSS_TIDAL_SURGE:
         passive::DamageRadius(px, py, 380.0f, 1200.0f, 0.30f, 0.60f, 1.0f, extra);
         break;
-    case AugType::A_ABYSS_ABYSS_GATE: {
+    case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
         Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f;
         o.col = { 0.55f, 0.35f, 0.95f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_SPARK_DISCHARGE:
+    case AugType::A_SPARK_FORCED_DISCHARGE:
         passive::DamageRadius(px, py, 260.0f, 400.0f, 0.55f, 0.85f, 1.0f, extra);
         for (int i = 0; i < 10; ++i) passive::CountHit();
         break;
     case AugType::A_SPARK_CHAIN_LIGHTNING: CastChainLightning(); break;
-    case AugType::A_FLIGHT_BLINK: CastBlink(); break;
+    case AugType::A_FLIGHT_WARP_JUMP: CastBlink(); break;
     case AugType::A_FLIGHT_COMET_RUSH: CastCometRush(); break;
-    case AugType::A_EDGE_SNIPE: s.snipeT = 0.6f; break;
-    case AugType::A_HERESY_FORBIDDEN_RITE: {
+    case AugType::A_EDGE_PRECISION_SNIPE: s.snipeT = 0.6f; break;
+    case AugType::A_HERESY_LIFE_BURN_BLAST: {
         const float spent = g_GameManager.playerHP * 0.30f;
         g_GameManager.playerHP -= spent;
         passive::DamageAll(100.0f * spent, 0.85f, 0.20f, 0.30f, false, extra);
         break;
     }
-    case AugType::A_HERESY_DAY_AND_NIGHT: CastDayAndNight(); break;
-    case AugType::A_HUNTER_SNARE_TRAP: {
+    case AugType::A_HERESY_DAY_NIGHT_BOUNDARY: CastDayAndNight(); break;
+    case AugType::A_HUNTER_INTERSTELLAR_MINE: {
         int traps = 0;
         for (const Obj& o : s.objs) traps += o.kind == ObjKind::Trap;
         if (traps >= 3) {
@@ -457,8 +457,8 @@ void Cast(int aug) {
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_HUNTER_EXECUTE: CastExecute(aug); break;
-    case AugType::A_PERFORM_SPINNING_HOOP:
+    case AugType::A_HUNTER_PINPOINT_EXECUTION: CastExecute(aug); break;
+    case AugType::A_PERFORM_ORBIT_RING:
         for (int side = -1; side <= 1; side += 2) {
             Obj o; o.kind = ObjKind::Hoop; o.x = px; o.y = py; o.life = 0.9f;
             o.dirX = -dy * (float)side; o.dirY = dx * (float)side;
@@ -466,30 +466,30 @@ void Cast(int aug) {
             s.objs.push_back(o);
         }
         break;
-    case AugType::A_PERFORM_ENCORE:
-        if (s.lastUsedAug >= 0 && TypeOf(s.lastUsedAug) != AugType::A_PERFORM_ENCORE)
+    case AugType::A_PERFORM_ECHO_CAST:
+        if (s.lastUsedAug >= 0 && TypeOf(s.lastUsedAug) != AugType::A_PERFORM_ECHO_CAST)
             Cast(s.lastUsedAug);
         break;
-    case AugType::A_STILL_STILL_TURRET: {
+    case AugType::A_STILL_STARLIGHT_TURRET: {
         Obj o; o.kind = ObjKind::Turret; o.x = px; o.y = py; o.life = 10.0f;
         o.col = { 0.60f, 0.95f, 0.80f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_STILL_MEDITATION: s.meditateT = 0.0f; break;
-    case AugType::A_VEIN_DYNAMITE: {
+    case AugType::A_STILL_CONDENSED_BLAST: s.meditateT = 0.0f; break;
+    case AugType::A_VEIN_TIMED_BOMB: {
         Obj o; o.kind = ObjKind::Dynamite; o.x = px; o.y = py;
         o.x2 = s.in.aimX; o.y2 = s.in.aimY; o.life = 1.0f;
         o.col = { 1.0f, 0.55f, 0.25f };
         s.objs.push_back(o);
         break;
     }
-    case AugType::A_NOVA_SUPERNOVA: {
+    case AugType::A_NOVA_NOVA_BURST: {
         const float pct = std::min(3000.0f, 30.0f * (float)s.waveKills);
         if (pct > 0.0f) passive::DamageAll(pct, 1.0f, 0.95f, 0.75f, false, extra);
         break;
     }
-    case AugType::A_NOVA_STARBURST:
+    case AugType::A_NOVA_STARLIGHT_SCATTER:
         for (int i = 0; i < 12; ++i) {
             const float a = kTwoPi * (float)i / 12.0f;
             g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 150.0f,
@@ -500,38 +500,38 @@ void Cast(int aug) {
     }
 }
 
-// The passive follow-ups of using a skill (not of an Encore recast).
+// The passive follow-ups of using a skill (not of an Echo Cast recast).
 void AfterUse(int aug, int slot) {
     const float cd = CooldownFor(aug);
-    if (Has(AugType::P_CHRONO_GEMINI_NECKLACE) && passive::Chance(0.30f)) {
+    if (Has(AugType::P_CHRONO_DOUBLE_CAST) && passive::Chance(0.30f)) {
         s.slots[slot].cd = 0.0f;
         passive::ChanceTriggered();
     }
-    if (Has(AugType::P_STORM_THUNDERCLAP_GLOVES) && passive::Chance(0.20f)) {
+    if (Has(AugType::P_STORM_MAGNETIC_STORM) && passive::Chance(0.20f)) {
         passive::DamageAll(400.0f, 0.65f, 0.80f, 1.0f);
         passive::ChanceTriggered();
     }
-    if (Has(AugType::P_NIGHT_MOON_PENDANT) && s.moonCd[aug] <= 0.0f) {
+    if (Has(AugType::P_NIGHT_RESONANT_SHOCKWAVE) && s.moonCd[aug] <= 0.0f) {
         s.moonCd[aug] = 12.0f;
         passive::DamageRadius(s.in.px, s.in.py, 220.0f, 800.0f, 0.85f, 0.85f, 1.0f);
     }
-    if (Has(AugType::P_ABYSS_BLACKHOLE_CHARM) && cd >= 10.0f) {
+    if (Has(AugType::P_ABYSS_SINGULARITY_CASCADE) && cd >= 10.0f) {
         const int n = std::min(5, 1 + (int)((cd - 10.0f) / 10.0f));
         for (int i = 0; i < n; ++i) passive::DamageAll(400.0f, 0.55f, 0.35f, 0.95f);
     }
-    if (Has(AugType::P_PERFORM_RIBBONED_STAFF) && s.ribbonWindow > 0.0f) {
+    if (Has(AugType::P_PERFORM_ECLIPSE_COMBO) && s.ribbonWindow > 0.0f) {
         s.ribbonWindow = 0.0f;
         passive::DamageRadius(s.in.px, s.in.py, 380.0f, 700.0f, 1.0f, 0.60f, 0.85f);
     }
-    if (Has(AugType::P_HERESY_DARK_WINGS) && s.lastUsedAug == aug) passive::SwitchOffDarkWings();
-    if (TypeOf(aug) != AugType::A_PERFORM_ENCORE) s.lastUsedAug = aug;
+    if (Has(AugType::P_HERESY_UNSTABLE_DRIVE) && s.lastUsedAug == aug) passive::SwitchOffDarkWings();
+    if (TypeOf(aug) != AugType::A_PERFORM_ECHO_CAST) s.lastUsedAug = aug;
 }
 
 bool TryUse(int slot) {
     Slot& sl = s.slots[slot];
     if (s.sealed[slot] || sl.aug < 0 || sl.cd > 0.0f) return false;
-    if (TypeOf(sl.aug) == AugType::A_STILL_MEDITATION && s.meditateT >= 0.0f) return false;
-    if (TypeOf(sl.aug) == AugType::A_EDGE_SNIPE && s.snipeT >= 0.0f) return false;
+    if (TypeOf(sl.aug) == AugType::A_STILL_CONDENSED_BLAST && s.meditateT >= 0.0f) return false;
+    if (TypeOf(sl.aug) == AugType::A_EDGE_PRECISION_SNIPE && s.snipeT >= 0.0f) return false;
     sl.cd = sl.cdMax = CooldownFor(sl.aug);
     Cast(sl.aug);
     AfterUse(sl.aug, slot);
@@ -667,7 +667,7 @@ void StepObjects(float dt) {
                 if (std::find(o.hits.begin(), o.hits.end(), (const void*)&e) != o.hits.end()) return;
                 o.hits.push_back(&e);
                 float dmg = 300.0f;
-                if (Has(AugType::P_SHADOW_SHADOW_BRACELET)) dmg *= 1.30f;
+                if (Has(AugType::P_SHADOW_MULTI_HIT_AMP)) dmg *= 1.30f;
                 HitOne(e, dmg);
                 passive::CountHit();
             });
@@ -727,26 +727,26 @@ void SealSlot() {
 float CooldownFor(int augIdx) {
     const AugDef& d = ALL_AUGS[augIdx];
     float base = d.cooldown;
-    if (d.type == AugType::A_ABYSS_TIDAL_WAVE) {
+    if (d.type == AugType::A_ABYSS_TIDAL_SURGE) {
         base = 10.0f;
         for (const Slot& o : s.slots)
             if (o.aug >= 0 && o.aug != augIdx) base = std::max(base, CooldownFor(o.aug));
         return base;
     }
-    if (Has(AugType::P_CHRONO_TIMEMAGE_CAP) && base <= 12.0f) return 7.0f;
+    if (Has(AugType::P_CHRONO_TIME_COMPRESSOR) && base <= 12.0f) return 7.0f;
     float cd = base;
-    if (Has(AugType::P_NIGHT_PAJAMA_CAP)) cd -= 1.0f;
+    if (Has(AugType::P_NIGHT_DWARF_COOLING)) cd -= 1.0f;
     if (passive::FirescaleOn()) cd -= 3.0f;
-    if (Has(AugType::P_ABYSS_OCCULT_DAGGER)) cd += 5.0f;
+    if (Has(AugType::P_ABYSS_OVERCHARGED_CAST)) cd += 5.0f;
     if (passive::DarkWingsOn()) cd -= 2.0f;
     return std::max(1.0f, cd);
 }
 
 float DamageMult() {
     float m = 1.0f;
-    if (Has(AugType::P_ABYSS_OCCULT_DAGGER)) m *= 1.80f;
+    if (Has(AugType::P_ABYSS_OVERCHARGED_CAST)) m *= 1.80f;
     if (passive::RubyIntact()) m *= 1.80f;
-    if (Has(AugType::P_LUCK_ROYAL_SCEPTER))
+    if (Has(AugType::P_LUCK_WEALTH_AMP))
         m *= 1.0f + std::min(1.0f, 0.01f * (float)std::max(0LL, g_RunStardust));
     return m;
 }
@@ -773,7 +773,7 @@ void OnPlayerBullet(const Bullet& shot) {
         Bullet b = shot;
         const float offX = o.x - s.in.px, offY = o.y - s.in.py;
         b.x += offX; b.y += offY; b.prevX = b.x; b.prevY = b.y;
-        b.dmgMult *= 0.5f * (Has(AugType::P_SHADOW_SHADOW_BRACELET) ? 1.30f : 1.0f);
+        b.dmgMult *= 0.5f * (Has(AugType::P_SHADOW_MULTI_HIT_AMP) ? 1.30f : 1.0f);
         b.color = glm::vec3(0.60f, 0.50f, 0.95f);
         b.blastOnHit = false;
         g_Bullets.push_back(b);
@@ -785,7 +785,7 @@ void OnSkillBulletHit(const Bullet& bullet, float x, float y, bool killed) {
     case TAG_KNIFE:
         if (killed) {
             for (int i = 0; i < kSlots; ++i)
-                if (s.slots[i].aug >= 0 && TypeOf(s.slots[i].aug) == AugType::A_SHADOW_KNIFE_FAN)
+                if (s.slots[i].aug >= 0 && TypeOf(s.slots[i].aug) == AugType::A_SHADOW_SHARD_VOLLEY)
                     s.slots[i].cd = std::max(0.0f, s.slots[i].cd - 1.0f);
         }
         break;
@@ -825,7 +825,7 @@ void Step(const StepInput& in) {
     const float dt = in.dt;
     s.clock += dt;
 
-    // Rewind's 3s history.
+    // Orbital Return's 3s history.
     s.trail.push_back({ s.clock, in.px, in.py });
     while (!s.trail.empty() && s.trail.front().t < s.clock - 3.0f) s.trail.pop_front();
     while (!s.damage.empty() && s.damage.front().first < s.clock - 3.0f) s.damage.pop_front();
@@ -842,7 +842,7 @@ void Step(const StepInput& in) {
         if (press || (in.autoUse && s.slots[i].cd <= 0.0f)) TryUse(i);
     }
 
-    // Snipe: fire when the aim time runs out.
+    // Precision Snipe: fire when the aim time runs out.
     if (s.snipeT >= 0.0f) {
         s.snipeT -= dt;
         if (s.snipeT < 0.0f) {
@@ -856,7 +856,7 @@ void Step(const StepInput& in) {
             g_Bullets.push_back(b);
         }
     }
-    // Meditation: charge while still; moving or 2s sets it off.
+    // Condensed Blast: charge while still; moving or 2s sets it off.
     if (s.meditateT >= 0.0f) {
         s.meditateT += dt;
         if (in.moving || s.meditateT >= 2.0f) {
@@ -949,7 +949,7 @@ void DrawWorld(float time) {
             break;
         }
     }
-    // Snipe aim line and Meditation charge.
+    // Precision Snipe aim line and Condensed Blast charge.
     if (s.snipeT >= 0.0f) {
         float dx, dy;
         AimDir(dx, dy);

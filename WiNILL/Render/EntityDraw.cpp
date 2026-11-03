@@ -46,6 +46,93 @@ static void drawLineQuad(float x1, float y1, float x2, float y2, float width,
     BatchTri(x1 + px, y1 + py, x2 - px, y2 - py, x1 - px, y1 - py, r, g, b, a);
 }
 
+// Elite hit feel, body only: everything batched while the scope lives is
+// re-posed when it closes. The body swells about its centre, the side the
+// shot came from dents in along the shot, and the hit flash lands on the
+// outer contour while inner lines keep most of their colour (elite bodies
+// skip ApplyMobHitFlash for this). Pattern telegraphs are drawn outside the
+// scope so they never move; damp < 1 softens the swell while one is up.
+class EliteHitFxScope {
+public:
+    EliteHitFxScope(const Monster* m, float cx, float cy, float damp = 1.0f)
+        : m_(m), cx_(cx), cy_(cy), damp_(damp), start_(g_Batch.size()) {}
+    ~EliteHitFxScope() { Apply(); }
+    EliteHitFxScope(const EliteHitFxScope&) = delete;
+    EliteHitFxScope& operator=(const EliteHitFxScope&) = delete;
+
+private:
+    static constexpr float kSwell = 0.05f;          // peak scale gain
+    static constexpr float kInnerFlash = 0.22f;     // inner lines' share of the flash
+    static float Smooth(float t) { return t * t * (3.0f - 2.0f * t); }
+    static float SmoothRange(float a, float b, float v) {
+        return Smooth(std::clamp((v - a) / (b - a), 0.0f, 1.0f));
+    }
+
+    void Apply() const {
+        const size_t end = g_Batch.size();
+        if (end <= start_ || (end - start_) % 18 != 0) return;     // flushed or ragged
+        const float swell = Smooth(std::clamp(m_->eliteHitSwell, 0.0f, 1.0f));
+        const float dent = Smooth(std::clamp(m_->eliteHitDent, 0.0f, 1.0f));
+        const float flashT = std::clamp(m_->hitFlashTimer / MOB_HIT_FLASH_TIME, 0.0f, 1.0f);
+        const float white = flashT * flashT;
+        const float shakeLeft = std::clamp(m_->eliteHitShake / Monster::ELITE_HIT_SHAKE_TIME,
+                                           0.0f, 1.0f);
+        if (swell <= 0.0f && dent <= 0.0f && white <= 0.0f && shakeLeft <= 0.0f) return;
+
+        float* v = g_Batch.data();
+        float maxR2 = 0.0f;
+        for (size_t i = start_; i < end; i += 6) {
+            const float dx = v[i] - cx_, dy = v[i + 1] - cy_;
+            maxR2 = std::max(maxR2, dx * dx + dy * dy);
+        }
+        const float maxR = std::sqrt(maxR2);
+        if (maxR < 1.0f) return;
+
+        const float scale = 1.0f + kSwell * swell * damp_;
+        const float hx = m_->eliteHitDirX, hy = m_->eliteHitDirY;
+        const float dentPx = std::clamp(maxR * 0.04f, 1.5f, 3.5f) * dent;
+        // Crit rattle: the whole body jitters and settles, like the Antares ram stun.
+        const float shakeT = Monster::ELITE_HIT_SHAKE_TIME - m_->eliteHitShake;
+        const float shakeAmp = std::clamp(maxR * 0.035f, 1.5f, 3.0f) *
+                               shakeLeft * shakeLeft * (0.5f + 0.5f * damp_);
+        const float shakeX = sinf(shakeT * 71.0f) * shakeAmp;
+        const float shakeY = cosf(shakeT * 53.0f) * shakeAmp;
+        for (size_t tri = start_; tri < end; tri += 18) {
+            // Flash weight per triangle, so a line quad never splits in colour.
+            const float mx = (v[tri] + v[tri + 6] + v[tri + 12]) / 3.0f - cx_;
+            const float my = (v[tri + 1] + v[tri + 7] + v[tri + 13]) / 3.0f - cy_;
+            const float outer = SmoothRange(0.70f, 0.88f, std::sqrt(mx * mx + my * my) / maxR);
+            const float w = white * (kInnerFlash + (1.0f - kInnerFlash) * outer);
+            for (size_t i = tri; i < tri + 18; i += 6) {
+                float dx = v[i] - cx_, dy = v[i + 1] - cy_;
+                const float len = std::sqrt(dx * dx + dy * dy);
+                dx *= scale;
+                dy *= scale;
+                if (dentPx > 0.0f && len > 1e-3f) {
+                    const float facing = -(dx * hx + dy * hy) / (len * scale);
+                    const float k = SmoothRange(0.30f, 0.95f, facing) * (len / maxR);
+                    dx += hx * dentPx * k;
+                    dy += hy * dentPx * k;
+                }
+                v[i] = cx_ + dx + shakeX;
+                v[i + 1] = cy_ + dy + shakeY;
+                // Dark under-strokes stay dark: the flash scales with brightness.
+                if (w > 0.0f) {
+                    const float lum = std::max({ v[i + 2], v[i + 3], v[i + 4] });
+                    const float k = w * std::min(1.0f, lum * 3.0f);
+                    v[i + 2] += (1.0f - v[i + 2]) * k;
+                    v[i + 3] += (1.0f - v[i + 3]) * k;
+                    v[i + 4] += (1.0f - v[i + 4]) * k;
+                }
+            }
+        }
+    }
+
+    const Monster* m_;
+    float cx_, cy_, damp_;
+    size_t start_;
+};
+
 void DrawApproachOrb(float x, float y, float visualTime) {
     const float pulse = 0.5f + 0.5f * sinf(visualTime * 4.0f);
     const float phase = visualTime * 0.65f;
@@ -649,7 +736,6 @@ static void DrawThrownBlastZone(float x, float y, float alpha, float timer,
 static void DrawGenesisLauncher(const Monster* m, float base, float t) {
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
     ApplyMobStyleTint(cr, cg, cb);
-    ApplyMobHitFlash(cr, cg, cb, m->hitFlashTimer);
     // Genesis' own colour family (shared with the enemies it controls).
     const float pR = Monster::GENESIS_PRODUCTION.r, pG = Monster::GENESIS_PRODUCTION.g, pB = Monster::GENESIS_PRODUCTION.b;
     const float hR = Monster::GENESIS_HEAT.r, hG = Monster::GENESIS_HEAT.g, hB = Monster::GENESIS_HEAT.b;
@@ -692,6 +778,7 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
             DrawThrownBlastZone(ex, ey, a, -1.0f);
         }
     }
+    EliteHitFxScope hitFx(m, x, y, aimLocked ? 0.4f : 1.0f);
 
     // Shells. kSlot is the charge order (rear shell 1 first); throws go in
     // reverse slot order, so the pair flanking the muzzle leaves first.
@@ -1266,7 +1353,6 @@ static void DrawAntares(const Monster* m, float base) {
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
     ApplyMobStyleTint(cr, cg, cb);
     const float ghostR = cr, ghostG = cg, ghostB = cb;
-    ApplyMobHitFlash(cr, cg, cb, m->hitFlashTimer);
     const float x = m->worldX, y = m->worldY;
     const bool skidding = m->antaresState == State::SKID;
     const bool topSpeed = m->AntaresStage() == 4 && !skidding;
@@ -1310,6 +1396,7 @@ static void DrawAntares(const Monster* m, float base) {
         shakeX = sinf(m->antaresStateTimer * 71.0f) * amp;
         shakeY = cosf(m->antaresStateTimer * 53.0f) * amp;
     }
+    EliteHitFxScope hitFx(m, x, y);     // the body only; the afterimages stay put
     AntaresFrameStyle body{ cr, cg, cb, 0.94f };
     body.pushX = -headX * pushPx + shakeX;
     body.pushY = -headY * pushPx + shakeY;
@@ -1619,7 +1706,6 @@ static void DrawEllipseLoop(float cx, float cy, float th, float a, float b,
 static void DrawQuasarBody(const Monster* m, float base, float t,
                            float charge, float cr, float cg, float cb) {
     const float x = m->worldX, y = m->worldY;
-    ApplyMobHitFlash(cr, cg, cb, m->hitFlashTimer);
     const float liteR = cr + (1.0f - cr) * 0.55f;
     const float liteG = cg + (1.0f - cg) * 0.55f;
     const float liteB = cb + (1.0f - cb) * 0.55f;
@@ -3085,91 +3171,45 @@ void drawMob(const Monster* m, float visualTime) {
             g_BatchAlpha = batchSaved;
         }
 
-        DrawQuasarBody(m, base, visualTime, charge, cr, cg, cb);
+        {
+            const bool telegraph = pre > 0.0f ||
+                (m->quasarState >= 1 && m->quasarState <= 3);
+            EliteHitFxScope hitFx(m, x, y, telegraph ? 0.4f : 1.0f);
+            DrawQuasarBody(m, base, visualTime, charge, cr, cg, cb);
+        }
         DrawQuasarFall(m, cr, cg, cb);
         DrawQuasarEruption(m, cr, cg, cb);
     } else if (m->kind == MobKind::GIMBAL) {
-        // Gimbal (clamp): two facing ( ) brackets hold a diamond lens on a pin
-        // axis. The lens flips about that axis (gimbalVisualAngle), faster and
-        // faster while charging, as the brackets close in; it fires face-on
-        // and the brackets snap open. Scope keeps the round ring language.
+        // Gimbal: a four-point concave star that spins (gimbalVisualAngle),
+        // faster and faster while charging; it flashes white as it fires.
         float bodyR = m->color.r, bodyG = m->color.g, bodyB = m->color.b;
         ApplyMobStyleTint(bodyR, bodyG, bodyB);
         ApplyMobHitFlash(bodyR, bodyG, bodyB, m->hitFlashTimer);
         const float x = m->worldX, y = m->worldY;
         const float offset = (float)((size_t)m % 628) * 0.01f;
-        const float clampSpin = visualTime * 0.30f + offset;
-        const float flip = m->gimbalVisualAngle + offset;
+        const float spin = m->gimbalVisualAngle + offset;
         const bool burst = m->gimbalBursting;
         const float charge = m->gimbalCharging
             ? std::min(1.0f, m->gimbalChargeAngle /
                 (6.2831853f * Monster::GIMBAL_CHARGE_ROTATIONS))
             : (burst ? 1.0f : 0.0f);
         const float pulse = burst ? 0.5f + 0.5f * sinf(m->gimbalBurstTimer * 40.0f) : 0.0f;
-        const float snapOpen = burst
-            ? std::max(0.0f, 1.0f - m->gimbalBurstTimer / 0.35f) : 0.0f;
-        const float R = base * 1.15f;
-        const float ca = cosf(clampSpin), sa = sinf(clampSpin);
-        auto L = [&](float lx, float ly, float& ox, float& oy) {
-            ox = x + lx * ca - ly * sa;
-            oy = y + lx * sa + ly * ca;
-        };
+        const float tipR = base * 1.55f;
+        const float dentR = tipR * 0.40f;
         const float liteR = bodyR + (1.0f - bodyR) * 0.45f;
         const float liteG = bodyG + (1.0f - bodyG) * 0.45f;
         const float liteB = bodyB + (1.0f - bodyB) * 0.45f;
-
-        // Brackets: double contour with flat cut ends and a pin node.
-        const float gap = R * (0.48f - 0.16f * charge * (burst ? 0.0f : 1.0f) + 0.16f * snapOpen);
-        for (int s = -1; s <= 1; s += 2) {
-            const float cx = gap * (float)s;
-            float px = 0, py = 0, qx = 0, qy = 0;
-            for (int i = 0; i < 16; ++i) {
-                const float t0 = -1.15f + 2.30f * (float)i / 16.0f;
-                const float t1 = -1.15f + 2.30f * (float)(i + 1) / 16.0f;
-                L(cx + (float)s * R * 0.50f * cosf(t0), R * 0.95f * sinf(t0), px, py);
-                L(cx + (float)s * R * 0.50f * cosf(t1), R * 0.95f * sinf(t1), qx, qy);
-                drawLineQuad(px, py, qx, qy, 1.6f, bodyR, bodyG, bodyB, 0.90f + 0.10f * charge);
-            }
-            for (int i = 0; i < 14; ++i) {
-                const float t0 = -1.0f + 2.0f * (float)i / 14.0f;
-                const float t1 = -1.0f + 2.0f * (float)(i + 1) / 14.0f;
-                L(cx + (float)s * R * 0.43f * cosf(t0), R * 0.82f * sinf(t0), px, py);
-                L(cx + (float)s * R * 0.43f * cosf(t1), R * 0.82f * sinf(t1), qx, qy);
-                drawLineQuad(px, py, qx, qy, 0.85f, bodyR, bodyG, bodyB, 0.40f + 0.25f * charge);
-            }
-            for (int e = -1; e <= 1; e += 2) {
-                L(cx + (float)s * R * 0.50f * cosf(1.15f), R * 0.95f * sinf(1.15f) * (float)e, px, py);
-                L(cx + (float)s * R * 0.43f * cosf(1.0f), R * 0.82f * sinf(1.0f) * (float)e, qx, qy);
-                drawLineQuad(px, py, qx, qy, 1.2f, bodyR, bodyG, bodyB, 0.85f);
-            }
-            L(cx + (float)s * R * 0.50f, 0.0f, px, py);
-            DrawEnemyNode({px, py, base * (0.14f + 0.02f * charge),
-                           0.82f + 0.18f * charge}, bodyR, bodyG, bodyB, 0.92f);
-        }
-        // Pin axis between the brackets.
-        {
-            float ax, ay, bx, by;
-            L(-gap - R * 0.44f, 0.0f, ax, ay);
-            L(gap + R * 0.44f, 0.0f, bx, by);
-            drawLineQuad(ax, ay, bx, by, 0.8f, bodyR, bodyG, bodyB, 0.22f + 0.20f * charge);
-        }
-        // Diamond lens flipping about the pin axis: its height follows
-        // |cos(flip)|, so it reads edge-on <-> face-on.
-        {
-            const float hw = R * 0.50f;
-            const float hh = R * 0.58f * (0.12f + 0.88f * fabsf(cosf(flip)));
-            const float lr = burst ? 1.0f : bodyR + (liteR - bodyR) * charge;
-            const float lg = burst ? 1.0f : bodyG + (liteG - bodyG) * charge;
-            const float lb = burst ? 1.0f : bodyB + (liteB - bodyB) * charge;
-            const float vx[4] = { hw, 0.0f, -hw, 0.0f }, vy[4] = { 0.0f, hh, 0.0f, -hh };
-            for (int k = 0; k < 4; ++k) {
-                const int n = (k + 1) % 4;
-                float ax, ay, bx, by;
-                L(vx[k], vy[k], ax, ay);  L(vx[n], vy[n], bx, by);
-                drawLineQuad(ax, ay, bx, by, 1.5f, lr, lg, lb, 0.95f);
-                L(vx[k] * 0.55f, vy[k] * 0.55f, ax, ay);  L(vx[n] * 0.55f, vy[n] * 0.55f, bx, by);
-                drawLineQuad(ax, ay, bx, by, 0.85f, bodyR, bodyG, bodyB, 0.40f + 0.30f * charge);
-            }
+        const float lr = burst ? 1.0f : bodyR + (liteR - bodyR) * charge;
+        const float lg = burst ? 1.0f : bodyG + (liteG - bodyG) * charge;
+        const float lb = burst ? 1.0f : bodyB + (liteB - bodyB) * charge;
+        for (int k = 0; k < 8; ++k) {
+            const float a0 = spin + 0.7853982f * (float)k;
+            const float a1 = spin + 0.7853982f * (float)(k + 1);
+            const float r0 = (k & 1) ? dentR : tipR;
+            const float r1 = (k & 1) ? tipR : dentR;
+            drawLineQuad(x + cosf(a0) * r0, y + sinf(a0) * r0,
+                         x + cosf(a1) * r1, y + sinf(a1) * r1,
+                         1.6f, lr, lg, lb, 0.95f);
         }
         if (burst) {
             drawCircle(x, y, base * (1.5f + 0.25f * pulse),
@@ -3186,8 +3226,8 @@ void drawMob(const Monster* m, float visualTime) {
         const float savedBatchAlpha = g_BatchAlpha;
         float bodyR = m->color.r, bodyG = m->color.g, bodyB = m->color.b;
         ApplyMobStyleTint(bodyR, bodyG, bodyB);
-        ApplyMobHitFlash(bodyR, bodyG, bodyB, m->hitFlashTimer);
         const float x = m->worldX, y = m->worldY;
+        EliteHitFxScope hitFx(m, x, y);
         const float phase = m->regulusVisualAngle +
                             (float)((size_t)m % 628u) * 0.01f;
         const float ratio = m->regulusShield.hp /

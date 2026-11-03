@@ -15,6 +15,8 @@
 #include "Achievements.h"
 #include "Codex.h"
 #include "Augment.h"
+#include "PassiveAugments.h"
+#include "../../Render/AugCardModel.h"
 #include "PlayerStats.h"
 #include "RunStats.h"
 #include "Weapons.h"
@@ -448,9 +450,16 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         static float s_statsT = 0.0f;
         static bool s_rowsValid = false;
         static StatRow s_rows[kMetricCount];
+        static int s_descAug = -1;
+        static float s_descT = 0.0f;
         if (gof < 0.05f) {
             s_statsOpen = false; s_statsT = 0.0f; s_rowsValid = false;
+            s_descAug = -1; s_descT = 0.0f;
         }
+        // Cards taken this run (the level-up stat cards are left out).
+        const std::vector<int>& taken = passive::AcquiredOrder();
+        const int nTaken = (int)taken.size();
+        constexpr int kDescLines = 3;
         if (!s_rowsValid) { BuildStatRows(s_rows); s_rowsValid = true; }
 
         const bool statRowShown[kMetricCount] = { true, true, true, true, true, true };
@@ -459,20 +468,34 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
 
         // The panel is a vertical stack; when it would run off the bottom the
         // graphic parts (player, cells, gaps) shrink, text stays at its size.
+        // The panel is a vertical stack; when it would run off the bottom the
+        // graphic parts (player, cells) shrink, text stays at its size.
         float k = 1.0f;
         float shellSize = 0, shellR = 0, shellCy = 0;
+        float augLabY = 0, augRuleY = 0, gridY = 0, cell = 0;
+        int cols = 1, shown = 0;
         float toggleY = 0, toggleRuleY = 0, tableY0 = 0, rowH = 0;
         for (int pass = 0; pass < 12; ++pass) {
             shellSize = 25.0f * 2.2f * uiS * k;
             shellR = shellSize * 1.2f;
             shellCy = top + shellR;
             // Below the outer orbit arc, so the label never sits on a ring.
-            toggleY = shellCy + shellR * 1.30f + 10.0f * uiS * k;
+            augLabY = shellCy + shellR * 1.30f + 10.0f * uiS * k;
+            augRuleY = augLabY + labH + 8.0f * uiS * k;
+            gridY = augRuleY + 10.0f * uiS * k;
+            cell = 64.0f * uiS * k;
+            cols = std::max(1, (int)(panelW / cell));
+            const int maxCells = cols * 3;
+            shown = nTaken > maxCells ? maxCells - 1 : nTaken;
+            const int cells = std::max(1, std::min(nTaken, maxCells));
+            const float gridH = (float)((cells + cols - 1) / cols) * cell;
+            toggleY = gridY + gridH + 12.0f * uiS * k;
             toggleRuleY = toggleY + labH + 8.0f * uiS * k;
             tableY0 = toggleRuleY + 12.0f * uiS * k;
             rowH = labH + 6.0f * uiS * k;
-            const float tableBottom = tableY0 + (float)statRows * rowH;
-            if (tableBottom <= sh - 24.0f || k <= 0.50f) break;
+            const float bottom = tableY0 + (float)statRows * rowH + 14.0f * uiS * k +
+                                 labH * 1.3f + (float)kDescLines * (labH + 3.0f * uiS * k);
+            if (bottom <= sh - 24.0f || k <= 0.50f) break;
             k -= 0.04f;
         }
 
@@ -487,6 +510,82 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
                              accentR, accentG, accentB, 1.0f * uiS, 0.22f * ge);
         DrawPlayerWeaponShell(shellCx, shellCy, shellSize, now * 0.6f, now);
         BatchFlush();
+
+        // Cards taken this run, as their family constellations in the
+        // rarity colour; hovering one explains it below the stats.
+        static const wchar_t* kTakenLabel[LANG_COUNT] = {
+            L"\uC5BB\uC740 \uC99D\uAC15", L"AUGMENTS TAKEN", L"\u7372\u5F97\u3057\u305F\u5F37\u5316" };
+        static const wchar_t* kNoneLabel[LANG_COUNT] = {
+            L"\uC5C6\uC74C", L"NONE", L"\u306A\u3057" };
+        lab.r->Draw(kTakenLabel[li], Snap(panelX), Snap(augLabY), lab.scale,
+                    accentR, accentG, accentB, 0.92f * ge);
+        LogoLine(panelX, augRuleY, panelX + panelW, augRuleY,
+                 1.0f, accentR, accentG, accentB, 0.24f * ge);
+        const bool canHoverCards = gof >= 0.9f && !skippedCinematic;
+        int hoverAug = -1;
+        if (nTaken == 0) {
+            lab.r->Draw(kNoneLabel[li], Snap(panelX), Snap(gridY + cell * 0.5f - labH * 0.5f),
+                        lab.scale, 0.64f, 0.76f, 0.88f, 0.70f * ge);
+        }
+        BindMainShader();
+        for (int i = 0; i < shown; ++i) {
+            const int idx = taken[i];
+            const AugDef& def = ALL_AUGS[idx];
+            const float ccx = panelX + ((float)(i % cols) + 0.5f) * cell;
+            const float ccy = gridY + ((float)(i / cols) + 0.5f) * cell;
+            const float dx = (float)mx - ccx, dy = (float)my - ccy;
+            const bool hov = canHoverCards && std::fabs(dx) <= cell * 0.5f && std::fabs(dy) <= cell * 0.5f;
+            if (hov) hoverAug = idx;
+            float rr, rg, rb;
+            GetRarityColor(def.rarity, rr, rg, rb);
+            rr = std::min(1.0f, rr * 1.3f + 0.15f);
+            rg = std::min(1.0f, rg * 1.3f + 0.15f);
+            rb = std::min(1.0f, rb * 1.3f + 0.15f);
+            const aug_card::Shape& shp =
+                aug_card::ShapeOf(aug_card::FamilyFromCode(def.name));
+            const float size = cell * (hov ? 0.78f : 0.70f);
+            const float a = (hov ? 1.0f : 0.82f) * ge;
+            auto P = [&](int v, float& x, float& y) {
+                x = ccx + (shp.x[v] - 0.5f) * size;
+                y = ccy + (shp.y[v] - 0.5f) * size;
+            };
+            for (int e = 0; e < shp.ne; ++e) {
+                float x0, y0, x1, y1;
+                P(shp.ea[e], x0, y0);
+                P(shp.eb[e], x1, y1);
+                LogoLine(x0, y0, x1, y1, (hov ? 1.6f : 1.2f) * uiS, rr, rg, rb, a);
+            }
+            for (int v = 0; v < shp.nv; ++v) {
+                float x, y;
+                P(v, x, y);
+                drawDiamond(x, y, 2.6f * uiS, rr, rg, rb, a);
+            }
+            // Actives get a small ring under the shape so they read apart.
+            if (AugIsActive(def))
+                DrawSettingsOrbitArc(ccx, ccy, cell * 0.46f, cell * 0.46f, 0.0f, 6.2832f,
+                                     rr, rg, rb, 1.0f * uiS, 0.45f * ge);
+        }
+        BatchFlush();
+        for (int i = 0; i < shown; ++i) {
+            const int n = passive::AcquiredCount(taken[i]);
+            if (n <= 1) continue;
+            wchar_t cb[16];
+            swprintf_s(cb, L"x%d", n);
+            const float ccx = panelX + ((float)(i % cols) + 0.5f) * cell;
+            const float ccy = gridY + ((float)(i / cols) + 0.5f) * cell;
+            const float cw = lab.r->Width(cb, lab.scale * 0.65f);
+            lab.r->Draw(cb, Snap(ccx + cell * 0.5f - cw), Snap(ccy + cell * 0.5f - labH * 0.65f),
+                        lab.scale * 0.65f, 1.0f, 1.0f, 1.0f, 0.95f * ge);
+        }
+        if (nTaken > shown) {
+            wchar_t more[16];
+            swprintf_s(more, L"+%d", nTaken - shown);
+            const float ccx = panelX + ((float)(shown % cols) + 0.5f) * cell;
+            const float ccy = gridY + ((float)(shown / cols) + 0.5f) * cell;
+            const float mw = lab.r->Width(more, lab.scale);
+            lab.r->Draw(more, Snap(ccx - mw * 0.5f), Snap(ccy - labH * 0.5f), lab.scale,
+                        0.64f, 0.76f, 0.88f, 0.90f * ge);
+        }
 
         // Fold-out toggle: a label, a rule and a chevron.
         const bool canHover = gof >= 0.9f && !skippedCinematic;
@@ -613,6 +712,29 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
                     drawPart(m, pv[i], px, y, yr, yg, yb);
                     px += partWidth(m, pv[i]) + partGap;
                 }
+            }
+        }
+        // Hovering a card explains it right below the stats.
+        const float descY = tableY0 + Smoothstep(s_statsT) * (float)statRows * rowH +
+                            14.0f * uiS * k;
+        if (hoverAug >= 0) s_descAug = hoverAug;
+        s_descT += ((hoverAug >= 0 ? 1.0f : 0.0f) - s_descT) * std::min(1.0f, delta * 12.0f);
+        if (s_descAug >= 0 && s_descT > 0.01f) {
+            const AugDef& def = ALL_AUGS[s_descAug];
+            float rr, rg, rb;
+            GetRarityColor(def.rarity, rr, rg, rb);
+            const float a = s_descT * ge;
+            LogoLine(panelX, descY - 8.0f * uiS * k, panelX + panelW, descY - 8.0f * uiS * k,
+                     1.0f, rr, rg, rb, 0.45f * a);
+            lab.r->Draw(def.locName[li], Snap(panelX), Snap(descY), lab.scale,
+                        0.45f + 0.55f * rr, 0.45f + 0.55f * rg, 0.45f + 0.55f * rb, 0.98f * a);
+            wchar_t lines[kDescLines][kWrapChars];
+            const int n = WrapLines(*lab.r, lab.scale, def.locDesc[li], panelW, lines, kDescLines);
+            float ly = descY + labH * 1.3f;
+            for (int l = 0; l < n; ++l) {
+                lab.r->Draw(lines[l], Snap(panelX), Snap(ly), lab.scale,
+                            0.82f, 0.88f, 0.96f, 0.92f * a);
+                ly += labH + 3.0f * uiS * k;
             }
         }
     }

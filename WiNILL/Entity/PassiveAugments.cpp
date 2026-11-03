@@ -35,6 +35,9 @@ constexpr float kHurtLock = 0.4f;      // one counted hit per window (DoT safety
 struct State {
     int count[AUG_TOTAL] = {};
     int lastPicked = -1;
+    // Run report: cards taken (not stat cards), first-taken order and counts.
+    std::vector<int> takenOrder;
+    int taken[AUG_TOTAL] = {};
     // Breakage and charges.
     int amethystHits = 0, topazHits = 0, rubyHits = 0;
     int emeraldCharges = 0, cakeSlices = 0;
@@ -77,13 +80,13 @@ float AttackPower() { return g_Stats.GetBaseDamage() * g_Stats.GetDamageMultipli
 // "모든 피해" multipliers.
 float AllDamageMult() {
     float m = 1.0f;
-    if (Has(AugType::P_FLAME_DEMON_HORNS) && !s.hornsOffThisWave) m *= 1.30f;
-    if (Has(AugType::P_GEM_AMETHYST_BRACELET) && s.amethystHits > 0) m *= 1.30f;
-    if (Has(AugType::P_HERESY_ANGELS_HALO)) m *= 1.40f;
-    if (Has(AugType::P_HERESY_RIGHTHAND_CAST)) m *= 1.35f;
-    if (Has(AugType::P_VEIN_PYRITE_EARRINGS))
+    if (Has(AugType::P_FLAME_LIMIT_BREAK) && !s.hornsOffThisWave) m *= 1.30f;
+    if (Has(AugType::P_GEM_UNSTABLE_AMP) && s.amethystHits > 0) m *= 1.30f;
+    if (Has(AugType::P_HERESY_BOUND_AMP)) m *= 1.40f;
+    if (Has(AugType::P_HERESY_SLOT_SACRIFICE)) m *= 1.35f;
+    if (Has(AugType::P_VEIN_SKILL_SYNERGY))
         m *= 1.05f + 0.07f * (float)active::EquippedCount();
-    if (Has(AugType::P_LIFE_STRAWBERRY_CAKE)) m *= 1.0f + 0.10f * (float)s.cakeSlices;
+    if (Has(AugType::P_LIFE_EMERGENCY_MEND_SHARDS)) m *= 1.0f + 0.10f * (float)s.cakeSlices;
     m *= 1.0f + s.canaryBonus;
     return m;
 }
@@ -91,16 +94,16 @@ float AllDamageMult() {
 // "탄환 피해" multipliers.
 float BulletOnlyMult() {
     float m = 1.0f;
-    if (Has(AugType::P_STONE_DRAGONHEAD_SPEAR)) m *= 1.40f;
-    if (Has(AugType::P_STONE_GIANT_STONE_CLUB)) m *= 1.70f;
-    if (Has(AugType::P_GALE_WINDBITE_FANG)) m *= 0.45f;
-    if (Has(AugType::P_GEM_RUBY_CIRCLET) && s.rubyHits > 0) m *= 1.25f;
-    if (Has(AugType::P_HUNTER_SAWTOOTH_CLEAVER)) m *= 1.30f;
+    if (Has(AugType::P_STONE_NEUTRON_WARHEAD)) m *= 1.40f;
+    if (Has(AugType::P_STONE_GIANT_WARHEAD)) m *= 1.70f;
+    if (Has(AugType::P_GALE_PARTICLE_ROUNDS)) m *= 0.45f;
+    if (Has(AugType::P_GEM_GLASS_STAR) && s.rubyHits > 0) m *= 1.25f;
+    if (Has(AugType::P_HUNTER_PROXIMITY_WARHEAD)) m *= 1.30f;
     return m;
 }
 
 float CraneBonus() {
-    if (!Has(AugType::P_FLIGHT_CRANE_BLADE) || !s.in.moving) return 0.0f;
+    if (!Has(AugType::P_FLIGHT_MOMENTUM_AMPLIFIER) || !s.in.moving) return 0.0f;
     float dist = 0.0f;
     for (const auto& e : s.moveLog) dist += e.second;
     return std::min(0.60f, 0.60f * dist / 1000.0f);   // full at 1000 px in 3s
@@ -171,7 +174,7 @@ int ClearEnemyBullets(float x, float y, float radius) {
 }
 
 void AddStardust(long long n) {
-    if (n <= 0 || !PlayRecordsProgress()) return;
+    if (n <= 0 || !PlayEarnsStardust()) return;
     AddSaveValue(g_Coins, n);
     AddSaveValue(g_RunStardust, n);
     g_StardustHudPulse = 1.0f;
@@ -183,7 +186,7 @@ void ResetDash() {
 
 // Another chance augment triggered: Crown of Storms adds its lightning.
 void ChanceTriggered() {
-    if (!Has(AugType::P_STORM_CROWN_OF_STORMS) || s.procBusy) return;
+    if (!Has(AugType::P_STORM_CASCADE_COLLISION) || s.procBusy) return;
     s.procBusy = true;
     DamageAll(400.0f, 0.65f, 0.80f, 1.0f);
     s.procBusy = false;
@@ -191,21 +194,21 @@ void ChanceTriggered() {
 
 // One hit for the spark counters (bullets and extra strikes).
 void CountHit() {
-    if (Has(AugType::P_SPARK_STATICSHOCK_EARRINGS) && ++s.staticHits >= 10) {
+    if (Has(AugType::P_SPARK_STATIC_BUILDUP) && ++s.staticHits >= 10) {
         s.staticHits = 0;
         DamageAll(200.0f, 0.55f, 0.85f, 1.0f);
     }
-    if (Has(AugType::P_SPARK_BATTERY_SHIELD) && ++s.batteryHits >= 30) {
+    if (Has(AugType::P_SPARK_STELLAR_DYNAMO) && ++s.batteryHits >= 30) {
         s.batteryHits = 0;
         ResetDash();
     }
-    if (Has(AugType::P_SPARK_BLACKBOLT_RIBBON) && ++s.blackboltHits >= 50) {
+    if (Has(AugType::P_SPARK_CRITICAL_BURST) && ++s.blackboltHits >= 50) {
         s.blackboltHits = 0;
         DamageAll(2400.0f, 0.45f, 0.30f, 0.85f);
     }
 }
 
-// Black Wakizashi: three strikes on enemies around (x, y).
+// Triple Strike: three strikes on enemies around (x, y).
 void ExtraStrikes(float x, float y) {
     constexpr float kRadius = 150.0f;
     std::vector<Monster*> mobs;
@@ -221,7 +224,7 @@ void ExtraStrikes(float x, float y) {
     const int total = (int)(mobs.size() + scopes.size());
     if (total == 0) return;
     float dmg = AttackPower() * AllDamageMult();
-    if (Has(AugType::P_SHADOW_SHADOW_BRACELET)) dmg *= 1.30f;
+    if (Has(AugType::P_SHADOW_MULTI_HIT_AMP)) dmg *= 1.30f;
     for (int i = 0; i < 3; ++i) {
         const int pick = std::rand() % total;
         float tx, ty, dealt;
@@ -257,11 +260,11 @@ float HookBulletDamageMult(const Bullet& bullet, const void* target,
         return AllDamageMult() * active::DamageMult() * (crit ? g_Stats.critMult : 1.0f);
     }
     float m = AllDamageMult() * BulletOnlyMult();
-    if (Has(AugType::P_EDGE_SNIPERS_EYEGLASS)) {
+    if (Has(AugType::P_EDGE_LONG_RANGE_CORRECTION)) {
         const float dx = tx - s.in.px, dy = ty - s.in.py;
         if (std::sqrt(dx * dx + dy * dy) * s.in.viewZoom >= 0.40f * s.in.screenW) m *= 1.30f;
     }
-    if (Has(AugType::P_HUNTER_WOLF_FANG)) {
+    if (Has(AugType::P_HUNTER_REAR_TARGETING)) {
         auto it = s.seen.find(target);
         if (it != s.seen.end()) {
             // Moving away: velocity points away from the player.
@@ -282,19 +285,19 @@ void HookBulletHit(const Bullet& bullet, const void*, float x, float y,
         active::OnSkillBulletHit(bullet, x, y, killed);
         return;
     }
-    if (crit && Has(AugType::P_EDGE_CROWN_OF_SWORDS) && ++s.crits >= 6) {
+    if (crit && Has(AugType::P_EDGE_CRITICAL_CHAIN_BURST) && ++s.crits >= 6) {
         s.crits = 0;
         DamageAll(500.0f, 1.0f, 0.85f, 0.45f, true);
     }
-    if (Has(AugType::P_SHADOW_BLACK_WAKIZASHI) && Chance(0.10f)) {
+    if (Has(AugType::P_SHADOW_TRIPLE_STRIKE) && Chance(0.10f)) {
         ExtraStrikes(x, y);
         ChanceTriggered();
     }
-    if (Has(AugType::P_STORM_BRIGHTSTORM_SPEAR) && Chance(0.03f)) {
+    if (Has(AugType::P_STORM_CORONA_ROUND) && Chance(0.03f)) {
         DamageAll(200.0f, 0.65f, 0.80f, 1.0f);
         ChanceTriggered();
     }
-    if (Has(AugType::P_VEIN_IRON_PICKAXE) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
+    if (Has(AugType::P_VEIN_CRATER_ROUND) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
         s.pickaxeCd = 5.0f;
         DamageRadius(x, y, 110.0f, 600.0f, 1.0f, 0.70f, 0.30f);
         ChanceTriggered();
@@ -303,7 +306,7 @@ void HookBulletHit(const Bullet& bullet, const void*, float x, float y,
 }
 
 bool HookExecutes(const void* target, float hp, bool regular) {
-    if (!regular || !Has(AugType::P_HUNTER_BLOODHOUND_FANG)) return false;
+    if (!regular || !Has(AugType::P_HUNTER_WEAK_POINT_EXECUTION)) return false;
     auto it = s.seen.find(target);
     return it != s.seen.end() && hp <= it->second.maxHp * 0.15f;
 }
@@ -311,12 +314,12 @@ bool HookExecutes(const void* target, float hp, bool regular) {
 void HookKill() {
     ++s.kills;
     active::OnKill();
-    if (Has(AugType::P_NOVA_AFTERGLOW)) active::ReduceAllCooldowns(0.2f);
-    if (Has(AugType::P_NOVA_METEOR_SHARD) && Chance(0.05f)) {
+    if (Has(AugType::P_NOVA_AFTERGLOW_RECOVERY)) active::ReduceAllCooldowns(0.2f);
+    if (Has(AugType::P_NOVA_STARDUST_HARVEST) && Chance(0.05f)) {
         AddStardust(1);
         ChanceTriggered();
     }
-    if (Has(AugType::P_NOVA_SUPERNOVA_CORE) && s.kills % 20 == 0) {
+    if (Has(AugType::P_NOVA_STELLAR_CORE_RUPTURE) && s.kills % 20 == 0) {
         DamageAll(1500.0f, 1.0f, 0.95f, 0.75f);
         ClearEnemyBullets(0.0f, 0.0f, -1.0f);
     }
@@ -325,9 +328,9 @@ void HookKill() {
 void HookHurt(float& hp, float dmg) {
     if (s.in.damageProtected) { hp -= dmg; return; }   // undone this step anyway
     active::RecordDamage(dmg);
-    if (Has(AugType::P_STILL_CLAY_FIGURE) && s.stillT >= 2.0f) dmg *= 0.75f;
+    if (Has(AugType::P_STILL_STILLNESS_PLATING) && s.stillT >= 2.0f) dmg *= 0.75f;
     const bool counts = s.hurtLock <= 0.0f;
-    if (Has(AugType::P_GEM_EMERALD_PLATE) && s.emeraldCharges > 0) {
+    if (Has(AugType::P_GEM_BUFFER_PLATING) && s.emeraldCharges > 0) {
         if (counts) {
             --s.emeraldCharges;
             s.hurtLock = kHurtLock;
@@ -340,7 +343,7 @@ void HookHurt(float& hp, float dmg) {
     if (s.amethystHits > 0) --s.amethystHits;
     if (s.topazHits > 0) --s.topazHits;
     if (s.rubyHits > 0) --s.rubyHits;
-    if (Has(AugType::P_LIFE_STRAWBERRY_CAKE) && s.cakeSlices > 0) {
+    if (Has(AugType::P_LIFE_EMERGENCY_MEND_SHARDS) && s.cakeSlices > 0) {
         --s.cakeSlices;
         hp = std::min(g_Stats.maxHP, hp + 30.0f);
     }
@@ -367,9 +370,9 @@ void TrackEnemies() {
     s.seen.swap(next);
 }
 
-bool RubyIntact() { return Has(AugType::P_GEM_RUBY_CIRCLET) && s.rubyHits > 0; }
-bool FirescaleOn() { return Has(AugType::P_FLAME_FIRESCALE_CORSET) && !s.firescaleOffThisWave; }
-bool DarkWingsOn() { return Has(AugType::P_HERESY_DARK_WINGS) && !s.darkWingsOffThisWave; }
+bool RubyIntact() { return Has(AugType::P_GEM_GLASS_STAR) && s.rubyHits > 0; }
+bool FirescaleOn() { return Has(AugType::P_FLAME_STELLAR_OVERHEAT) && !s.firescaleOffThisWave; }
+bool DarkWingsOn() { return Has(AugType::P_HERESY_UNSTABLE_DRIVE) && !s.darkWingsOffThisWave; }
 void SwitchOffDarkWings() { s.darkWingsOffThisWave = true; }
 
 void InstallHooks() {
@@ -389,7 +392,7 @@ int Owned(AugType type) { return s.count[(int)type]; }
 
 int Luck() {
     int luck = 0;
-    if (Has(AugType::P_LUCK_QUEENS_CROWN))
+    if (Has(AugType::P_LUCK_LUCKY_STAR))
         luck += g_RunStardust >= 50 ? 3 : g_RunStardust >= 20 ? 1 : 0;
     return luck;
 }
@@ -401,7 +404,7 @@ bool CanOffer(int augIdx) {
     const AugDef& d = ALL_AUGS[augIdx];
     if (AugIsActive(d)) return active::CanOffer(augIdx);
     if (!d.stackable && s.count[augIdx] > 0) return false;
-    if (d.type == AugType::P_PERFORM_RAINBOW_CAPE) {
+    if (d.type == AugType::P_PERFORM_AUGMENT_REPLICATOR) {
         if (s.lastPicked < 0) return false;
         const AugDef& last = ALL_AUGS[s.lastPicked];
         return last.stackable && last.rarity != AugRarity::MYTHIC;
@@ -414,26 +417,26 @@ static void ApplyCard(int augIdx) {
     PlayerStats& st = g_Stats;
     float& hp = g_GameManager.playerHP;
     switch (ALL_AUGS[augIdx].type) {
-    case AugType::P_GALE_GALE_MAGAZINE:     st.fireInterval /= 1.06f; break;
-    case AugType::P_STONE_HARD_KNUCKLE:     st.baseDamage += 8.0f; break;
-    case AugType::P_LIFE_LIFE_SEED:         st.maxHP += 15.0f; hp += 15.0f; break;
-    case AugType::P_LIFE_MORNING_DEW:       st.regenPerSec += 0.2f; break;
-    case AugType::P_FLIGHT_TINY_WINGS:      st.moveSpeedMult += 0.10f; break;
-    case AugType::P_EDGE_WHETSTONE:         st.critChance = std::min(100, st.critChance + 8); break;
-    case AugType::P_EDGE_POINTED_RING:      st.critMult += 0.5f; break;
-    case AugType::P_CHRONO_METRONOME_BOOTS: st.moveSpeedMult += 0.08f; break;
-    case AugType::P_STONE_DRAGONHEAD_SPEAR: st.moveSpeedMult -= 0.08f; break;
-    case AugType::P_STONE_GIANT_STONE_CLUB: st.moveSpeedMult -= 0.10f; break;
-    case AugType::P_HERESY_DARK_WINGS:      st.moveSpeedMult += 0.25f; break;
-    case AugType::P_STILL_IRON_GREAVES:     st.moveSpeedMult -= 0.08f; break;
-    case AugType::P_LIFE_SUNFLOWER_CROWN:   st.maxHP += 10.0f; hp += 10.0f; break;
-    case AugType::P_LUCK_SILVER_COIN:       AddStardust(30); break;
-    case AugType::P_GEM_AMETHYST_BRACELET:  s.amethystHits = 3; break;
-    case AugType::P_LUCK_TOPAZ_CHARM:       s.topazHits = 3; break;
-    case AugType::P_GEM_RUBY_CIRCLET:       s.rubyHits = 1; break;
-    case AugType::P_GEM_EMERALD_PLATE:      s.emeraldCharges = 3; break;
-    case AugType::P_LIFE_STRAWBERRY_CAKE:   s.cakeSlices = 2; break;
-    case AugType::P_HERESY_RIGHTHAND_CAST:  active::SealSlot(); break;
+    case AugType::P_GALE_FIRE_RATE_UP:     st.fireInterval /= 1.06f; break;
+    case AugType::P_STONE_ATTACK_UP:     st.baseDamage += 8.0f; break;
+    case AugType::P_LIFE_MAX_HP_UP:         st.maxHP += 15.0f; hp += 15.0f; break;
+    case AugType::P_LIFE_REGENERATION:       st.regenPerSec += 0.2f; break;
+    case AugType::P_FLIGHT_MOVE_SPEED_UP:      st.moveSpeedMult += 0.10f; break;
+    case AugType::P_EDGE_CRITICAL_STRIKE:         st.critChance = std::min(100, st.critChance + 8); break;
+    case AugType::P_EDGE_CRITICAL_AMP:      st.critMult += 0.5f; break;
+    case AugType::P_CHRONO_STAR_TEMPO: st.moveSpeedMult += 0.08f; break;
+    case AugType::P_STONE_NEUTRON_WARHEAD: st.moveSpeedMult -= 0.08f; break;
+    case AugType::P_STONE_GIANT_WARHEAD: st.moveSpeedMult -= 0.10f; break;
+    case AugType::P_HERESY_UNSTABLE_DRIVE:      st.moveSpeedMult += 0.25f; break;
+    case AugType::P_STILL_SEA_OF_TRANQUILITY:     st.moveSpeedMult -= 0.08f; break;
+    case AugType::P_LIFE_GRAZE_RECOVERY:   st.maxHP += 10.0f; hp += 10.0f; break;
+    case AugType::P_LUCK_STARDUST_SUPPLY:       AddStardust(30); break;
+    case AugType::P_GEM_UNSTABLE_AMP:  s.amethystHits = 3; break;
+    case AugType::P_LUCK_GIFT_OF_STARS:       s.topazHits = 3; break;
+    case AugType::P_GEM_GLASS_STAR:       s.rubyHits = 1; break;
+    case AugType::P_GEM_BUFFER_PLATING:      s.emeraldCharges = 3; break;
+    case AugType::P_LIFE_EMERGENCY_MEND_SHARDS:   s.cakeSlices = 2; break;
+    case AugType::P_HERESY_SLOT_SACRIFICE:  active::SealSlot(); break;
     // Level-up stat cards.
     case AugType::S_ATTACK:     st.baseDamage += 6.0f; break;
     case AugType::S_MAX_HP:     st.maxHP += 12.0f; hp += 12.0f; break;
@@ -448,14 +451,28 @@ static void ApplyCard(int augIdx) {
     g_GameManager.maxHP = st.maxHP;
 }
 
+static void RecordTaken(int augIdx) {
+    if (AugIsStatCard(ALL_AUGS[augIdx])) return;
+    if (s.taken[augIdx]++ == 0) s.takenOrder.push_back(augIdx);
+}
+
+const std::vector<int>& AcquiredOrder() { return s.takenOrder; }
+int AcquiredCount(int augIdx) {
+    return augIdx >= 0 && augIdx < AUG_TOTAL ? s.taken[augIdx] : 0;
+}
+
 void Acquire(int augIdx) {
     if (augIdx < 0 || augIdx >= AUG_TOTAL) return;
+    RecordTaken(augIdx);
     if (AugIsActive(ALL_AUGS[augIdx])) {
         active::Acquire(augIdx);
         return;
     }
-    if (ALL_AUGS[augIdx].type == AugType::P_PERFORM_RAINBOW_CAPE && s.lastPicked >= 0)
+    if (ALL_AUGS[augIdx].type == AugType::P_PERFORM_AUGMENT_REPLICATOR && s.lastPicked >= 0)
+    {
+        RecordTaken(s.lastPicked);
         ApplyCard(s.lastPicked);   // the previous card once more
+    }
     ApplyCard(augIdx);
     if (!AugIsStatCard(ALL_AUGS[augIdx])) s.lastPicked = augIdx;
 }
@@ -478,7 +495,7 @@ void Step(const StepInput& in) {
     s.lastPX = in.px; s.lastPY = in.py; s.hasLast = true;
     s.moveLog.push_back({ s.clock, moved });
     while (!s.moveLog.empty() && s.moveLog.front().first < s.clock - 3.0f) s.moveLog.pop_front();
-    if (Has(AugType::P_FLIGHT_CLOUD_GUARD)) {
+    if (Has(AugType::P_FLIGHT_ROUTE_SWEEP)) {
         const float lightYear = in.screenW * 0.25f / std::max(0.01f, in.viewZoom);
         s.cloudDist += moved;
         if (s.cloudDist >= 10.0f * lightYear) {
@@ -494,14 +511,14 @@ void Step(const StepInput& in) {
     } else {
         s.stillT += dt;
     }
-    if (Has(AugType::P_SHADOW_SHINOBI_TABI) && s.stillT >= 1.0f &&
+    if (Has(AugType::P_SHADOW_QUIET_ORBIT) && s.stillT >= 1.0f &&
         !s.shinobiFired && s.shinobiCd <= 0.0f) {
         s.shinobiFired = true;
         s.shinobiCd = 10.0f;
         ClearEnemyBullets(in.px, in.py, kNearRadius);
         active::ResetLongestCooldown();
     }
-    if (Has(AugType::P_STILL_IRON_GREAVES) && s.stillT >= 1.0f &&
+    if (Has(AugType::P_STILL_SEA_OF_TRANQUILITY) && s.stillT >= 1.0f &&
         !s.greavesFired && s.greavesCd <= 0.0f) {
         s.greavesFired = true;
         s.greavesCd = 12.0f;
@@ -510,7 +527,7 @@ void Step(const StepInput& in) {
     }
 
     // Periodic shots.
-    if (Has(AugType::P_NIGHT_CRESCENT_DAGGER) && (s.crescentT += dt) >= 10.0f) {
+    if (Has(AugType::P_NIGHT_PULSE_ROUND) && (s.crescentT += dt) >= 10.0f) {
         s.crescentT = 0.0f;
         Bullet b = MakeShot(in.aimX, in.aimY);
         b.dmgMult = 9.0f;
@@ -520,7 +537,7 @@ void Step(const StepInput& in) {
         b.color = glm::vec3(0.75f, 0.70f, 1.0f);
         g_Bullets.push_back(b);
     }
-    if (Has(AugType::P_STILL_FLORAL_BOW) && !in.moving && (s.floralT += dt) >= 6.0f) {
+    if (Has(AugType::P_STILL_STATIONARY_SATELLITE) && !in.moving && (s.floralT += dt) >= 6.0f) {
         float tx = 0.0f, ty = 0.0f;
         if (g_MonsterManager.FindNearestEnemy(in.px, in.py, tx, ty)) {
             s.floralT = 0.0f;
@@ -533,19 +550,19 @@ void Step(const StepInput& in) {
             g_Bullets.push_back(b);
         }
     }
-    if (Has(AugType::P_VEIN_MINERS_HEADLAMP) && (s.headlampT += dt) >= 6.0f) {
+    if (Has(AugType::P_VEIN_CIRCULATING_COOLER) && (s.headlampT += dt) >= 6.0f) {
         s.headlampT -= 6.0f;
         g_PlayerRuntime.dashCooldown = std::max(0.0f, g_PlayerRuntime.dashCooldown - 2.0f);
         active::ReduceAllCooldowns(2.0f);
     }
 
-    // Strongman's Bar: the window opens when a dash ends.
-    if (s.dashWasActive && !in.dashActive && Has(AugType::P_PERFORM_STRONGMANS_BAR))
+    // Rush Shot: the window opens when a dash ends.
+    if (s.dashWasActive && !in.dashActive && Has(AugType::P_PERFORM_RUSH_SHOT))
         s.strongmanWindow = 0.5f;
     s.dashWasActive = in.dashActive;
 
-    // Sunflower Crown: grazes (just outside the hit radius, once per bullet).
-    if (Has(AugType::P_LIFE_SUNFLOWER_CROWN)) {
+    // Graze Recovery: grazes (just outside the hit radius, once per bullet).
+    if (Has(AugType::P_LIFE_GRAZE_RECOVERY)) {
         const float hitR = 10.0f * g_Stats.playerSizeMult;
         for (Bullet& b : g_Bullets) {
             if (!b.active || !b.isEnemy || b.grazed) continue;
@@ -560,19 +577,19 @@ void Step(const StepInput& in) {
 
 float FireInterval(float base) {
     float interval = base;
-    if (Has(AugType::P_CHRONO_METRONOME_BOOTS)) {
+    if (Has(AugType::P_CHRONO_STAR_TEMPO)) {
         interval = 0.18f;   // fixed: other fire-rate cards do not apply
     } else {
-        if (Has(AugType::P_GALE_WINDBITE_FANG)) interval *= 0.5f;
-        if (Has(AugType::P_STONE_GIANT_STONE_CLUB)) interval += 0.08f;
+        if (Has(AugType::P_GALE_PARTICLE_ROUNDS)) interval *= 0.5f;
+        if (Has(AugType::P_STONE_GIANT_WARHEAD)) interval += 0.08f;
     }
     if (s.fastNext) interval *= 0.6f;
     return std::max(0.03f, interval);
 }
 
 void ModifyShot(Bullet& bullet) {
-    if (Has(AugType::P_STONE_GIANT_STONE_CLUB)) bullet.sizeScale *= 1.3f;
-    if (Has(AugType::P_HUNTER_SAWTOOTH_CLEAVER))
+    if (Has(AugType::P_STONE_GIANT_WARHEAD)) bullet.sizeScale *= 1.3f;
+    if (Has(AugType::P_HUNTER_PROXIMITY_WARHEAD))
         bullet.maxRange = 0.8f * s.in.screenW / std::max(0.01f, s.in.viewZoom);
     if (s.strongmanWindow > 0.0f) {
         bullet.blastOnHit = true;   // the first shot after the dash only
@@ -582,40 +599,40 @@ void ModifyShot(Bullet& bullet) {
 
 void OnShot() {
     ++s.shots;
-    if (Has(AugType::P_GALE_SPARROW_FEATHER) && s.shots % 10 == 0)
+    if (Has(AugType::P_GALE_SCAN_PULSE) && s.shots % 10 == 0)
         DamageAll(50.0f, 0.80f, 0.95f, 0.85f);
     // Shinsoku's chance does not feed Crown of Storms: it would fire on half
     // of all shots.
-    s.fastNext = Has(AugType::P_GALE_SHINSOKU_BLADE) && Chance(0.50f);
+    s.fastNext = Has(AugType::P_GALE_VARIABLE_FIRE) && Chance(0.50f);
 }
 
-bool DashSealed() { return Has(AugType::P_HERESY_ANGELS_HALO); }
+bool DashSealed() { return Has(AugType::P_HERESY_BOUND_AMP); }
 
 void OnDashStarted() {
     float cd = DASH_CD;
-    if (Has(AugType::P_ABYSS_SEASHELL_SHIELD)) cd = 1.0f + 5.0f * Rand01();
-    if (Has(AugType::P_NIGHT_PAJAMA_CAP)) cd -= 1.0f;
+    if (Has(AugType::P_ABYSS_ERRATIC_ORBIT)) cd = 1.0f + 5.0f * Rand01();
+    if (Has(AugType::P_NIGHT_DWARF_COOLING)) cd -= 1.0f;
     if (DarkWingsOn()) cd -= 2.0f;
     cd = std::max(0.4f, cd);
     g_PlayerRuntime.dashCooldown = cd;
     g_PlayerRuntime.dashCooldownMax = cd;
-    if (Has(AugType::P_FLAME_DEMON_HORNS)) s.hornsOffThisWave = true;
-    if (Has(AugType::P_FLAME_FIRESCALE_CORSET)) s.firescaleOffThisWave = true;
+    if (Has(AugType::P_FLAME_LIMIT_BREAK)) s.hornsOffThisWave = true;
+    if (Has(AugType::P_FLAME_STELLAR_OVERHEAT)) s.firescaleOffThisWave = true;
     active::OnDash();
-    if (Has(AugType::P_CHRONO_GEMINI_NECKLACE) && Chance(0.30f)) {
+    if (Has(AugType::P_CHRONO_DOUBLE_CAST) && Chance(0.30f)) {
         ResetDash();
         ChanceTriggered();
     }
-    if (Has(AugType::P_STORM_THUNDERCLAP_GLOVES) && Chance(0.20f)) {
+    if (Has(AugType::P_STORM_MAGNETIC_STORM) && Chance(0.20f)) {
         DamageAll(400.0f, 0.65f, 0.80f, 1.0f);
         ChanceTriggered();
     }
 }
 
 void OnWaveCleared() {
-    if (Has(AugType::P_VEIN_CANARY_CHARM))
+    if (Has(AugType::P_VEIN_GROWING_STAR))
         s.canaryBonus = std::min(0.30f, s.canaryBonus + 0.02f);
-    if (Has(AugType::P_LUCK_TOPAZ_CHARM) && s.topazHits > 0) AddStardust(8);
+    if (Has(AugType::P_LUCK_GIFT_OF_STARS) && s.topazHits > 0) AddStardust(8);
     s.hornsOffThisWave = false;
     s.firescaleOffThisWave = false;
     s.darkWingsOffThisWave = false;
@@ -623,7 +640,7 @@ void OnWaveCleared() {
 }
 
 bool TryPhoenix() {
-    if (!Has(AugType::P_FLAME_PHOENIX_CHARM) || s.phoenixUsed) return false;
+    if (!Has(AugType::P_FLAME_UNDYING_REIGNITION) || s.phoenixUsed) return false;
     s.phoenixUsed = true;
     g_GameManager.playerHP = g_Stats.maxHP;
     DamageAll(1000.0f, 1.0f, 0.55f, 0.20f);

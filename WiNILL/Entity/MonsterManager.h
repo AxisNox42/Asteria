@@ -36,10 +36,14 @@ public:
     // source: the NORMA window space the hit comes from (SpaceRules.h).
     // Player weapons default to the player's space; a target in another
     // space takes nothing.
+    // hitDirX/Y: a critical shot's travel direction, if there is one (elite hit dent).
     float ApplyDamage(Monster& target, float damage,
-                      int source = space::kPlayerSource) {
+                      int source = space::kPlayerSource,
+                      float hitDirX = 0.0f, float hitDirY = 0.0f) {
         if (!space::Reaches(source, target.worldX, target.worldY)) return 0.0f;
         const float dealt = target.ApplyDamage(damage);
+        if (dealt > 0.0f && target.alive && IsEliteMob(target.kind))
+            target.EliteHitFeel(hitDirX, hitDirY);
         HandleShieldBreak(target);
         return dealt;
     }
@@ -263,7 +267,7 @@ public:
 
         UpdateRegulusShots(dt);
         UpdateRegulusBeams(dt);
-        // Death animations (Quasar supernova) run on the gameplay clock; a
+        // Death animations (Gravis collapse) run on the gameplay clock; a
         // dead mob stays until its animation ends.
         UpdateDeathEffects(dt);
 

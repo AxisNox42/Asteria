@@ -24,7 +24,7 @@ void  ResetDash();
 void  ChanceTriggered();              // Crown of Storms follow-up
 void  CountHit();                     // one hit for the hit counters
 
-bool  RubyIntact();                   // Ruby Circlet owned and not broken
+bool  RubyIntact();                   // Glass Star owned and not broken
 bool  FirescaleOn();                  // not switched off by a dash this wave
 bool  DarkWingsOn();                  // not switched off by a repeat this wave
 void  SwitchOffDarkWings();

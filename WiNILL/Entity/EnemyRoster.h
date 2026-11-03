@@ -37,10 +37,10 @@ struct GimbalScopePhases {
     int a[2], b[2], c[2];
 };
 inline constexpr GimbalScopePhases kGimbalScope[kRosterDifficulties] = {
-    /* EASY      */ { { 2, 6 }, { 0, 0 },  { 0, 0 } },
-    /* NORMAL    */ { { 2, 4 }, { 5, 6 },  { 7, 8 } },
-    /* HARD      */ { { 2, 4 }, { 5, 7 },  { 8, 12 } },
-    /* NIGHTMARE */ { { 2, 5 }, { 6, 10 }, { 11, 18 } },
+    /* EASY      */ { { 2, 9 }, { 0, 0 },  { 0, 0 } },
+    /* NORMAL    */ { { 2, 4 }, { 5, 6 },  { 7, 13 } },
+    /* HARD      */ { { 2, 4 }, { 5, 7 },  { 8, 17 } },
+    /* NIGHTMARE */ { { 2, 5 }, { 6, 10 }, { 11, 21 } },
 };
 
 inline constexpr int kGimbalStartPct = 12, kGimbalRisePct = 5, kGimbalPeakPct = 30;
@@ -90,8 +90,8 @@ inline constexpr RosterEntry kEnemyRoster[] = {
     { RosterKind::ROTOR,    { 2,  2,  1,  1 },  0,  0 },
     { RosterKind::GIMBAL,   { 2,  2,  2,  2 },  0,  0 },   // odds: kGimbalScope
     { RosterKind::SCOPE,    { 0,  5,  5,  6 },  0,  0 },   // rate: kGimbalScope
-    { RosterKind::GRAVIS,   { 0,  7,  6,  4 },  3,  7 },
-    { RosterKind::MAGNETAR, { 0,  0, 11,  8 },  4, 12 },
+    { RosterKind::GRAVIS,   { 0,  7,  6,  5 },  3,  7 },
+    { RosterKind::MAGNETAR, { 0,  0, 11,  9 },  4, 12 },
 };
 
 inline const RosterEntry& RosterEntryFor(RosterKind kind) {

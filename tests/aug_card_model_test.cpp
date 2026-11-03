@@ -34,6 +34,17 @@ static void fewer_cards_center() {
     assert(MakeLayout(1920, 1080, 9).count == kMaxCards);
 }
 
+static void three_cards_are_bigger() {
+    const float sizes[][2] = { {1280, 720}, {1920, 1080}, {2560, 1440}, {2560, 1080}, {640, 360} };
+    for (auto& z : sizes) {
+        const Layout L3 = MakeLayout(z[0], z[1], 3), L5 = MakeLayout(z[0], z[1], 5);
+        assert(L3.s > L5.s);
+        assert(L3.cx[0] - L3.cardW * 0.5f >= 0.0f && L3.cx[2] + L3.cardW * 0.5f <= z[0]);
+        assert(L3.cy - L3.cardH * 0.5f >= 0.0f && L3.deckY < z[1]);
+    }
+    assert(Near(MakeLayout(1920, 1080, 3).s, MakeLayout(1920, 1080, 5).s * kFewBoost));
+}
+
 static void hit_test() {
     const Layout L = MakeLayout(1920, 1080, 5);
     const float lift[kMaxCards] = {};
@@ -89,20 +100,36 @@ static void dissolve_wave_moves_outward() {
     assert(SeedStart(1, 0) < SeedStart(1, 5));
     assert(ConstellFade(1, 0.0f) == 1.0f && ConstellFade(1, 0.5f) == 0.0f);
     assert(TextFade(0.0f) == 1.0f && TextFade(0.2f) == 0.0f);
-    // Everything finishes before the scene fades out.
-    const float lastFrag = FragStart(kMaxCards - 1, 0) + 0.12f + kFragLife;
+    // Everything finishes before the scene ends.
+    const float lastFrag = FragStart(kMaxCards - 1, 0) + 0.08f + kFragLife;
     const float lastSeed = SeedStart(kMaxCards - 1, Shape::kMaxV - 1) + kSeedLife;
-    assert(lastFrag < kSceneFadeStart && lastSeed < kSceneFadeStart);
+    assert(lastFrag < kExitDur && lastSeed < kExitDur);
     assert(kAbsorbStart + kAbsorbDur + kAbsorbStep * Shape::kMaxV < kSceneFadeStart);
     assert(SceneAlpha(0.0f) == 1.0f && SceneAlpha(kExitDur) == 0.0f);
 }
 
+static void exit_eases_out() {
+    // Short: combat is frozen under the pick, a long tail reads as slow motion.
+    assert(kExitDur < 1.2f);
+    // The dim fades in on open and lifts over the exit, flat at both ends.
+    assert(DimIn(0.0f) == 0.0f && DimIn(kDimIn) == 1.0f && DimIn(kDimIn * 0.05f) < 0.02f);
+    assert(DimOut(0.0f) == 1.0f && DimOut(kExitDur) == 0.0f);
+    assert(DimOut(kExitDur - 0.02f) < 0.01f);
+    for (float t = 0.0f; t < kExitDur; t += 0.01f) {
+        assert(DimOut(t + 0.01f) <= DimOut(t) && SceneAlpha(t + 0.01f) <= SceneAlpha(t));
+        assert(DimIn(t + 0.01f) >= DimIn(t));
+    }
+    assert(Near(HudReturn(kExitDur), 1.0f) && HudReturn(-1.0f) == 0.0f && HudReturn(0.05f) == 0.0f);
+    // The pick's ring ends before the screen closes.
+    assert(kAbsorbStart + kAbsorbDur + kAbsorbRing < kExitDur);
+}
+
 static void family_codes() {
-    assert(FamilyFromCode("P_FLAME_DEMON_HORNS") == Family::FLAME);
-    assert(FamilyFromCode("A_FLAME_FIREBALL") == Family::FLAME);
-    assert(FamilyFromCode("P_STILL_FLORAL_BOW") == Family::STILL);
-    assert(FamilyFromCode("A_NOVA_STARBURST") == Family::NOVA);
-    assert(FamilyFromCode("P_STORM_CROWN_OF_STORMS") == Family::STORM);
+    assert(FamilyFromCode("P_FLAME_LIMIT_BREAK") == Family::FLAME);
+    assert(FamilyFromCode("A_FLAME_PROMINENCE_SHELL") == Family::FLAME);
+    assert(FamilyFromCode("P_STILL_STATIONARY_SATELLITE") == Family::STILL);
+    assert(FamilyFromCode("A_NOVA_STARLIGHT_SCATTER") == Family::NOVA);
+    assert(FamilyFromCode("P_STORM_CASCADE_COLLISION") == Family::STORM);
     assert(FamilyFromCode("X_FLAME") == Family::COUNT);
     assert(FamilyFromCode("P_FLAM_X") == Family::COUNT);
     assert(FamilyFromCode(nullptr) == Family::COUNT);
@@ -133,11 +160,13 @@ static void shapes_are_valid() {
 int main() {
     layout_fits_every_size();
     fewer_cards_center();
+    three_cards_are_bigger();
     hit_test();
     legendary_flips_last();
     plain_draw_is_about_two_seconds();
     phase_progression();
     dissolve_wave_moves_outward();
+    exit_eases_out();
     family_codes();
     shapes_are_valid();
     std::puts("aug_card_model_test: all passed");

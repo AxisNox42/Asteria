@@ -144,7 +144,6 @@ inline XpAmount MobExperienceReward(MobKind kind, const PlayerStats& stats) {
 class Monster {
 public:
     static constexpr float GIMBAL_CHARGE_ROTATIONS = 2.0f;
-    static constexpr float GIMBAL_PREFERRED_DISTANCE = 700.0f;
     // Elite HP (before the run's HP scaling). Boss rush: every wave's elite
     // must fall to move on, and a fast kill earns a better reward, so a wave-1
     // elite is about 3,000 effective HP (~12 s of starting fire, 20-25 s in
@@ -154,6 +153,7 @@ public:
     static constexpr float QUASAR_BASE_HP = 3200.0f;
     static constexpr float GENESIS_BASE_HP = 2800.0f;
     static constexpr float REGULUS_BASE_HP = 1650.0f;
+    static constexpr float GRAVIS_BASE_HP = 1400.0f;
     // Regulus fires an instant shield laser at a random eligible ally in
     // range; the shield is granted at once and nothing stays connected.
     static constexpr float REGULUS_SHOT_RANGE = 750.0f;
@@ -233,32 +233,15 @@ public:
     // direction is chosen.
     static constexpr float QUASAR_COOLDOWN_TIME = 2.7f;   // was 3.2
     static constexpr float QUASAR_PRECHARGE_TIME = 1.0f;
-    // Death: a supernova. The body collapses, holds, then blasts at
-    // QUASAR_NOVA_BLAST; the kill's stardust (with its XP) is held until that
-    // moment and released on the shock ring.
-    static constexpr float QUASAR_NOVA_COLLAPSE = 1.0f;   // collapse ends, hold begins
-    static constexpr float QUASAR_NOVA_BLAST = 1.25f;
-    // Wave time after the blast; the Genesis wave lasts the same. Kept short
-    // so a tier-4 kill does not leave rings over the arena.
+    // Death: particles only, burst at the kill (no body animation).
+    // Blast debris life and reach (in base units; halo is 1.95).
     static constexpr float QUASAR_NOVA_WAVE_TIME = 0.60f;
-    static constexpr float QUASAR_NOVA_TIME = QUASAR_NOVA_BLAST + QUASAR_NOVA_WAVE_TIME;
-    // Quasar shock front's final radius / base (halo is 1.95).
     static constexpr float QUASAR_NOVA_REACH = 3.64f;
-    // Genesis death: the same build-up as the Quasar nova (instability, then
-    // a squeeze), then a single blast wave. The kill stardust comes out with
-    // the wave, like the Quasar's.
-    static constexpr float GENESIS_WAVE_1 = QUASAR_NOVA_BLAST;
-    static constexpr float GENESIS_WAVE_GAP = 0.60f;
+    // Genesis death debris: GENESIS_WAVE_COUNT bursts, each reaching
+    // GENESIS_WAVE_FALLOFF of the one before.
     static constexpr int GENESIS_WAVE_COUNT = 1;
-    // Wave life in seconds = GENESIS_WAVE_LIFE_BASE + GENESIS_WAVE_LIFE_PER_REACH * reach.
-    static constexpr float GENESIS_WAVE_LIFE_BASE = 0.31f;
-    static constexpr float GENESIS_WAVE_LIFE_PER_REACH = 0.06f;
     static constexpr float GENESIS_WAVE_REACH = 4.76f;    // wave radius / base (plates reach ~2.45)
     static constexpr float GENESIS_WAVE_FALLOFF = 0.75f;  // each next wave's share of the last
-    static constexpr float GENESIS_DEATH_TIME = GENESIS_WAVE_1 + QUASAR_NOVA_WAVE_TIME;
-    static_assert(GENESIS_WAVE_GAP * (GENESIS_WAVE_COUNT - 1) + GENESIS_WAVE_LIFE_BASE +
-                  GENESIS_WAVE_LIFE_PER_REACH * GENESIS_WAVE_REACH <= QUASAR_NOVA_WAVE_TIME,
-                  "the last Genesis wave must finish inside the shared wave time");
     static constexpr float QUASAR_BEAM_RADIUS = 55.0f;
     static constexpr float QUASAR_BEAM_DPS = 45.0f;
     // While firing, the beam turns very slowly (at most this rate, rad/s)
@@ -456,18 +439,34 @@ public:
         hitKnockX = dirX * HIT_KNOCK_SPEED;
         hitKnockY = dirY * HIT_KNOCK_SPEED;
     }
+    // Elite hit feel: no stun or shove; the body swells a little (pulse ->
+    // swell, which rises fast and follows the pulse down) and, on a critical
+    // shot, the side it came from dents in along the shot and the body
+    // rattles briefly (drawn only). A hit inside a running pulse
+    // only tops it up, so rapid fire keeps it beating instead of pinned big.
+    static constexpr float ELITE_HIT_PULSE_TIME = 0.11f;
+    static constexpr float ELITE_HIT_RISE_TIME = 0.02f;
+    static constexpr float ELITE_HIT_REKICK = 0.35f;
+    static constexpr float ELITE_HIT_DENT_TIME = 0.09f;
+    static constexpr float ELITE_HIT_SHAKE_TIME = 0.14f;   // crit rattle (drawn only)
+    float eliteHitShake = 0.0f;
+    float eliteHitPulse = 0.0f;
+    float eliteHitSwell = 0.0f;
+    float eliteHitDent = 0.0f;
+    float eliteHitDirX = 0.0f, eliteHitDirY = 0.0f;
+    void EliteHitFeel(float dirX, float dirY) {
+        eliteHitPulse = eliteHitPulse > 0.0f
+            ? std::min(1.0f, eliteHitPulse + ELITE_HIT_REKICK) : 1.0f;
+        if (dirX == 0.0f && dirY == 0.0f) return;
+        eliteHitDirX = dirX;
+        eliteHitDirY = dirY;
+        eliteHitDent = eliteHitDent > 0.0f ? std::min(1.0f, eliteHitDent + 0.5f) : 1.0f;
+        eliteHitShake = ELITE_HIT_SHAKE_TIME;
+    }
     float deathEffectTimer = -1.0f;
-    // Elite-kill experiment: set at the kill when the hit stop fires. During
-    // the death's waves (EliteKillFxWeight) the rings warp slightly, inside
-    // the death recipes themselves.
-    bool eliteKillFx = false;
-    // Kill reward held back for a delayed death (Quasar supernova).
+    // Kill reward held on the mob until the kill is processed (Quasar, Genesis).
     bool dustPending = false;
     int pendingDustValue = 0;
-    // Timed death debris (Quasar blast, Genesis waves) already spawned; -1
-    // when none is pending. Reduced matches the kill's particle budget.
-    int deathBurstsSpawned = -1;
-    bool deathBurstsReduced = false;
     XpAmount pendingDustXp = 0;
     glm::vec3 color = glm::vec3(1.0f, 0.27f, 0.0f);
 
@@ -670,7 +669,8 @@ public:
     float gimbalChargeSpeed = 0.0f;
     float gimbalBurstTimer = 0.0f;
     float gimbalVisualAngle = 0.0f;
-    float gimbalOrbitSign = 1.0f;
+    float gimbalWanderTimer = 0.0f;     // time left on the current random heading
+    float gimbalWanderAngle = 0.0f;
     bool gimbalCharging = false;
     bool gimbalBursting = false;
     bool gimbalFired = false;
@@ -799,7 +799,7 @@ public:
             sizeScale = 1.0f;
         } else if (kind == MobKind::GRAVIS) {
             color = glm::vec3(0.58f, 0.42f, 1.0f);
-            hp *= 8.0f;
+            hp *= GRAVIS_BASE_HP / 90.0f;
             speed *= 0.24f;
             sizeScale = 2.1f;
             contactDmg = 6.0f;
@@ -848,7 +848,8 @@ public:
             gimbalChargeSpeed = 0.4f;
             gimbalBurstTimer = 0.0f;
             gimbalVisualAngle = (float)(rand() % 628) * 0.01f;
-            gimbalOrbitSign = (rand() & 1) ? 1.0f : -1.0f;
+            gimbalWanderTimer = (float)(rand() % 150) * 0.01f;
+            gimbalWanderAngle = (float)(rand() % 628) * 0.01f;
             gimbalCharging = false;
             gimbalBursting = false;
             gimbalFired = false;
@@ -1029,66 +1030,25 @@ public:
 
     bool DeathEffectVisible() const {
         if (deathEffectTimer < 0.0f) return false;
-        const float duration = kind == MobKind::GRAVIS ? 0.40f
-                             : kind == MobKind::QUASAR ? QUASAR_NOVA_TIME
-                             : kind == MobKind::GENESIS ? GENESIS_DEATH_TIME : 0.0f;
+        const float duration = kind == MobKind::GRAVIS ? 0.40f : 0.0f;
         return deathEffectTimer < duration;
     }
 
     void UpdateDeathEffect(float delta) {
-        if (!alive && DeathEffectVisible()) {
+        if (!alive && DeathEffectVisible())
             deathEffectTimer += std::max(0.0f, delta);
-            SpawnStagedDeathBursts();
-        }
     }
 
-    // Elite-kill distortion strength 0..1 over the death animation: it swells
-    // in just after the blast and settles before the wave ends; the rings
-    // warp slightly while it is up. Zero during the collapse.
-    float EliteKillFxWeight() const {
-        if (!eliteKillFx || deathEffectTimer < 0.0f) return 0.0f;
-        // GENESIS_WAVE_1 == QUASAR_NOVA_BLAST and both share the wave time,
-        // so one window serves both.
-        const float start = QUASAR_NOVA_BLAST + 0.05f;
-        const float end = QUASAR_NOVA_BLAST + QUASAR_NOVA_WAVE_TIME - 0.10f;
-        const float t = deathEffectTimer;
-        if (t <= start || t >= end) return 0.0f;
-        const float rise = std::clamp((t - start) / 0.15f, 0.0f, 1.0f);
-        const float fall = std::clamp((end - t) / ((end - start) * 0.55f), 0.0f, 1.0f);
-        const float v = std::min(rise, fall);
-        return v * v * (3.0f - 2.0f * v);
-    }
-
-    // When a delayed death releases its held kill reward.
-    float DeathRewardTime() const {
-        return kind == MobKind::GENESIS ? GENESIS_WAVE_1 : QUASAR_NOVA_BLAST;
-    }
-
-    // True once, when a held kill reward should be released (the Quasar
-    // supernova blast, the Genesis first wave). A death without a body
-    // animation releases it at once.
+    // True once, when a held kill reward should be released (the Quasar and
+    // Genesis hold it until the kill is processed).
     bool TakePendingDust() {
         if (!dustPending) return false;
-        if (deathEffectTimer >= 0.0f && deathEffectTimer < DeathRewardTime() &&
-            DeathEffectVisible())
-            return false;
         dustPending = false;
         return true;
     }
 
-    // Instability: a few hot sparks leak off the shaking core (at the kill).
-    void SpawnGenesisInstabilityBurst(float base, bool reduced) const {
-        const float radius = MobDeathParticleRadius(base);
-        EnemyParticleBurst burst;
-        burst.count = 10; burst.life = QUASAR_NOVA_COLLAPSE; burst.phase = hiveOrbitAngle;
-        burst.startRadius = 0.10f; burst.jitter = 0.5f;
-        burst.speedMin = radius * 0.35f; burst.speedMax = radius * 0.7f;
-        burst.sizeMin = 2.0f; burst.sizeMax = 4.0f; burst.colorLift = 0.55f;
-        SpawnEnemyParticleBurst(worldX, worldY, color, radius, burst, reduced);
-    }
-
-    // Debris for blast wave k, spawned when that wave goes off; it stays
-    // inside the wave's reach.
+    // Debris for blast wave k, spawned at the kill; it stays inside the
+    // wave's reach.
     void SpawnGenesisWaveBurst(float base, int k, bool reduced) const {
         const float radius = MobDeathParticleRadius(base);
         static constexpr int kCount[] = { 44, 28 };
@@ -1138,281 +1098,12 @@ public:
                 bright.r, bright.g, bright.b, fade);
     }
 
-    // Quasar supernova (QUASAR_NOVA_TIME): collapse to QUASAR_NOVA_COLLAPSE
-    // (every layer is drawn into the core, spinning faster, the core
-    // flickers), hold until QUASAR_NOVA_BLAST (one white point), then a short
-    // blast: a brief central flash, one thin white shock front that stops
-    // a short way past the halo (QUASAR_NOVA_REACH), and one uneven remnant shell
-    // behind it. At most two rings at once. Lines and small discs only; no
-    // dashed segments.
-    template <typename Line, typename Disc, typename Hexagon>
-    void DrawQuasarDeathEffect(Line line, Disc disc, Hexagon /*hexagon*/) const {
-        const float base = (summoned ? 28.0f : 18.0f) * sizeScale;
-        const float t = deathEffectTimer;
-        const float seed = (float)((size_t)this % 97u) * 0.37f;
-        auto ease = [](float v) {
-            v = std::clamp(v, 0.0f, 1.0f);
-            return v * v * (3.0f - 2.0f * v);
-        };
-        auto easeOut = [](float v) {
-            v = std::clamp(v, 0.0f, 1.0f);
-            return 1.0f - (1.0f - v) * (1.0f - v) * (1.0f - v);
-        };
-        const glm::vec3 white(1.0f);
-        const float fxWarp = EliteKillFxWeight();
-        auto ellipse = [&](float th, float a, float b, int n, float w,
-                           const glm::vec3& c, float alpha,
-                           float ox = 0.0f, float oy = 0.0f) {
-            const float ux = cosf(th), uy = sinf(th);
-            float px = 0.0f, py = 0.0f;
-            for (int i = 0; i <= n; ++i) {
-                const float s = 6.2831853f * (float)i / (float)n;
-                const float warp = 1.0f + 0.025f * fxWarp *
-                    (sinf(s * 5.0f + t * 21.0f + seed) + 0.5f * sinf(s * 3.0f - t * 15.0f));
-                const float x = worldX + ox + (ux * cosf(s) * a - uy * sinf(s) * b) * warp;
-                const float y = worldY + oy + (uy * cosf(s) * a + ux * sinf(s) * b) * warp;
-                if (i > 0) line(px, py, x, y, w, c.r, c.g, c.b, alpha);
-                px = x; py = y;
-            }
-        };
-
-        // 1. Collapse.
-        if (t < QUASAR_NOVA_COLLAPSE) {
-            const float u = t / QUASAR_NOVA_COLLAPSE;
-            const float k = 1.0f - 0.92f * ease(u);
-            const float spinUp = quasarShellSpin + 16.0f * u * u;   // spins up harder as it shrinks
-            const glm::vec3 c = color + (white - color) * (0.25f + 0.65f * u);
-            const float a = 0.95f;
-            ellipse(-quasarVisualAngle * 0.6f + seed * 2.0f + spinUp * 0.5f,
-                    base * 2.25f * k, base * 0.78f * k, 36, 1.4f, c, a * 0.8f);
-            ellipse(0.0f, base * 1.95f * k, base * 1.95f * k, 40, 1.5f, c, a * 0.7f);
-            ellipse(quasarVisualAngle + seed + spinUp, base * 1.55f * k, base * 0.40f * k,
-                    28, 2.0f, c, a);
-            ellipse(spinUp * 1.4f, base * 0.97f * k, base * 0.40f * k, 24, 1.2f, c, a * 0.8f);
-            ellipse(0.0f, base * k, base * k, 32, 1.8f, c, a);
-            const float flick = 0.6f + 0.4f * sinf(t * 83.0f + seed) * sinf(t * 47.0f);
-            disc(worldX, worldY, base * (0.30f * k + 0.10f), c.r, c.g, c.b, 0.30f * flick);
-            disc(worldX, worldY, base * (0.12f + 0.06f * u), 1.0f, 1.0f, 1.0f,
-                 0.75f + 0.25f * flick);
-        }
-        // 2. Hold: one white point, a faint ring tightening onto it.
-        else if (t < QUASAR_NOVA_BLAST) {
-            const float u = (t - QUASAR_NOVA_COLLAPSE) /
-                            (QUASAR_NOVA_BLAST - QUASAR_NOVA_COLLAPSE);
-            disc(worldX, worldY, base * 0.30f, 1.0f, 1.0f, 1.0f, 0.18f);
-            disc(worldX, worldY, base * (0.14f - 0.04f * u), 1.0f, 1.0f, 1.0f, 1.0f);
-            ellipse(0.0f, base * (0.55f - 0.30f * u), base * (0.55f - 0.30f * u), 24, 1.0f,
-                    color + (white - color) * 0.6f, 0.45f + 0.4f * u);
-        }
-        // 3. Blast (QUASAR_NOVA_WAVE_TIME): a brief tight flash inside the
-        // body, the thin white front rolling out to QUASAR_NOVA_REACH, and one
-        // uneven remnant shell following it. Two rings at most at any time.
-        if (t >= QUASAR_NOVA_BLAST) {
-            const float b = t - QUASAR_NOVA_BLAST;
-            const float life = QUASAR_NOVA_TIME - QUASAR_NOVA_BLAST;
-            const float v = std::clamp(b / life, 0.0f, 1.0f);
-            // Flash: gone before the remnant shell rises.
-            const float flash = std::clamp(b / 0.15f, 0.0f, 1.0f);
-            if (flash < 1.0f) {
-                const float rf = base * (0.15f + 0.85f * easeOut(flash));
-                ellipse(0.0f, rf, rf, 40, 1.0f + 1.5f * (1.0f - flash), white,
-                        0.90f * (1.0f - flash));
-            }
-            // Shock front.
-            const float front = std::clamp(b / (life * 0.85f), 0.0f, 1.0f);
-            const float frontFade = 1.0f - ease((v - 0.45f) / 0.55f);
-            if (frontFade > 0.0f) {
-                const float rw = base * (0.3f + (QUASAR_NOVA_REACH - 0.3f) * easeOut(front));
-                ellipse(0.0f, rw, rw, 64, 1.0f + 1.0f * (1.0f - front), white,
-                        (0.90f - 0.35f * front) * frontFade);
-            }
-            // Remnant shell: continuous, uneven, a step behind the front.
-            const float fade = 1.0f - ease((v - 0.35f) / 0.65f);
-            const float rise = ease((b - 0.12f) / 0.18f);
-            const float shellR = base * (0.9f + (QUASAR_NOVA_REACH * 0.85f - 0.9f) * easeOut(v));
-            const glm::vec3 shellC = color + (white - color) * 0.35f;
-            if (rise > 0.0f) {
-                static constexpr int kSeg = 72;
-                float px = 0.0f, py = 0.0f;
-                for (int i = 0; i <= kSeg; ++i) {
-                    const float a = 6.2831853f * (float)i / (float)kSeg;
-                    const float rr = shellR * (1.0f + 0.04f * sinf(a * 4.0f + seed)
-                        + 0.02f * fxWarp * sinf(a * 5.0f + t * 21.0f + seed));
-                    const float x = worldX + cosf(a) * rr, y = worldY + sinf(a) * rr;
-                    if (i > 0) {
-                        const float f = 0.5f + 0.5f * sinf(a * 3.0f + seed) * sinf(a * 5.0f + seed * 2.0f);
-                        line(px, py, x, y, 0.8f + 1.0f * f, shellC.r, shellC.g, shellC.b,
-                             (0.25f + 0.45f * f) * fade * rise);
-                    }
-                    px = x; py = y;
-                }
-            }
-            disc(worldX, worldY, base * 0.06f, 1.0f, 1.0f, 1.0f, 0.6f * fade);
-        }
-    }
-
-    // Genesis death (GENESIS_DEATH_TIME). Same build-up as the Quasar nova:
-    // until QUASAR_NOVA_COLLAPSE the core goes unstable (it shakes harder and
-    // harder, its triangle twists, its ring warps) while the shells and
-    // plates tremble; until GENESIS_WAVE_1 everything is squeezed inward.
-    // Then GENESIS_WAVE_COUNT blast waves (one by default) go off
-    // GENESIS_WAVE_GAP apart, each weaker than the last, stopping a short
-    // way past the plates; the first wipes the body out. Lines and dots only.
-    template <typename Line, typename Disc, typename Hexagon>
-    void DrawGenesisDeathEffect(Line line, Disc disc, Hexagon /*hexagon*/) const {
-        const float base = (summoned ? 28.0f : 18.0f) * sizeScale;
-        const float R = base * 2.05f;
-        const float t = deathEffectTimer;
-        const float seed = (float)((size_t)this % 97u) * 0.37f;
-        auto clamp01 = [](float v) { return std::clamp(v, 0.0f, 1.0f); };
-        auto ease = [&](float v) { v = clamp01(v); return v * v * (3.0f - 2.0f * v); };
-        auto easeOut = [&](float v) {
-            v = clamp01(v);
-            return 1.0f - (1.0f - v) * (1.0f - v) * (1.0f - v);
-        };
-        const glm::vec3 hot(1.0f, 0.62f, 0.52f), prod(1.0f, 0.24f, 0.20f), white(1.0f);
-        const float x = worldX, y = worldY;
-        const float ring = hiveOrbitAngle + genesisShellSpin;
-        const float fxWarp = EliteKillFxWeight();
-
-        // Blast waves: the first reaches GENESIS_WAVE_REACH (in base units),
-        // each later one reaches GENESIS_WAVE_FALLOFF of the one before and is
-        // fainter. Each is a thin white front with one red shell behind it.
-        for (int k = 0; k < GENESIS_WAVE_COUNT; ++k) {
-            const float reach = GENESIS_WAVE_REACH * powf(GENESIS_WAVE_FALLOFF, (float)k);
-            const float waveLife = GENESIS_WAVE_LIFE_BASE + GENESIS_WAVE_LIFE_PER_REACH * reach;
-            const float w = t - (GENESIS_WAVE_1 + GENESIS_WAVE_GAP * (float)k);
-            if (w < 0.0f || w > waveLife) continue;
-            const float p = w / waveLife;
-            const float strength = 1.0f - 0.30f * (float)k;     // 1.0, 0.7
-            const float rr = base * (0.5f + (reach - 0.5f) * easeOut(p));
-            const glm::vec3 c = k == 0 ? white : (k == 1 ? hot : (k == 2 ? prod : color));
-            const float a = (1.0f - p) * (0.55f + 0.45f * strength);
-            const float width = 1.0f + 1.0f * strength * (1.0f - p);
-            float px = 0.0f, py = 0.0f;
-            for (int i = 0; i <= 56; ++i) {
-                const float ang = 6.2831853f * (float)i / 56.0f;
-                // A slight warp keeps the waves from reading as clean circles.
-                const float wr = rr * (1.0f + 0.05f * (1.0f - p) * sinf(ang * 3.0f + seed + (float)k)
-                    + 0.02f * fxWarp * (sinf(ang * 5.0f + t * 21.0f + (float)k * 1.9f)
-                                        + 0.5f * sinf(ang * 3.0f - t * 15.0f)));
-                const float qx = x + cosf(ang) * wr, qy = y + sinf(ang) * wr;
-                if (i > 0) line(px, py, qx, qy, width, c.r, c.g, c.b, a);
-                px = qx; py = qy;
-            }
-            if (k == 0) {                                         // trailing red shell
-                const float r2 = rr * 0.86f;
-                for (int i = 0; i < 48; ++i) {
-                    const float a0 = 6.2831853f * (float)i / 48.0f;
-                    const float a1 = 6.2831853f * (float)(i + 1) / 48.0f;
-                    line(x + cosf(a0) * r2, y + sinf(a0) * r2, x + cosf(a1) * r2, y + sinf(a1) * r2,
-                         1.2f, prod.r, prod.g, prod.b, 0.5f * (1.0f - p));
-                }
-            }
-            if (w < 0.08f)
-                disc(x, y, base * 0.07f * strength, 1.0f, 1.0f, 1.0f, 1.0f - w / 0.08f);
-        }
-        if (t >= GENESIS_WAVE_1) return;                          // body is gone
-
-        // Build-up: instability, then the squeeze into the first wave.
-        const float pre = clamp01(t / QUASAR_NOVA_COLLAPSE);
-        const float squeeze = 1.0f - 0.20f * ease((t - QUASAR_NOVA_COLLAPSE) /
-                                                  (GENESIS_WAVE_1 - QUASAR_NOVA_COLLAPSE));
-        const float shake = base * 0.07f * pre * pre;
-        const glm::vec3 shellC = color + (hot - color) * pre;
-        int edge = 0;
-        auto shellEdge = [&](float ax, float ay, float bx, float by, float width) {
-            ++edge;
-            const float jx = shake * sinf(t * 47.0f + (float)edge * 1.3f);
-            const float jy = shake * cosf(t * 53.0f + (float)edge * 2.1f);
-            line(x + (ax - x) * squeeze + jx, y + (ay - y) * squeeze + jy,
-                 x + (bx - x) * squeeze + jx, y + (by - y) * squeeze + jy,
-                 width, shellC.r, shellC.g, shellC.b, 0.92f);
-        };
-        const float half = 0.9076f, ro = R, ri = R * 0.74f;
-        for (int k = 0; k < 3; ++k) {
-            const float mid = ring + 1.0471976f + 2.0943951f * (float)k;
-            float px[9], py[9];
-            for (int i = 0; i <= 4; ++i) {
-                const float a = mid - half + half * 0.5f * (float)i;
-                px[i] = x + cosf(a) * ro;  py[i] = y + sinf(a) * ro;
-            }
-            const float ih = half - 0.1047f;
-            for (int i = 0; i <= 3; ++i) {
-                const float a = mid + ih - ih * (2.0f / 3.0f) * (float)i;
-                px[5 + i] = x + cosf(a) * ri;  py[5 + i] = y + sinf(a) * ri;
-            }
-            for (int i = 0; i < 9; ++i) {
-                const int n = (i + 1) % 9;
-                shellEdge(px[i], py[i], px[n], py[n], 1.8f);
-            }
-            const float pm = mid + 0.2443f, ph = 0.5585f, po = R * 1.19f, pi = R * 1.03f;
-            float qx[7], qy[7];
-            for (int i = 0; i <= 3; ++i) {
-                const float a = pm - ph * 0.8f + ph * 0.6f * (float)i;
-                qx[i] = x + cosf(a) * po;  qy[i] = y + sinf(a) * po;
-            }
-            for (int i = 0; i <= 2; ++i) {
-                const float a = pm + ph - ph * (float)i;
-                qx[4 + i] = x + cosf(a) * pi;  qy[4 + i] = y + sinf(a) * pi;
-            }
-            for (int i = 0; i < 7; ++i) {
-                const int n = (i + 1) % 7;
-                shellEdge(qx[i], qy[i], qx[n], qy[n], 1.3f);
-            }
-            // Seated Swarm flickers hot while the core destabilises.
-            const float cxs = x + cosf(mid) * (ro + ri) * 0.5f * squeeze;
-            const float cys = y + sinf(mid) * (ro + ri) * 0.5f * squeeze;
-            const float fl = 0.5f + 0.5f * sinf(t * 40.0f + (float)k * 2.1f);
-            const float tr = R * 0.10f;
-            for (int v = 0; v < 3; ++v) {
-                const float a0 = mid + 2.0943951f * (float)v, a1 = a0 + 2.0943951f;
-                line(cxs + cosf(a0) * tr, cys + sinf(a0) * tr,
-                     cxs + cosf(a1) * tr, cys + sinf(a1) * tr,
-                     1.4f, hot.r, hot.g, hot.b, 0.5f + 0.5f * fl * pre);
-            }
-        }
-
-        // Unstable core: shaking harder, triangle twisting, ring warping; it
-        // tightens with the squeeze.
-        const float jx = shake * 1.6f * sinf(t * 61.0f + seed);
-        const float jy = shake * 1.6f * sinf(t * 57.0f + seed * 1.3f);
-        const float cx = x + jx, cy = y + jy;
-        const glm::vec3 c = color + (hot - color) * pre;
-        const float coreR = R * 0.40f * squeeze;
-        float px = 0.0f, py = 0.0f;
-        for (int i = 0; i <= 40; ++i) {
-            const float a = 6.2831853f * (float)i / 40.0f;
-            const float r = coreR * (1.0f + 0.16f * pre * sinf(a * 3.0f + t * 25.0f)
-                                         + 0.08f * pre * sinf(a * 5.0f - t * 31.0f));
-            const float qx = cx + cosf(a) * r, qy = cy + sinf(a) * r;
-            if (i > 0) line(px, py, qx, qy, 1.6f + 1.0f * pre, c.r, c.g, c.b, 0.95f);
-            px = qx; py = qy;
-        }
-        const float twist = ring + 3.0f * pre * pre * sinf(t * 17.0f + seed);
-        for (int layer = 0; layer < 2; ++layer) {
-            const float tr = R * (layer ? 0.12f : 0.24f) * (1.0f + 0.25f * pre) * squeeze;
-            const float tw = layer ? -twist * 1.4f + 3.1415927f : twist;
-            for (int v = 0; v < 3; ++v) {
-                const float a0 = tw + 2.0943951f * (float)v, a1 = a0 + 2.0943951f;
-                line(cx + cosf(a0) * tr, cy + sinf(a0) * tr,
-                     cx + cosf(a1) * tr, cy + sinf(a1) * tr,
-                     1.4f, hot.r, hot.g, hot.b, 0.9f);
-            }
-        }
-        disc(cx, cy, base * (0.09f + 0.10f * pre), 1.0f, 1.0f, 1.0f, 0.95f);
-        disc(cx, cy, R * (0.30f + 0.15f * pre) * squeeze, prod.r, prod.g, prod.b,
-             0.10f + 0.25f * pre);
-    }
-
     // Each recipe lives beside its mob; the renderer supplies batched primitives.
     template <typename Line, typename Disc, typename Hexagon>
     void DrawDeathEffect(Line line, Disc disc, Hexagon hexagon) const {
         if (!DeathEffectVisible()) return;
         switch (kind) {
         case MobKind::GRAVIS: DrawGravisDeathEffect(line, disc, hexagon); break;
-        case MobKind::QUASAR: DrawQuasarDeathEffect(line, disc, hexagon); break;
-        case MobKind::GENESIS: DrawGenesisDeathEffect(line, disc, hexagon); break;
         default: break;
         }
     }
@@ -1433,21 +1124,8 @@ public:
         SpawnMobDeathSparks(worldX, worldY, color, radius, 14, reduced);
     }
 
-    // Collapse: matter drawn in from the halo toward the core (at the kill).
-    void SpawnQuasarCollapseBurst(float base, bool reduced) const {
-        const float radius = MobDeathParticleRadius(base);
-        EnemyParticleBurst burst;
-        burst.count = 20; burst.life = QUASAR_NOVA_COLLAPSE * 0.92f;
-        burst.phase = quasarVisualAngle;
-        burst.startRadius = 0.85f; burst.inward = true; burst.tangent = 0.35f;
-        burst.sizeMin = 2.0f; burst.sizeMax = 4.5f;
-        burst.speedMin = radius * 0.75f; burst.speedMax = radius * 1.0f;
-        burst.colorLift = 0.30f;
-        SpawnEnemyParticleBurst(worldX, worldY, color, radius, burst, reduced);
-    }
-
-    // Blast (spawned at QUASAR_NOVA_BLAST): a fast blue-white shell, then
-    // slower heavier debris, both kept inside the shock front's reach.
+    // Blast (at the kill): a fast blue-white shell, then slower heavier
+    // debris, both kept inside QUASAR_NOVA_REACH.
     void SpawnQuasarBlastBurst(float base, bool reduced) const {
         const float radius = MobDeathParticleRadius(base);
         EnemyParticleBurst burst;
@@ -1465,53 +1143,21 @@ public:
         SpawnEnemyParticleBurst(worldX, worldY, color, radius, burst, reduced);
     }
 
-    // Spawns the timed debris of a body death animation (Quasar blast,
-    // Genesis waves) as deathEffectTimer passes each mark, so the debris
-    // comes out with its ring instead of during the collapse.
-    void SpawnStagedDeathBursts() {
-        if (deathBurstsSpawned < 0) return;
-        const float base = (summoned ? 28.0f : 18.0f) * sizeScale;
-        if (kind == MobKind::QUASAR) {
-            if (deathBurstsSpawned == 0 && deathEffectTimer >= QUASAR_NOVA_BLAST) {
-                SpawnQuasarBlastBurst(base, deathBurstsReduced);
-                deathBurstsSpawned = 1;
-            }
-        } else if (kind == MobKind::GENESIS) {
-            while (deathBurstsSpawned < GENESIS_WAVE_COUNT &&
-                   deathEffectTimer >= GENESIS_WAVE_1 +
-                                       GENESIS_WAVE_GAP * (float)deathBurstsSpawned) {
-                SpawnGenesisWaveBurst(base, deathBurstsSpawned, deathBurstsReduced);
-                ++deathBurstsSpawned;
-            }
-        }
-    }
-
     void SpawnDeathEffect(float visualTime, bool reduced = false,
                            bool animateBody = true) {
         if (exploded) return;
         exploded = true;
-        if (animateBody && (kind == MobKind::GRAVIS || kind == MobKind::QUASAR ||
-                            kind == MobKind::GENESIS))
+        if (animateBody && kind == MobKind::GRAVIS)
             deathEffectTimer = 0.0f;
         const float base = (summoned ? 28.0f : 18.0f) * sizeScale;
         switch (kind) {
         case MobKind::ROTOR: SpawnRotorDeathEffect(base, visualTime, reduced); break;
         case MobKind::SWARM: SpawnSwarmDeathEffect(base, visualTime, reduced); break;
+        // Elites burst into particles only, at the kill (no body animation).
+        case MobKind::QUASAR: SpawnQuasarBlastBurst(base, reduced); break;
         case MobKind::GENESIS:
-        case MobKind::QUASAR:
-            if (animateBody) {
-                // The blast debris follows on the body's timer
-                // (SpawnStagedDeathBursts from UpdateDeathEffect).
-                if (kind == MobKind::QUASAR) SpawnQuasarCollapseBurst(base, reduced);
-                else SpawnGenesisInstabilityBurst(base, reduced);
-                deathBurstsSpawned = 0;
-                deathBurstsReduced = reduced;
-            } else if (kind == MobKind::QUASAR) {
-                SpawnQuasarBlastBurst(base, reduced);      // no body: blast at once
-            } else {
-                for (int k = 0; k < GENESIS_WAVE_COUNT; ++k)
-                    SpawnGenesisWaveBurst(base, k, reduced);
-            }
+            for (int k = 0; k < GENESIS_WAVE_COUNT; ++k)
+                SpawnGenesisWaveBurst(base, k, reduced);
             break;
         case MobKind::GRAVIS: SpawnGravisDeathEffect(base, reduced); break;
         case MobKind::GIMBAL: SpawnGimbalDeathEffect(base, reduced); break;
@@ -2926,8 +2572,6 @@ public:
                       float speedMult, std::vector<Bullet>* bullets,
                       float gateWX, float gateWY,
                       float gateWW, float gateWH) {
-        static constexpr float PREFERRED_DISTANCE = GIMBAL_PREFERRED_DISTANCE;
-        static constexpr float DISTANCE_BAND = 80.0f;
         static constexpr float IDLE_ROT = 0.40f;
         static constexpr float CHARGE_ROT_MAX = 9.0f;
         static constexpr float SHOT_DELAY = 0.08f;
@@ -2950,13 +2594,6 @@ public:
             gimbalVisualAngle += da;
             gimbalChargeAngle += da;
             if (gimbalChargeAngle >= GIMBAL_CHARGE_ROTATIONS * 6.2831853f) {
-                // The lens flips on its pin axis; settle it face-on (a half
-                // turn period) so the shot leaves a fully open lens.
-                const float period = 3.1415927f;
-                float mod = fmodf(gimbalVisualAngle, period);
-                if (mod < 0.0f) mod += period;
-                if (mod > period * 0.5f) gimbalVisualAngle += period - mod;
-                else gimbalVisualAngle -= mod;
                 gimbalCharging = false;
                 gimbalBursting = true;
                 gimbalBurstTimer = 0.0f;
@@ -2990,21 +2627,21 @@ public:
             }
         }
 
-        const float moveSpeed = std::min(speed * speedMult, 112.0f);
-        float moveX = 0.0f, moveY = 0.0f, rate = 0.0f;
-        if (distance > PREFERRED_DISTANCE + DISTANCE_BAND) {
-            moveX = dx / distance; moveY = dy / distance;
-            rate = moveSpeed;
-        } else if (distance < PREFERRED_DISTANCE - DISTANCE_BAND) {
-            moveX = -dx / distance; moveY = -dy / distance;
-            rate = std::min(moveSpeed * 0.68f, 72.0f);
-        } else {
-            moveX = -dy / distance * gimbalOrbitSign;
-            moveY = dx / distance * gimbalOrbitSign;
-            rate = std::min(moveSpeed * 0.34f, 34.0f);
+        // Wanders on random headings regardless of distance (so a pack spreads
+        // out instead of settling on one ring); now and then the new heading
+        // leans toward the player so it does not hug the view edge. It shoots
+        // from wherever it is, and eases off while charging.
+        gimbalWanderTimer -= deltaTime;
+        if (gimbalWanderTimer <= 0.0f) {
+            gimbalWanderTimer = 1.2f + (float)(rand() % 160) * 0.01f;
+            gimbalWanderAngle = (float)(rand() % 628) * 0.01f;
+            if (rand() % 100 < 35 && distance > 1.0f)
+                gimbalWanderAngle = atan2f(dy, dx) + ((float)(rand() % 141) - 70.0f) * 0.01f;
         }
-        worldX += moveX * rate * deltaTime;
-        worldY += moveY * rate * deltaTime;
+        const float moveSpeed = std::min(speed * speedMult, 112.0f);
+        const float rate = moveSpeed * (gimbalCharging ? 0.35f : 0.75f);
+        worldX += cosf(gimbalWanderAngle) * rate * deltaTime;
+        worldY += sinf(gimbalWanderAngle) * rate * deltaTime;
         TryContact(distance, playerHP, contactDmg, deltaTime, -1.0f,
                    gateWX, gateWY, gateWW, gateWH);
     }
@@ -3129,6 +2766,11 @@ public:
         if (!alive) return;
         hitFlashTimer = std::max(0.0f, hitFlashTimer - deltaTime);
         hitStunCooldown = std::max(0.0f, hitStunCooldown - deltaTime);
+        eliteHitPulse = std::max(0.0f, eliteHitPulse - deltaTime / ELITE_HIT_PULSE_TIME);
+        eliteHitSwell = std::min(eliteHitPulse,
+                                 eliteHitSwell + deltaTime / ELITE_HIT_RISE_TIME);
+        eliteHitDent = std::max(0.0f, eliteHitDent - deltaTime / ELITE_HIT_DENT_TIME);
+        eliteHitShake = std::max(0.0f, eliteHitShake - deltaTime);
         magnetarInterceptTimer = std::max(0.0f,
                                           magnetarInterceptTimer - deltaTime);
         for (float& flash : magnetarFaceHitFlash)

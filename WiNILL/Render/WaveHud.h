@@ -7,10 +7,10 @@
 // first and final waves are never faded because nothing lies beyond them.
 // Line glyphs only; text keeps the renderer halo so
 // it reads on a bright wallpaper without a plate.
-//   ○ elite wave   ◇ mid-run boss wave   ◈ final wave
-// Boss rush: every wave is an elite (rolled at run start) or a boss fight and
-// ends when it falls. The timer shows how long the fight has run; on the
-// final wave it counts down to the boss's judgment instead.
+//   ○ regular wave   ◇ elite wave   ◈ boss wave
+// A regular wave shows its kills against the quota that clears it; an elite
+// or mid-run boss wave how long the fight has run; the final wave counts down
+// to the boss's judgment.
 // ─────────────────────────────────────────────────────────────
 #include <algorithm>
 #include <cmath>
@@ -41,12 +41,6 @@ inline constexpr Rgb kFinal  = { 1.00f, 0.81f, 0.38f };
 inline constexpr Rgb kDanger = { 1.00f, 0.36f, 0.38f };
 inline constexpr Rgb kText   = { 0.86f, 0.91f, 1.00f };
 
-
-// Track symbols keep the pre-boss-rush look: an elite wave reads as a plain
-// wave, a mid-run boss wave as the elite diamond, the final wave as before.
-inline bool IsDiamondWave(int wave, Difficulty difficulty) {
-    return IsBossWave(wave, difficulty) && !IsFinalBossWave(wave, difficulty);
-}
 
 inline void HudText(TextRenderer& font, const wchar_t* text, float x,
                      float baseline, float scale, Rgb c, float a) {
@@ -92,8 +86,8 @@ inline void DrawWaveTrack(float cx, float trackY, float hs, int wave, int finalW
     // Half-width of each node along the track, so the links stop at the
     // node's edge instead of running through it.
     auto nodeHalf = [&](int w) {
-        const bool isFinal = IsFinalBossWave(w, difficulty);
-        const bool isElite = IsDiamondWave(w, difficulty);
+        const bool isFinal = IsBossWave(w, difficulty);   // every boss wave, not only the last
+        const bool isElite = IsEliteWaveNumber(w, difficulty);
         if (w == wave) return (isFinal || isElite ? 13.0f : 10.0f) * hs + 1.2f * hs;
         if (isFinal) return 9.0f * hs + 0.9f * hs;
         if (isElite) return 7.0f * hs + 0.9f * hs;
@@ -117,8 +111,8 @@ inline void DrawWaveTrack(float cx, float trackY, float hs, int wave, int finalW
         const float nx = nodeX(w);
         const float f = fade(w);
         if (f <= 0.001f) continue;
-        const bool isFinal = IsFinalBossWave(w, difficulty);
-        const bool isElite = IsDiamondWave(w, difficulty);
+        const bool isFinal = IsBossWave(w, difficulty);   // every boss wave, not only the last
+        const bool isElite = IsEliteWaveNumber(w, difficulty);
         if (w == wave) {
             // Current wave: a steady outline in the node's own colour, and
             // its interior filling clockwise from 12 o'clock as the wave
@@ -176,10 +170,14 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
     const float fight = WaveFightSeconds(wave, gameTime);
     const bool finalFight = IsFinalBossWave(wave, difficulty);
     const bool bossFight = IsBossWave(wave, difficulty);
-    // Final wave: time left before the judgment. Other waves: the fight clock;
-    // the node fills over the reward window (full once only Common is left).
+    // Regular wave: kills against the quota, the node filling as they add up.
+    // Final wave: time left before the judgment. Elite / mid-boss waves: the
+    // fight clock, the node filling over the elite's reward window.
+    const int quota = RegularWaveKillQuota(wave, difficulty);
     float clock = fight, remainFrac = 1.0f;
-    if (finalFight) {
+    if (quota > 0) {
+        remainFrac = 1.0f - std::min(1.0f, (float)gm.waveKills / (float)quota);
+    } else if (finalFight) {
         clock = std::max(0.0f, BOSS_WAVE_DURATION_SECONDS - fight);
         remainFrac = clock / BOSS_WAVE_DURATION_SECONDS;
     } else {
@@ -196,14 +194,18 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
     swprintf_s(current, L"%02d", wave);
     swprintf_s(total, L"/ %02d", finalWave);
     const int clockWhole = finalFight ? (int)std::ceil(clock) : (int)clock;
-    swprintf_s(timer, L"%02d:%02d", clockWhole / 60, clockWhole % 60);
+    if (quota > 0)
+        swprintf_s(timer, L"%02d/%02d", std::min(gm.waveKills, quota), quota);
+    else
+        swprintf_s(timer, L"%02d:%02d", clockWhole / 60, clockWhole % 60);
     const float textSc = UiTextScale(g_TextL, UiTextLevel::Subtitle, hs * 0.95f);
     const float totalSc = textSc * 0.65f;
     const float totalGap = 8.0f * hs;
     const float progressW = std::max(g_TextL.Width(L"88", textSc), g_TextL.Width(current, textSc))
                           + totalGap
                           + std::max(g_TextL.Width(L"/ 88", totalSc), g_TextL.Width(total, totalSc));
-    const float timerW = std::max(g_TextL.Width(L"88:88", textSc), g_TextL.Width(timer, textSc));
+    const float timerW = std::max(g_TextL.Width(quota > 0 ? L"88/88" : L"88:88", textSc),
+                                  g_TextL.Width(timer, textSc));
     const float headerW = progressW + 24.0f * hs + timerW;
     const float baseline = hudTopY + g_TextL.BaselineOffset(textSc) + 4.0f * hs;
     const float x = cx - headerW * 0.5f;

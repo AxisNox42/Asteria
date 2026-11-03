@@ -160,9 +160,15 @@ struct StardustPickup {
     int   value = 1;
     XpAmount xpValue = 0;
     bool  alive = true;
+    bool  homing = false;     // latched once the player is within range
+    float homeTime = 0.0f;    // seconds spent flying to the player
 };
 inline std::vector<StardustPickup> g_StardustPickups;
 inline float g_StardustHudPulse = 0.0f;
+// Drops are collected two ways: the player passes within this radius, or a
+// wave clear sets g_StardustCollectAll, pulling every drop on the map.
+constexpr float kStardustCollectRadius = 100.0f;
+inline bool g_StardustCollectAll = false;
 
 inline void DrawStardustPickups() {
     for (const auto& dust : g_StardustPickups) {
@@ -175,6 +181,20 @@ inline void DrawStardustPickups() {
             BatchTri(dust.x - size, dust.y, dust.x, dust.y + size,
                      dust.x + size, dust.y, r, g, b, alpha);
         };
+        // 아주 약한 이동 꼬리: 추적 중일 때만, 속도 반대 방향으로 가늘게.
+        if (dust.homing) {
+            const float spd = sqrtf(dust.vx * dust.vx + dust.vy * dust.vy);
+            if (spd > 1.0f) {
+                const float tailLen = std::min(46.0f, spd * 0.035f);
+                const float bx = -dust.vx / spd, by = -dust.vy / spd;
+                const float nx = -by, ny = bx;
+                const float w = radius * 0.45f;
+                BatchTri(dust.x + nx * w, dust.y + ny * w,
+                         dust.x - nx * w, dust.y - ny * w,
+                         dust.x + bx * tailLen, dust.y + by * tailLen,
+                         1.0f, 0.80f, 0.25f, 0.13f);
+            }
+        }
         diamond(radius * 1.8f, 1.0f, 0.72f, 0.16f, 0.18f);
         diamond(radius, 1.0f, 0.85f, 0.30f, 0.95f);
         diamond(radius * 0.38f, 1.0f, 1.0f, 0.88f, 1.0f);

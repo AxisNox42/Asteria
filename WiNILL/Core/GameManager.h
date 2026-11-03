@@ -29,8 +29,13 @@ public:
     float     maxHP      = 100.0f;   // mirrors PlayerStats::maxHP for HUD
     int       currentWave = 1;
     float     waveStartTime = 0.0f;   // run clock when currentWave began
+    long long waveKillStart = 0;      // run kill count when currentWave began
+    int       waveKills = 0;          // kills this wave (regular waves' quota)
     int       waveTransitionFrom = 0;
     float     waveTransitionTimer = 0.0f;
+    // The wave's target fell; the next wave starts once the reward is picked.
+    bool      waveAdvancePending = false;
+    float     waveClearDelay = 0.0f;      // beat between the kill and the reward
     bool      waveVictory = false;
     long long score      = 0;
     float     scoreAccum = 0.0f;

@@ -2411,11 +2411,7 @@ static void DrawPaneCollapses(float dt) {
         const float cx = c.rect.x + c.rect.w * 0.5f, cy = c.rect.y + c.rect.h * 0.5f;
         const os_pane::Rect r{ cx - c.rect.w * 0.5f * k, cy - c.rect.h * 0.5f * k,
                                c.rect.w * k, c.rect.h * k };
-        DrawPaneOutline(r, { 0.92f, 0.99f, 1.0f }, 2.5f, 1.0f - t);
-        hud_lines::Segment(r.x, r.y, cx, cy, 1.2f, { 0.72f, 0.94f, 1.0f }, 0.6f * (1.0f - t));
-        hud_lines::Segment(r.x + r.w, r.y, cx, cy, 1.2f, { 0.72f, 0.94f, 1.0f }, 0.6f * (1.0f - t));
-        hud_lines::Segment(r.x, r.y + r.h, cx, cy, 1.2f, { 0.72f, 0.94f, 1.0f }, 0.6f * (1.0f - t));
-        hud_lines::Segment(r.x + r.w, r.y + r.h, cx, cy, 1.2f, { 0.72f, 0.94f, 1.0f }, 0.6f * (1.0f - t));
+        DrawPaneOutline(r, { 0.92f, 0.99f, 1.0f }, 2.5f, 1.0f - t);   // just the frame folding in
     }
     g_PaneCollapses.erase(std::remove_if(g_PaneCollapses.begin(), g_PaneCollapses.end(),
         [](const PaneCollapse& c) { return c.age >= kPaneCollapseSeconds; }), g_PaneCollapses.end());
@@ -3127,21 +3123,39 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     if (g_GameManager.currentState != GameState::RUNNING) return;
     GameManager& gm = g_GameManager;
     const WaveClearInfo clear = ConsumeWaveClear();
-    if (clear.cleared && clear.wave == gm.currentWave &&
-        gm.currentWave < FinalWaveCount(g_Difficulty)) {
+    // A regular wave clears on its kill quota; elite and mid-boss waves when
+    // their target falls (ConsumeWaveClear).
+    gm.waveKills = (int)std::max(0LL, g_Stats.killCount - gm.waveKillStart);
+    const int quota = RegularWaveKillQuota(gm.currentWave, g_Difficulty);
+    const bool quotaMet = quota > 0 && gm.waveKills >= quota;
+    if (((clear.cleared && clear.wave == gm.currentWave) || quotaMet) &&
+        !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
         gm.QueueAugmentReward();
         passive::OnWaveCleared();
-        gm.waveTransitionFrom = gm.currentWave;
-        ++gm.currentWave;
-        gm.waveStartTime = g_GameTime;
-        gm.waveTransitionTimer = 2.0f;
+        // Wave clear: every drop left on the map flies to the player.
+        g_StardustCollectAll = true;
+        // The next wave waits until the reward is picked.
+        gm.waveAdvancePending = true;
+        gm.waveClearDelay = 0.8f;
     }
     // The reward opens a beat after the kill, once nothing else holds the
     // selection screen (a level-up slow-motion may be mid-flight).
     // Not while OCTANS' blue screen is up either (the cards would open hidden under it).
-    if (gm.PendingRewards() > 0 && gm.waveTransitionTimer <= 1.2f &&
+    if (gm.PendingRewards() > 0 && gm.waveClearDelay <= 0.0f && gm.waveTransitionTimer <= 1.2f &&
         !gm.levelUpTransition.Active() && !gm.augmentRewardActive && !CrashScreenUp())
         gm.ActivateNextAugmentReward();
+    // Every pick taken: the next wave begins.
+    if (gm.waveAdvancePending && gm.waveClearDelay <= 0.0f && gm.PendingRewards() == 0 &&
+        !gm.augmentRewardActive && !gm.levelUpTransition.Active()) {
+        gm.waveAdvancePending = false;
+        g_StardustCollectAll = false;
+        gm.waveTransitionFrom = gm.currentWave;
+        ++gm.currentWave;
+        gm.waveStartTime = g_GameTime;
+        gm.waveKillStart = g_Stats.killCount;
+        gm.waveKills = 0;
+        gm.waveTransitionTimer = 2.0f;
+    }
     // The run is won only by felling the final boss (CompleteBossRun).
 }
 
@@ -3279,8 +3293,7 @@ static void SyncGameplayTelemetry() {
 // other hit stop. Remove this block, its call and the toolkit binding to
 // revert.
 static bool g_EliteKillHitStop = true;
-// 0.03s alone was not felt; paired with the kill distortion (a slight ring
-// warp in the death recipes) it is raised to 0.06s.
+// 0.03s alone was not felt, so it is 0.06s.
 static constexpr float ELITE_KILL_HIT_STOP = 0.06f;   // boss: revisit once bosses exist
 
 static void TriggerEliteKillHitStop(Monster& m) {
@@ -3288,7 +3301,6 @@ static void TriggerEliteKillHitStop(Monster& m) {
     if (g_GameManager.currentState != GameState::RUNNING) return;
     if (m.kind != MobKind::GENESIS && m.kind != MobKind::QUASAR) return;
     TriggerHitStop(ELITE_KILL_HIT_STOP);   // longest remaining wins; no stacking
-    m.eliteKillFx = true;                  // kill distortion (EntityDraw drawMob)
 }
 
 // The tutorial's pause menu: PAUSED whose resume target is the practice field.
@@ -3735,9 +3747,13 @@ int main() {
         &g_PlayConstellationOrbits,
         [&]() {
             if (g_GameManager.currentState != GameState::RUNNING) return;
-            // Skip: the wave's target falls now (no score), so the wave
-            // clears through the normal flow and its reward opens.
-            if (DebugClearWaveObjective(g_MonsterManager, g_GameTime))
+            // Skip: the wave's target falls now (no score), or a regular
+            // wave's quota counts as met, so the wave clears through the
+            // normal flow and its reward opens.
+            GameManager& gm = g_GameManager;
+            const int quota = RegularWaveKillQuota(gm.currentWave, g_Difficulty);
+            if (quota > 0) gm.waveKillStart = g_Stats.killCount - quota;
+            if (quota > 0 || DebugClearWaveObjective(g_MonsterManager, g_GameTime))
                 ProcessWaveTransitions(screenWidth, screenHeight);
         },
         // F1 > Spawn > Boss: brings a boss in as its wave would (replaces F9).
@@ -4031,7 +4047,7 @@ int main() {
             g_ShakeTime = 0.0f; g_ShakeMag = 0.0f;
             ResetTrials();
             g_RunStardust       = 0;
-            g_StardustPickups.clear(); g_StardustHudPulse = 0.0f;
+            g_StardustPickups.clear(); g_StardustHudPulse = 0.0f; g_StardustCollectAll = false;
 
             ResetJuice();
             ResetPlayerSkills();   // dash and shield runtime
@@ -4127,7 +4143,7 @@ int main() {
 
             g_MonsterManager.Clear();
             g_Bullets.clear();
-            g_StardustPickups.clear();
+            g_StardustPickups.clear(); g_StardustCollectAll = false;
             g_MuzzleTimer = 0.0f;
             g_ShakeTime = 0.0f;
             g_ShakeMag = 0.0f;
@@ -4322,6 +4338,7 @@ int main() {
                             g_GameTime = 99.0f;
                             gm.currentWave = 1;
                             gm.waveStartTime = g_GameTime;
+                            gm.waveKillStart = g_Stats.killCount;
                         };
                         auto dump = [&](const std::string& label) {
                             int shocks = 0, debris = 0, tier3 = 0, tier4 = 0;
@@ -4392,6 +4409,26 @@ int main() {
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
                         g_SmokeAugFocus = 0;
+                    } else if (step == "AUGDEAL") {
+                        // AUGDEAL: opens the reward pick and lets the deal play (dim fade-in).
+                        if (gm.currentState != GameState::RUNNING)
+                            RestartCurrentRun();
+                        gm.QueueAugmentReward();
+                        gm.ActivateNextAugmentReward();
+                    } else if (step == "STATDEAL") {
+                        // STATDEAL: opens a level-up stat pick (three cards).
+                        if (gm.currentState != GameState::RUNNING)
+                            RestartCurrentRun();
+                        gm.QueueStatReward();
+                        gm.ActivateNextAugmentReward();
+                    } else if (step.rfind("AUGPICK=", 0) == 0) {
+                        // AUGPICK=<slot>: confirm a card on the open pick (the exit animation).
+                        if (gm.currentState == GameState::AUG_SELECT && g_AugExitT < 0.0f) {
+                            g_HoveredAug = std::clamp(std::atoi(step.c_str() + 8), 0,
+                                                      std::max(0, gm.augChoiceCount - 1));
+                            g_AugExitT = 0.0f;
+                            g_AugExitSlot = g_HoveredAug;
+                        }
                     } else if (step.rfind("GOD=", 0) == 0) {
                         g_SmokeGod = step.size() > 4 && step[4] == '1';
                     } else if (step.rfind("FIRE=", 0) == 0) {
@@ -4412,6 +4449,7 @@ int main() {
                         gm.currentWave = std::clamp(std::atoi(step.c_str() + 5),
                                                     1, FinalWaveCount(g_Difficulty));
                         gm.waveStartTime = g_GameTime;
+                        gm.waveKillStart = g_Stats.killCount;
                     } else if (step.rfind("XP=", 0) == 0) {
                         // XP=<n>: one large XP gain, levelled by the next tick.
                         GrantExperience(XpFromReward(std::atof(step.c_str() + 3)));
@@ -5411,7 +5449,7 @@ int main() {
                                                -1.0f, -1.0f, -1.0f, -1.0f,
                                                glm::vec4(ccX - halfW, topLimit,
                                                          ccX + halfW, bottomLimit));
-                    // Held kill stardust (Quasar supernova) comes out at the blast.
+                    // Held kill stardust (Quasar, Genesis) comes out now.
                     ReleasePendingStardust(g_MonsterManager, pCX, pCY);
 
                     // Antares rams shove the player; dash i-frames ignore the shove.
@@ -5600,6 +5638,11 @@ CollisionSystem::Update(pCX, pCY,
             g_GameManager.waveTransitionTimer = std::max(
                 0.0f, g_GameManager.waveTransitionTimer - delta);
         }
+        if (g_GameManager.currentState == GameState::RUNNING &&
+            g_GameManager.waveClearDelay > 0.0f) {
+            g_GameManager.waveClearDelay = std::max(
+                0.0f, g_GameManager.waveClearDelay - delta);
+        }
 
         {
             GameState ws = g_GameManager.currentState;
@@ -5708,13 +5751,27 @@ CollisionSystem::Update(pCX, pCY,
                     dust.vx *= drag;
                     dust.vy *= drag;
                 } else {
-                    // 이후: 매 프레임 플레이어 방향으로 속도 재조향 (무조건 추적)
-                    const float speed = 520.0f + std::min(280.0f, dust.age * 400.0f);
+                    // 이후: 플레이어 반경 100px 이내이거나 웨이브 클리어 상태면
+                    // 추적을 시작(래치)하고, 아니면 제자리에 멈춰 있는다.
                     const float dx = pCX - dust.x, dy = pCY - dust.y;
                     const float dist = sqrtf(dx * dx + dy * dy);
-                    if (dist > 0.001f) {
-                        dust.vx = (dx / dist) * speed;
-                        dust.vy = (dy / dist) * speed;
+                    if (!dust.homing &&
+                        (g_StardustCollectAll || dist <= kStardustCollectRadius))
+                        dust.homing = true;
+                    if (dust.homing) {
+                        dust.homeTime += delta;
+                        // 웨이브 클리어 회수는 훨씬 빠르게 빨려 들어온다.
+                        float speed = g_StardustCollectAll
+                            ? 1500.0f + std::min(1500.0f, dust.homeTime * 3000.0f)
+                            : 520.0f + std::min(280.0f, dust.homeTime * 400.0f);
+                        if (delta > 0.0f) speed = std::min(speed, dist / delta);  // 지나치지 않게
+                        if (dist > 0.001f) {
+                            dust.vx = (dx / dist) * speed;
+                            dust.vy = (dy / dist) * speed;
+                        }
+                    } else {
+                        dust.vx = 0.0f;
+                        dust.vy = 0.0f;
                     }
                 }
 
@@ -5729,7 +5786,7 @@ CollisionSystem::Update(pCX, pCY,
                                 STARDUST_MIN_HOMING_SECONDS &&
                     dist < STARDUST_PICKUP_RADIUS) {
                     GrantExperience(dust.xpValue);
-                    if (PlayRecordsProgress()) {
+                    if (PlayEarnsStardust()) {
                         AddSaveValue(g_Coins, dust.value);
                         AddSaveValue(g_RunStardust, dust.value);
                         // The first stardust ever picked up opens the lobby shop.
@@ -5742,7 +5799,7 @@ CollisionSystem::Update(pCX, pCY,
                 }
             }
             g_StardustPickups.erase(std::remove_if(g_StardustPickups.begin(), g_StardustPickups.end(),
-                [](const StardustPickup& d) { return !d.alive || d.age > 6.0f; }),
+                [](const StardustPickup& d) { return !d.alive; }),
                 g_StardustPickups.end());
 
             // ?��??�파???�데?�트 (?�동 + 감속 + ?�명)
@@ -5795,7 +5852,7 @@ CollisionSystem::Update(pCX, pCY,
                 nb.speed = effSpeed;
                 passive::ModifyShot(nb);
                 g_Bullets.push_back(nb);
-                active::OnPlayerBullet(nb);   // Shadow Clone copies the shot
+                active::OnPlayerBullet(nb);   // Twin Star Clone copies the shot
             };
 
             auto spawnAimed = [&](float tx, float ty) {
@@ -6493,6 +6550,17 @@ CollisionSystem::Update(pCX, pCY,
                 (st == GameState::PAUSED && !TutorialPaused())) {
                 DrawSkillHud(skill_hud::BuildSkillHudView(GatherSkillHudInputs(), g_SkillHudPulse),
                              UiScale(sw, sh), sw, sh);
+            } else if (st == GameState::AUG_SELECT && !ready_launch::g_TutorialMode &&
+                       !(g_GameManager.augmentRewardActive && g_GameManager.PendingRewards() > 1)) {
+                // Closing pick that returns to combat: the skill row fades back in under it.
+                const float back = aug_card::HudReturn(g_AugExitT);
+                if (back > 0.004f) {
+                    const float keep = g_BatchAlpha;
+                    g_BatchAlpha *= back;
+                    DrawSkillHud(skill_hud::BuildSkillHudView(GatherSkillHudInputs(), g_SkillHudPulse),
+                                 UiScale(sw, sh), sw, sh);
+                    g_BatchAlpha = keep;
+                }
             }
             g_BatchAlpha = hudAlphaKeep;
 

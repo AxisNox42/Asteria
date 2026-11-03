@@ -13,5 +13,9 @@ Icons/STAT_*.png — Tabler Icons (MIT, https://tabler.io/icons) outline SVG 를
   흰색 선 마스크로 렌더링한 것. *_KEY.png 는 같은 모양의 굵은 키라인.
   라이선스: Licenses/TablerIcons-LICENSE.txt
 
+Icons/AUG_*.png — RPG Awesome (SIL OFL 1.1, https://github.com/nagoshiashumari/Rpg-Awesome) 글리프의
+  윤곽선만 남긴 흰색 선 마스크 (증강 카드 아이콘, 증강 코드별 1개).
+  라이선스: Licenses/RPGAwesome-LICENSE.txt
+
 실행 파일 옆에 Resource/를 배치한다. Windows 빌드의 Resource.rc와
 CMake/Visual Studio의 post-build 복사도 모두 이 폴더를 사용한다.

@@ -164,8 +164,12 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     scoreAccum = static_cast<float>(initialScore);
     currentWave = 1;
     waveStartTime = 0.0f;
+    waveKillStart = 0;
+    waveKills = 0;
     waveTransitionFrom = 0;
     waveTransitionTimer = 0.0f;
+    waveAdvancePending = false;
+    waveClearDelay = 0.0f;
     waveVictory = false;
     xp = 0;
     playerLevel = 1;
@@ -321,6 +325,7 @@ void GameManager::Render() {
     if (currentState != GameState::RUNNING && currentState != GameState::DYING &&
         currentState != GameState::PAUSED &&
         currentState != GameState::GAMEOVER &&
+        currentState != GameState::AUG_SELECT &&   // the card scene eases its own dim
         currentState != GameState::MAIN_MENU &&
         !(currentState == GameState::SETTINGS &&
           g_SettingsReturnTo == GameState::PAUSED)) {
@@ -329,7 +334,6 @@ void GameManager::Render() {
 
         float oR = 0.0f, oG = 0.0f, oB = 0.0f, overlayA = 0.5f;
         if (currentState == GameState::GAMEOVER)     { overlayA = 0.60f; }
-        if (currentState == GameState::AUG_SELECT)   { overlayA = 0.45f; }
         glUniform4f(colorLoc, oR, oG, oB, overlayA);
         glBindVertexArray(overlayVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);

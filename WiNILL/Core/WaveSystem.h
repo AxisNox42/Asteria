@@ -3,11 +3,14 @@
 #include "../System/Settings.h"
 #include <algorithm>
 
-// ─── Boss-rush waves ─────────────────────────────────────────────────────────
-// Every wave is a fight with no clock: it ends only when its target falls.
-// A boss wave brings a boss (OCTANS/ERIDANUS); every other wave brings one
-// elite. The final wave's boss decides the run. Felling an elite or a mid-run
-// boss opens a wave reward whose tier follows how fast it fell.
+// ─── Wave structure ──────────────────────────────────────────────────────────
+// Sets of three regular waves and one elite wave, then the final boss:
+//   R R R E | R R R E | ... | B
+// A regular wave (regular mobs only) ends once its kill quota is met; the
+// field refills as mobs fall, so fast killers fight more and finish sooner.
+// An elite wave ends when its elite falls. NIGHTMARE swaps one elite wave for
+// a mid-run boss. The final wave's boss decides the run. Every wave clear
+// opens an augment reward, and the next wave waits until it is picked.
 
 // The elite enters this long after its wave begins (time to read the banner).
 inline constexpr float ELITE_SPAWN_DELAY_SECONDS = 1.5f;
@@ -16,26 +19,39 @@ inline constexpr float BOSS_WAVE_DURATION_SECONDS = 15.0f * 60.0f;
 // Nominal fight length the in-wave spawn curve is laid over.
 inline constexpr float WAVE_CURVE_SECONDS = 120.0f;
 
-// Regular spawns slow down on elite and boss waves (interval x this).
-inline constexpr float SPECIAL_WAVE_SPAWN_STRETCH = 1.5f;
+// Regular spawn interval x this on elite waves (boss waves spawn none at all).
+// 1.0 = the regular-wave pace; raise it to thin the mobs around the elite.
+inline constexpr float SPECIAL_WAVE_SPAWN_STRETCH = 1.0f;
+
+// Regular waves: kills to clear the first one, the rise per regular wave in
+// the first set, and how much that rise grows after each elite wave.
+inline constexpr int kRegularKillQuotaBase = 30;
+inline constexpr int kRegularKillQuotaStep = 15;
+inline constexpr int kRegularKillQuotaStepRise = 5;
+// While a regular wave runs, the field is refilled at once whenever fewer
+// regular mobs than this are alive (on top of the normal spawn pace).
+inline constexpr int kRegularWaveMinAlive = 8;
 
 // ─── Difficulty wave table ───────────────────────────────────────────────────
-// One row per difficulty: run length and the waves that host a boss. The last
-// boss wave is always the final wave; its defeat wins the run.
+// One row per difficulty: run length, its elite waves and its boss waves (the
+// last boss wave is always the final wave). Every other wave is regular.
 inline constexpr int kMaxWaves = 32;
-inline constexpr int kMaxScheduledBosses = 5;
+inline constexpr int kMaxScheduledElites = 5;
+inline constexpr int kMaxScheduledBosses = 2;
 
 struct WaveSchedule {
     int finalWave;
+    int eliteCount;
+    int eliteWaves[kMaxScheduledElites];
     int bossCount;
     int bossWaves[kMaxScheduledBosses];
 };
 
 inline constexpr WaveSchedule kWaveSchedules[DIFFICULTY_COUNT] = {
-    /* EASY      */ {  6, 2, { 3, 6, 0, 0, 0 } },
-    /* NORMAL    */ {  8, 3, { 4, 6, 8, 0, 0 } },
-    /* HARD      */ { 12, 4, { 4, 7, 10, 12, 0 } },
-    /* NIGHTMARE */ { 18, 5, { 5, 9, 13, 16, 18 } },
+    /* EASY      */ {  9, 2, { 4, 8, 0, 0, 0 },      1, {  9, 0 } },
+    /* NORMAL    */ { 13, 3, { 4, 8, 12, 0, 0 },     1, { 13, 0 } },
+    /* HARD      */ { 17, 4, { 4, 8, 12, 16, 0 },    1, { 17, 0 } },
+    /* NIGHTMARE */ { 21, 4, { 4, 8, 16, 20, 0 },    2, { 12, 21 } },   // 12: mid-run boss
 };
 
 inline const WaveSchedule& WaveScheduleFor(Difficulty difficulty) {
@@ -59,10 +75,11 @@ inline bool IsFinalBossWave(int wave, Difficulty difficulty) {
     return wave == FinalWaveCount(difficulty);
 }
 
-// Every wave of the run that is not a boss wave brings one elite.
 inline bool IsEliteWaveNumber(int wave, Difficulty difficulty) {
-    return wave >= 1 && wave <= FinalWaveCount(difficulty) &&
-           !IsBossWave(wave, difficulty);
+    const WaveSchedule& s = WaveScheduleFor(difficulty);
+    for (int i = 0; i < s.eliteCount; ++i)
+        if (s.eliteWaves[i] == wave) return true;
+    return false;
 }
 
 // Zero-based position of `wave` among the elite waves, or -1.
@@ -77,6 +94,30 @@ inline int EliteOrdinal(int wave, Difficulty difficulty) {
 inline bool IsSpecialWave(int wave, Difficulty difficulty) {
     return IsBossWave(wave, difficulty) || IsEliteWaveNumber(wave, difficulty);
 }
+
+// A wave of regular mobs only, cleared by its kill quota.
+inline bool IsRegularWave(int wave, Difficulty difficulty) {
+    return wave >= 1 && wave <= FinalWaveCount(difficulty) && !IsSpecialWave(wave, difficulty);
+}
+
+// Kills that clear a regular wave (0 on any other wave). Each regular wave
+// asks for the previous one's quota plus the set's step; the step grows by
+// kRegularKillQuotaStepRise with every elite (or mid-boss) wave passed, so
+//   set 1: 30 45 60 | set 2: 80 100 120 | set 3: 145 170 195 | ...
+inline int RegularWaveKillQuota(int wave, Difficulty difficulty) {
+    if (!IsRegularWave(wave, difficulty)) return 0;
+    int quota = 0, step = kRegularKillQuotaStep, sets = 0;
+    for (int w = 1; w <= wave; ++w) {
+        if (IsSpecialWave(w, difficulty)) { ++sets; continue; }
+        step = kRegularKillQuotaStep + kRegularKillQuotaStepRise * sets;
+        quota = quota == 0 ? kRegularKillQuotaBase : quota + step;
+    }
+    return quota;
+}
+
+// A wave's elite gets this much more HP than the wave's ramp alone gives it
+// (first elite on NORMAL ≈ 9,000 effective HP). Antares fragments inherit it.
+inline constexpr float kEliteWaveHpMult = 3.0f;
 
 // Elite waves the run has already passed on its way to `wave`.
 inline int EliteWavesBefore(int wave, Difficulty difficulty) {
@@ -93,13 +134,25 @@ inline float WaveHpRamp(int wave, Difficulty difficulty) {
     return 1.0f + kWaveHpStep * (float)EliteWavesBefore(wave, difficulty);
 }
 
+// Spawns climb the same way: the spawn rate gains +kWaveSpawnStep and the
+// regular-wave refill floor +kRegularWaveMinAliveStep per elite wave behind.
+inline constexpr float kWaveSpawnStep = 0.25f;
+inline constexpr int kRegularWaveMinAliveStep = 3;
+inline float WaveSpawnRamp(int wave, Difficulty difficulty) {
+    return 1.0f + kWaveSpawnStep * (float)EliteWavesBefore(wave, difficulty);
+}
+inline int RegularWaveMinAlive(int wave, Difficulty difficulty) {
+    return kRegularWaveMinAlive + kRegularWaveMinAliveStep * EliteWavesBefore(wave, difficulty);
+}
+
 // About when a wave begins in a typical run, for HP ramps that need a time
 // without a real run behind them (debug bosses).
 inline float NominalWaveStartSeconds(int wave, Difficulty difficulty) {
-    constexpr float kEliteFight = 90.0f, kBossFight = 150.0f;
+    constexpr float kRegularFight = 60.0f, kEliteFight = 90.0f, kBossFight = 150.0f;
     float start = 0.0f;
     for (int w = 1; w < wave && w <= FinalWaveCount(difficulty); ++w)
-        start += IsBossWave(w, difficulty) ? kBossFight : kEliteFight;
+        start += IsBossWave(w, difficulty) ? kBossFight
+               : IsEliteWaveNumber(w, difficulty) ? kEliteFight : kRegularFight;
     return start;
 }
 

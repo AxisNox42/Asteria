@@ -18,6 +18,7 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <cwchar>
 
 // One description segment wrapped to maxWidth, appended to lines.
 static void WrapSegment(std::wstring segment, float scale, float maxWidth,
@@ -132,6 +133,30 @@ constexpr Rgb kText    = { 0.92f, 0.96f, 1.00f };
 constexpr Rgb kTextSub = { 0.76f, 0.84f, 0.94f };
 constexpr Rgb kWhite   = { 1.0f, 1.0f, 1.0f };
 constexpr float kDeg = 3.14159265f / 180.0f;
+
+// Card-local layout, top to bottom: rarity marks, augment icon, title,
+// divider, kind line, description (card spans -205..205).
+constexpr float kRarityY = -187.0f;
+constexpr float kIconY = -134.0f, kIconSize = 66.0f;
+constexpr float kTitleY = -84.0f, kDivY = -58.0f;
+constexpr float kMetaY = -48.0f, kDescY = -24.0f, kDescBottom = 160.0f;
+
+// Outlined RPG Awesome icon of an augment (Resource/Icons/AUG_<code>.png),
+// loaded on first use. 0 when the file is missing.
+GLuint AugIconTex(const AugDef& def) {
+    static GLuint tex[AUG_TOTAL] = {};
+    static bool tried[AUG_TOTAL] = {};
+    const int idx = (int)(&def - ALL_AUGS);
+    if (idx < 0 || idx >= AUG_TOTAL) return 0;
+    if (!tried[idx]) {
+        tried[idx] = true;
+        char name[96];
+        std::snprintf(name, sizeof(name), "AUG_%s", def.name);
+        tex[idx] = IconLoad(name);
+        IconEnableMipmaps(tex[idx]);
+    }
+    return tex[idx];
+}
 
 Rgb Mix(Rgb a, Rgb b, float t) {
     return { a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t };
@@ -291,9 +316,9 @@ struct CardText {
     float titleScale = 1.0f, metaScale = 1.0f, descScale = 1.0f;
 };
 
-// Title alone on top; everything under it is description text: the kind and
-// cooldown line first, then the effect. Shrinks the description until it
-// fits above the key hint.
+// Icon on top, then the title; everything under it is description text: the
+// kind and cooldown line first, then the effect. Shrinks the description
+// until it fits above the key hint.
 CardText LayoutCardText(const AugDef& def, float ui) {
     CardText t;
     const float inner = (ac::kCardW - 44.0f) * ui;
@@ -310,7 +335,7 @@ CardText LayoutCardText(const AugDef& def, float ui) {
     else swprintf_s(meta, L"%ls", kPassive[CurLangIdx()]);
     t.meta = meta;
     t.metaScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
-    const float room = (160.0f - (-60.0f)) * ui;
+    const float room = (kDescBottom - kDescY) * ui;
     const float floorScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
     float d = ui;
     for (;;) {
@@ -442,11 +467,16 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const int pick = inExit ? std::max(0, std::min(count - 1, g_AugExitSlot)) : -1;
     const float sceneA = ac::SceneAlpha(exitT);
     const float enterA = chained ? 1.0f : ac::Clamp01(t / ac::kDeckIn);
-    const float frameA = enterA * sceneA;
+    // Another pick follows straight on: keep the backdrop up for it.
+    const bool followUp = g_GameManager.augmentRewardActive && g_GameManager.PendingRewards() > 1;
+    const float frameA = enterA * (followUp ? 1.0f : sceneA);
+    // Dim: fades in as the pick opens, lifts while the cards vanish.
+    const float dimA = (chained ? 1.0f : ac::DimIn(t)) * (followUp ? 1.0f : ac::DimOut(exitT));
 
-    // ── backdrop (unchanged from the orbit screen) ──
+    // ── backdrop: the screen's only dim (GameManager::Render skips this state),
+    //    as dark as the old fixed 0.45 overlay plus the 0.52 tint together ──
     BindMainShader();
-    drawRect(0.0f, 0.0f, sw, sh, 0.008f, 0.018f, 0.040f, frameA * 0.52f);
+    drawRect(0.0f, 0.0f, sw, sh, 0.006f, 0.013f, 0.028f, dimA * 0.74f);
     BatchFlush();
     drawConstellFrame(18.0f * ui, 18.0f * ui, sw - 36.0f * ui, sh - 36.0f * ui,
                       kUiBlue.r, kUiBlue.g, kUiBlue.b, frameA * 0.16f,
@@ -491,7 +521,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         d.conA = d.alpha;
         if (inExit && i == pick) {
             if (exitT < ac::kPickPulse) d.alpha *= std::sin(2.0f * 3.14159265f * 18.0f * exitT) > 0.0f ? 1.0f : 0.55f;
-            else d.alpha *= 1.0f - ac::Clamp01((exitT - ac::kPickPulse) / 0.20f);
+            else d.alpha *= 1.0f - ac::Smooth01((exitT - ac::kPickPulse) / ac::kPickFade);
             d.textA = d.conA = d.alpha;
         } else if (inExit) {
             const int dist = std::abs(i - pick);
@@ -520,11 +550,14 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         // Text line boxes (screen) the constellation steps around.
         const CardText& tx = texts[i];
         const float left = d.x - (ac::kCardW * 0.5f - 22.0f) * ui;
-        rects[i].push_back({ left, d.y - 160.0f * ui, d.x + (ac::kCardW * 0.5f - 22.0f) * ui, d.y - 114.0f * ui });
-        float y = d.y - 88.0f * ui;
+        const float right = d.x + (ac::kCardW * 0.5f - 22.0f) * ui;
+        rects[i].push_back({ d.x - (kIconSize * 0.5f + 8.0f) * ui, d.y + (kIconY - kIconSize * 0.5f - 6.0f) * ui,
+                             d.x + (kIconSize * 0.5f + 8.0f) * ui, d.y + (kIconY + kIconSize * 0.5f + 6.0f) * ui });
+        rects[i].push_back({ left, d.y + (kTitleY - 26.0f) * ui, right, d.y + (kTitleY + 26.0f) * ui });
+        float y = d.y + kMetaY * ui;
         const float metaH = g_TextS.Height(tx.meta.c_str(), tx.metaScale);
         rects[i].push_back({ left, y - 2.0f * ui, left + g_TextS.Width(tx.meta.c_str(), tx.metaScale) + 6.0f * ui, y + metaH + 2.0f * ui });
-        y = d.y - 60.0f * ui;
+        y = d.y + kDescY * ui;
         for (const DescLine& l : tx.desc.lines) {
             const float lh = g_TextS.Height(l.text.c_str(), tx.descScale);
             rects[i].push_back({ left, y - 2.0f * ui, tx.desc.TextX(l, left) + g_TextS.Width(l.text.c_str(), tx.descScale) + 6.0f * ui, y + lh + 2.0f * ui });
@@ -543,12 +576,12 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         // Rarity marks (1~5 diamonds) and the divider under the title.
         const int n = rarity[i] + 1;
         for (int k = 0; k < n; ++k)
-            SDiamond(d.x + (k - (n - 1) * 0.5f) * 14.0f * ui, d.y - 177.0f * ui, 4.0f * ui, d.col,
+            SDiamond(d.x + (k - (n - 1) * 0.5f) * 14.0f * ui, d.y + kRarityY * ui, 4.0f * ui, d.col,
                      d.textA * 0.9f * d.P.title, 1.2f * ui, key, true);
         const float dv = ac::Clamp01(d.P.title * 1.4f);
-        SLine(d.x - 92.0f * ui * dv, d.y - 104.0f * ui, d.x + 92.0f * ui * dv, d.y - 104.0f * ui,
+        SLine(d.x - 92.0f * ui * dv, d.y + kDivY * ui, d.x + 92.0f * ui * dv, d.y + kDivY * ui,
               0.9f * ui, d.col, d.textA * 0.34f, key);
-        SDiamond(d.x, d.y - 104.0f * ui, 3.2f * ui, d.col, d.textA * 0.6f * dv, 1.0f * ui, key, true);
+        SDiamond(d.x, d.y + kDivY * ui, 3.2f * ui, d.col, d.textA * 0.6f * dv, 1.0f * ui, key, true);
 
         // Hover: a pair of slide bars under the card with end diamonds.
         if (!inExit && h > 0.02f) {
@@ -569,13 +602,16 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         const wchar_t* name = AugName(*defs[i]);
         const float titleA = d.textA * d.P.title;
         const float nameW = g_TextL.Width(name, tx.titleScale), nameH = g_TextL.Height(name, tx.titleScale);
-        DrawShadowedText(g_TextL, name, d.x - nameW * 0.5f, d.y - 137.0f * ui - nameH * 0.5f,
+        const float iconPx = kIconSize * ui;
+        DrawIcon(AugIconTex(*defs[i]), d.x - iconPx * 0.5f, d.y + kIconY * ui - iconPx * 0.5f, iconPx, iconPx,
+                 d.col.r, d.col.g, d.col.b, titleA * 0.95f);
+        DrawShadowedText(g_TextL, name, d.x - nameW * 0.5f, d.y + kTitleY * ui - nameH * 0.5f,
                          tx.titleScale, kText.r, kText.g, kText.b, titleA, 0.70f);
         const float left = d.x - (ac::kCardW * 0.5f - 22.0f) * ui;
         const Rgb metaCol = Mix(d.col, kText, 0.35f);
-        DrawShadowedText(g_TextS, tx.meta.c_str(), left, d.y - 88.0f * ui, tx.metaScale,
+        DrawShadowedText(g_TextS, tx.meta.c_str(), left, d.y + kMetaY * ui, tx.metaScale,
                          metaCol.r, metaCol.g, metaCol.b, d.textA * 0.92f * ac::LineAlpha(d.P, 0, t), 0.70f);
-        float y = d.y - 60.0f * ui;
+        float y = d.y + kDescY * ui;
         for (size_t j = 0; j < tx.desc.lines.size(); ++j) {
             const DescLine& l = tx.desc.lines[j];
             const float lineA = d.textA * 0.90f * ac::LineAlpha(d.P, (int)j + 1, t);
@@ -596,11 +632,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
 
     // Guide line, only once the cards can be picked.
     if (inputReady) {
+        // The key range follows the card count (a stat pick has three).
         static const wchar_t* kGuide[3] = {
-            L"카드를 클릭하거나 1~5 키로 고른 뒤 Space로 확정",
-            L"CLICK A CARD, OR PRESS 1-5 AND CONFIRM WITH SPACE",
-            L"カードをクリック、または1〜5キーで選んでSpaceで確定" };
-        const wchar_t* guide = kGuide[CurLangIdx()];
+            L"카드를 클릭하거나 1~%d 키로 고른 뒤 Space로 확정",
+            L"CLICK A CARD, OR PRESS 1-%d AND CONFIRM WITH SPACE",
+            L"カードをクリック、または1〜%dキーで選んでSpaceで確定" };
+        wchar_t guide[96];
+        std::swprintf(guide, 96, kGuide[CurLangIdx()], std::max(1, count));
         const float gs = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
         const float gw = g_TextS.Width(guide, gs);
         DrawShadowedText(g_TextS, guide, sw * 0.5f - gw * 0.5f, L.cy - L.cardH * 0.5f - 64.0f * ui, gs,
@@ -646,7 +684,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             }
             const float arrive = ac::kAbsorbStart + ac::kAbsorbDur;
             if (exitT >= arrive) {
-                const float ft = (exitT - arrive) / 0.4f;
+                const float ft = (exitT - arrive) / ac::kAbsorbRing;
                 if (ft < 1.0f)
                     hud_lines::Ring(tx, ty, (24.0f + ft * 50.0f) * ui, 1.6f * ui, d.col, (1.0f - ft) * 0.9f * sceneA, key);
                 if (!flashed) {
@@ -702,19 +740,14 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                 ConNode(shp, k, lx, ly);
                 const unsigned seed = (unsigned)seenSerial * 104729u + (unsigned)i * 977u + (unsigned)k * 31u;
                 const float vx = (ac::Hash01(seed) - 0.5f) * 50.0f, vy = -70.0f - ac::Hash01(seed + 1) * 70.0f;
-                const float fly = std::min(age, ac::kSeedLife);
-                const float x = cx + (lx + vx * fly) * ui, y = cy + (ly + vy * fly) * ui;
-                if (age < ac::kSeedLife) {
-                    const float u = age / ac::kSeedLife;
-                    SLine(x - vx * 0.08f * ui, y - vy * 0.08f * ui, x, y, 1.0f * ui, col, 0.45f * (1.0f - u) * sceneA, key);
-                    const Rgb sc = Mix(col, kWhite, u);
-                    drawCircle(x, y, (2.4f - 1.2f * u) * ui, sc.r, sc.g, sc.b, 0.9f * sceneA);
-                } else {
-                    const float glow = std::exp(-(age - ac::kSeedLife) * 1.4f);
-                    const float tw = 0.80f + 0.20f * std::sin(now * 5.0f + k * 1.3f + i);
-                    const Rgb sc = Mix(col, kWhite, 0.5f);
-                    drawCircle(x, y, (1.1f + 1.6f * glow) * ui, sc.r, sc.g, sc.b, (0.6f + 0.4f * glow) * tw * sceneA);
-                }
+                if (age >= ac::kSeedLife) continue;
+                const float u = age / ac::kSeedLife;
+                const float x = cx + (lx + vx * age) * ui, y = cy + (ly + vy * age) * ui;
+                SLine(x - vx * 0.08f * ui, y - vy * 0.08f * ui, x, y, 1.0f * ui, col, 0.45f * (1.0f - u) * sceneA, key);
+                // Whitens as it rises, then goes out into the stars.
+                const Rgb sc = Mix(col, kWhite, u);
+                drawCircle(x, y, (2.4f - 1.2f * u) * ui, sc.r, sc.g, sc.b,
+                           0.9f * (1.0f - ac::Smooth01((u - 0.55f) / 0.45f)) * sceneA);
             }
         }
     }

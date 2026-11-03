@@ -272,6 +272,11 @@ inline bool g_PlayDebugTainted = false;
 inline bool PlayRecordsProgress() {
     return !g_CreativeMode && !g_PlayDebugTainted;
 }
+// Stardust picked up in play is kept even when debug mode was on; only
+// creative mode earns none.
+inline bool PlayEarnsStardust() {
+    return !g_CreativeMode;
+}
 
 // Keep the debug switch visible for QA builds as well as Release packages.
 // The switch remains opt-in and does not enable debug behavior by itself.

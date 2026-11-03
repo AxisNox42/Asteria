@@ -23,9 +23,9 @@ bool SlotSealed(int i);
 int  EquippedCount();
 bool CanOffer(int augIdx);            // not equipped already
 void Acquire(int augIdx);             // equip (replaces the oldest when full)
-void SealSlot();                      // Righthand Cast
+void SealSlot();                      // Slot Sacrifice
 float CooldownFor(int augIdx);        // after the passive modifiers
-int  DayNightUses();                  // Day and Night: 0-2 day, 3-5 night
+int  DayNightUses();                  // Day-Night Boundary: 0-2 day, 3-5 night
 
 struct StepInput {
     float dt = 0.0f;
@@ -50,12 +50,12 @@ void ReduceAllCooldowns(float seconds);
 void ResetLongestCooldown();
 
 // Events from the passive layer and the main loop.
-void RecordDamage(float dmg);         // Rewind
-void OnKill();                        // Supernova's wave kill count
+void RecordDamage(float dmg);         // Orbital Return
+void OnKill();                        // Nova Burst's wave kill count
 void OnWaveCleared();
-void OnDash();                        // Ribboned Staff window
-void OnPlayerBullet(const Bullet& shot);   // Shadow Clone copies the gun
+void OnDash();                        // Eclipse Combo window
+void OnPlayerBullet(const Bullet& shot);   // Twin Star Clone copies the gun
 void OnSkillBulletHit(const Bullet& bullet, float x, float y, bool killed);
-void StepSkillBullets();              // Sleeping Arrow erasing enemy bullets
+void StepSkillBullets();              // Meteor Lance erasing enemy bullets
 
 }  // namespace active

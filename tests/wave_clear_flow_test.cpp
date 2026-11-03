@@ -1,4 +1,5 @@
-// Boss-rush wave flow through the real spawner: a wave's elite enters after
+// Wave flow through the real spawner: regular waves bring regular mobs only
+// and refill the field; an elite wave's elite enters after
 // its short delay, the wave clears only when it falls (with the kill time),
 // a mid-run boss wave clears on the boss's fall, and the final boss's fall
 // wins instead of clearing.
@@ -46,78 +47,102 @@ struct Run {
 int main() {
     srand(7);
     ResetEnemySpawnState();
+    // One kill ends these waves: Quasar (Antares splits; tested on its own below).
+    for (unsigned char& p : g_EnemySpawnState.elitePick) p = 0;
     Run run;
 
-    // Wave 1: the elite waits out its delay, then enters.
+    // Waves 1-3 (regular): regular mobs only, no elite, no target clear (the
+    // kill quota is counted by the wave flow in main.cpp), and the field is
+    // refilled whenever it runs thin.
+    for (int w = 1; w <= 3; ++w) {
+        EXPECT(IsRegularWave(w, run.difficulty), "EASY %d is regular", w);
+        run.Step(ELITE_SPAWN_DELAY_SECONDS + 1.0f);
+        EXPECT(run.Find(IsEliteMob) == nullptr && run.Find(IsBossMob) == nullptr, "regular only on wave %d", w);
+        int alive = 0;
+        for (Monster* m : run.mm.monsters) alive += m->alive;
+        EXPECT(alive >= kRegularWaveMinAlive, "wave %d field filled (%d)", w, alive);
+        // Kill them all: the field is topped up again at once.
+        for (Monster* m : run.mm.monsters) if (m->alive) run.Kill(m);
+        run.Step(0.3f);
+        alive = 0;
+        for (Monster* m : run.mm.monsters) alive += m->alive;
+        EXPECT(alive >= kRegularWaveMinAlive, "wave %d refilled after kills (%d)", w, alive);
+        EXPECT(!ConsumeWaveClear().cleared, "no target clear on regular wave %d", w);
+        run.mm.Clear();
+        run.NextWave();
+    }
+
+    // Wave 4 (elite): the elite waits out its delay, then enters.
     run.Step(ELITE_SPAWN_DELAY_SECONDS * 0.5f);
     EXPECT(run.Find(IsEliteMob) == nullptr, "elite enters only after the delay");
     run.Step(ELITE_SPAWN_DELAY_SECONDS);
     Monster* elite = run.Find(IsEliteMob);
-    EXPECT(elite != nullptr, "wave 1 brings its elite");
-    EXPECT(GetScheduledElite(1, run.difficulty).alive, "HUD sees the elite alive");
+    EXPECT(elite != nullptr, "wave 4 brings its elite");
+    EXPECT(GetScheduledElite(4, run.difficulty).alive, "HUD sees the elite alive");
 
     // However long it lives, the wave does not end on its own.
     run.Step(200.0f);
     EXPECT(!ConsumeWaveClear().cleared, "no clear while the elite lives");
-    const float fight = WaveFightSeconds(1, run.time);
+    const float fight = WaveFightSeconds(4, run.time);
     EXPECT(fight > 200.0f, "fight clock runs from the elite's entry (%.1f)", fight);
     int elites = 0;
     for (Monster* m : run.mm.monsters) elites += m->alive && IsEliteMob(m->kind);
-    EXPECT(elites == 1, "exactly one elite on wave 1 (%d)", elites);
+    EXPECT(elites == 1, "exactly one elite on wave 4 (%d)", elites);
 
     // It falls: one clear, with the kill time, handed over once.
     if (elite) run.Kill(elite);
     run.Step(DT);
     WaveClearInfo clear = ConsumeWaveClear();
-    EXPECT(clear.cleared && clear.wave == 1 && !clear.boss, "elite fall clears wave 1");
+    EXPECT(clear.cleared && clear.wave == 4 && !clear.boss, "elite fall clears wave 4");
     EXPECT(clear.killSeconds > 200.0f && clear.killSeconds < 202.0f, "kill time %.2f", clear.killSeconds);
     EXPECT(!ConsumeWaveClear().cleared, "the clear is handed over once");
     run.mm.Clear();
 
-    // Wave 2 (elite), quick kill.
-    run.NextWave();
-    run.Step(ELITE_SPAWN_DELAY_SECONDS + 0.1f);
-    elite = run.Find(IsEliteMob);
-    EXPECT(elite != nullptr, "wave 2 brings its elite");
-    run.Step(5.0f);
-    if (elite) run.Kill(elite);
-    run.Step(DT);
-    clear = ConsumeWaveClear();
-    EXPECT(clear.cleared && clear.wave == 2 && clear.killSeconds < 6.0f, "quick clear (%.2f)", clear.killSeconds);
-    EXPECT(WaveRewardTierFor(clear.killSeconds, clear.boss) == WaveRewardTier::Legendary, "quick kill earns legendary");
-    run.mm.Clear();
-
-    // Wave 3 (EASY's mid-run boss): no elite, the boss's fall clears it.
-    run.NextWave();
-    EXPECT(IsBossWave(3, run.difficulty) && !IsFinalBossWave(3, run.difficulty), "EASY 3 is a mid boss wave");
-    run.Step(1.0f);
-    EXPECT(run.Find(IsEliteMob) == nullptr, "no elite on a boss wave");
-    Monster* boss = run.Find(IsBossMob);
-    EXPECT(boss != nullptr && boss->kind == g_EnemySpawnState.midBoss, "mid boss enters");
-    EXPECT(WaveFightIsBoss(3), "boss fight flagged");
-    run.Step(30.0f);
-    EXPECT(!ConsumeWaveClear().cleared, "no clear while the boss lives");
-    if (boss) run.Kill(boss);
-    run.Step(DT);
-    clear = ConsumeWaveClear();
-    EXPECT(clear.cleared && clear.wave == 3 && clear.boss, "boss fall clears wave 3");
-    EXPECT(!NormaDefeated(), "a mid-run boss does not win the run");
-    run.mm.Clear();
-
-    // Waves 4-5: elites; debug skip clears like a fall.
-    for (int w = 4; w <= 5; ++w) {
+    // Waves 5-7 regular (nothing to skip-clear), wave 8 elite (skip = fall).
+    for (int w = 5; w <= 8; ++w) {
         run.NextWave();
         run.Step(ELITE_SPAWN_DELAY_SECONDS + 0.1f);
-        EXPECT(DebugClearWaveObjective(run.mm, run.time), "debug skip clears wave %d", w);
-        clear = ConsumeWaveClear();
-        EXPECT(clear.cleared && clear.wave == w, "skip clear on wave %d", w);
+        if (w < 8) {
+            EXPECT(!DebugClearWaveObjective(run.mm, run.time), "nothing to skip-clear on regular %d", w);
+        } else {
+            EXPECT(DebugClearWaveObjective(run.mm, run.time), "debug skip clears wave %d", w);
+            clear = ConsumeWaveClear();
+            EXPECT(clear.cleared && clear.wave == w, "skip clear on wave %d", w);
+        }
         run.mm.Clear();
     }
 
-    // Wave 6: the final boss. Its fall wins, it is not a wave clear.
+    // NIGHTMARE wave 12: the mid-run boss; its fall clears the wave.
+    {
+        MobKind midBoss = MobKind::CAELUM;
+        {
+            const EnemySpawnState saved = g_EnemySpawnState;
+            ResetEnemySpawnState();
+            Run r;
+            r.difficulty = Difficulty::NIGHTMARE;
+            r.wave = 12;
+            midBoss = g_EnemySpawnState.midBoss;
+            r.Step(1.0f);
+            EXPECT(r.Find(IsEliteMob) == nullptr, "no elite on the mid boss wave");
+            Monster* mid = r.Find(IsBossMob);
+            EXPECT(mid != nullptr && mid->kind == midBoss, "mid boss enters");
+            EXPECT(WaveFightIsBoss(12), "boss fight flagged");
+            r.Step(30.0f);
+            EXPECT(!ConsumeWaveClear().cleared, "no clear while the boss lives");
+            if (mid) r.Kill(mid);
+            r.Step(DT);
+            clear = ConsumeWaveClear();
+            EXPECT(clear.cleared && clear.wave == 12 && clear.boss, "boss fall clears wave 12");
+            EXPECT(!NormaDefeated(), "a mid-run boss does not win the run");
+            r.mm.Clear();
+            g_EnemySpawnState = saved;   // back to the EASY run
+        }
+    }
+
+    // Wave 9: the final boss. Its fall wins, it is not a wave clear.
     run.NextWave();
     run.Step(1.0f);
-    boss = run.Find(IsBossMob);
+    Monster* boss = run.Find(IsBossMob);
     EXPECT(boss != nullptr && boss->kind == FinalBossKind(), "final boss enters");
     EXPECT(!DebugClearWaveObjective(run.mm, run.time), "debug skip cannot clear the final boss");
     if (boss) run.Kill(boss);
@@ -126,8 +151,8 @@ int main() {
     EXPECT(NormaDefeated(), "final boss fall wins");
     run.mm.Clear();
 
-    // Wave-1 elites sit near 3,000 effective HP on NORMAL, and a later elite
-    // wave scales by the HP ramp.
+    // The first elite (wave 4) sits near 9,000 effective HP on NORMAL, and the
+    // next one (wave 8) scales by the HP ramp.
     for (int kind = 0; kind < kEliteKindCount; ++kind) {
         auto eliteHp = [&](int wave) {
             ResetEnemySpawnState();
@@ -146,32 +171,65 @@ int main() {
             r.mm.Clear();
             return hp;
         };
-        const float first = eliteHp(1), later = eliteHp(3);
-        std::printf("elite %d: wave 1 %.0f HP, wave 3 %.0f HP\n", kind, first, later);
-        EXPECT(first > 2500.0f && first < 3400.0f, "elite %d wave-1 HP %.0f", kind, first);
-        EXPECT(std::fabs(later / first - WaveHpRamp(3, Difficulty::NORMAL)) < 0.01f,
+        const float first = eliteHp(4), later = eliteHp(8);
+        std::printf("elite %d: wave 4 %.0f HP, wave 8 %.0f HP\n", kind, first, later);
+        EXPECT(first > 7500.0f && first < 10200.0f, "elite %d first HP %.0f", kind, first);
+        EXPECT(std::fabs(later / first - WaveHpRamp(8, Difficulty::NORMAL)) < 0.01f,
                "elite %d ramps by wave (%.0f -> %.0f)", kind, first, later);
     }
 
-    // Antares: the wave waits for every split fragment.
+    // Antares: the wave waits for every split fragment, in the game's real
+    // order: a body falls in one frame and splits in the next mob update, so
+    // the spawner sees it dead before its fragments exist.
     {
         ResetEnemySpawnState();
         for (unsigned char& p : g_EnemySpawnState.elitePick) p = 3;   // ANTARES
         Run r;
+        r.wave = 4;                                       // the first elite wave
         r.Step(ELITE_SPAWN_DELAY_SECONDS + 0.1f);
         Monster* parent = r.Find(IsEliteMob);
         EXPECT(parent && parent->kind == MobKind::ANTARES, "antares enters");
-        Monster* frag = new Monster(0.0f, 0.0f, parent ? parent->antaresHpMult : 1.0f);
-        frag->MakeKind(MobKind::ANTARES);
-        frag->antaresGen = 1;
-        r.mm.monsters.push_back(frag);
-        if (parent) r.Kill(parent);
-        r.Step(DT);
-        EXPECT(!ConsumeWaveClear().cleared, "fragment still standing: no clear");
-        EXPECT(GetScheduledElite(1, r.difficulty).alive, "HUD still sees the elite");
-        r.Kill(frag);
-        r.Step(DT);
+        auto killAllAntares = [&]() {
+            for (Monster* m : r.mm.monsters)
+                if (m->alive && m->kind == MobKind::ANTARES) r.Kill(m);
+        };
+        int expected = 1;
+        for (int gen = 0; gen <= Monster::ANTARES_MAX_GEN; ++gen) {
+            int alive = 0;
+            for (Monster* m : r.mm.monsters) alive += m->alive && m->kind == MobKind::ANTARES;
+            EXPECT(alive == expected, "gen %d bodies %d (want %d)", gen, alive, expected);
+            killAllAntares();
+            r.Step(DT);                                    // dead, not split yet
+            if (gen < Monster::ANTARES_MAX_GEN) {
+                EXPECT(!ConsumeWaveClear().cleared, "gen %d down but not split: no clear", gen);
+                EXPECT(GetScheduledElite(4, r.difficulty).alive, "HUD still sees the elite (gen %d)", gen);
+                r.mm.SpawnAntaresSplits();                 // the next mob update
+                r.Step(DT);
+                EXPECT(!ConsumeWaveClear().cleared, "fragments of gen %d standing: no clear", gen);
+            }
+            expected *= Monster::ANTARES_SPLIT_COUNT;
+        }
         EXPECT(ConsumeWaveClear().cleared, "last fragment down clears the wave");
+        r.mm.Clear();
+    }
+
+    // Regulus elite wave: the field is refilled like a regular wave.
+    {
+        ResetEnemySpawnState();
+        for (unsigned char& p : g_EnemySpawnState.elitePick) p = 1;   // REGULUS
+        Run r;
+        r.wave = 4;
+        r.Step(ELITE_SPAWN_DELAY_SECONDS + 0.1f);
+        Monster* reg = r.Find(IsEliteMob);
+        EXPECT(reg && reg->kind == MobKind::REGULUS, "regulus enters");
+        for (int round = 0; round < 3; ++round) {
+            for (Monster* m : r.mm.monsters)
+                if (m->alive && !IsEliteMob(m->kind)) r.Kill(m);
+            r.Step(0.3f);
+            int alive = 0;
+            for (Monster* m : r.mm.monsters) alive += m->alive && !IsEliteMob(m->kind);
+            EXPECT(alive >= RegularWaveMinAlive(4, r.difficulty), "regulus wave refilled (%d)", alive);
+        }
         r.mm.Clear();
     }
 

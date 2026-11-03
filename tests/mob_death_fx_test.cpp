@@ -13,8 +13,6 @@ float g_ZoomCX = 0.0f;
 float g_ZoomCY = 0.0f;
 
 static void CheckGimbalAndWorldDiscCoordinates() {
-    assert(Monster::GIMBAL_PREFERRED_DISTANCE == 700.0f);
-
     Monster gimbal(0.0f, 0.0f);
     gimbal.MakeKind(MobKind::GIMBAL);
     const float margin = 34.0f * gimbal.sizeScale;
@@ -129,19 +127,9 @@ static void CheckRoster() {
             mob.quasarState = 3;
             mob.alive = false;
             mob.SpawnDeathEffect(2.0f, reduced);
-            if (kind == MobKind::GENESIS || kind == MobKind::QUASAR) {
-                // Only the build-up debris comes out at the kill; the blast
-                // debris waits for the body's timer to reach the blast.
-                const int atKill = ActiveCount();
-                assert(atKill > 0 && atKill <= 20);
-                while (mob.deathEffectTimer < Monster::QUASAR_NOVA_BLAST - 0.02f) {
-                    mob.UpdateDeathEffect(0.01f);
-                    assert(ActiveCount() == atKill);
-                }
-                for (int i = 0; i < 4; ++i) mob.UpdateDeathEffect(0.01f);
-                assert(mob.deathEffectTimer >= Monster::QUASAR_NOVA_BLAST);
-                assert(ActiveCount() > atKill);
-            }
+            // Elites have no body animation: all their debris is out at the kill.
+            if (kind == MobKind::GENESIS || kind == MobKind::QUASAR)
+                assert(!mob.DeathEffectVisible());
             const int count = ActiveCount();
             assert(count > 0 && mob.exploded);
             bool delayed = false;
@@ -358,8 +346,7 @@ static void CheckPriorityAndDelay() {
     Monster stagedMob(10.0f, 20.0f);
     stagedMob.MakeKind(MobKind::QUASAR);
     stagedMob.alive = false;
-    stagedMob.SpawnDeathEffect(0.0f);
-    stagedMob.UpdateDeathEffect(Monster::QUASAR_NOVA_BLAST);   // blast debris out
+    stagedMob.SpawnDeathEffect(0.0f);                          // blast debris out
     EnemyParticle* delayed = nullptr;
     for (auto& p : g_EnemyParts) if (p.active && p.delay > 0.0f) { delayed = &p; break; }
     assert(delayed);

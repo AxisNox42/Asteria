@@ -1,7 +1,7 @@
 # Passive augments smoke: every passive card at once (GIVE=ALL), then a run
 # that fires at the nearest enemy and takes the first card of every pick
 # (FIRE=1). Checks that the run does not crash, the stat cards applied
-# (max HP 100 + Life Seed 15 + Sunflower Crown 10 = 125) and enemies die.
+# (max HP 100 + Max HP Up 15 + Graze Recovery 10 = 125) and enemies die.
 # Saves are untouched: smoke sessions skip SaveGame.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent

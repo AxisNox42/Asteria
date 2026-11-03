@@ -233,11 +233,16 @@ void ResetView(PracticeView& v) {
         if (!v.mobs[i]) {
             v.mobs[i] = std::make_unique<Monster>(0.0f, 0.0f, 1.0f, 1.0f, false);
             v.mobs[i]->MakeKind(MobKind::SWARM);
+            // Read the Swarm's own numbers here, once: drawing overwrites
+            // sizeScale with the view scale, so reading it on a later re-entry
+            // would compound the size every time the tutorial is opened.
+            if (i == 0) {
+                v.swarmScale = v.mobs[0]->sizeScale;
+                v.swarmHp = v.mobs[0]->hp;
+            }
         }
         v.wasAlive[i] = true;
     }
-    v.swarmScale = v.mobs[0]->sizeScale;
-    v.swarmHp = v.mobs[0]->hp;
     rp::Reset(v.field, LiveRules(v, false));
     v.shards.clear();
     v.glow.fill(kGlowWaiting);

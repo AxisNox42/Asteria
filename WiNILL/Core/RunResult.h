@@ -11,8 +11,8 @@
 // Records the run (best score, totals, codex kills, coins — RecordRunResult
 // saves), unlocks the 10-games achievement and saves for it. Creative and
 // debug plays (callers pass !PlayRecordsProgress()) record nothing and earn
-// no coins. Returns the new-record flag
-// (g_LastRunRecord).
+// no end-of-run coins; a debug play still saves the stardust it picked up.
+// Returns the new-record flag (g_LastRunRecord).
 inline bool CommitRunResult(bool creative, int difficultyIdx, long long score,
                             long long kills, int weaponIdx,
                             int wave = 0) {
@@ -27,5 +27,6 @@ inline bool CommitRunResult(bool creative, int difficultyIdx, long long score,
     }
     g_LastRunCoins = 0;
     for (int i = 0; i < CM_COUNT; ++i) g_RunMobKillCounts[i] = 0;
+    if (PlayEarnsStardust() && g_RunStardust > 0) SaveGame();
     return false;
 }
