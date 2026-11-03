@@ -9,6 +9,8 @@
 
 // Windows exe / 작업 표시줄 / 탐색기 아이콘
 IDI_APP_ICON ICON "Resource\\WiNILL.ico"
+// 게임 창 제목줄 / 실행 중 작업 표시줄 아이콘 — GLFW 가 이 이름을 찾아 창 클래스에 쓴다
+GLFW_ICON    ICON "Resource\\WiNILL.ico"
 
 // 폰트 폴백 체인 — stb_truetype (InitFromMemory).
 //   최신 배포 폰트는 WiNILL/Resource/Font 에서 직접 임베드한다.
