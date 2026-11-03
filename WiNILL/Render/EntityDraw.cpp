@@ -2250,18 +2250,18 @@ static void DrawBeamFlow(float x0, float y0, float x1, float y1, float bandR, fl
 }
 
 // The rift: the beam band opening out from the Quasar. A bright seam runs out
-// along the axis (its tip travels 6000 px in QUASAR_BEAM_RIFT_PROP) and the band
+// along the axis (its tip travels the full length in QUASAR_BEAM_RIFT_PROP) and the band
 // opens behind the tip, so the lips spread outward from the Quasar like a tear.
 // `t` is the time since the beam fired and `startDist` the path length from the
 // Quasar to this leg's start (bounced legs carry the tear on). Smooth curves
 // only; once fully open the lips are exactly the straight band edges.
 static void DrawBeamRift(float x0, float y0, float x1, float y1, float bandR, float t,
-                         float startDist, float cr, float cg, float cb) {
+                         float startDist, float total, float cr, float cg, float cb) {
     const float len = std::hypot(x1 - x0, y1 - y0);
     if (len < 1.0f) return;
     const glm::vec2 a(x0, y0), dir((x1 - x0) / len, (y1 - y0) / len), nrm(-dir.y, dir.x);
     const float PROP = Monster::QUASAR_BEAM_RIFT_PROP, OPEN = Monster::QUASAR_BEAM_RIFT_OPEN;
-    const float TOTAL = 6000.0f;
+    const float TOTAL = total;
     const float tipD = TOTAL * std::clamp(t / PROP, 0.0f, 1.0f);       // how far the seam has run
     const auto openAt = [&](float D) {                                  // 0 = seam, 1 = fully open band
         return Monster::QuasarEase((t - PROP * D / TOTAL) / OPEN);
@@ -2906,7 +2906,7 @@ void drawMob(const Monster* m, float visualTime) {
         };
         if ((m->quasarState == 0 && pre > 0.0f) ||
             (m->quasarState >= 1 && m->quasarState <= 3)) {
-            const float beamLen = 6000.0f;
+            const float beamLen = m->QuasarBeamLength();
             const float growT = m->quasarState == 3
                 ? std::min(1.0f, m->quasarTimer / Monster::QUASAR_BEAM_GROW) : 1.0f;
             const float reachT = m->quasarState == 3
@@ -2948,7 +2948,7 @@ void drawMob(const Monster* m, float visualTime) {
                 for (int k = 0; k < ripCount; ++k) {
                     if (ripB[k] == 0) carried = 0.0f;                          // a new end starts at the Quasar
                     g_BatchAlpha = batchSaved * (1.0f - 0.22f * (float)ripB[k]);
-                    DrawBeamRift(rip[k].x, rip[k].y, rip[k].z, rip[k].w, beamR, tt, carried, cr, cg, cb);
+                    DrawBeamRift(rip[k].x, rip[k].y, rip[k].z, rip[k].w, beamR, tt, carried, beamLen, cr, cg, cb);
                     carried += std::hypot(rip[k].z - rip[k].x, rip[k].w - rip[k].y);
                 }
                 g_BatchAlpha = batchSaved;

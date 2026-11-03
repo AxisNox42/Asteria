@@ -4,6 +4,7 @@
 // the damage band is QUASAR_BEAM_RADIUS wide.
 // Run with scripts/test_quasar_beam.ps1.
 #include "Monster.h"
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -159,11 +160,46 @@ static void CheckBand() {
                 Monster::QUASAR_BEAM_RADIUS, Monster::QUASAR_BEAM_DPS);
 }
 
+// Bounces: on a big arena the last bounced leg of each end must still run out
+// past the arena edge instead of stopping short in the middle of the screen.
+static void CheckLastLegLeavesArena() {
+    int checked = 0;
+    for (const glm::vec2 size : { glm::vec2(1280.0f, 720.0f), glm::vec2(2560.0f, 1440.0f), glm::vec2(5120.0f, 2880.0f) }) {
+        for (int refl = 1; refl <= 2; ++refl) {
+            for (int a = 0; a < 72; ++a) {
+                for (const glm::vec2 at : { glm::vec2(0.5f, 0.5f), glm::vec2(0.05f, 0.08f), glm::vec2(0.93f, 0.5f) }) {
+                    Monster q = MakeQuasar();
+                    q.quasarBounds = glm::vec4(0.0f, 0.0f, size.x, size.y);
+                    q.quasarReflections = refl;
+                    q.worldX = at.x * size.x;
+                    q.worldY = at.y * size.y;
+                    const float ang = 0.0873f * (float)a + 0.013f;
+                    q.quasarAimX = cosf(ang);
+                    q.quasarAimY = sinf(ang);
+                    std::array<glm::vec4, Monster::QUASAR_BEAM_MAX_SEGMENTS> seg;
+                    std::array<int, Monster::QUASAR_BEAM_MAX_SEGMENTS> bnc{};
+                    const int n = q.QuasarBeamSegments(q.QuasarBeamLength(), seg, &bnc);
+                    for (int k = 0; k < n; ++k) {
+                        if (k + 1 < n && bnc[k + 1] == bnc[k] + 1) continue;   // not the last leg of its end
+                        assert(bnc[k] == refl);                                   // every bounce happened
+                        const float ex = seg[k].z, ey = seg[k].w;
+                        assert(ex < -Monster::QUASAR_BEAM_RADIUS || ex > size.x + Monster::QUASAR_BEAM_RADIUS ||
+                               ey < -Monster::QUASAR_BEAM_RADIUS || ey > size.y + Monster::QUASAR_BEAM_RADIUS);
+                        ++checked;
+                    }
+                }
+            }
+        }
+    }
+    std::printf("bounces: last leg leaves the arena (%d ends) ok\n", checked);
+}
+
 int main() {
     CheckAimChosenOnce();
     CheckForcedLock();
     CheckTurnTowardPlayerWhileFiring();
     CheckBand();
+    CheckLastLegLeavesArena();
     std::printf("quasar beam regression passed\n");
     return 0;
 }

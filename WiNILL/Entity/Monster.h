@@ -220,7 +220,7 @@ public:
     // slow turn toward the player ease in over QUASAR_BEAM_TURN_EASE.
     static constexpr float QUASAR_BEAM_TURN_EASE = 0.45f;
     // Fire-onset rift (drawing only): at the instant of firing a seam runs out
-    // from the Quasar along the axis (QUASAR_BEAM_RIFT_PROP to cover 6000 px) and
+    // from the Quasar along the axis (QUASAR_BEAM_RIFT_PROP to cover the full length) and
     // the band opens behind its tip, so the picture tears open from the Quasar
     // outward; the whole opening is done by QUASAR_BEAM_RIFT_TIME. The lock's
     // last QUASAR_BEAM_RIFT_LEAD seconds already show a short seam at the Quasar.
@@ -269,6 +269,7 @@ public:
     // (none below HARD, 1 on HARD, 2 on NIGHTMARE). d = Difficulty enum value.
     static constexpr int QuasarReflectionsFor(int d) { return d >= 3 ? 2 : (d == 2 ? 1 : 0); }
     static constexpr int QUASAR_BEAM_MAX_SEGMENTS = 6;   // 2 ends x (2 bounces + 1)
+    static constexpr float QUASAR_BEAM_LENGTH = 6000.0f;   // each end, at least (see QuasarBeamLength)
     // Starfall: every QUASAR_PREDICT_EVERY-th shot is aimed ahead of the player
     // along their direction of travel instead of at a random spot near them.
     // The lead is a vector: direction = normalised velocity, distance =
@@ -1705,6 +1706,23 @@ public:
         const float v = sinf(a) * base * (0.40f - 0.10f * QuasarFallGather() + 0.70f * QuasarFallOpen()) * (1.0f - 0.30f * QuasarHeat());
         return {worldX + cosf(f) * u + sinf(f) * v,
                 worldY + sinf(f) * u - cosf(f) * v};
+    }
+
+    // Full length of each end of the beam. Every leg is at most the arena
+    // diagonal, so on a big (or zoomed-out) arena a fixed 6000 px ran out
+    // before the last bounced leg reached the edge and the beam stopped short
+    // in the middle of the screen. The length now always covers the trip to
+    // the far side of the arena, every bounce, and a last leg out past the edge.
+    float QuasarBeamLength() const {
+        float len = QUASAR_BEAM_LENGTH;
+        if (quasarReflections > 0 && quasarBounds.z > quasarBounds.x && quasarBounds.w > quasarBounds.y) {
+            const float w = quasarBounds.z - quasarBounds.x, h = quasarBounds.w - quasarBounds.y;
+            const float diag = std::sqrt(w * w + h * h);
+            const float toCenter = std::hypot(worldX - 0.5f * (quasarBounds.x + quasarBounds.z),
+                                              worldY - 0.5f * (quasarBounds.y + quasarBounds.w));
+            len = std::max(len, toCenter + 0.5f * diag + (float)quasarReflections * diag + 600.0f);
+        }
+        return len;
     }
 
     // The beam runs both ways from the Quasar along the aim axis. Each end
@@ -3265,7 +3283,6 @@ public:
             static constexpr float LOCK_TIME = QUASAR_LOCK_TIME;
             static constexpr float BEAM_TIME = QUASAR_BEAM_TIME;
             static constexpr float RECOVER_TIME = 1.4f;
-            static constexpr float BEAM_LENGTH = 6000.0f;
             static constexpr float BEAM_RADIUS = QUASAR_BEAM_RADIUS;
             static constexpr float BEAM_DPS = QUASAR_BEAM_DPS;
 
@@ -3366,7 +3383,7 @@ public:
                     quasarAimY = sinf(next);
                 }
                 const float growT = std::min(1.0f, quasarTimer / QUASAR_BEAM_GROW);
-                const float reach = BEAM_LENGTH * growT * growT * growT;
+                const float reach = QuasarBeamLength() * growT * growT * growT;
                 std::array<glm::vec4, QUASAR_BEAM_MAX_SEGMENTS> seg;
                 const int segCount = QuasarBeamSegments(reach, seg);
                 for (int k = 0; k < segCount; ++k) {
