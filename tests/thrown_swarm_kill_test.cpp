@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cstdio>
 
-namespace Audio { void PlaySfx(Sfx) {} }   // kill sound: no audio in tests
+namespace Audio { void PlaySfx(Sfx) {} void Play(Cue) {} }   // kill sound: no audio in tests
 float g_BaseOrtho[16] = {};
 
 struct Snapshot {
