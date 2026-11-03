@@ -21,6 +21,10 @@ inline TutorialStage g_Stage = TutorialStage::Practice;
 // start from a clean loadout instead of carrying it over.
 inline bool g_PicksTaken = false;
 
+// Set when the tutorial opens from the lobby: the practice field starts over.
+// Pause, settings and the card pick leave the field as it was.
+inline bool g_FieldResetPending = false;
+
 // Space on the practice field does not start the run at once: the field's wall
 // first shrinks a little (kLaunchShrinkSec), then swells out to the screen edge
 // (kLaunchExpandSec), and the run starts when it arrives. g_LaunchT counts the
@@ -46,6 +50,7 @@ inline void BeginTutorial() {
     g_LaunchT = -1.0f;
     g_Stage = TutorialStage::Practice;
     g_PicksTaken = false;
+    g_FieldResetPending = true;
 }
 
 // Set by the main loop for the frames the tutorial card screen is up. The READY scene then only draws, and the card screen is drawn

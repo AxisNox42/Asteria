@@ -177,6 +177,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
         resetDoneT = 0.0f;
         listCursor = 1;
         accordionFocusPending = false;
+        tab = 0;   // always open on the first category, scrolled to the top
+        scrollToCategory = -1;
         settingsScroll = 0.0f;
         settingsScrollTarget = 0.0f;
         scrollFollowsBoard = false;

@@ -286,7 +286,7 @@ static void CheckLabels() {
     AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
     assert(std::wstring(ReadyLegend(1)) == L"F  dash");
     assert(std::wstring(ReadyStepHint(2)).find(L"Press F to dash") == 0);
-    assert(std::wstring(ReadyLegend(4)) == L"ESC  leave");
+    assert(std::wstring(ReadyLegend(4)) == L"ESC  pause");   // ESC opens the tutorial pause menu
     ResetKeyBindings();
     g_Language = Language::KR;
 }

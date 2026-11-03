@@ -4942,22 +4942,8 @@ int main() {
                 !tutorialPauseFlow)
                 ready_launch::g_TutorialMode = false;
         }
-        // Launching from the tutorial after taking its card: start clean with
-        // the chosen loadout (the card was only a demonstration).
-        if (prevState == GameState::READY &&
-            g_GameManager.currentState == GameState::RUNNING &&
-            ready_launch::g_PicksTaken) {
-            ready_launch::g_PicksTaken = false;
-            const Difficulty launchDifficulty = g_Difficulty;
-            ResetForNewGame();
-            g_Difficulty = launchDifficulty;
-            const int launchWeapon = FixedWeaponForSelectedJob();
-            ApplyLoadoutStats(g_Stats, launchWeapon);
-            g_CurrentWeapon = launchWeapon;
-            fireTimer = g_Stats.fireInterval;
-            g_GameManager.maxHP    = g_Stats.maxHP;
-            g_GameManager.playerHP = g_Stats.maxHP;
-        }
+        // Launching from the tutorial after taking its card starts a clean run;
+        // Scene_Ready does it when the launch animation ends (in the render pass).
         // PAUSED ???�른 ?�태: 증강 ?�명 박스 ?�기
         if (!debugInputCaptured)
             g_GameManager.UpdateStateSystem(g_MonsterManager, g_Bullets);
@@ -5899,6 +5885,16 @@ CollisionSystem::Update(pCX, pCY,
             orthoShake[12] -= 2.0f * sx / (float)screenWidth;
             orthoShake[13] += 2.0f * sy / (float)screenHeight;
         }
+        {   // ease the menu darkness between screens (menu <-> in-run)
+            static double s_dimLastT = 0.0;
+            const double dimNow = glfwGetTime();
+            const GameState ds = g_GameManager.currentState;
+            TickMenuDim(ds == GameState::RUNNING || ds == GameState::DYING ||
+                        ds == GameState::PAUSED || ds == GameState::READY ||
+                        ds == GameState::AUG_SELECT,
+                        (float)(dimNow - s_dimLastT));
+            s_dimLastT = dimNow;
+        }
         if (g_UiShakePx > 0.0f) {
             const float ux = ((float)(rand() % 200) - 100.0f) / 100.0f * g_UiShakePx;
             const float uy = ((float)(rand() % 200) - 100.0f) / 100.0f * g_UiShakePx;
@@ -5957,12 +5953,8 @@ CollisionSystem::Update(pCX, pCY,
         // Menu darkness setting: combat and the other in-run screens take 20%
         // of it. Drawn with the vignette, under entities and the HUD.
         {
-            const GameState dimState = g_GameManager.currentState;
-            const bool inRun = dimState == GameState::RUNNING || dimState == GameState::DYING ||
-                dimState == GameState::PAUSED || dimState == GameState::READY ||
-                dimState == GameState::AUG_SELECT;
-            const float combatDim = CombatDimAlpha(g_MenuDim);
-            if (inRun && combatDim > 0.002f)
+            const float combatDim = g_CombatDimLive;
+            if (combatDim > 0.002f)
                 drawRect(0.0f, 0.0f, (float)screenWidth, (float)screenHeight,
                          0.0f, 0.0f, 0.0f, combatDim);
         }
