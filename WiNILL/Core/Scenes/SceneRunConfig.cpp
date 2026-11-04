@@ -627,7 +627,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     // 별자리 뒤의 CircleTexture 한 쌍: 어두운 큰 원이 밝은 바탕에서 대비를 주고,
     // 직업 색을 살짝 띤 작은 원이 중심을 받친다.
     DrawConstellationDisc(chartCX, heroCY, heroR * 1.45f,
-                          0.0f, 0.0f, 0.0f, 0.88f * heroAlpha);
+                          0.0f, 0.0f, 0.0f, 0.62f * heroAlpha);
     DrawConstellationDisc(chartCX, heroCY, heroR * 0.86f,
                           weaponR * 0.16f, weaponG * 0.16f, weaponB * 0.16f,
                           0.40f * heroAlpha, false);

@@ -28,6 +28,15 @@ inline GLuint g_IconBatchProg = 0, g_IconBatchVAO = 0, g_IconBatchVBO = 0;
 inline GLint  g_IconBatchProjLoc = -1;
 inline size_t g_IconBatchCapacityFloats = 0;
 
+// The window is a transparent overlay: DWM composites by framebuffer alpha, so a
+// plain glBlendFunc would multiply that alpha down on every translucent draw and
+// leave see-through holes in whatever sits underneath (the lobby's dark disc
+// showed the desktop through the line shadows). Alpha must accumulate separately.
+inline void SetStandardIconBlend() {
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                        GL_ONE,       GL_ONE_MINUS_SRC_ALPHA);
+}
+
 struct IconBatchQuad {
     float x, y, w, h;
     float r, g, b, a;
@@ -189,11 +198,12 @@ inline void DrawIconBatch(GLuint tex, const std::vector<IconBatchQuad>& quads,
         glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, vertices.data());
     }
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, additive ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+    if (additive) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    else SetStandardIconBlend();
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(needed / 8u));
     // Geometry and UI passes expect regular alpha blending.
     if (additive)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        SetStandardIconBlend();
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
@@ -467,7 +477,7 @@ inline void DrawIcon(GLuint tex, float x, float y, float w, float h,
     glBindBuffer(GL_ARRAY_BUFFER, g_IconVBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vv), vv);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    SetStandardIconBlend();
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -505,7 +515,7 @@ inline void DrawIconDarken(GLuint tex, float x, float y, float w, float h,
     glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    SetStandardIconBlend();
     if (g_IconDarkenLoc >= 0) glUniform1f(g_IconDarkenLoc, 0.0f);
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -534,7 +544,7 @@ inline void DrawIconRot(GLuint tex, float cx, float cy, float halfW, float halfH
     glBindBuffer(GL_ARRAY_BUFFER, g_IconVBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vv), vv);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    SetStandardIconBlend();
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
