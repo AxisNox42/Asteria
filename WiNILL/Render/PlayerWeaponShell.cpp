@@ -40,6 +40,84 @@ static void DrawPlayerLine(float x0, float y0, float x1, float y1, float thick,
     DrawPlayerRotRect((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, len, thick,
                       atan2f(dy, dx), r, g, b, a);
 }
+
+// A connected stroke with mitred joins. Lines drawn one by one leave a notch on
+// the outside of every bend and double the alpha where they overlap; here the
+// neighbouring segments share their corner points, so a frame reads as one
+// continuous contour. Past the miter limit the outside of the bend is cut flat:
+// a full miter on a star tip is a thin needle that pokes out of the tip's node.
+void DrawPlayerPolyline(const float* xs, const float* ys, int count, bool closed,
+                        float thick, float r, float g, float b, float a) {
+    constexpr int kMaxPoints = 80;
+    constexpr float kMiterLimit = 3.0f;
+    if (count < 2 || count > kMaxPoints) return;
+
+    const float half = thick * 0.5f;
+    const int segments = closed ? count : count - 1;
+    float dirX[kMaxPoints], dirY[kMaxPoints], segLen[kMaxPoints];
+    for (int i = 0; i < segments; ++i) {
+        const int n = (i + 1) % count;
+        const float dx = xs[n] - xs[i], dy = ys[n] - ys[i];
+        const float len = sqrtf(dx * dx + dy * dy);
+        if (!(len >= 0.01f)) return;
+        dirX[i] = dx / len;
+        dirY[i] = dy / len;
+        segLen[i] = len;
+    }
+
+    // Stroke edges where each point ends its incoming segment and starts its
+    // outgoing one. They are the same point except on the outside of a flat cut.
+    struct Edge { float lx, ly, rx, ry; };
+    Edge endOf[kMaxPoints], startOf[kMaxPoints];
+    for (int i = 0; i < count; ++i) {
+        const int in = (closed || i > 0) ? (i + count - 1) % count : i;
+        const int out = (closed || i < count - 1) ? i : i - 1;
+        const float n0x = -dirY[in], n0y = dirX[in];
+        const float n1x = -dirY[out], n1y = dirX[out];
+        float mx = n0x + n1x, my = n0y + n1y;
+        const float mLen = sqrtf(mx * mx + my * my);
+        float reach = half;
+        bool cut = false;
+        if (mLen < 0.001f) {
+            mx = n1x; my = n1y;                 // U-turn: nothing to mitre
+        } else {
+            mx /= mLen; my /= mLen;
+            const float cosHalf = std::max(0.001f, mx * n1x + my * n1y);
+            cut = 1.0f / cosHalf > kMiterLimit;
+            reach = half / cosHalf;
+            const float along = reach * sqrtf(std::max(0.0f, 1.0f - cosHalf * cosHalf));
+            const float room = std::min(segLen[in], segLen[out]);
+            if (along > room) reach *= room / along;   // Keep the inner corner on the segment.
+        }
+        const float px = xs[i], py = ys[i];
+        Edge joined = { px + mx * reach, py + my * reach, px - mx * reach, py - my * reach };
+        endOf[i] = startOf[i] = joined;
+        if (cut) {
+            // The left side is on the inside when the path turns left.
+            const bool leftInside = dirX[in] * dirY[out] - dirY[in] * dirX[out] > 0.0f;
+            const float side = leftInside ? -1.0f : 1.0f;
+            const float ax = px + side * n0x * half, ay = py + side * n0y * half;
+            const float bx = px + side * n1x * half, by = py + side * n1y * half;
+            if (leftInside) {
+                endOf[i].rx = ax; endOf[i].ry = ay;
+                startOf[i].rx = bx; startOf[i].ry = by;
+                BatchTri(joined.lx, joined.ly, ax, ay, bx, by, r, g, b, a);
+            } else {
+                endOf[i].lx = ax; endOf[i].ly = ay;
+                startOf[i].lx = bx; startOf[i].ly = by;
+                BatchTri(joined.rx, joined.ry, ax, ay, bx, by, r, g, b, a);
+            }
+        }
+    }
+
+    for (int i = 0; i < segments; ++i) {
+        const Edge& p0 = startOf[i];
+        const Edge& p1 = endOf[(i + 1) % count];
+        BatchTri(p0.lx, p0.ly, p0.rx, p0.ry, p1.rx, p1.ry, r, g, b, a);
+        BatchTri(p0.lx, p0.ly, p1.rx, p1.ry, p1.lx, p1.ly, r, g, b, a);
+    }
+}
+
 static void DrawPlayerHexFrame(float cx, float cy, float rad, float ang,
                                float r, float g, float b, float a, float thick,
                                bool nodes) {
@@ -49,10 +127,7 @@ static void DrawPlayerHexFrame(float cx, float cy, float rad, float ang,
         vx[i] = cx + cosf(th) * rad;
         vy[i] = cy + sinf(th) * rad;
     }
-    for (int i = 0; i < 6; ++i) {
-        int n = (i + 1) % 6;
-        DrawPlayerLine(vx[i], vy[i], vx[n], vy[n], thick, r, g, b, a);
-    }
+    DrawPlayerPolyline(vx, vy, 6, true, thick, r, g, b, a);
     if (nodes) {
         float ns = std::max(4.0f, thick * 3.1f);
         for (int i = 0; i < 6; ++i)
@@ -69,10 +144,7 @@ static void DrawPlayerTriangleFrame(float cx, float cy, float rad, float ang,
         vx[i] = cx + cosf(th) * rad;
         vy[i] = cy + sinf(th) * rad;
     }
-    for (int i = 0; i < 3; ++i) {
-        int n = (i + 1) % 3;
-        DrawPlayerLine(vx[i], vy[i], vx[n], vy[n], thick, r, g, b, a);
-    }
+    DrawPlayerPolyline(vx, vy, 3, true, thick, r, g, b, a);
     if (nodes) {
         float ns = std::max(4.0f, thick * 3.0f);
         for (int i = 0; i < 3; ++i)
@@ -91,10 +163,7 @@ static void DrawPlayerCrossStarFrame(float cx, float cy, float outerRad, float i
         vy[i] = cy + sinf(th) * rad;
     }
 
-    for (int i = 0; i < 8; ++i) {
-        int n = (i + 1) & 7;
-        DrawPlayerLine(vx[i], vy[i], vx[n], vy[n], thick, r, g, b, a);
-    }
+    DrawPlayerPolyline(vx, vy, 8, true, thick, r, g, b, a);
 
     if (cross) {
         for (int i = 0; i < 8; i += 2)
@@ -281,12 +350,12 @@ void DrawPlayerWeaponShell(float cx, float cy, float sz, float aimAng, float vis
                 for (int iy = -1; iy <= 1; iy += 2) {
                     float x0 = (float)ix * corner;
                     float y0 = (float)iy * corner;
-                    DrawPlayerLine(rx(x0, y0), ry(x0, y0),
-                                   rx(x0 - (float)ix * leg, y0), ry(x0 - (float)ix * leg, y0),
-                                   1.35f + kick * 0.35f, r, g, b, 0.34f + kick * 0.14f);
-                    DrawPlayerLine(rx(x0, y0), ry(x0, y0),
-                                   rx(x0, y0 - (float)iy * leg), ry(x0, y0 - (float)iy * leg),
-                                   1.35f + kick * 0.35f, r, g, b, 0.34f + kick * 0.14f);
+                    const float bx[3] = { rx(x0 - (float)ix * leg, y0), rx(x0, y0),
+                                          rx(x0, y0 - (float)iy * leg) };
+                    const float by[3] = { ry(x0 - (float)ix * leg, y0), ry(x0, y0),
+                                          ry(x0, y0 - (float)iy * leg) };
+                    DrawPlayerPolyline(bx, by, 3, false,
+                                       1.35f + kick * 0.35f, r, g, b, 0.34f + kick * 0.14f);
                     drawDiamond(rx(x0, y0), ry(x0, y0),
                                 sz * 0.060f, wr, wg, wb, 0.36f + kick * 0.22f);
                 }
@@ -324,22 +393,21 @@ void DrawPlayerWeaponShell(float cx, float cy, float sz, float aimAng, float vis
 
 static void DrawPlayerRing(float cx, float cy, float rad, float thick,
                            float r, float g, float b, float a) {
-    const int N = 72;
-    float px = cx + rad, py = cy;
-    for (int i = 1; i <= N; ++i) {
+    constexpr int N = 72;
+    float xs[N], ys[N];
+    for (int i = 0; i < N; ++i) {
         float th = (float)i / (float)N * 6.2831853f;
-        float x = cx + cosf(th) * rad, y = cy + sinf(th) * rad;
-        DrawPlayerLine(px, py, x, y, thick, r, g, b, a);
-        px = x; py = y;
+        xs[i] = cx + cosf(th) * rad;
+        ys[i] = cy + sinf(th) * rad;
     }
+    DrawPlayerPolyline(xs, ys, N, true, thick, r, g, b, a);
 }
 
 static void DrawPlayerDiamondOutline(float cx, float cy, float rad, float thick,
                                      float r, float g, float b, float a) {
-    DrawPlayerLine(cx, cy - rad, cx + rad, cy, thick, r, g, b, a);
-    DrawPlayerLine(cx + rad, cy, cx, cy + rad, thick, r, g, b, a);
-    DrawPlayerLine(cx, cy + rad, cx - rad, cy, thick, r, g, b, a);
-    DrawPlayerLine(cx - rad, cy, cx, cy - rad, thick, r, g, b, a);
+    const float xs[4] = { cx, cx + rad, cx, cx - rad };
+    const float ys[4] = { cy - rad, cy, cy + rad, cy };
+    DrawPlayerPolyline(xs, ys, 4, true, thick, r, g, b, a);
 }
 
 // One pass of the lobby shell. With shadow set every line and node uses the
@@ -372,12 +440,11 @@ static void DrawPlayerShellPreviewPass(int kind, float cx, float cy, float sz, f
         for (int ix = -1; ix <= 1; ix += 2) {
             for (int iy = -1; iy <= 1; iy += 2) {
                 float x0 = (float)ix * corner, y0 = (float)iy * corner;
-                DrawPlayerLine(rx(x0, y0), ry(x0, y0),
-                               rx(x0 - (float)ix * leg, y0), ry(x0 - (float)ix * leg, y0),
-                               1.35f * ls, cr, cg, cb, 0.45f * a);
-                DrawPlayerLine(rx(x0, y0), ry(x0, y0),
-                               rx(x0, y0 - (float)iy * leg), ry(x0, y0 - (float)iy * leg),
-                               1.35f * ls, cr, cg, cb, 0.45f * a);
+                const float bx[3] = { rx(x0 - (float)ix * leg, y0), rx(x0, y0),
+                                      rx(x0, y0 - (float)iy * leg) };
+                const float by[3] = { ry(x0 - (float)ix * leg, y0), ry(x0, y0),
+                                      ry(x0, y0 - (float)iy * leg) };
+                DrawPlayerPolyline(bx, by, 3, false, 1.35f * ls, cr, cg, cb, 0.45f * a);
                 drawDiamond(rx(x0, y0), ry(x0, y0), sz * 0.060f, wr, wg, wb, 0.55f * a);
             }
         }
