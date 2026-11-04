@@ -38,7 +38,8 @@ inline constexpr Rgb kXpCol     = { 0.30f, 0.82f, 1.00f };
 inline constexpr Rgb kXpCapCol  = { 1.00f, 0.82f, 0.30f };
 
 inline float HpArcRadius(float playerSize) { return std::max(66.0f, playerSize * 2.72f); }
-inline float HpArcThick(float playerSize) { return std::max(3.6f, playerSize * 0.144f); }
+// Stroke weight stays fixed: enlarging the player (debug / size augments) must not fatten the bar.
+inline float HpArcThick(float /*playerSize*/) { return 3.6f; }
 
 // World space; call inside the world pass with the player centre.
 // alpha: resting strength (the caller raises it on a hit).

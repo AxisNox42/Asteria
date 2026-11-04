@@ -196,10 +196,10 @@ inline int WaveRewardTierCap(int wave, Difficulty difficulty) {
     return f <= 0.25f ? 1 : f <= 0.5f ? 2 : f <= 0.75f ? 3 : 4;
 }
 
-// The clear's guaranteed tier: the cap for the fastest clear, one lower per
-// slower speed band (Common at the slowest).
+// The clear's guaranteed tier: one below the cap for the fastest clear, one
+// lower per slower speed band (Common at the slowest).
 inline int WaveRewardGuaranteedTier(WaveRewardTier earned, int cap) {
-    return std::max(0, cap - ((int)WaveRewardTier::Legendary - (int)earned));
+    return std::max(0, cap - 1 - ((int)WaveRewardTier::Legendary - (int)earned));
 }
 
 // A fastest-band clear has this chance (x luck) for its guaranteed card to
@@ -207,8 +207,8 @@ inline int WaveRewardGuaranteedTier(WaveRewardTier earned, int cap) {
 // that miss the bump are counted in `pity`, and the kRewardPityCeiling-th one
 // gets it for sure. A bump resets the count; slower clears and tiers already
 // at Mythic leave it alone.
-inline constexpr float kRewardLuckyBumpChance = 0.12f;
-inline constexpr int kRewardPityCeiling = 4;
+inline constexpr float kRewardLuckyBumpChance = 0.06f;
+inline constexpr int kRewardPityCeiling = 8;
 inline int WaveRewardLuckyBump(int tier, WaveRewardTier earned, float roll01, float luck, int& pity) {
     if (earned != WaveRewardTier::Legendary || tier >= 4) return tier;
     if (roll01 < kRewardLuckyBumpChance * luck || pity >= kRewardPityCeiling - 1) {

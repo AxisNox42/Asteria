@@ -26,7 +26,16 @@ inline bool CommitRunResult(bool creative, int difficultyIdx, long long score,
         return record;
     }
     g_LastRunCoins = 0;
-    for (int i = 0; i < CM_COUNT; ++i) g_RunMobKillCounts[i] = 0;
-    if (PlayEarnsStardust() && g_RunStardust > 0) SaveGame();
+    // A debug play (not creative) still counts its codex kills.
+    const bool keepCodexKills = g_PlayDebugTainted && !g_CreativeMode;
+    bool codexChanged = false;
+    for (int i = 0; i < CM_COUNT; ++i) {
+        if (keepCodexKills && g_RunMobKillCounts[i] > 0) {
+            AddSaveValue(g_MobKillCounts[i], g_RunMobKillCounts[i]);
+            codexChanged = true;
+        }
+        g_RunMobKillCounts[i] = 0;
+    }
+    if (codexChanged || (PlayEarnsStardust() && g_RunStardust > 0)) SaveGame();
     return false;
 }

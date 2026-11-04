@@ -187,18 +187,17 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     lastState = GameState::READY;
 }
 
-// Rarity weight: early tiers dominate; tiers above the wave's cap (set by
-// how far the run has come) never show. Luck raises the non-common weights.
-static int RarityWeight(AugRarity rarity, int cap) {
-    if ((int)rarity > cap) return 0;
-    switch (rarity) {
-    case AugRarity::COMMON:    return 50;
-    case AugRarity::RARE:      return 25;
-    case AugRarity::EPIC:      return 12;
-    case AugRarity::LEGENDARY: return 5;
-    case AugRarity::MYTHIC:    return 3;
-    }
-    return 0;
+// Rarity weight by run progress (0 = wave 1, 1 = final wave): the odds slide
+// from mostly Common/Rare early to Epic/Legendary/Mythic late. Tiers above the
+// wave's cap (set by how far the run has come) never show.
+static float RarityWeight(AugRarity rarity, int cap, float progress) {
+    if ((int)rarity > cap) return 0.0f;
+    static const float kStart[5] = { 45.0f, 33.0f, 16.0f,  5.0f,  1.0f };
+    static const float kEnd[5]   = {  3.0f, 14.0f, 32.0f, 33.0f, 18.0f };
+    const int r = (int)rarity;
+    if (r < 0 || r > 4) return 0.0f;
+    const float t = std::clamp(progress, 0.0f, 1.0f);
+    return kStart[r] + (kEnd[r] - kStart[r]) * t;
 }
 
 // Three different cards: a rarity by weight (among rarities that still have
@@ -213,6 +212,8 @@ void GameManager::PickRewardChoices() {
     const float luck = passive::LuckChanceMult() * (1.0f + 2.0f * std::clamp(rewardSpeed, 0.0f, 1.0f));
     int guaranteed = -1;
     const int cap = std::clamp(rewardTierCap, 0, (int)AugRarity::MYTHIC);
+    const float progress = (float)(std::max(1, currentWave) - 1) /
+                           (float)std::max(1, FinalWaveCount(g_Difficulty) - 1);
     // The guaranteed card may sit one tier above the cap (a lucky bump).
     for (int r = std::min(rewardTier, (int)AugRarity::MYTHIC); r >= 0 && guaranteed < 0; --r) {
         int pool[AUG_TOTAL], n = 0;
@@ -234,7 +235,7 @@ void GameManager::PickRewardChoices() {
                 any = !used[i] && (int)ALL_AUGS[i].rarity == r &&
                       !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i);
             if (!any) continue;
-            float w = (float)RarityWeight((AugRarity)r, cap);
+            float w = RarityWeight((AugRarity)r, cap, progress);
             if (r != (int)AugRarity::COMMON) w *= luck;
             weights[r] = w;
             total += w;

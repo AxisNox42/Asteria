@@ -148,10 +148,11 @@ float MetricValue(const PlayerStats& s, int m) {
 }
 
 struct StatRow {
-    float total = 0.0f, base = 0.0f, trial = 0.0f;
+    float total = 0.0f, base = 0.0f, run = 0.0f, trial = 0.0f;
 };
 
-// total = base (weapon and meta) + trial, so each part can be shown.
+// total = the run's final stats (augments and level-up cards included);
+// base = weapon and meta. The gap splits into the run's gains and the trial cut.
 void BuildStatRows(StatRow* rows) {
     const PlayerStats base = PreviewBaseStats(g_CurrentWeapon, g_Scale);
     PlayerStats trial = base;
@@ -161,7 +162,8 @@ void BuildStatRows(StatRow* rows) {
         const float tr = MetricValue(trial, m);
         rows[m].base = b;
         rows[m].trial = tr - b;
-        rows[m].total = tr;
+        rows[m].total = MetricValue(g_Stats, m);
+        rows[m].run = rows[m].total - tr;
     }
 }
 
@@ -635,11 +637,12 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
             float xTotal = 0.0f, xEq = 0.0f, xBase = 0.0f;
             const float opGap = 5.0f * uiS;
             auto partUsed = [&](int m, float v) { return fabsf(v) >= MetricEps(m); };
-            // The row's parts in display order (only the trial part is left).
+            // The row's parts in display order: run gains, then the trial cut.
             auto rowParts = [&](const StatRow& row, int m, float* vals) {
-                if (!partUsed(m, row.trial)) return 0;
-                vals[0] = row.trial;
-                return 1;
+                int n = 0;
+                if (partUsed(m, row.run))   vals[n++] = row.run;
+                if (partUsed(m, row.trial)) vals[n++] = row.trial;
+                return n;
             };
             auto partWidth = [&](int m, float v) {
                 wchar_t pb[32];
@@ -682,7 +685,7 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
                 float partsEnd = xBase + baseColW;
                 for (int m = 0; m < kMetricCount; ++m) {
                     if (!statRowShown[m]) continue;
-                    float pv[1];
+                    float pv[2];
                     const int pn = rowParts(s_rows[m], m, pv);
                     float ex = xPart0;
                     for (int i = 0; i < pn; ++i) ex += partWidth(m, pv[i]) + partGap;
@@ -705,7 +708,7 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
                 rp.r->Draw(L"=", Snap(xEq), Snap(y), rp.scale, dr, dg, db, 0.9f * a);
                 FormatMetric(fb, m, row.base);
                 drawValueText(fb, xBase, y, wr, wg, wb, 0.95f * a);
-                float pv[1];
+                float pv[2];
                 const int pn = rowParts(row, m, pv);
                 float px = xPart0;
                 for (int i = 0; i < pn; ++i) {

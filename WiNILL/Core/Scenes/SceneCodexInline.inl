@@ -318,9 +318,9 @@ static void Scene_CodexInline(const SceneCtx& c) {
 
     // Records are listed by tier: signals by spawn tier (unknown last), augments
     // by rarity; ties keep their original order.
-    auto mobTierOf = [](int id) {
-        return std::max(0, std::min(11, CodexMobSpawnTierHalfSteps(id)));
-    };
+    // Signals are grouped regular | elite | boss (item.tier = class, which the
+    // class gauges jump to); inside a class they run by spawn tier.
+    auto mobTierOf = [](int id) { return CodexMobClass(id); };
     auto augTierOf = [](int i) { return std::max(0, std::min(7, (int)ALL_AUGS[i].rarity)); };
     // The rosters are static, so the sorted orders are built once.
     static int s_mobOrder[64], s_mobOrderN = -1;
@@ -329,7 +329,9 @@ static void Scene_CodexInline(const SceneCtx& c) {
         s_mobOrderN = 0;
         ForEachCodexMobEntry([&](int id) { if (s_mobOrderN < 64) s_mobOrder[s_mobOrderN++] = id; });
         std::stable_sort(s_mobOrder, s_mobOrder + s_mobOrderN, [&](int a, int b) {
-            const int ta = mobTierOf(a), tb = mobTierOf(b);
+            const int ca = CodexMobClass(a), cb = CodexMobClass(b);
+            if (ca != cb) return ca < cb;
+            const int ta = CodexMobSpawnTierHalfSteps(a), tb = CodexMobSpawnTierHalfSteps(b);
             return (ta == 0 ? 12 : ta) < (tb == 0 ? 12 : tb);
         });
         s_augOrderN = 0;
@@ -396,32 +398,31 @@ static void Scene_CodexInline(const SceneCtx& c) {
         if (CodexAugSeen(i)) ++unlockSeen[1];
     }
 
-    // Per-tier unlock counts for the current category: signals by spawn tier,
+    // Per-tier unlock counts for the current category: signals by class,
     // augments by rarity. Same "seen" rule as the totals above.
     struct TierStat { wchar_t label[40]; int seen, total; float r, g, b; int id; };
     TierStat tierRows[12];
     int tierRowCount = 0;
     if (s_cat == 0) {
-        int seenBy[12] = {}, totalBy[12] = {};
+        int seenBy[3] = {}, totalBy[3] = {};
         ForEachCodexMobEntry([&](int id) {
-            const int v = std::max(0, std::min(11, CodexMobSpawnTierHalfSteps(id)));
-            ++totalBy[v];
-            if (CodexMobNameUnlocked(id)) ++seenBy[v];
+            const int c = CodexMobClass(id);
+            ++totalBy[c];
+            if (CodexMobNameUnlocked(id)) ++seenBy[c];
         });
-        for (int v = 1; v < 12; ++v) {          // unknown tier (0) goes last
-            if (totalBy[v] == 0) continue;
+        // Regular | elite | boss. The boss row stays even while it has no entry.
+        const wchar_t* kClass[3][3] = {
+            { L"일반 관측체", L"엘리트 관측체", L"보스 관측체" },
+            { L"REGULAR", L"ELITE", L"BOSS" },
+            { L"通常", L"エリート", L"ボス" },
+        };
+        const float kClassCol[3][3] = {
+            { 0.48f, 0.82f, 1.00f }, { 1.00f, 0.72f, 0.30f }, { 1.00f, 0.38f, 0.38f } };
+        for (int c = 0; c < 3; ++c) {
             TierStat& t = tierRows[tierRowCount++];
-            wchar_t num[16];
-            if (v % 2) swprintf_s(num, L"%d.5", v / 2); else swprintf_s(num, L"%d", v / 2);
-            swprintf_s(t.label, ShopText(L"티어 %ls", L"TIER %ls", L"ティア %ls"), num);
-            t.seen = seenBy[v]; t.total = totalBy[v];
-            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f; t.id = v;
-        }
-        if (totalBy[0] > 0) {
-            TierStat& t = tierRows[tierRowCount++];
-            swprintf_s(t.label, L"%ls", ShopText(L"티어 ?", L"TIER ?", L"ティア ?"));
-            t.seen = seenBy[0]; t.total = totalBy[0];
-            t.r = 0.48f; t.g = 0.82f; t.b = 1.00f; t.id = 0;
+            swprintf_s(t.label, L"%ls", kClass[rootLanguage][c]);
+            t.seen = seenBy[c]; t.total = totalBy[c];
+            t.r = kClassCol[c][0]; t.g = kClassCol[c][1]; t.b = kClassCol[c][2]; t.id = c;
         }
     } else {
         int seenBy[8] = {}, totalBy[8] = {};

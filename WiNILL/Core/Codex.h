@@ -234,7 +234,8 @@ inline bool g_AugSeen[AUG_TOTAL] = { false };
 inline bool g_CodexDirty   = false;
 
 inline void MarkAugSeen(int augIdx) {
-    if (augIdx < 0 || augIdx >= AUG_TOTAL || !PlayRecordsProgress()) return;
+    // Debug plays still record discoveries (only creative mode doesn't).
+    if (augIdx < 0 || augIdx >= AUG_TOTAL || g_CreativeMode) return;
     if (!g_AugSeen[augIdx]) { g_AugSeen[augIdx] = true; g_CodexDirty = true; }
 }
 
@@ -417,6 +418,15 @@ inline CodexMobId CodexMobIdForKind(MobKind k) {
     }
 }
 
+// Codex signal classes: 0 = regular, 1 = elite, 2 = boss. No boss has a
+// codex entry yet; the class exists so the list and gauges already have the slot.
+inline int CodexMobClass(int id) {
+    switch (id) {
+    case CM_QUASAR: case CM_REGULUS: case CM_ANTARES: return 1;
+    default: return 0;
+    }
+}
+
 template <typename Fn>
 inline void ForEachCodexMobEntry(Fn&& fn) {
     static constexpr CodexMobId kRosterOrder[] = {
@@ -432,12 +442,13 @@ inline void MarkMobSeen(MobKind k) {
 }
 inline void MarkMobSeenId(CodexMobId id) {
     if (id == CM_RETIRED_08) return;
-    if (id < 0 || id >= CM_COUNT || !PlayRecordsProgress()) return;
+    // Debug plays still record discoveries (only creative mode doesn't).
+    if (id < 0 || id >= CM_COUNT || g_CreativeMode) return;
     if (!g_MobSeen[id]) { g_MobSeen[id] = true; g_CodexDirty = true; }
 }
 inline void RegisterCodexMobKill(CodexMobId id) {
     if (id == CM_RETIRED_08) return;
-    if (!PlayRecordsProgress() || id < 0 || id >= CM_COUNT) return;
+    if (g_CreativeMode || id < 0 || id >= CM_COUNT) return;   // debug plays still count
     ++g_RunMobKillCounts[id];
 }
 inline void RegisterCodexMobKill(MobKind kind) {
