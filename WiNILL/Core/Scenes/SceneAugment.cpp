@@ -8,6 +8,7 @@
 #include "UiLayout.h"
 #include "Settings.h"
 #include "Augment.h"
+#include "SynergyRuntime.h"
 #include "../../System/Audio.h"
 #include "DrawPrim.h"
 #include "TextRenderer.h"
@@ -233,11 +234,51 @@ void LCornerMarks(const Xf& X, Rgb c, float a, float w, float key) {
     for (auto& p : k) LDiamond(X, p[0], p[1], 4.0f, c, a, w, key);
 }
 
-struct Rect { float x0, y0, x1, y1; };
-bool InRects(const std::vector<Rect>& rects, float x, float y) {
-    for (const Rect& r : rects)
-        if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) return true;
-    return false;
+// Open thick polyline with mitred joints, one shared vertex pair per bend, so
+// nothing is drawn twice: a faded stroke shows no brighter overlap at the
+// bends and the inner corner has no nub. Keyline pass first.
+void SMiterPath(const float* px, const float* py, int n, float w, Rgb c, float a, float key) {
+    constexpr int kMax = 8;
+    if (n < 2 || n > kMax || a <= 0.002f) return;
+    for (int pass = key > 0.0f ? 0 : 1; pass < 2; ++pass) {
+        const float tw = pass == 0 ? w + key : w;
+        const Rgb col = pass == 0 ? hud_lines::KeyCol(c) : c;
+        const float alpha = pass == 0 ? hud_lines::kKeyA * a : a;
+        float ox[kMax], oy[kMax], ix[kMax], iy[kMax];
+        for (int i = 0; i < n; ++i) {
+            const int h = std::max(0, i - 1), j = std::min(n - 1, i + 1);
+            float d1x = px[i] - px[h], d1y = py[i] - py[h];
+            float d2x = px[j] - px[i], d2y = py[j] - py[i];
+            if (i == 0) { d1x = d2x; d1y = d2y; }
+            if (i == n - 1) { d2x = d1x; d2y = d1y; }
+            const float l1 = std::max(0.001f, std::hypot(d1x, d1y)), l2 = std::max(0.001f, std::hypot(d2x, d2y));
+            d1x /= l1; d1y /= l1; d2x /= l2; d2y /= l2;
+            float mx = -d1y - d2y, my = d1x + d2x;
+            const float ml = std::max(0.001f, std::hypot(mx, my));
+            mx /= ml; my /= ml;
+            const float cosHalf = std::max(0.25f, mx * -d1y + my * d1x);
+            const float reach = tw * 0.5f / cosHalf;
+            ox[i] = px[i] + mx * reach; oy[i] = py[i] + my * reach;
+            ix[i] = px[i] - mx * reach; iy[i] = py[i] - my * reach;
+        }
+        for (int i = 0; i + 1 < n; ++i) {
+            BatchTri(ox[i], oy[i], ox[i + 1], oy[i + 1], ix[i + 1], iy[i + 1], col.r, col.g, col.b, alpha);
+            BatchTri(ox[i], oy[i], ix[i + 1], iy[i + 1], ix[i], iy[i], col.r, col.g, col.b, alpha);
+        }
+    }
+}
+
+// Corner brackets that follow the chamfer: a run along each edge into the cut.
+void LCornerBrackets(const Xf& X, Rgb c, float a, float w, float len, float key) {
+    const float hx = ac::kCardW * 0.5f, hy = ac::kCardH * 0.5f, cut = ac::kCut;
+    for (int q = 0; q < 4; ++q) {
+        const float sx = (q & 1) ? 1.0f : -1.0f, sy = (q & 2) ? 1.0f : -1.0f;
+        const float lx[4] = { sx * (hx - cut - len), sx * (hx - cut), sx * hx, sx * hx };
+        const float ly[4] = { sy * hy, sy * hy, sy * (hy - cut), sy * (hy - cut - len) };
+        float px[4], py[4];
+        for (int k = 0; k < 4; ++k) X.P(lx[k], ly[k], px[k], py[k]);
+        SMiterPath(px, py, 4, w, c, a, key);
+    }
 }
 
 // Node k of a family constellation, card-local.
@@ -246,54 +287,13 @@ void ConNode(const ac::Shape& sh, int k, float& lx, float& ly) {
     ly = ac::kConY + sh.y[k] * ac::kConH;
 }
 
-// Semi-transparent constellation: lines that cross a text line drop to ×0.45
-// instead of putting a plate behind the text. Nodes in `hidden` have already
-// lifted off as dissolve seeds.
-void DrawConstellation(const Xf& X, const ac::Shape& sh, Rgb col, float alpha, float trace,
-                       const std::vector<Rect>& textRects, float now, float phase,
-                       float ui, float key, const bool* hidden) {
-    if (alpha <= 0.002f || trace <= 0.0f) return;
-    const float prog = trace * sh.ne;
-    for (int e = 0; e < sh.ne; ++e) {
-        const float f = ac::Clamp01(prog - e);
-        if (f <= 0.0f) break;
-        float ax, ay, bx, by;
-        ConNode(sh, sh.ea[e], ax, ay);
-        ConNode(sh, sh.eb[e], bx, by);
-        float x0, y0, x1, y1;
-        X.P(ax, ay, x0, y0);
-        X.P(Lerp(ax, bx, f), Lerp(ay, by, f), x1, y1);
-        constexpr int kPieces = 10;
-        for (int p = 0; p < kPieces; ++p) {
-            const float t0 = (float)p / kPieces, t1 = (float)(p + 1) / kPieces;
-            const float px0 = Lerp(x0, x1, t0), py0 = Lerp(y0, y1, t0);
-            const float px1 = Lerp(x0, x1, t1), py1 = Lerp(y0, y1, t1);
-            const float a = alpha * (InRects(textRects, (px0 + px1) * 0.5f, (py0 + py1) * 0.5f) ? 0.45f : 1.0f);
-            SLine(px0, py0, px1, py1, 1.25f * ui, col, a, key);
-        }
-    }
-    for (int k = 0; k < sh.nv; ++k) {
-        if (hidden && hidden[k]) continue;
-        const int first = sh.FirstEdge(k);
-        const float lit = ac::Clamp01(prog - first + (first >= sh.ne ? 0.0f : 0.2f));
-        if (lit <= 0.0f) continue;
-        float lx, ly, x, y;
-        ConNode(sh, k, lx, ly);
-        X.P(lx, ly, x, y);
-        const float tw = 0.72f + 0.28f * std::sin(now * 6.2832f / (2.4f + (k % 4) * 0.4f) + phase + k * 1.7f);
-        const float a = std::min(1.0f, alpha * 1.5f) * lit * tw * (InRects(textRects, x, y) ? 0.45f : 1.0f);
-        hud_lines::Ring(x, y, 2.6f * ui, 1.0f * ui, col, a, key);
-        drawCircle(x, y, 1.0f * ui, col.r, col.g, col.b, a);
-    }
-}
-
 // Back: gapped ring + eight spokes (ASTERIA sigil); legendary+ fills the
 // ring from 12 o'clock while charging.
 void DrawBack(const Xf& X, Rgb rarity, float a, float charge, float ui, float key) {
     const Rgb ring = Mix(kUiBlue, rarity, 0.28f);
-    LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.4f * ui, kUiBlue, a * 0.62f, key);
-    LOutline(X, ac::kCardW - 14.0f, ac::kCardH - 14.0f, ac::kCut - 5.0f, 1.0f * ui, kUiBlue, a * 0.14f, 0.0f);
-    LCornerMarks(X, kUiBlue, a * 0.60f, 1.2f * ui, key);
+    // Same frame as the face: a quiet hairline with the corner brackets.
+    LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, kUiBlue, a * 0.26f, key);
+    LCornerBrackets(X, kUiBlue, a * 0.80f, 3.6f * ui, 30.0f, key);
     const float sy = -14.0f, rr = 72.0f;
     for (int k = 0; k < 4; ++k)
         LArc(X, 0.0f, sy, rr, (k * 90.0f - 35.0f) * kDeg, 70.0f * kDeg, 1.4f * ui, ring, a * 0.50f, key);
@@ -331,8 +331,10 @@ CardText LayoutCardText(const AugDef& def, float ui) {
     }
     static const wchar_t* kActive[3] = { L"액티브 · 쿨다운 %.0f초", L"Active · %.0fs cooldown", L"アクティブ · CT %.0f秒" };
     static const wchar_t* kPassive[3] = { L"패시브", L"Passive", L"パッシブ" };
-    wchar_t meta[96];
+    wchar_t meta[160];
+    const std::wstring synMeta = AugIsSynergy(def.type) ? syn::MetaLine((int)(&def - ALL_AUGS), CurLangIdx()) : std::wstring();
     if (AugIsActive(def)) swprintf_s(meta, kActive[CurLangIdx()], def.cooldown);
+    else if (!synMeta.empty()) swprintf_s(meta, L"%ls", synMeta.c_str());
     else swprintf_s(meta, L"%ls", kPassive[CurLangIdx()]);
     t.meta = meta;
     t.metaScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
@@ -365,11 +367,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const float key = 2.6f * ui;
 
     int rarity[ac::kMaxCards] = {};
+    bool hasIcon[ac::kMaxCards] = {};
     const AugDef* defs[ac::kMaxCards] = {};
     for (int i = 0; i < count; ++i) {
         const int idx = g_GameManager.augChoices[i];
         defs[i] = (idx >= 0 && idx < AUG_TOTAL) ? &ALL_AUGS[idx] : nullptr;
         rarity[i] = defs[i] ? (int)defs[i]->rarity : 0;
+        hasIcon[i] = defs[i] && AugIconTex(*defs[i]) != 0;   // loads before any batching
     }
     const ac::Timeline T = ac::MakeTimeline(rarity, count);
 
@@ -508,8 +512,9 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     if (!inExit) {
         for (int k = 3; k >= 0; --k) {
             const Xf X = MakeXf(L.deckX + k * 2.5f * ui, L.deckY - k * 2.5f * ui, L.deckS * ui, L.deckS * ui, 0.0f);
-            LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.3f * ui, kUiBlue,
-                     frameA * (k == 0 ? 0.60f : 0.22f), k == 0 ? key : 0.0f);
+            LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, kUiBlue,
+                     frameA * (k == 0 ? 0.26f : 0.14f), k == 0 ? key : 0.0f);
+            if (k == 0) LCornerBrackets(X, kUiBlue, frameA * 0.80f, 3.6f * ui, 30.0f, key);
         }
         // Picks still queued after this one.
         const int queued = std::min(6, std::max(0, g_GameManager.PendingRewards() - 1));
@@ -521,7 +526,6 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     // ── cards: geometry ──
     struct CardDraw { float x, y, alpha, textA, conA; ac::CardPhase P; Rgb col; bool face; };
     CardDraw cd[ac::kMaxCards] = {};
-    std::vector<Rect> rects[ac::kMaxCards];
     for (int i = 0; i < count; ++i) {
         if (!defs[i]) continue;
         CardDraw& d = cd[i];
@@ -560,44 +564,34 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         const float h = focusT[i];
         if (!inExit || i == pick) {
             // A dissolving card's frame is drawn as fragments instead.
-            LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, (1.4f + 0.8f * h) * ui, d.col,
-                     d.alpha * (0.62f + 0.32f * h), key);
-            LOutline(X, ac::kCardW - 14.0f, ac::kCardH - 14.0f, ac::kCut - 5.0f, 1.0f * ui, d.col, d.alpha * 0.14f, 0.0f);
-            LCornerMarks(X, d.col, d.alpha * (0.62f + 0.32f * h), 1.2f * ui, key);
+            // The frame itself stays a quiet hairline; the corner brackets carry it.
+            LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, d.col,
+                     d.alpha * (0.26f + 0.16f * h), key);
+            LCornerBrackets(X, d.col, d.alpha * (0.80f + 0.20f * h), (3.6f + 1.0f * h) * ui, 30.0f, key);
         }
         if (d.P.flip < 1.0f) continue;
 
-        // Text line boxes (screen) the constellation steps around.
-        const CardText& tx = texts[i];
-        const float left = d.x - (ac::kCardW * 0.5f - 22.0f) * ui;
-        const float right = d.x + (ac::kCardW * 0.5f - 22.0f) * ui;
-        rects[i].push_back({ d.x - (kIconSize * 0.5f + 8.0f) * ui, d.y + (kIconY - kIconSize * 0.5f - 6.0f) * ui,
-                             d.x + (kIconSize * 0.5f + 8.0f) * ui, d.y + (kIconY + kIconSize * 0.5f + 6.0f) * ui });
-        rects[i].push_back({ left, d.y + (kTitleY - 26.0f) * ui, right, d.y + (kTitleY + 26.0f) * ui });
-        float y = d.y + kMetaY * ui;
-        const float metaH = g_TextS.Height(tx.meta.c_str(), tx.metaScale);
-        rects[i].push_back({ left, y - 2.0f * ui, left + g_TextS.Width(tx.meta.c_str(), tx.metaScale) + 6.0f * ui, y + metaH + 2.0f * ui });
-        y = d.y + kDescY * ui;
-        for (const DescLine& l : tx.desc.lines) {
-            const float lh = g_TextS.Height(l.text.c_str(), tx.descScale);
-            rects[i].push_back({ left, y - 2.0f * ui, tx.desc.TextX(l, left) + g_TextS.Width(l.text.c_str(), tx.descScale) + 6.0f * ui, y + lh + 2.0f * ui });
-            y += lh + 4.0f * ui;
-        }
-
-        // Nodes that already lifted off as dissolve seeds.
-        const ac::Shape& shp = ac::ShapeOf(ac::FamilyFromCode(defs[i]->name));
-        bool hidden[ac::Shape::kMaxV] = {};
-        if (inExit && i != pick)
-            for (int k = 0; k < shp.nv; ++k) hidden[k] = exitT >= ac::SeedStart(std::abs(i - pick), k);
-        const float trace = (inExit && i == pick) ? d.alpha / std::max(0.001f, sceneA) : d.P.trace;
-        DrawConstellation(X, shp, d.col, d.conA * (0.30f + 0.16f * h), trace, rects[i],
-                          now, phase[i], ui, key, hidden);
-
-        // Rarity marks (1~5 diamonds) and the divider under the title.
+        // Rarity marks (1~5 diamonds).
         const int n = rarity[i] + 1;
         for (int k = 0; k < n; ++k)
             SDiamond(d.x + (k - (n - 1) * 0.5f) * 14.0f * ui, d.y + kRarityY * ui, 4.0f * ui, d.col,
                      d.textA * 0.9f * d.P.title, 1.2f * ui, key, true);
+
+        // The icon sits on a node: hairline ring with four ticks. Cards without an
+        // icon file get a diamond sigil in the same place instead of a hole.
+        {
+            const float iy = d.y + kIconY * ui, ir = (kIconSize * 0.5f + 4.0f) * ui, ia = d.textA * d.P.title;
+            hud_lines::Ring(d.x, iy, ir, 1.0f * ui, d.col, ia * 0.30f, key);
+            for (int k = 0; k < 4; ++k) {
+                const float ang = k * 90.0f * kDeg, cs = std::cos(ang), sn = std::sin(ang);
+                SLine(d.x + cs * ir, iy + sn * ir, d.x + cs * (ir + 6.0f * ui), iy + sn * (ir + 6.0f * ui),
+                      1.0f * ui, d.col, ia * 0.55f, key);
+            }
+            if (!hasIcon[i]) {
+                SDiamond(d.x, iy, 19.0f * ui, d.col, ia * 0.80f, 1.4f * ui, key);
+                SDiamond(d.x, iy, 9.0f * ui, d.col, ia * 0.55f, 1.1f * ui, key, true);
+            }
+        }
         const float dv = ac::Clamp01(d.P.title * 1.4f);
         SLine(d.x - 92.0f * ui * dv, d.y + kDivY * ui, d.x + 92.0f * ui * dv, d.y + kDivY * ui,
               0.9f * ui, d.col, d.textA * 0.34f, key);
@@ -734,7 +728,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                     const float age = exitT - ac::FragStart(dist, seed);
                     const float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f;
                     if (age < 0.0f) {   // still part of the frame
-                        SLine(cx + x0 * ui, cy + y0 * ui, cx + x1 * ui, cy + y1 * ui, 1.4f * ui, col, 0.62f * sceneA, key);
+                        SLine(cx + x0 * ui, cy + y0 * ui, cx + x1 * ui, cy + y1 * ui, 1.2f * ui, col, 0.26f * sceneA, key);
                         continue;
                     }
                     if (age >= ac::kFragLife) continue;

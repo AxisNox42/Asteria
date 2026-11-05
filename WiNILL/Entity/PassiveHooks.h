@@ -23,5 +23,9 @@ inline bool (*executes)(const void* target, float hp, bool regular) = nullptr;
 inline void (*kill)() = nullptr;
 // Applies a hit of dmg to hp (after shield); replaces the plain hp -= dmg.
 inline void (*hurt)(float& hp, float dmg) = nullptr;
+// A player shot turned back at the arena edge.
+inline void (*bulletBounce)(Bullet& bullet) = nullptr;
+// A player shot just hit `target`: true when it should fly on toward another one (ricochet).
+inline bool (*bulletRedirect)(Bullet& bullet, const void* target) = nullptr;
 
 }  // namespace passive_hooks

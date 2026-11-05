@@ -90,59 +90,28 @@ static Bullet PlayerShot(float x, float y, float tx, float ty) {
     return b;
 }
 
-// Sidestep: short bursts across the shot's line, not at every shot.
+// Genesis summons no longer dodge shots (release 0.2.5): a controlled enemy keeps its line
+// like a free one, whatever flies at it.
 static void CheckDodge() {
-    const auto run = [&](bool controlled, std::vector<Bullet> bullets, float seconds, float* firstDodgeAt) {
+    const auto run = [&](bool controlled, std::vector<Bullet> bullets, float seconds) {
         Monster* m = FreeSwarm(0.0f, 0.0f, 150.0f);
         if (controlled) m->TakeGenesisControl(1);
         float hp = 1.0e9f, ymax = 0.0f;
-        if (firstDodgeAt) *firstDodgeAt = -1.0f;
-        float t = 0.0f;
-        for (; t < seconds; t += DT) {
+        for (float t = 0.0f; t < seconds; t += DT) {
             m->Update(900.0f, 0.0f, DT, hp, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, &bullets);
             for (Bullet& b : bullets) if (b.active) b.Update(DT);     // the shots fly on
             ymax = std::max(ymax, std::fabs(m->worldY));
-            if (firstDodgeAt && *firstDodgeAt < 0.0f && std::fabs(m->worldY) > 8.0f) *firstDodgeAt = t;
         }
-        const float y = ymax;
         delete m;
-        return y;
+        return ymax;
     };
-    // A shot flying straight at it: the controlled enemy leaves the line, the free one does not.
     const std::vector<Bullet> straight = { PlayerShot(-220.0f, 0.0f, 100.0f, 0.0f) };
-    float at = 0.0f;
-    const float free0 = run(false, straight, 0.4f, nullptr);
-    const float ctl0 = run(true, straight, 0.4f, &at);
-    assert(free0 < 1.0f);                                      // a free mob never moves off its line
-    assert(ctl0 > 30.0f);                                      // the controlled one sidestepped clear
-    assert(at >= 0.0f && at < 0.15f);                          // and did it right away
-    // A shot that would miss by a wide margin is ignored; so are enemy shots.
-    const std::vector<Bullet> wide = { PlayerShot(-220.0f, 140.0f, 100.0f, 140.0f) };
-    assert(run(true, wide, 0.4f, nullptr) < 1.0f);
-    std::vector<Bullet> hostile = { PlayerShot(-220.0f, 0.0f, 100.0f, 0.0f) };
-    hostile[0].isEnemy = true;
-    assert(run(true, hostile, 0.4f, nullptr) < 1.0f);
-    // It cannot sidestep forever: a second shot right after is not dodged until the
-    // cooldown is over, so a steady stream still hits it.
-    Monster* m = FreeSwarm(0.0f, 0.0f, 150.0f);
-    m->TakeGenesisControl(1);
-    std::vector<Bullet> shots = { PlayerShot(-220.0f, 0.0f, 100.0f, 0.0f) };
-    float hp = 1.0e9f, t = 0.0f;
-    int sidesteps = 0;
-    bool wasDodging = false;
-    for (; t < 3.0f; t += DT) {
-        if (std::fmod(t, 0.25f) < DT) { shots.push_back(PlayerShot(m->worldX - 220.0f, m->worldY, m->worldX + 100.0f, m->worldY)); }
-        m->Update(900.0f, 0.0f, DT, hp, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, &shots);
-        for (Bullet& b : shots) if (b.active) b.Update(DT);
-        const bool d = m->ctrlDodgeTimer > 0.0f;
-        if (d && !wasDodging) ++sidesteps;
-        wasDodging = d;
-    }
-    // 3 s of shots every 0.25 s, one sidestep per (burst + cooldown) at most.
-    const float cycle = Monster::GENESIS_CTRL_DODGE_BURST + Monster::GENESIS_CTRL_DODGE_COOLDOWN;
-    assert(sidesteps >= 2 && sidesteps <= (int)std::ceil(3.0f / cycle) + 1);
-    delete m;
-    std::printf("dodge ok (%d sidesteps in 3 s of fire)\n", sidesteps);
+    assert(run(false, straight, 0.4f) < 1.0f);                 // a free mob never moves off its line
+    assert(run(true, straight, 0.4f) < 1.0f);                  // and neither does the controlled one
+    std::vector<Bullet> stream;
+    for (int i = 0; i < 12; ++i) stream.push_back(PlayerShot(-220.0f - 60.0f * i, 0.0f, 100.0f, 0.0f));
+    assert(run(true, stream, 1.5f) < 1.0f);                    // not even under a steady stream
+    std::printf("no dodge ok\n");
 }
 
 // A player who jukes back and forth must not make the enemy dumber than a plain chaser. The

@@ -178,6 +178,8 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     rewardSpeed = 0.0f;
     rewardTierCap = 4;
     rewardPityCount = 0;
+    for (int& r : recentOffers) r = -1;
+    recentOfferNext = 0;
     waveVictory = false;
     xp = 0;
     playerLevel = 1;
@@ -209,6 +211,8 @@ void GameManager::PickRewardChoices() {
     for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augChoiceCount = 0;
     bool used[AUG_TOTAL] = {};
+    bool recent[AUG_TOTAL] = {};
+    for (const int r : recentOffers) if (r >= 0 && r < AUG_TOTAL) recent[r] = true;
     const float luck = passive::LuckChanceMult() * (1.0f + 2.0f * std::clamp(rewardSpeed, 0.0f, 1.0f));
     int guaranteed = -1;
     const int cap = std::clamp(rewardTierCap, 0, (int)AugRarity::MYTHIC);
@@ -217,22 +221,30 @@ void GameManager::PickRewardChoices() {
     // The guaranteed card may sit one tier above the cap (a lucky bump).
     for (int r = std::min(rewardTier, (int)AugRarity::MYTHIC); r >= 0 && guaranteed < 0; --r) {
         int pool[AUG_TOTAL], n = 0;
-        for (int i = 0; i < AUG_TOTAL; ++i)
-            if ((int)ALL_AUGS[i].rarity == r && !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i))
-                pool[n++] = i;
+        for (int pass = 0; pass < 2 && n == 0; ++pass)   // pass 0 skips the cards shown last time
+            for (int i = 0; i < AUG_TOTAL; ++i)
+                if ((int)ALL_AUGS[i].rarity == r && !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i) &&
+                    (pass == 1 || !recent[i]))
+                    pool[n++] = i;
         if (n > 0) guaranteed = pool[std::rand() % n];
     }
     rewardTier = -1;
     rewardSpeed = 0.0f;
     rewardTierCap = (int)AugRarity::MYTHIC;
     if (guaranteed >= 0) used[guaranteed] = true;
-    for (int slot = guaranteed >= 0 ? 1 : 0; slot < kAugChoiceMax; ++slot) {
+    for (int pass = 0; pass < 2; ++pass) {
+    if (pass == 1) {
+        // Not enough fresh cards: the ones shown last time may come back.
+        if (augChoiceCount + (guaranteed >= 0 ? 1 : 0) >= kAugChoiceMax) break;
+        for (int i = 0; i < AUG_TOTAL; ++i) recent[i] = false;
+    }
+    for (int slot = augChoiceCount + (guaranteed >= 0 ? 1 : 0); slot < kAugChoiceMax; ++slot) {
         float weights[5] = {};
         float total = 0.0f;
         for (int r = 0; r < 5; ++r) {
             bool any = false;
             for (int i = 0; i < AUG_TOTAL && !any; ++i)
-                any = !used[i] && (int)ALL_AUGS[i].rarity == r &&
+                any = !used[i] && !recent[i] && (int)ALL_AUGS[i].rarity == r &&
                       !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i);
             if (!any) continue;
             float w = RarityWeight((AugRarity)r, cap, progress);
@@ -247,7 +259,7 @@ void GameManager::PickRewardChoices() {
         while (weights[rarity] <= 0.0f && rarity > 0) --rarity;
         int pool[AUG_TOTAL], n = 0;
         for (int i = 0; i < AUG_TOTAL; ++i)
-            if (!used[i] && (int)ALL_AUGS[i].rarity == rarity &&
+            if (!used[i] && !recent[i] && (int)ALL_AUGS[i].rarity == rarity &&
                 !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i))
                 pool[n++] = i;
         if (n == 0) break;
@@ -255,11 +267,16 @@ void GameManager::PickRewardChoices() {
         used[pick] = true;
         augChoices[augChoiceCount++] = pick;
     }
+    }
     if (guaranteed >= 0 && augChoiceCount < kAugChoiceMax) {
         const int at = std::rand() % (augChoiceCount + 1);
         for (int i = augChoiceCount; i > at; --i) augChoices[i] = augChoices[i - 1];
         augChoices[at] = guaranteed;
         ++augChoiceCount;
+    }
+    for (int i = 0; i < augChoiceCount; ++i) {          // remember this pick for the next two
+        recentOffers[recentOfferNext] = augChoices[i];
+        recentOfferNext = (recentOfferNext + 1) % 6;
     }
 }
 

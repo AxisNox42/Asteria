@@ -194,6 +194,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Entity\AugmentCatalog.cpp" />
     <ClCompile Include="Entity\PassiveAugments.cpp" />
+    <ClCompile Include="Entity\SynergyRuntime.cpp" />
     <ClCompile Include="Entity\ActiveSkills.cpp" />
     <ClCompile Include="Entity\PlayerRuntime.cpp" />
     <ClCompile Include="Entity\EnemySpawner.cpp" />
@@ -241,6 +242,8 @@
     <ClInclude Include="Core\Meta.h" />
     <ClInclude Include="Entity\Augment.h" />
     <ClInclude Include="Entity\PassiveAugments.h" />
+    <ClInclude Include="Entity\SynergyRuntime.h" />
+    <ClInclude Include="Entity\AugmentSynergy.h" />
     <ClInclude Include="Entity\PassiveHooks.h" />
     <ClInclude Include="Entity\ActiveSkills.h" />
     <ClInclude Include="Entity\AugmentCombat.h" />

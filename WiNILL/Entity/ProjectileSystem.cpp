@@ -3,6 +3,7 @@
 #include "Bullet.h"
 #include "MonsterManager.h"
 #include "SpaceRules.h"
+#include "PassiveHooks.h"
 #include "../System/FakeWindow.h"
 #include <algorithm>
 #include <cmath>
@@ -111,6 +112,14 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         }
 
         const float safeZoom = std::max(viewZoom, 0.01f);
+        // 도탄: the arena is the area the zoomed-out view shows.
+        if (bullet.active && !bullet.isEnemy && bullet.bouncesLeft > 0) {
+            const float exX = screenWidth * 0.5f * (1.0f / safeZoom - 1.0f);
+            const float exY = screenHeight * 0.5f * (1.0f / safeZoom - 1.0f);
+            if (bullet.BounceInRect(-exX, screenWidth + exX, -exY, screenHeight + exY) &&
+                passive_hooks::bulletBounce)
+                passive_hooks::bulletBounce(bullet);
+        }
         const float marginX = screenWidth * 0.5f * (1.0f / safeZoom - 1.0f) + 200.0f;
         const float marginY = screenHeight * 0.5f * (1.0f / safeZoom - 1.0f) + 200.0f;
         if (bullet.x < -marginX || bullet.x > screenWidth + marginX ||

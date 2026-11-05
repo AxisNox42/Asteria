@@ -1,7 +1,17 @@
 ﻿#pragma once
 #include <algorithm>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <cmath>
+
+// Behaviour flags of a shot fired by a synergy card (Bullet::synFlags).
+namespace synf {
+inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover = 1u << 3,
+    Return = 1u << 4, Returning = 1u << 5, Trail = 1u << 6, Gravity = 1u << 7, Swap = 1u << 8,
+    Absorb = 1u << 9, Erase = 1u << 10, Lob = 1u << 11, Mine = 1u << 12, Orbit = 1u << 13,
+    Seek = 1u << 14, Slowed = 1u << 15, Hovering = 1u << 16, Hovered = 1u << 17;
+}
+inline constexpr uint32_t kSynNoHit = synf::Lob | synf::Mine;   // a shell or a mine does not hit on the way
 
 class Bullet {
 public:
@@ -48,6 +58,23 @@ public:
     bool  skillShot  = false;
     bool  forceCrit  = false;
     int   skillTag   = 0;
+    // Gun verbs (Docs/Design/Augment_Synergy_Redesign.md, 동사): a shot
+    // that survives pierceLeft hits, turns back at the arena edge bouncesLeft
+    // times, splits into splitCount children on its first hit, and bursts for
+    // blastPct of the attack where it lands. Children inherit the rest.
+    int   pierceLeft   = 0;
+    int   bouncesLeft  = 0;
+    int   splitCount   = 0;
+    float splitDmg     = 0.4f;
+    float blastPct     = 0.0f;
+    mutable bool splitSpent = false;   // set by the hit hook (it only sees a const shot)
+    // Synergy cards (SynergyRuntime.cpp): behaviour flags and the little state they need.
+    uint32_t synFlags = 0;
+    float synA = 0.0f, synB = 0.0f;    // timers / distances, per flag
+    float synTx = 0.0f, synTy = 0.0f;  // a fixed point: where a mortar shell lands, where a mine sits
+    int   synBounces = 0;              // arena-edge bounces so far
+    int   synRicochet = 0;             // enemy-to-enemy bounces left
+    int   synPierced = 0;              // enemies passed so far
     // Targets a piercing shot already hit, so it hits each one once.
     static constexpr int kHitMemory = 8;
     const void* recentHits[kHitMemory] = {};
@@ -56,6 +83,32 @@ public:
         for (const void* hit : recentHits)
             if (hit == target) return true;
         return false;
+    }
+    void ClearHits() {
+        for (const void*& hit : recentHits) hit = nullptr;
+        recentHitNext = 0;
+    }
+    // Called when a hit lands: true if the shot flies on (and remembers the
+    // target), false if it ends here.
+    bool SurvivesHit() {
+        if (piercing) return true;
+        if (pierceLeft > 0) { --pierceLeft; return true; }
+        return false;
+    }
+    // Turns the shot back at the edge of the arena rectangle; true if it did.
+    bool BounceInRect(float minX, float maxX, float minY, float maxY) {
+        if (bouncesLeft <= 0) return false;
+        bool bounced = false;
+        if (x < minX)      { x = minX + (minX - x); dirX = std::fabs(dirX);  bounced = true; }
+        else if (x > maxX) { x = maxX - (x - maxX); dirX = -std::fabs(dirX); bounced = true; }
+        if (y < minY)      { y = minY + (minY - y); dirY = std::fabs(dirY);  bounced = true; }
+        else if (y > maxY) { y = maxY - (y - maxY); dirY = -std::fabs(dirY); bounced = true; }
+        if (bounced) {
+            x = std::min(std::max(x, minX), maxX);   // a long step must not carry it out the other side
+            y = std::min(std::max(y, minY), maxY);
+            --bouncesLeft; ClearHits(); prevX = x; prevY = y;
+        }
+        return bounced;
     }
     void RememberHit(const void* target) {
         recentHits[recentHitNext] = target;
@@ -96,10 +149,8 @@ public:
         float step = speed * launchRamp * dt;
         x += dirX * step;
         y += dirY * step;
-        if (maxRange > 0.0f) {
-            traveled += step;
-            if (traveled > maxRange) active = false;
-        }
+        traveled += step;   // distance flown (growing, hovering and returning shots read it)
+        if (maxRange > 0.0f && traveled > maxRange) active = false;
     }
 };
 

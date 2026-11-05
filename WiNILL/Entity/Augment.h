@@ -57,6 +57,11 @@ enum class AugType {
     A_NOVA_NOVA_BURST, A_NOVA_STARLIGHT_SCATTER,
     // Level-up stat cards (only these are offered on a level-up).
     S_ATTACK, S_MAX_HP, S_FIRE_RATE, S_MOVE_SPEED, S_REGEN, S_CRIT,
+    // Synergy redesign cards (Docs/Design/Augment_Synergy_Redesign.md), appended so no saved
+    // index moves. SynergyCodes.inc is generated from AugmentSynergy.h (the bare gun is not a card).
+#define SYN(c) SYN_##c,
+#include "SynergyCodes.inc"
+#undef SYN
     COUNT
 };
 
@@ -100,7 +105,19 @@ inline const char* AugRarityName(AugRarity r) {
 
 inline bool AugIsActive(const AugDef& d) { return d.kind != SkillKind::None; }
 // Level-up stat cards: drawn on level-ups only, never on a wave clear.
-inline bool AugIsStatCard(const AugDef& d) { return (int)d.type >= (int)AugType::S_ATTACK; }
+inline bool AugIsStatCard(const AugDef& d) {
+    return (int)d.type >= (int)AugType::S_ATTACK && (int)d.type <= (int)AugType::S_CRIT;
+}
+// The cards of the first release (passives P_*, actives A_*) are left out of the build: they are
+// never offered and the codex does not list them. The code and the catalog rows stay, so saved
+// indices do not move and the old cards can come back by setting this to true.
+inline constexpr bool kLegacyAugments = false;
+// Synergy cards (SYN_*): index into synergy::Table() is (type - SYN_first) + 1.
+inline bool AugIsSynergy(AugType t) { return (int)t > (int)AugType::S_CRIT; }
+inline int  SynergyIndex(AugType t) { return (int)t - (int)AugType::S_CRIT; }
+inline bool AugIsLegacy(const AugDef& d) { return !AugIsSynergy(d.type) && !AugIsStatCard(d); }
+// In the build: the synergy cards and the level-up stat cards (and the legacy ones if switched on).
+inline bool AugInBuild(const AugDef& d) { return kLegacyAugments || !AugIsLegacy(d); }
 inline const wchar_t* AugName(const AugDef& d) { return d.locName[CurLangIdx()]; }
 inline const wchar_t* AugDesc(const AugDef& d) { return d.locDesc[CurLangIdx()]; }
 

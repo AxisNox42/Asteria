@@ -48,6 +48,7 @@
 #include "RunResult.h"        // run result commit: abandon, game over
 #include "Augment.h"
 #include "PassiveAugments.h"
+#include "SynergyRuntime.h"
 #include "ActiveSkills.h"
 #include "PlayerStats.h"
 #include "TextRenderer.h"
@@ -3460,6 +3461,14 @@ static void DrawFloatingCombatText(GameState st, float sw, float sh) {
                              1.0f, 1.0f, 1.0f, a*0.9f);
             }
         }
+        // a card was taken: its name floats up from the ship
+        for (auto& w : g_WorldTexts) {
+            const float t = w.life / w.maxLife;
+            const float a = t > 0.7f ? 1.0f : t / 0.7f;
+            const float sc = UiTextScale(g_TextS, UiTextLevel::Description, 0.95f * g_ViewZoom * UiScale(sw, sh));
+            const float tw = g_TextS.Width(w.text, sc);
+            g_TextS.Draw(w.text, roundf(W2SX(w.x)) - tw * 0.5f, W2SY(w.y), sc, w.r, w.g, w.b, a);
+        }
         // 콤보 카운??(5콤보 ?�상부?? ?�이 콤보???�라 강해�? ???�정 ?��?
         if (g_ShowCombo && st == GameState::RUNNING && g_Combo >= 5) {
             bool  ms      = (g_ComboMilestone > 0.0f);
@@ -4752,10 +4761,9 @@ int main() {
                                         label, mob->worldX, mob->worldY,
                                         mob->regulusShield.hp, (int)IsEliteMob(mob->kind));
                                 if (mob->genesisControlled)
-                                    std::fprintf(mf, "%s ctrl kind=%d x=%.1f y=%.1f rgb=%.2f,%.2f,%.2f thrownPhase=%d dodge=%.2f cd=%.2f vel=%.0f,%.0f carrier=%d summoned=%d\n",
+                                    std::fprintf(mf, "%s ctrl kind=%d x=%.1f y=%.1f rgb=%.2f,%.2f,%.2f thrownPhase=%d vel=%.0f,%.0f carrier=%d summoned=%d\n",
                                         label, (int)mob->kind, mob->worldX, mob->worldY,
                                         mob->color.r, mob->color.g, mob->color.b, mob->thrownPhase,
-                                        mob->ctrlDodgeTimer, mob->ctrlDodgeCooldown,
                                         mob->ctrlPlayerVel.x, mob->ctrlPlayerVel.y,
                                         (int)mob->genesisSummonCarrier, (int)mob->genesisSummoned);
                                 if (mob->RegulusBuffed())
@@ -4993,7 +5001,7 @@ int main() {
                         const std::string st = step.substr(9);
                         for (int id = 0; id < CM_COUNT; ++id) {
                             g_MobSeen[id] = st != "UNSEEN";
-                            g_MobKillCounts[id] = st == "KNOWN" ? 1 : 0;
+                            g_MobKillCounts[id] = st == "FULL" ? 1000000 : st == "KNOWN" ? 1 : 0;
                             g_RunMobKillCounts[id] = 0;
                         }
                     }
@@ -5711,6 +5719,9 @@ CollisionSystem::Update(pCX, pCY,
             }
             g_DmgNumbers.erase(std::remove_if(g_DmgNumbers.begin(), g_DmgNumbers.end(),
                 [](const DamageNumber& d){ return d.life <= 0.0f; }), g_DmgNumbers.end());
+            for (auto& w : g_WorldTexts) { w.y += w.vy * delta; w.vy *= std::max(0.0f, 1.0f - 1.6f * delta); w.life -= delta; }
+            g_WorldTexts.erase(std::remove_if(g_WorldTexts.begin(), g_WorldTexts.end(),
+                [](const WorldText& w){ return w.life <= 0.0f; }), g_WorldTexts.end());
             if (g_ComboTimer > 0.0f) {
                 g_ComboTimer -= delta;
                 if (g_ComboTimer <= 0.0f) g_Combo = 0;
@@ -5944,8 +5955,12 @@ CollisionSystem::Update(pCX, pCY,
                 Bullet nb(pCX, pCY, ftx, fty);
                 nb.speed = effSpeed;
                 passive::ModifyShot(nb);
-                g_Bullets.push_back(nb);
-                active::OnPlayerBullet(nb);   // Twin Star Clone copies the shot
+                static std::vector<Bullet> volley;
+                syn::Shape(nb, pCX, pCY, tx, ty, volley);
+                for (const Bullet& vb : volley) {
+                    g_Bullets.push_back(vb);
+                    active::OnPlayerBullet(vb);   // Twin Star Clone copies the shot
+                }
             };
 
             auto spawnAimed = [&](float tx, float ty) {

@@ -1,7 +1,7 @@
 # Passive augments smoke: every passive card at once (GIVE=ALL), then a run
 # that fires at the nearest enemy and takes the first card of every pick
 # (FIRE=1). Checks that the run does not crash, the stat cards applied
-# (max HP 100 + Max HP Up 15 + Graze Recovery 10 = 125) and enemies die.
+# (Glass Cannon among them pins max HP to 30, whatever the other cards add) and enemies die.
 # Saves are untouched: smoke sessions skip SaveGame.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -35,6 +35,6 @@ foreach ($line in Get-Content $stateFile) {
 }
 Get-Content $stateFile | ForEach-Object { Write-Host $_ }
 if ($snap.BEFORE.hp -ne '100.0') { throw "start HP $($snap.BEFORE.hp), expected 100.0" }
-if ($snap.GIVEN.hp -ne '125.0') { throw "HP after GIVE=ALL $($snap.GIVEN.hp), expected 125.0" }
+if ($snap.GIVEN.hp -ne '30.0') { throw "HP after GIVE=ALL $($snap.GIVEN.hp), expected 30.0" }
 if ([int]$snap.T10.kills -le 0) { throw 'no kills with every passive on' }
 Write-Host "Passive augments smoke passed ($($snap.T10.kills) kills, wave $($snap.T10.wave))"

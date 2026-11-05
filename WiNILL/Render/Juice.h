@@ -26,6 +26,24 @@ struct DamageNumber {
 };
 inline std::vector<DamageNumber> g_DmgNumbers;
 
+// ── 월드 문구 팝업 (카드를 얻었을 때 이름이 떠오름) ──
+struct WorldText {
+    float x, y, vy, life, maxLife;
+    wchar_t text[40];
+    float r, g, b;
+};
+inline std::vector<WorldText> g_WorldTexts;
+inline void SpawnWorldText(float x, float y, const wchar_t* text, float r, float g, float b, float life = 1.6f) {
+    if (g_WorldTexts.size() > 12) g_WorldTexts.erase(g_WorldTexts.begin());
+    WorldText w{};
+    w.x = x; w.y = y; w.vy = -48.0f; w.life = w.maxLife = life;
+    w.r = r; w.g = g; w.b = b;
+    size_t i = 0;
+    for (; text && text[i] && i < 39; ++i) w.text[i] = text[i];
+    w.text[i] = L'\0';
+    g_WorldTexts.push_back(w);
+}
+
 inline int JuiceDmgCap() {
 #if defined(__APPLE__)
     return 90;
@@ -143,6 +161,7 @@ inline void ResetEnemyFx() {
 // 새 게임/리셋 시 호출
 inline void ResetJuice() {
     g_DmgNumbers.clear();
+    g_WorldTexts.clear();
     g_Sparks.clear();
     g_Trail.clear();
     g_Combo = 0; g_ComboTimer = 0.0f; g_ComboPulse = 0.0f;

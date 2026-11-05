@@ -218,13 +218,6 @@ public:
     static constexpr float GENESIS_CTRL_LEAD_FRAC = 0.65f;
     static constexpr float GENESIS_CTRL_LEAD_MIN_DIST = 70.0f;    // closer than this it just closes in
     static constexpr float GENESIS_CTRL_VEL_MAX = 900.0f;         // cap on the player speed it believes
-    static constexpr float GENESIS_CTRL_DODGE_LOOKAHEAD = 0.45f;  // reacts to a shot this soon from reaching it
-    static constexpr float GENESIS_CTRL_DODGE_RADIUS = 38.0f;     // a shot passing closer than this is a threat
-    static constexpr float GENESIS_CTRL_DODGE_RANGE = 340.0f;     // only shots this close are noticed
-    static constexpr float GENESIS_CTRL_DODGE_BURST = 0.22f;      // one sidestep lasts this long
-    static constexpr float GENESIS_CTRL_DODGE_COOLDOWN = 1.0f;    // before it can sidestep again
-    static constexpr float GENESIS_CTRL_DODGE_SPEED_MULT = 2.4f;
-    static constexpr float GENESIS_CTRL_DODGE_MIN_SPEED = 240.0f;
     // Quasar beam: when the cooldown ends the axis snaps straight onto the
     // player and locks; the beam fires QUASAR_LOCK_TIME later on that fixed
     // angle (no sweep), so the lock window is the dodge window.
@@ -621,9 +614,6 @@ public:
     glm::vec2 ctrlLastHeading{0.0f};  // last direction the player moved in at a real speed
     bool ctrlHasHeading = false;
     glm::vec2 ctrlPlayerAvg{0.0f};    // smoothed centre of the player's recent positions
-    glm::vec2 ctrlDodgeDir{0.0f};
-    float ctrlDodgeTimer = 0.0f;      // time left in the current sidestep
-    float ctrlDodgeCooldown = 0.0f;
     int thrownPhase = 0;
     float thrownTimer = 0.0f;
     float thrownDuration = 0.0f;
@@ -1449,7 +1439,6 @@ public:
         if (!genesisControlled) return;
         genesisControlled = false;
         genesisSummonCarrier = false;       // a capsule still in the air lands as a plain Swarm
-        ctrlDodgeTimer = 0.0f;
         ctrlConfidence = 1.0f;
         ctrlJukeHeat = 0.0f;
     }
@@ -1480,36 +1469,6 @@ public:
         }
         t = std::clamp(t, 0.0f, GENESIS_CTRL_LEAD_MAX);
         return player + vel * t;
-    }
-
-    // The most urgent player shot heading for this enemy, or false. A shot counts when it
-    // is close, flying toward the enemy, will reach it within the lookahead, and its path
-    // passes closer than the dodge radius. `away` is the unit sidestep direction (across the
-    // shot's line, to the side the enemy is already on).
-    bool GenesisIncomingShot(const std::vector<Bullet>* bullets, glm::vec2& away) const {
-        if (!bullets) return false;
-        float bestT = GENESIS_CTRL_DODGE_LOOKAHEAD;
-        bool found = false;
-        const float reach2 = GENESIS_CTRL_DODGE_RANGE * GENESIS_CTRL_DODGE_RANGE;
-        const float radius = GENESIS_CTRL_DODGE_RADIUS * std::max(0.8f, sizeScale);
-        for (const Bullet& b : *bullets) {
-            if (!b.active || b.isEnemy) continue;
-            const glm::vec2 rel(worldX - b.x, worldY - b.y);
-            if (glm::dot(rel, rel) > reach2) continue;
-            const glm::vec2 d(b.dirX, b.dirY);
-            const float spd = b.speed * std::max(b.launchRamp, 0.05f);
-            if (spd < 1.0f) continue;
-            const float along = glm::dot(rel, d);
-            if (along <= 0.0f) continue;                          // already past / moving away
-            const float t = along / spd;
-            if (t > bestT) continue;
-            const glm::vec2 nrm(-d.y, d.x);
-            const float side = glm::dot(rel, nrm);
-            if (std::fabs(side) > radius) continue;               // would miss anyway
-            bestT = t; found = true;
-            away = nrm * (side >= 0.0f ? 1.0f : -1.0f);
-        }
-        return found;
     }
 
     // Where a controlled enemy runs to, given what it has learned about the player.

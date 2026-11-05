@@ -147,7 +147,7 @@ static void CheckEliteSet() {
 int main() {
     Monster original(0.0f, 0.0f);
     original.MakeKind(MobKind::GRAVIS);
-    assert(Near(original.hp, 720.0f));
+    assert(Near(original.hp, Monster::GRAVIS_BASE_HP));
     original.ApplyDamage(original.hp);
     float playerHP = 100.0f;
     std::vector<Bullet> bullets;

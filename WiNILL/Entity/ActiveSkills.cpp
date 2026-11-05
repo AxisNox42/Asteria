@@ -175,8 +175,8 @@ void CastLightningStrike() {
             picks.push_back({ r->hp, r, true, r->worldX, r->worldY });
     std::sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.hp > b.hp; });
     for (size_t i = 0; i < picks.size() && i < 3; ++i) {
-        if (picks[i].ranged) HitOne(*(RangedMob*)picks[i].p, 600.0f);
-        else                 HitOne(*(Monster*)picks[i].p, 600.0f);
+        if (picks[i].ranged) HitOne(*(RangedMob*)picks[i].p, 400.0f);
+        else                 HitOne(*(Monster*)picks[i].p, 400.0f);
         AddStrike(picks[i].x, picks[i].y, { 0.65f, 0.80f, 1.0f });
     }
 }
@@ -345,7 +345,7 @@ void Cast(int aug) {
     const float extra = DamageMult();
     switch (TypeOf(aug)) {
     case AugType::A_NIGHT_STARFALL:
-        passive::DamageAll(1500.0f, 0.75f, 0.70f, 1.0f, false, extra);
+        passive::DamageAll(1200.0f, 0.75f, 0.70f, 1.0f, false, extra);
         break;
     case AugType::A_NIGHT_METEOR_LANCE: {
         Bullet b = SkillShot(px, py, dx, dy, 600.0f, TAG_ARROW, 420.0f, { 0.75f, 0.70f, 1.0f }, 2.6f);
@@ -374,7 +374,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_STONE_GRAVITY_SLAM:
-        passive::DamageRadius(px, py, 380.0f, 1400.0f, 0.85f, 0.70f, 0.50f, extra);
+        passive::DamageRadius(px, py, 380.0f, 1000.0f, 0.85f, 0.70f, 0.50f, extra);
         passive::ClearEnemyBullets(px, py, 380.0f);
         break;
     case AugType::A_STONE_ASTEROID_WALL: {
@@ -386,7 +386,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_FLAME_PROMINENCE_SHELL: {
-        Bullet b = SkillShot(px, py, dx, dy, 500.0f, TAG_FIREBALL, 800.0f, { 1.0f, 0.45f, 0.15f }, 1.6f);
+        Bullet b = SkillShot(px, py, dx, dy, 400.0f, TAG_FIREBALL, 800.0f, { 1.0f, 0.45f, 0.15f }, 1.6f);
         b.maxRange = 1100.0f;
         g_Bullets.push_back(b);
         break;
@@ -422,11 +422,11 @@ void Cast(int aug) {
     }
     case AugType::A_LUCK_DICE_OF_FATE: CastBookOfCheats(); break;
     case AugType::A_LIFE_STARLIGHT_MEND:
-        g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 15.0f);
+        g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 12.0f);
         passive::ClearEnemyBullets(px, py, 220.0f);
         break;
     case AugType::A_ABYSS_TIDAL_SURGE:
-        passive::DamageRadius(px, py, 380.0f, 1200.0f, 0.30f, 0.60f, 1.0f, extra);
+        passive::DamageRadius(px, py, 380.0f, 600.0f, 0.30f, 0.60f, 1.0f, extra);
         break;
     case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
         Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f;
@@ -435,7 +435,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_SPARK_FORCED_DISCHARGE:
-        passive::DamageRadius(px, py, 260.0f, 400.0f, 0.55f, 0.85f, 1.0f, extra);
+        passive::DamageRadius(px, py, 260.0f, 350.0f, 0.55f, 0.85f, 1.0f, extra);
         for (int i = 0; i < 10; ++i) passive::CountHit();
         break;
     case AugType::A_SPARK_CHAIN_LIGHTNING: CastChainLightning(); break;
@@ -445,7 +445,7 @@ void Cast(int aug) {
     case AugType::A_HERESY_LIFE_BURN_BLAST: {
         const float spent = g_GameManager.playerHP * 0.30f;
         g_GameManager.playerHP -= spent;
-        passive::DamageAll(100.0f * spent, 0.85f, 0.20f, 0.30f, false, extra);
+        passive::DamageAll(70.0f * spent, 0.85f, 0.20f, 0.30f, false, extra);
         break;
     }
     case AugType::A_HERESY_DAY_NIGHT_BOUNDARY: CastDayAndNight(); break;
@@ -489,7 +489,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_NOVA_NOVA_BURST: {
-        const float pct = std::min(3000.0f, 30.0f * (float)s.waveKills);
+        const float pct = std::min(2000.0f, 20.0f * (float)s.waveKills);
         if (pct > 0.0f) passive::DamageAll(pct, 1.0f, 0.95f, 0.75f, false, extra);
         break;
     }
@@ -512,7 +512,7 @@ void AfterUse(int aug, int slot) {
         passive::ChanceTriggered();
     }
     if (Has(AugType::P_STORM_MAGNETIC_STORM) && passive::Chance(0.20f)) {
-        passive::DamageAll(400.0f, 0.65f, 0.80f, 1.0f);
+        passive::DamageAll(200.0f, 0.65f, 0.80f, 1.0f);
         passive::ChanceTriggered();
     }
     if (Has(AugType::P_NIGHT_RESONANT_SHOCKWAVE) && s.moonCd[aug] <= 0.0f) {
@@ -521,11 +521,11 @@ void AfterUse(int aug, int slot) {
     }
     if (Has(AugType::P_ABYSS_SINGULARITY_CASCADE) && cd >= 10.0f) {
         const int n = std::min(5, 1 + (int)((cd - 10.0f) / 10.0f));
-        for (int i = 0; i < n; ++i) passive::DamageAll(400.0f, 0.55f, 0.35f, 0.95f);
+        for (int i = 0; i < n; ++i) passive::DamageAll(200.0f, 0.55f, 0.35f, 0.95f);
     }
     if (Has(AugType::P_PERFORM_ECLIPSE_COMBO) && s.ribbonWindow > 0.0f) {
         s.ribbonWindow = 0.0f;
-        passive::DamageRadius(s.in.px, s.in.py, 380.0f, 700.0f, 1.0f, 0.60f, 0.85f);
+        passive::DamageRadius(s.in.px, s.in.py, 380.0f, 250.0f, 1.0f, 0.60f, 0.85f);
     }
     if (Has(AugType::P_HERESY_UNSTABLE_DRIVE) && s.lastUsedAug == aug) passive::SwitchOffDarkWings();
     if (TypeOf(aug) != AugType::A_PERFORM_ECHO_CAST) s.lastUsedAug = aug;
@@ -574,7 +574,7 @@ void StepObjects(float dt) {
             break;
         case ObjKind::Dynamite:
             if (o.t >= o.life)
-                passive::DamageRadius(o.x2, o.y2, 200.0f, 1000.0f, 1.0f, 0.55f, 0.25f, DamageMult());
+                passive::DamageRadius(o.x2, o.y2, 200.0f, 500.0f, 1.0f, 0.55f, 0.25f, DamageMult());
             break;
         case ObjKind::Prism:
             for (Bullet& b : g_Bullets) {
@@ -620,7 +620,7 @@ void StepObjects(float dt) {
             auto step = [&](auto& e, float x, float y) {
                 if (sprung) return;
                 if ((x - o.x) * (x - o.x) + (y - o.y) * (y - o.y) < 40.0f * 40.0f) {
-                    HitOne(e, 900.0f);
+                    HitOne(e, 700.0f);
                     sprung = true;
                 }
             };
@@ -794,7 +794,7 @@ void OnSkillBulletHit(const Bullet& bullet, float x, float y, bool killed) {
         }
         break;
     case TAG_FIREBALL:
-        passive::DamageRadius(x, y, 140.0f, 300.0f, 1.0f, 0.45f, 0.15f, DamageMult());
+        passive::DamageRadius(x, y, 140.0f, 200.0f, 1.0f, 0.45f, 0.15f, DamageMult());
         break;
     case TAG_STAR:
         if (killed) {
@@ -852,7 +852,7 @@ void Step(const StepInput& in) {
         if (s.snipeT < 0.0f) {
             float dx, dy;
             AimDir(dx, dy);
-            Bullet b = SkillShot(in.px, in.py, dx, dy, 1500.0f, TAG_SNIPE, 3200.0f,
+            Bullet b = SkillShot(in.px, in.py, dx, dy, 1000.0f, TAG_SNIPE, 3200.0f,
                                  { 1.0f, 0.95f, 0.85f }, 1.4f);
             b.piercing = true;
             b.forceCrit = true;
@@ -871,6 +871,10 @@ void Step(const StepInput& in) {
         }
     }
     StepObjects(dt);
+}
+
+void RequestTeleport(float x, float y) {
+    s.teleport = true; s.teleX = x; s.teleY = y;
 }
 
 bool TakeTeleport(float& x, float& y) {

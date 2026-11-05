@@ -44,6 +44,7 @@ void DrawWorld(float time);           // field objects, in world space
 
 // Where a movement skill moved the player this step (main moves the window).
 bool TakeTeleport(float& x, float& y);
+void RequestTeleport(float x, float y);   // a card moves the player (swap shot)
 
 float DamageMult();                   // active skill damage multiplier
 void ReduceAllCooldowns(float seconds);

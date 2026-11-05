@@ -197,6 +197,8 @@ public:
                 continue;
             }
 
+            if (bullet.synFlags & kSynNoHit) continue;   // a mortar shell lands, it does not hit on the way
+
             const float minX = std::min(bullet.prevX, bullet.x);
             const float maxX = std::max(bullet.prevX, bullet.x);
             const float minY = std::min(bullet.prevY, bullet.y);
@@ -207,7 +209,7 @@ public:
             const float shotScale = std::max(1.0f, bullet.sizeScale);
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
-                if (bullet.piercing && bullet.HasHit(monster)) continue;
+                if (bullet.HasHit(monster)) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
                 const float hitRadius = (monster->kind == MobKind::NORMA
                     ? norma::kShotHitPx : MONSTER_BULLET_HIT_RADIUS) * monster->sizeScale * shotScale;
@@ -248,7 +250,8 @@ public:
                                              monster->worldY, dealt, crit, !monster->alive);
                 if (!monster->alive) CollectMonsterKill(rewards, *monster);
 
-                if (bullet.piercing) bullet.RememberHit(monster);
+                if (bullet.SurvivesHit()) { bullet.RememberHit(monster); ++bullet.synPierced; }
+                else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, monster)) {}
                 else                 bullet.active = false;
                 consumed = true;
                 break;
@@ -257,7 +260,7 @@ public:
             if (consumed) continue;
             for (auto* ranged : manager.rangedMobs) {
                 if (!ranged->alive) continue;
-                if (bullet.piercing && bullet.HasHit(ranged)) continue;
+                if (bullet.HasHit(ranged)) continue;
                 if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) continue;
                 const float HIT_RADIUS = 20.0f * shotScale;
                 if (ranged->worldX < minX - HIT_RADIUS || ranged->worldX > maxX + HIT_RADIUS ||
@@ -292,7 +295,8 @@ public:
                                              ranged->worldY, dealt, crit, !ranged->alive);
                 if (!ranged->alive) CollectScopeKill(rewards, *ranged);
 
-                if (bullet.piercing) bullet.RememberHit(ranged);
+                if (bullet.SurvivesHit()) { bullet.RememberHit(ranged); ++bullet.synPierced; }
+                else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, ranged)) {}
                 else                 bullet.active = false;
                 break;
             }

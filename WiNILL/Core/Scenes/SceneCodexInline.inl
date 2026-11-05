@@ -335,7 +335,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
             return (ta == 0 ? 12 : ta) < (tb == 0 ? 12 : tb);
         });
         s_augOrderN = 0;
-        for (int i = 0; i < AUG_TOTAL && s_augOrderN < 512; ++i) s_augOrder[s_augOrderN++] = i;
+        for (int i = 0; i < AUG_TOTAL && s_augOrderN < 512; ++i)
+            if (AugInBuild(ALL_AUGS[i])) s_augOrder[s_augOrderN++] = i;
         std::stable_sort(s_augOrder, s_augOrder + s_augOrderN,
                          [&](int a, int b) { return augTierOf(a) < augTierOf(b); });
     }
@@ -394,6 +395,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
         if (CodexMobNameUnlocked(id)) ++unlockSeen[0];
     });
     for (int i = 0; i < AUG_TOTAL; ++i) {
+        if (!AugInBuild(ALL_AUGS[i])) continue;
         ++unlockTotal[1];
         if (CodexAugSeen(i)) ++unlockSeen[1];
     }
@@ -427,6 +429,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
     } else {
         int seenBy[8] = {}, totalBy[8] = {};
         for (int i = 0; i < AUG_TOTAL; ++i) {
+            if (!AugInBuild(ALL_AUGS[i])) continue;
             const int r = augTierOf(i);
             ++totalBy[r];
             if (CodexAugSeen(i)) ++seenBy[r];
@@ -853,16 +856,12 @@ static void Scene_CodexInline(const SceneCtx& c) {
     }
 
     // The real CircleTexture pair is deliberately behind chart and copy.
-    DrawConstellationDisc(chartCX - chartR * 0.12f, chartCY, chartR * 1.48f,
-                          0.0f, 0.0f, 0.0f, 0.68f * rightWake);
     DrawConstellationDisc(chartCX - chartR * 0.30f, chartCY, chartR * 0.72f,
                           0.22f, 0.30f, 0.38f, 0.42f * rightWake);
     // A dedicated contrast field keeps the wrapped record rail readable on
     // white/bright gameplay backgrounds. It overlaps the main sight field so
     // the list feels embedded in the constellation instead of boxed in.
     const float listFieldCX = chartCX - itemR + 180.0f * uiS;
-    DrawConstellationDisc(listFieldCX, chartCY, 700.0f * uiS,
-                          0.0f, 0.0f, 0.0f, 0.22f * rightWake);
     DrawConstellationDisc(listFieldCX + 90.0f * uiS, chartCY, 510.0f * uiS,
                           curRoot.r * 0.10f, curRoot.g * 0.10f, curRoot.b * 0.12f,
                           0.075f * rightWake);
@@ -929,9 +928,6 @@ static void Scene_CodexInline(const SceneCtx& c) {
             : ax + lineLength;
         // Local black halo around each record keeps the constellation core
         // legible without darkening the entire archive surface.
-        DrawConstellationDisc(miniX, ay, miniR * 2.80f,
-                              0.0f, 0.0f, 0.0f,
-                              (0.16f + 0.10f * active) * reveal);
         // Category-colored core light: every record gets a restrained glow,
         // while the selected record naturally becomes brighter via `active`.
         DrawConstellationDisc(miniX, ay, miniR * 1.14f,
@@ -1042,8 +1038,15 @@ static void Scene_CodexInline(const SceneCtx& c) {
         }
         return out;
     };
+    // Width of the record block on the right; single-line texts that would run
+    // past it shrink to fit (set once the block is laid out, 0 = no limit).
+    float scanFitW = 0.0f;
     auto drawScanTextS = [&](const wchar_t* text, float x, float y, float sc,
                              float r, float g, float b, float a, int seed) {
+        if (scanFitW > 0.0f && text) {
+            const float tw = g_TextS.Width(text, sc);
+            if (tw > scanFitW) sc *= scanFitW / tw;
+        }
         if (s_decryptT < 0.36f) {
             std::wstring t = scramble(text, seed);
             DrawShadowedText(g_TextS, t.c_str(), x, y, sc, r, g, b,
@@ -1145,12 +1148,14 @@ static void Scene_CodexInline(const SceneCtx& c) {
     const float detailX = sw * 0.68f;
     const float detailW = std::max(320.0f * uiS,
                                    std::min(sw * 0.26f, sw - detailX - 54.0f * uiS));
+    scanFitW = detailW;
     // The selected record always sits on the chartCY row and its selection
     // line runs right toward this block, so the block's title row is centred
     // on that same line instead of floating at a fixed screen height (#40).
     const float recordTitleH = g_TextL.Height(
         L"A", UiTextScale(g_TextL, UiTextLevel::Title, uiS));
-    const float infoY = chartCY - 44.0f * uiS - recordTitleH * 0.5f;
+    // Raised a little so the longer attack notes stay on screen.
+    const float infoY = chartCY - 100.0f * uiS - recordTitleH * 0.5f;
     const int mobDataStage = selectedCategory == 0 ? CodexMobDataStage(selKey) : 0;
     BindMainShader();
 
@@ -1294,9 +1299,11 @@ static void Scene_CodexInline(const SceneCtx& c) {
             dataY += 25.0f * uiS;
         }
         if (mobDataStage >= 3) {
-            std::wstring attack = std::wstring(L"ATTACK : ") + CodexMobAttackPattern(selKey);
-            drawScanTextS(attack.c_str(), detailX, dataY, idSc,
+            drawScanTextS(L"ATTACK :", detailX, dataY, idSc,
                           0.86f, 0.92f, 1.0f, 0.90f * rightWake, selKey + 32);
+            dataY += 25.0f * uiS;
+            drawScanDescription(CodexMobAttackPattern(selKey), detailX, dataY, detailW, idSc,
+                                0.80f, 0.88f, 0.98f, 0.86f * rightWake, selKey + 33);
         }
     } else if (selectedCategory != 0) {
         if (selectedCategory != 1) {

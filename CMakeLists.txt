@@ -22,6 +22,7 @@ add_executable(WiNILL
     ${WINILL_DIR}/main.cpp
     ${WINILL_DIR}/Entity/AugmentCatalog.cpp
     ${WINILL_DIR}/Entity/PassiveAugments.cpp
+    ${WINILL_DIR}/Entity/SynergyRuntime.cpp
     ${WINILL_DIR}/Entity/ActiveSkills.cpp
     ${WINILL_DIR}/Entity/PlayerRuntime.cpp
     ${WINILL_DIR}/Entity/EnemySpawner.cpp

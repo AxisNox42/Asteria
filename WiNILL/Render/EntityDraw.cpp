@@ -1,4 +1,5 @@
 ﻿#include "EntityDraw.h"
+#include "MiterStroke.h"
 #include "../Entity/MonsterManager.h"
 #include "../Entity/GravisField.h"
 #include "Camera.h"
@@ -145,10 +146,8 @@ void DrawApproachOrb(float x, float y, float visualTime) {
         px[i] = x + cosf(angle) * 17.0f;
         py[i] = y + sinf(angle) * 17.0f;
     }
+    miter::Loop(px, py, 4, 1.4f, 1.0f, 0.20f, 0.25f, 0.78f);
     for (int i = 0; i < 4; ++i) {
-        const int next = (i + 1) % 4;
-        drawLineQuad(px[i], py[i], px[next], py[next],
-                     1.4f, 1.0f, 0.20f, 0.25f, 0.78f);
         drawLineQuad(x, y, px[i], py[i],
                      0.9f, 1.0f, 0.28f, 0.32f, 0.50f);
         drawCircle(px[i], py[i], 2.6f, 1.0f, 0.34f, 0.36f, 0.92f);
@@ -201,12 +200,8 @@ void drawBullet(const Bullet& b) {
         drawLineQuad(b.x - b.dirX * h, b.y - b.dirY * h,
                      b.x - b.dirX * (h + tail), b.y - b.dirY * (h + tail),
                      2.0f, b.color.r, b.color.g, b.color.b, 0.35f);
-        for (int k = 0; k < 4; ++k) {
-            const int n = (k + 1) & 3;
-            drawLineQuad(px[k], py[k], px[n], py[n], 3.4f,
-                         b.color.r * 0.22f, b.color.g * 0.22f, b.color.b * 0.22f, 0.6f);
-            drawLineQuad(px[k], py[k], px[n], py[n], 1.8f, b.color.r, b.color.g, b.color.b, 1.0f);
-        }
+        miter::Loop(px, py, 4, 3.4f, b.color.r * 0.22f, b.color.g * 0.22f, b.color.b * 0.22f, 0.6f);
+        miter::Loop(px, py, 4, 1.8f, b.color.r, b.color.g, b.color.b, 1.0f);
         drawCircle(b.x, b.y, r * 0.30f, 1.0f, 1.0f, 1.0f, 0.95f);
         return;
     }
@@ -282,13 +277,8 @@ void drawBullet(const Bullet& b) {
 static void DrawEnemyWirePolygon(const float* vx, const float* vy, int count,
                                  float r, float g, float b, float alpha,
                                  float glowAlpha, float width = 1.1f) {
-    for (int i = 0; i < count; ++i) {
-        int next = (i + 1) % count;
-        drawLineQuad(vx[i], vy[i], vx[next], vy[next], width + 1.0f,
-                     r, g, b, glowAlpha);
-        drawLineQuad(vx[i], vy[i], vx[next], vy[next], width,
-                     r, g, b, alpha);
-    }
+    miter::Loop(vx, vy, count, width + 1.0f, r, g, b, glowAlpha);
+    miter::Loop(vx, vy, count, width, r, g, b, alpha);
 }
 
 static void DrawDiscWithTexture(float x, float y, float radius,
@@ -861,21 +851,17 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
             const float a = mid + ih - ih * (2.0f / 3.0f) * (float)i;
             px[5 + i] = sx + cosf(a) * ri;  py[5 + i] = sy + sinf(a) * ri;
         }
-        for (int i = 0; i < 9; ++i) {
-            const int n = (i + 1) % 9;
-            drawLineQuad(px[i], py[i], px[n], py[n], ow, sr, sg, sb, oa);
-        }
-        // Scale plate (B): a narrower second plate rides just outside the
-        // shell, staggered toward the spin, and clips onto the rim with two
-        // tabs so the layers never cross. Liner plate: fixed to the core,
-        // between the core ring and the shell.
+        miter::Loop(px, py, 9, ow, sr, sg, sb, oa);
+        // Scale plate: a narrower second plate centred on the cradle rides just
+        // outside the shell and clips onto the rim with two tabs, so every
+        // shell is mirror-symmetric about its own spoke.
         {
-            const float pm = mid + 0.2443f;               // +14 deg stagger
+            const float pm = mid;                         // centred on the cradle
             const float ph = 0.5585f;                     // 32 deg
             const float po = ro * 1.19f, pi = ro * 1.03f;
             float qx[7], qy[7];
             for (int i = 0; i <= 3; ++i) {
-                const float a = pm - ph * 0.8f + ph * 0.6f * (float)i;
+                const float a = pm - ph + ph * (2.0f / 3.0f) * (float)i;
                 qx[i] = sx + cosf(a) * po;  qy[i] = sy + sinf(a) * po;
             }
             for (int i = 0; i <= 2; ++i) {
@@ -883,18 +869,7 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
                 qx[4 + i] = sx + cosf(a) * pi;  qy[4 + i] = sy + sinf(a) * pi;
             }
             const float pa = (0.46f + 0.44f * lit), pw = (1.05f + 0.45f * lit) * lw;
-            for (int i = 0; i < 7; ++i) {
-                const int n = (i + 1) % 7;
-                drawLineQuad(qx[i], qy[i], qx[n], qy[n], pw, sr, sg, sb, pa);
-            }
-            const float ps = po - R * 0.04f;
-            for (int i = 0; i < 3; ++i) {
-                const float a0 = pm - ph * 0.62f + ph * 0.48f * (float)i;
-                const float a1 = a0 + ph * 0.48f;
-                drawLineQuad(sx + cosf(a0) * ps, sy + sinf(a0) * ps,
-                             sx + cosf(a1) * ps, sy + sinf(a1) * ps,
-                             0.85f, sr, sg, sb, 0.22f + 0.20f * lit);
-            }
+            miter::Loop(qx, qy, 7, pw, sr, sg, sb, pa);
             for (int e = -1; e <= 1; e += 2) {
                 const float a = pm + ph * 0.55f * (float)e;
                 drawLineQuad(sx + cosf(a) * pi, sy + sinf(a) * pi,
@@ -903,20 +878,6 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
                 DrawEnemyNode({sx + cosf(pm + ph * 0.78f * (float)e) * (po + pi) * 0.5f,
                                sy + sinf(pm + ph * 0.78f * (float)e) * (po + pi) * 0.5f,
                                base * 0.045f, 0.6f + 0.4f * lit}, sr, sg, sb, 0.45f + 0.45f * lit);
-            }
-            const float lh = 0.6632f;                     // 38 deg
-            float lx[13], ly[13];
-            for (int i = 0; i <= 6; ++i) {
-                const float a = mid - lh + lh * (2.0f / 6.0f) * (float)i;
-                lx[i] = x + cosf(a) * R * 0.66f;  ly[i] = y + sinf(a) * R * 0.66f;
-            }
-            for (int i = 0; i <= 5; ++i) {
-                const float a = mid + lh * 0.8f - lh * 1.6f / 5.0f * (float)i;
-                lx[7 + i] = x + cosf(a) * R * 0.52f;  ly[7 + i] = y + sinf(a) * R * 0.52f;
-            }
-            for (int i = 0; i < 13; ++i) {
-                const int n = (i + 1) % 13;
-                drawLineQuad(lx[i], ly[i], lx[n], ly[n], 0.95f, cr, cg, cb, 0.34f + 0.26f * lit);
             }
         }
         // Cut ends beside the muzzle gap heat while aiming and throwing:
@@ -991,10 +952,7 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
                 const float a = dir + 2.0943951f * (float)v;
                 tx[v] = cxs + cosf(a) * tr;  ty[v] = cys + sinf(a) * tr;
             }
-            for (int v = 0; v < 3; ++v) {
-                const int n = (v + 1) % 3;
-                drawLineQuad(tx[v], ty[v], tx[n], ty[n], 1.3f, pR, pG, pB, 0.95f * lit * flick);
-            }
+            miter::Loop(tx, ty, 3, 1.3f, pR, pG, pB, 0.95f * lit * flick);
             if (f >= 1.0f)
                 drawCircle(cxs, cys, base * 0.055f, 1.0f, 1.0f, 1.0f, 0.85f * flick);
         }
@@ -1043,13 +1001,9 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
         Tx[v] = ccx + cosf(a) * R * 0.24f;  Ty[v] = ccy + sinf(a) * R * 0.24f;
         tX[v] = ccx - cosf(a) * R * 0.12f;  tY[v] = ccy - sinf(a) * R * 0.12f;
     }
-    for (int v = 0; v < 3; ++v) {
-        const int n = (v + 1) % 3;
-        drawLineQuad(Tx[v], Ty[v], Tx[n], Ty[n], 1.4f,
-                     hr + (1.0f - hr) * 0.3f, hg + (1.0f - hg) * 0.3f, hb + (1.0f - hb) * 0.3f, 0.92f);
-        drawLineQuad(tX[v], tY[v], tX[n], tY[n], 1.1f,
-                     0.92f, 0.80f, 0.80f, 0.55f + 0.40f * charge);
-    }
+    miter::Loop(Tx, Ty, 3, 1.4f,
+                hr + (1.0f - hr) * 0.3f, hg + (1.0f - hg) * 0.3f, hb + (1.0f - hb) * 0.3f, 0.92f);
+    miter::Loop(tX, tY, 3, 1.1f, 0.92f, 0.80f, 0.80f, 0.55f + 0.40f * charge);
     DrawEnemyNode({Tx[0], Ty[0], base * 0.09f, 0.80f + 0.20f * charge}, 1.0f, 1.0f, 1.0f, 0.92f);
     drawCircle(ccx, ccy, base * (0.09f + 0.06f * recoil), 1.0f, 1.0f, 1.0f, 0.95f);
 }
@@ -1074,10 +1028,7 @@ static void DrawThrownSwarmGhosts(const Monster* m, float base,
                 vx[k] = s.x + ox + cosf(ang) * radius;
                 vy[k] = s.y + oy + sinf(ang) * radius;
             }
-            for (int k = 0; k < 3; ++k) {
-                const int n = (k + 1) % 3;
-                drawLineQuad(vx[k], vy[k], vx[n], vy[n], 1.2f, r, g, b, a);
-            }
+            miter::Loop(vx, vy, 3, 1.2f, r, g, b, a);
         };
         if (flight) {
             const float ox = -hy * 1.5f, oy = hx * 1.5f;
@@ -1185,10 +1136,7 @@ static void DrawRegulusCrest(float x, float y, float base, float phase,
             y + sinf(a - 0.13f) * tipR * 0.95f,
             y + sinf(a + 0.13f) * tipR * 0.95f,
             y + sinf(a + 0.42f) * tipR * 0.56f };
-        for (int i = 0; i < 5; ++i) {
-            const int n = (i + 1) % 5;
-            drawLineQuad(px[i], py[i], px[n], py[n], 1.6f, r, g, b, 0.92f);
-        }
+        miter::Loop(px, py, 5, 1.6f, r, g, b, 0.92f);
         // Spine down the plate, stopping short of the flat tip.
         drawLineQuad(px[0], py[0], x + cosf(a) * tipR * 0.80f, y + sinf(a) * tipR * 0.80f,
                      0.9f, r, g, b, 0.45f);
@@ -1199,10 +1147,7 @@ static void DrawRegulusCrest(float x, float y, float base, float phase,
         sx[k] = x + cosf(a) * base * 0.30f;
         sy[k] = y + sinf(a) * base * 0.30f;
     }
-    for (int k = 0; k < 4; ++k) {
-        const int n = (k + 1) & 3;
-        drawLineQuad(sx[k], sy[k], sx[n], sy[n], 1.3f, 0.92f, 0.99f, 1.0f, 0.90f);
-    }
+    miter::Loop(sx, sy, 4, 1.3f, 0.92f, 0.99f, 1.0f, 0.90f);
     DrawEnemyCore(x, y, base * 0.30f, r, g, b, 0.90f + 0.10f * pulse, false);
 }
 
@@ -1232,11 +1177,9 @@ static void DrawRegulusExtension(const Monster* m, float base, float phase,
         const float s = base * (0.10f + 0.07f * charge);
         const float al = 0.45f + 0.55f * charge;
         const float dx[4] = { 0.0f, s, 0.0f, -s }, dy[4] = { -s, 0.0f, s, 0.0f };
-        for (int i = 0; i < 4; ++i) {
-            const int n = (i + 1) & 3;
-            drawLineQuad(cx + dx[i], cy + dy[i], cx + dx[n], cy + dy[n],
-                         1.2f + 0.8f * charge, 0.92f, 0.99f, 1.0f, al);
-        }
+        float ox[4], oy[4];
+        for (int i = 0; i < 4; ++i) { ox[i] = cx + dx[i]; oy[i] = cy + dy[i]; }
+        miter::Loop(ox, oy, 4, 1.2f + 0.8f * charge, 0.92f, 0.99f, 1.0f, al);
     }
 }
 
@@ -1942,10 +1885,9 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
     const float halfW = base * 0.22f * (1.0f - 0.20f * jetT);
     const float dX[4] = { x + ax * halfL, x + px * halfW, x - ax * halfL, x - px * halfW };
     const float dY[4] = { y + ay * halfL, y + py * halfW, y - ay * halfL, y - py * halfW };
+    miter::Loop(dX, dY, 4, 1.30f, liteR, liteG, liteB, 0.80f + 0.20f * jetT);
     for (int i = 0; i < 4; ++i) {
         const int n = (i + 1) & 3;
-        drawLineQuad(dX[i], dY[i], dX[n], dY[n], 1.30f,
-                     liteR, liteG, liteB, 0.80f + 0.20f * jetT);
         drawLineQuad(x + (dX[i] - x) * 0.55f, y + (dY[i] - y) * 0.55f,
                      x + (dX[n] - x) * 0.55f, y + (dY[n] - y) * 0.55f,
                      0.75f, cr, cg, cb, 0.35f);
@@ -1984,29 +1926,6 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
                       1.0f, 1.0f, 1.0f, 0.90f);
     }
 
-    // Leak sparks: brief zigzags along the beam axis, more frequent with heat.
-    const float rate = 2.0f + 10.0f * heat;
-    const float slotF = (t + seed) * rate;
-    const float slot = floorf(slotF);
-    if (m->quasarState < Monster::QUASAR_FALL_STATE &&
-        (slotF - slot) < 0.08f * rate && QuasarHash(slot + seed) < 0.65f) {
-        const float h2 = QuasarHash(slot * 1.7f + 3.1f);
-        const float s = QuasarHash(slot * 2.3f + 7.7f) < 0.5f ? -1.0f : 1.0f;
-        const float dev = (h2 - 0.5f) * 0.5f;
-        const float dirX = (ax * cosf(dev) - ay * sinf(dev)) * s;
-        const float dirY = (ay * cosf(dev) + ax * sinf(dev)) * s;
-        const float len = base * (0.35f + 0.40f * h2);
-        float sx = x + dirX * base * 0.18f, sy = y + dirY * base * 0.18f;
-        for (int k = 1; k <= 4; ++k) {
-            const float f = (float)k / 4.0f;
-            const float off = (k == 4) ? 0.0f : ((k & 1) ? 1.0f : -1.0f) * base * 0.05f;
-            const float nx = x + dirX * (base * 0.18f + len * f) - dirY * off;
-            const float ny = y + dirY * (base * 0.18f + len * f) + dirX * off;
-            drawLineQuad(sx, sy, nx, ny, 1.2f, 1.0f, 1.0f, 1.0f, 0.85f);
-            sx = nx; sy = ny;
-        }
-    }
-
     // Unstable core: off-beat flicker, a jittering white center inside a
     // fixed halo, and a rim that bulges one side at a time.
     const float flicker = 0.80f + 0.20f * amp * noise;
@@ -2017,18 +1936,14 @@ static void DrawQuasarBody(const Monster* m, float base, float t,
     float rimPX = 0.0f, rimPY = 0.0f;
     for (int k = 0; k <= 20; ++k) {
         const float a = 6.2831853f * (float)k / 20.0f;
-        const float bulge = std::max(0.0f, sinf(a * 2.0f + t * 5.3f + seed)
-                                         * sinf(t * 3.1f + a));
-        const float r = coreS * 1.05f * (1.0f + 0.22f * amp * bulge);
+        const float r = coreS * 1.05f;
         const float rx = x + cosf(a) * r, ry = y + sinf(a) * r;
         if (k > 0)
             drawLineQuad(rimPX, rimPY, rx, ry, 1.0f,
                          liteR, liteG, liteB, 0.55f * flicker);
         rimPX = rx; rimPY = ry;
     }
-    const float jx = amp * 1.6f * sinf(t * 31.7f + seed);
-    const float jy = amp * 1.6f * sinf(t * 27.3f + seed * 1.3f);
-    drawCircle(x + jx, y + jy, coreS * 0.32f, 1.0f, 1.0f, 1.0f,
+    drawCircle(x, y, coreS * 0.32f, 1.0f, 1.0f, 1.0f,
                std::min(1.0f, 0.85f * flicker + 0.15f));
 
     // Front halves of the bands, front riders, then the flange front half
@@ -2920,30 +2835,10 @@ void drawMob(const Monster* m, float visualTime) {
         }
         for (const auto& node : nodes)
             DrawEnemyNode(node, bodyR, bodyG, bodyB, 0.94f);
-        // A tilted inner orbit precesses against the hexagon. Its satellite
-        // dims on the far half so the orbit reads as depth, not a flat ring.
-        const float tilt = -phase * 0.42f + 0.49f;
-        const float tiltX = cosf(tilt), tiltY = sinf(tilt);
-        const float orbitMajor = base * 0.86f;
-        const float orbitMinor = base * 0.30f;
-        const float liteR = bodyR + (1.0f - bodyR) * 0.45f;
-        const float liteG = bodyG + (1.0f - bodyG) * 0.45f;
-        const float liteB = bodyB + (1.0f - bodyB) * 0.45f;
-        DrawQuasarEllipseArc(x, y, tiltX, tiltY, orbitMajor, orbitMinor,
-                             0.0f, 6.2831853f, 32,
-                             liteR, liteG, liteB, 0.40f, 0.85f);
-        const float satA = m->gravisOrbitPhase;
-        const float satDepth = sinf(satA);
-        const EnemyNodeAnchor sat{ x - tiltY * cosf(satA) * orbitMajor + tiltX * satDepth * orbitMinor,
-                                   y + tiltX * cosf(satA) * orbitMajor + tiltY * satDepth * orbitMinor,
-                                   base * 0.085f, 0.70f + 0.30f * (0.5f + 0.5f * satDepth) };
-        if (satDepth < 0.0f) DrawEnemyNode(sat, 1.0f, 1.0f, 1.0f, 0.55f);
-
         drawCircle(x, y, base * 0.58f, bodyR, bodyG, bodyB,
                    0.18f + pulse * 0.08f);
         DrawGenesisCore(x, y, base * 0.34f,
                         bodyR, bodyG, bodyB, 0.96f, false);
-        if (satDepth >= 0.0f) DrawEnemyNode(sat, 1.0f, 1.0f, 1.0f, 0.95f);
     } else if (m->kind == MobKind::QUASAR) {
         // Quasar: a compact accretion instrument with a fixed polar firing axis.
         float cr = m->color.r, cg = m->color.g, cb = m->color.b;

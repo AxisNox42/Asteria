@@ -74,23 +74,19 @@ static void CheckGimbalAndWorldDiscCoordinates() {
 
 static void CheckBulletHaloLayers() {
     Bullet regular(10.0f, 20.0f, 30.0f, 40.0f);
-    Bullet missile(10.0f, 20.0f, 30.0f, 40.0f);
-    missile.rainMissile = true;
     Bullet crescent(10.0f, 20.0f, 30.0f, 40.0f);
     crescent.crescentBlade = true;
     crescent.traveled = 240.0f;
 
-    for (const Bullet* bullet : {&regular, &missile, &crescent}) {
+    for (const Bullet* bullet : {&regular, &crescent}) {
         const BulletHaloStyle style = GetBulletHaloStyle(*bullet);
         assert(style.innerRadius > 0.0f);
         assert(std::abs(style.outerRadius - style.innerRadius * 2.0f) < 0.001f);
         assert(style.outerAlpha > 0.0f && style.outerAlpha < style.innerAlpha);
     }
     assert(std::abs(GetBulletHaloStyle(regular).innerAlpha - 0.20f) < 0.001f);
-    assert(std::abs(GetBulletHaloStyle(missile).innerAlpha - 0.18f) < 0.001f);
     assert(std::abs(GetBulletHaloStyle(crescent).innerAlpha - 0.10f) < 0.001f);
     assert(std::abs(GetBulletHaloStyle(regular).outerAlpha - 0.07f) < 0.001f);
-    assert(std::abs(GetBulletHaloStyle(missile).outerAlpha - 0.063f) < 0.001f);
     assert(std::abs(GetBulletHaloStyle(crescent).outerAlpha - 0.035f) < 0.001f);
 }
 

@@ -55,6 +55,10 @@ public:
     float     rewardSpeed = 0.0f;
     int       rewardTierCap = 4;           // highest tier the pick may show (AugRarity)
     int       rewardPityCount = 0;         // fastest clears since the last lucky bump
+    // The cards of the last two picks (kept for the run): a card that was shown and not taken is
+    // left out of the next picks while other cards of its tier can fill the slot.
+    int       recentOffers[6] = { -1, -1, -1, -1, -1, -1 };
+    int       recentOfferNext = 0;
     int       pendingStatRewards = 0;      // level-ups: stat cards
     bool      activeRewardIsStat = false;  // the open pick is a level-up's
     bool      augmentRewardActive = false;
