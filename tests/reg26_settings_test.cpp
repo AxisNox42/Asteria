@@ -30,8 +30,9 @@ bool IsMonoOutput() { return s_mono; }
 // Every option the save file carries, as one comparable value.
 struct Options {
     int lang, fps, soundVol, mobStyle, vfx;
-    bool crosshair, combo, bgm, sfx, mono, audio, autoSkill, menuDim,
-         debug, shaderFx, macOpt;
+    bool crosshair, combo, bgm, sfx, mono, audio, autoSkill;
+    int menuDim;   // g_MenuDim: a percentage now, not an on/off switch
+    bool debug, shaderFx, macOpt;
     bool operator==(const Options& o) const {
         return lang == o.lang && fps == o.fps && soundVol == o.soundVol &&
                mobStyle == o.mobStyle && vfx == o.vfx && crosshair == o.crosshair &&
@@ -45,7 +46,7 @@ static Options Read() {
     return { (int)g_Language, g_FpsCap, g_SoundVol,
              (int)g_MobVisualStyle, (int)g_VfxDensity, g_ShowCrosshair, g_ShowCombo,
              g_BgmEnabled, g_SfxEnabled, g_AudioMonoOutput, g_AudioEngineEnabled,
-             g_AutoSkill, g_StrongMenuDim, g_DebugMode, g_ShaderFx,
+             g_AutoSkill, g_MenuDim, g_DebugMode, g_ShaderFx,
              g_MacOptV1 };
 }
 static void Write(const Options& o) {
@@ -54,7 +55,7 @@ static void Write(const Options& o) {
     g_VfxDensity = (VfxDensity)o.vfx; g_ShowCrosshair = o.crosshair; g_ShowCombo = o.combo;
     g_BgmEnabled = o.bgm; g_SfxEnabled = o.sfx; g_AudioMonoOutput = o.mono;
     g_AudioEngineEnabled = o.audio; g_AutoSkill = o.autoSkill;
-    g_StrongMenuDim = o.menuDim; g_DebugMode = o.debug;
+    g_MenuDim = o.menuDim; g_DebugMode = o.debug;
     g_ShaderFx = o.shaderFx; g_MacOptV1 = o.macOpt;
 }
 
@@ -67,7 +68,7 @@ static Options Edited() {
     o.mobStyle = 1 - s_defaults.mobStyle; o.vfx = s_defaults.vfx == 2 ? 0 : 2;
     o.crosshair = !o.crosshair; o.combo = !o.combo; o.bgm = !o.bgm; o.sfx = !o.sfx;
     o.mono = !o.mono; o.audio = !o.audio; o.autoSkill = !o.autoSkill;
-    o.menuDim = !o.menuDim; o.debug = !o.debug; o.shaderFx = !o.shaderFx;
+    o.menuDim = s_defaults.menuDim == 40 ? 60 : 40; o.debug = !o.debug; o.shaderFx = !o.shaderFx;
     o.macOpt = !o.macOpt;
     return o;
 }
@@ -279,7 +280,8 @@ static void CheckSnapshot() {
     RestoreSettingsSnapshot(snap);
     assert(Read() == before && !SettingsSnapshotChanged(snap));
     assert(Audio::s_calls == 5);
-    assert(Audio::s_bgm == before.bgm && Audio::s_sfx == before.sfx);
+    // BGM and SFX have their own volumes now: a switch that is on but muted stays off.
+    assert(Audio::s_bgm == (before.bgm && g_BgmVol > 0) && Audio::s_sfx == (before.sfx && g_SfxVol > 0));
     assert(Audio::s_enabled == (before.audio && before.soundVol > 0));
     assert(Audio::s_volume == before.soundVol / 100.0f && Audio::s_mono == before.mono);
 

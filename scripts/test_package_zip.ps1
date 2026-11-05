@@ -9,7 +9,22 @@ $root = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $root 'build\tests\package'
 $fixture = Join-Path $work 'fixture\Asteria'
 $out = Join-Path $work 'out'
+# Git Bash: the usual install, else the one of the Git that is on PATH (never WindowsApps' WSL stub).
 $bash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+if (-not (Test-Path $bash)) {
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        $dir = Split-Path $git.Source -Parent
+        for ($i = 0; $i -lt 3 -and $dir; ++$i) {
+            foreach ($cand in @('bin\bash.exe', 'usr\bin\bash.exe')) {
+                $c = Join-Path $dir $cand
+                if (Test-Path $c) { $bash = $c; break }
+            }
+            if (Test-Path $bash) { break }
+            $dir = Split-Path $dir -Parent
+        }
+    }
+}
 if (-not (Test-Path $bash)) { throw 'Git Bash required for the zip_asteria.sh path' }
 if (Test-Path $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 

@@ -31,7 +31,7 @@ try {
 # every snapshot option has a save key.
 Push-Location $root
 try {
-    $uiOnly = 'g_SettingsEntryT', 'g_MainMenuEntryT', 'g_ScrollAccum', 'g_KeyCaptureActive', 'g_CapturedKey'
+    $uiOnly = 'g_SettingsEntryT', 'g_MainMenuEntryT', 'g_ScrollAccum', 'g_KeyCaptureActive', 'g_CapturedKey', 'g_LobbyPanel', 'g_UiShakePx'   # screen navigation and a shake animation, not options
     $edited = Select-String -Path 'WiNILL\Core\Scenes\SceneSettings.cpp' -Pattern '\b(g_\w+)\s*=(?!=)' -AllMatches |
         ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique |
         Where-Object { $uiOnly -notcontains $_ }
@@ -44,7 +44,8 @@ try {
         g_SoundVol='soundvol'; g_BgmEnabled='bgmenabled'; g_SfxEnabled='sfxenabled'; g_AudioMonoOutput='audiomono'
         g_AudioEngineEnabled='audioenabled'; g_AutoSkill='autoskill'
         g_ShowCrosshair='crosshair'; g_DebugMode='debugmode'; g_Language='lang'
-        g_BgmVol='bgmvol'; g_SfxVol='sfxvol'; g_KeyBinds='keybind' }
+        g_BgmVol='bgmvol'; g_SfxVol='sfxvol'; g_KeyBinds='keybind'
+        g_PanePhotos='panephotos'; g_MenuDim='menudim' }
     $save = Get-Content 'WiNILL\System\SaveSystem.h' -Raw
     foreach ($g in $captured) {
         $key = $saveKey[$g]
