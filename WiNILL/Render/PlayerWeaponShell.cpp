@@ -5,6 +5,7 @@
 #include "Camera.h"
 #include "DrawPrim.h"
 #include "IconSystem.h"
+#include "MiterStroke.h"
 #include <algorithm>
 #include <cmath>
 
@@ -184,15 +185,17 @@ static void DrawPlayerZigzagLine(float x0, float y0, float x1, float y1,
     float len = sqrtf(dx * dx + dy * dy);
     if (len < 1.0f) return;
     float nx = -dy / len, ny = dx / len;
-    float px = x0, py = y0;
-    for (int i = 1; i <= steps; ++i) {
+    float zx[miter::kMaxPoints], zy[miter::kMaxPoints];
+    int zn = 0;
+    zx[zn] = x0; zy[zn] = y0; ++zn;
+    for (int i = 1; i <= steps && zn < miter::kMaxPoints; ++i) {
         float t = (float)i / (float)steps;
         float ox = (i == steps) ? 0.0f : (((i & 1) ? 1.0f : -1.0f) * amp);
-        float cx2 = x0 + dx * t + nx * ox;
-        float cy2 = y0 + dy * t + ny * ox;
-        DrawPlayerLine(px, py, cx2, cy2, thick, r, g, b, a);
-        px = cx2; py = cy2;
+        zx[zn] = x0 + dx * t + nx * ox;
+        zy[zn] = y0 + dy * t + ny * ox;
+        ++zn;
     }
+    miter::Path(zx, zy, zn, thick, r, g, b, a);
 }
 
 // In-game regions remain rectangular for scissor/collision logic, but their
