@@ -774,8 +774,6 @@ static void DrawUnknownConstellation(float cx, float cy, float radius,
     // can immediately tell a constellation is occupying this slot.
     const float cr = 0.42f, cg = 0.50f, cb = 0.62f;
 
-    DrawConstellationDisc(cx, cy, radius * 1.16f,
-                          0.0f, 0.0f, 0.006f, 0.42f * alpha);
     DrawConstellationDisc(cx, cy, radius * 0.54f,
                           0.02f, 0.028f, 0.045f, 0.34f * alpha);
 

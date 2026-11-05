@@ -624,13 +624,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
                      heroNameY, heroNameScale,
                      1.0f, 1.0f, 1.0f, 0.96f * contentA, kPlayTextShadow);
 
-    // 별자리 뒤의 CircleTexture 한 쌍: 어두운 큰 원이 밝은 바탕에서 대비를 주고,
-    // 직업 색을 살짝 띤 작은 원이 중심을 받친다.
-    DrawConstellationDisc(chartCX, heroCY, heroR * 1.45f,
-                          0.0f, 0.0f, 0.0f, 0.62f * heroAlpha);
-    DrawConstellationDisc(chartCX, heroCY, heroR * 0.86f,
-                          weaponR * 0.16f, weaponG * 0.16f, weaponB * 0.16f,
-                          0.40f * heroAlpha, false);
+    // 외형 뒤에는 받침 원 없이 배경 그대로 그린다.
     BindMainShader();
 
     // 소총 외곽이 가장 크다(약 1.9 sz). 그 반지름이 heroR 에 들어가게 맞춘다.
