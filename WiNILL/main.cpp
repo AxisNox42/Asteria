@@ -3147,7 +3147,7 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     // their target falls (ConsumeWaveClear).
     gm.waveKills = (int)std::max(0LL, g_Stats.killCount - gm.waveKillStart);
     const int quota = RegularWaveKillQuota(gm.currentWave, g_Difficulty);
-    const bool quotaMet = quota > 0 && gm.waveKills >= quota;
+    const bool quotaMet = quota > 0 && gm.waveKills >= quota && !g_SmokeNoQuota;
     if (((clear.cleared && clear.wave == gm.currentWave) || quotaMet) &&
         !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
         // The faster the clear, the higher the guaranteed tier and the odds.
@@ -4512,6 +4512,9 @@ int main() {
                         }
                     } else if (step.rfind("GOD=", 0) == 0) {
                         g_SmokeGod = step.size() > 4 && step[4] == '1';
+                    } else if (step.rfind("NOQUOTA=", 0) == 0) {
+                        // NOQUOTA=1: mass kills do not end the wave (no card screen mid-test).
+                        g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
                     } else if (step.rfind("FIRE=", 0) == 0) {
                         g_SmokeFire = step.size() > 5 && step[5] == '1';
                     } else if (step.rfind("GIVE=", 0) == 0) {

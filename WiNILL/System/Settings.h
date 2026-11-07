@@ -24,6 +24,7 @@ inline int g_SmokeAugFocus = -1;
 inline float g_SmokeTimeScale = 1.0f;
 // Smoke-only: hold fire at the nearest enemy (FIRE=1), as if the button were held.
 inline bool  g_SmokeFire = false;
+inline bool  g_SmokeNoQuota = false;   // NOQUOTA=1: the kill quota never ends a wave
 // Smoke-only: keep the player at full health (GOD=1).
 inline bool  g_SmokeGod = false;
 inline constexpr int LANG_COUNT = 3;    // languages with full text tables (KR, EN, JP)

@@ -10,7 +10,7 @@ Write-Host "run dir: $exeDir"
 $stateFile = Join-Path $exeDir 'Screenshots\mob_state.txt'
 Remove-Item -LiteralPath $stateFile -ErrorAction SilentlyContinue
 $N = 100   # samples per phase
-$steps = @('RUN~0.3', 'LEVEL=80~0.05', 'MOBCLEAR~0.05', 'SPAWN=7~0.05', 'MOBPLACE=500~0.02', 'MOBGRACE~0.02')
+$steps = @('RUN~0.3', 'NOQUOTA=1~0.01', 'LEVEL=80~0.05', 'MOBCLEAR~0.05', 'SPAWN=7~0.05', 'MOBPLACE=500~0.02', 'MOBGRACE~0.02')
 function Phase($tag) { 1..$N | ForEach-Object { $script:steps += 'HP=1~0.02'; $script:steps += 'MOBHP=1000000~0.01'; $script:steps += "MOBDUMP=$tag$_~0.1" } }
 Phase 'A'
 $steps += 'MOBKILL~0.1'; $steps += 'MOBHP=1000000~0.02'; $steps += 'MOBGRACE~0.02'
@@ -79,23 +79,28 @@ foreach ($ph in 'A', 'B', 'C') {
     Check ($states -notcontains 4 -and $states -notcontains 5) 'removed charge states never appear'
 }
 # Pair collisions in B and C: count samples where two bodies overlap too deeply
-# (should be pushed apart) and where they came together at all.
+# and where they came together at all. A pass-through during the bounce cooldown
+# or two bodies flying side by side is fine; staying sunk is not, so the check
+# is the longest run of deep samples (0.44s apart, cooldown 0.25s).
 foreach ($ph in 'B', 'C') {
-    $overlap = 0; $touch = 0; $minD = 1e9
+    $overlap = 0; $touch = 0; $minD = 1e9; $deepRun = 0; $maxDeepRun = 0
     $r = $rows | Where-Object { $_.label -like "$ph*" }
-    $scale = if ($ph -eq 'B') { 0.72 } else { 0.72 * 0.72 }
+    $scale = if ($ph -eq 'B') { 0.8 } else { 0.8 * 0.8 }
+    $reach = 26 * 2.4 * $scale * 2
     foreach ($g in ($r | Group-Object label)) {
         $b = @($g.Group)
+        $deep = $false
         for ($i = 0; $i -lt $b.Count; $i++) { for ($j = $i + 1; $j -lt $b.Count; $j++) {
             $d = [math]::Sqrt([math]::Pow($b[$i].x - $b[$j].x, 2) + [math]::Pow($b[$i].y - $b[$j].y, 2))
-            $reach = 26 * 1.6 * $scale * 2
             if ($d -lt $minD) { $minD = $d }
             if ($d -lt $reach * 1.3) { $touch++ }
-            if ($d -lt $reach * 0.6) { $overlap++ }
+            if ($d -lt $reach * 0.6) { $overlap++; $deep = $true }
         } }
+        $deepRun = if ($deep) { $deepRun + 1 } else { 0 }
+        if ($deepRun -gt $maxDeepRun) { $maxDeepRun = $deepRun }
     }
-    Write-Host ("Phase {0}: closest pair {1:N0}px (reach {2:N0}), near-contact samples {3}, deep-overlap samples {4}" -f $ph, $minD, (26 * 1.6 * $scale * 2), $touch, $overlap)
-    Check ($overlap -eq 0) "$ph bodies never sink into each other"
+    Write-Host ("Phase {0}: closest pair {1:N0}px (reach {2:N0}), near-contact samples {3}, deep-overlap samples {4}, longest deep run {5}" -f $ph, $minD, $reach, $touch, $overlap, $maxDeepRun)
+    Check ($maxDeepRun -le 2) "$ph bodies never stay sunk into each other"
 }
 $d = $rows | Where-Object { $_.label -like 'D*' }
 Write-Host "After last kill: $(@($d).Count) Antares alive (expect 0)"
@@ -104,6 +109,6 @@ $first = $rows | Where-Object { $_.label -eq 'B1' }
 Check (@($first).Count -eq 2) 'first kill released exactly 2'
 Check ((@($rows | Where-Object { $_.label -eq 'C1' })).Count -eq 4) 'second kill released exactly 4'
 $hpA = ($rows | Where-Object { $_.label -eq 'A1' }).hp
-Write-Host "HP (test-forced): n/a. Sizes by gen: 1.60 / 1.15 / 0.83"
+Write-Host "HP (test-forced): n/a. Sizes by gen: 2.40 / 1.92 / 1.54"
 if ($fail.Count) { throw "Antares smoke FAILED: $($fail -join '; ')" }
 Write-Host 'Antares smoke passed'
