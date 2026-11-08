@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 static bool Near(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) < eps; }
 

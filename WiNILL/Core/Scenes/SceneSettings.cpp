@@ -233,6 +233,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float entryTreeIn = SceneTransitionEase(
         (entry - 0.08f) / (kOutgameTransitionDuration - 0.08f));
     if (backInput && !exiting && entry >= 0.55f) {
+        Audio::Play(Audio::Cue::UiBack);
+        if (settingsDirty) Audio::Play(Audio::Cue::UiDialogOpen);
         if (settingsDirty) confirmBack = true;
         else exiting = true;
     }
@@ -262,6 +264,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 const int pressed = g_CapturedKey;
                 g_CapturedKey = -1;
                 if (pressed == kBindKeyEscape) {
+                    Audio::Play(Audio::Cue::UiBack);   // 캡처 취소
                     endKeyCapture();
                 } else {
                     int other = -1;
@@ -276,8 +279,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
                                               L"THAT KEY IS RESERVED",
                                               L"使用できないキーです");
                         keyMsgT = 2.2f;
+                        Audio::Play(Audio::Cue::UiDeny);   // 예약 키
                     } else {
                         keyFlash[captureAction] = 1.0f;
+                        Audio::Play(Audio::Cue::SetKeyOk);   // 키 수락·맞바꿈
                         if (result == BindResult::Swapped && other >= 0) {
                             keyFlash[other] = 1.0f;
                             const std::wstring a = kKeyActionLabels[captureAction][LangIndex()];
@@ -438,6 +443,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         tab = nextCategory;
         detailRow = std::max(0, nextRow);
         if (!categoryChanged) return;
+        Audio::Play(Audio::Cue::UiTab);   // 아코디언 카테고리 전환
 
         scrollToCategory = nextCategory;
         pulse = 1.0f;
@@ -1403,7 +1409,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 s_volDrag = dragId;
                 const float t = std::max(0.0f, std::min(1.0f,
                     ((float)mx - slX) / std::max(1.0f, slW)));
+                const int volPrev = volValue;
                 volValue = (int)(t * 100.0f + 0.5f);
+                if (volPrev / 5 != volValue / 5) Audio::Play(Audio::Cue::UiSliderTick);   // 5 단위 경계
             }
             const float glow = s_volDrag == dragId ? 1.0f : focus;
             drawRect(slX, controlY - 2.0f * uiS, slW, 4.0f * uiS,
@@ -1579,6 +1587,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 keyChipClicked = true;
                 if (isReset) {
                     ResetKeyBindings();
+                    Audio::Play(Audio::Cue::SetKeyOk);
                     for (auto& f : keyFlash) f = 1.0f;
                     keyMsgT = 0.0f;
                     endKeyCapture();
@@ -1586,6 +1595,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
                     endKeyCapture();
                 } else {
                     captureAction = setting.keyAction;
+                    Audio::Play(Audio::Cue::SetKeyListen);
                     g_CapturedKey = -1;
                     g_KeyCaptureActive = true;
                     keyMsgT = 0.0f;
@@ -1741,6 +1751,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
 
     if (ready && !confirmBack && lmb && !g_LmbPrev && backHit) {
         Audio::Play(Audio::Cue::UiConfirm);
+        if (settingsDirty) Audio::Play(Audio::Cue::UiDialogOpen);
         if (settingsDirty) confirmBack = true;
         else exiting = true;
     }
@@ -1832,6 +1843,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
          const int option = hoverSettingOpt;
          pulseRow = row;
          pulse = 1.0f;
+         Audio::Play(Audio::Cue::UiToggle);
          if (category == 0) {
              if (row == 0) {
                  const int fps[] = { 0, 30, 60, 144, 300, -1 };
@@ -1870,6 +1882,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
      if (exiting && resetDoneT > 0.0f) {
          holdT = kResetHoldSec;   // committed: the bar stays full through the exit fade
      } else if (inputReady && resetPressed && !resetLatched) {
+         if (holdT <= 0.01f) Audio::Play(Audio::Cue::SetHoldReset);   // 홀드 시작 (상승음)
          holdT = std::min(holdT + dt, kResetHoldSec);
          if (holdT >= kResetHoldSec) {
              ResetSaveProgress();

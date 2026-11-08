@@ -1222,6 +1222,7 @@ static int OpenCrashSafe(const Monster& boss, float psx, float psy) {
     if (id <= 0) return 0;
     os_pane::SetRole(id, os_pane::PaneRole::Safe, norma::kCrashCount, norma::kCrashCount);
     os_pane::RaiseToFront(id);
+    Audio::Play(Audio::Cue::BossOctansPaneOpen);
     FlashNormaPane(id, boss);
     return id;
 }
@@ -1341,6 +1342,7 @@ static int OpenNormaPane(Monster& boss, float psx, float psy) {
     PickPaneSpot(w, h, psx, psy, x, y);
     const int id = os_pane::Open(x, y, w, h);
     if (id <= 0) return 0;
+    Audio::Play(Audio::Cue::BossOctansPaneOpen);   // 증원 창
     g_NormaPanes.push_back(id);
     StartPaneDrift(id);
     (void)boss;   // opens quietly: no claim laser for a timed pane
@@ -1390,6 +1392,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             break;
         }
         case norma::Ask::OpenRefuges: {
+            Audio::Play(Audio::Cue::BossOctansRefuge);   // 1.5초 예고 → 범람
             // The shelters are the panes already open (opened on a timer,
             // not by this pattern): they light up before the flood. One must
             // be reachable in the telegraph, so when none is within reach
@@ -1457,6 +1460,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                 }
                 const int id = os_pane::Open(x, y, w, h);
                 if (id > 0) {
+                    Audio::Play(Audio::Cue::BossOctansPaneOpen);
                     g_NormaPanes.push_back(id);
                     StartPaneDrift(id);
                     FlashNormaPane(id, *boss);
@@ -1472,6 +1476,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             }
             os_pane::SetLocked(id, true);
             g_NormaCountdown = { id, norma::kCloseCountdown };
+            Audio::Play(Audio::Cue::BossOctansCloseCount);   // 3초 틱 + 압착이 한 파일
             FlashNormaPane(id, *boss);
             boss->normaPaneId = id;
             break;
@@ -1577,10 +1582,12 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                         HurtPlayer(g_GameManager.playerHP, norma::kWarpDamage, "NORMA_WARP");
                     }
                     ApplyPlayerKnockback(kx * norma::kWarpKnock, ky * norma::kWarpKnock);
+                    Audio::Play(Audio::Cue::SfxKnockback);
                     SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
                 }
                 CollapsePane(*dst);
                 os_pane::Close(dst->id);
+                Audio::Play(Audio::Cue::BossOctansPaneBurst);   // 숨은 창을 깨고 나옴
                 // The glass: a ring of shots, shards flying from the frame's
                 // edges, a shockwave and a jolt.
                 const int ring = (int)std::round(norma::kThrowRing * norma::kWarpBurstShare);
@@ -1636,6 +1643,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             g_Crash.total = g_Crash.toOpen = norma::CrashPanesFor((int)g_Difficulty);
             g_Crash.storm.reserve((size_t)g_Crash.total);
             norma::g_CrashOver = false;
+            Audio::FadeOutBgm(400);
             // Nothing else may shelter or fire: the boss's own panes, its shot
             // box and rams fold away quietly (no bursts), the countdown ends.
             ReleaseNormaPanes();
@@ -1715,6 +1723,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                 os_pane::RaiseToFront(pick->id);   // never hidden behind another pane
             }
             boss->normaPaneId = cands[0].second->id;
+            Audio::Play(Audio::Cue::BossOctansRam);   // 뒤로 당겨지는 순간부터
             break;
         }
         }
@@ -1788,6 +1797,7 @@ static void PlayCaelumEvents() {
             Shake(0.6f, 22.0f);
             TriggerHitStop(0.10f);
             TriggerFlash(1.0f, 0.88f, 0.6f, 0.22f);
+            Audio::Play(Audio::Cue::BossPhaseChange);   // 2페이즈 곡은 UpdateBgmFlow 가 바꿈
             break;
         }
     }
@@ -1824,12 +1834,14 @@ static void PlayNormaEvents() {
             if (g_ShakeTime < 0.05f) Shake(0.05f, 2.5f);
             break;
         case norma::Fx::Burst:
+            Audio::Play(Audio::Cue::BossOctansAlert);
             SpawnShockWave(e.x, e.y, 180.0f + 160.0f * e.a, 0.45f, ir, ig, ib);
             SpawnSparks(e.x, e.y, (int)(10.0f + 12.0f * e.a), 0.92f, 0.99f, 1.0f, 380.0f);
             Shake(0.18f + 0.10f * e.a, 6.0f + 6.0f * e.a);
             break;
         case norma::Fx::StarOut:
             // A health star went dark: a short flare and a beat of hit stop.
+            Audio::Play(Audio::Cue::BossOctansStarout);
             SpawnSparks(e.x, e.y, 16, ir, ig, ib, 420.0f);
             SpawnShockWave(e.x, e.y, 150.0f, 0.3f, ir, ig, ib);
             Shake(0.16f, 7.0f);
@@ -1855,6 +1867,7 @@ static void PlayNormaEvents() {
             Shake(0.6f, 24.0f);
             TriggerHitStop(0.12f);
             TriggerFlash(0.72f, 0.94f, 1.0f, 0.22f);
+            Audio::Play(Audio::Cue::BossPhaseChange);   // 2페이즈 곡은 UpdateBgmFlow 가 바꿈
             break;
         }
     }
@@ -1892,6 +1905,7 @@ static void TickThrowBox(float dt) {
         g_ThrowBox.id = id;
         g_ThrowBox.stage = 0;
         g_ThrowBox.timer = 0.0f;
+        Audio::Play(Audio::Cue::BossOctansPaneOpen);
         FlashNormaPane(id, *boss);
         SpawnSparks(ScreenToWorldX(r.x + r.w * 0.5f), ScreenToWorldY(r.y + r.h * 0.5f),
                     14, 0.92f, 0.99f, 1.0f, 320.0f);
@@ -1918,6 +1932,7 @@ static void TickThrowBox(float dt) {
         box.y = pane->frame.y;
         box.stage = 1;
         box.timer = 0.0f;
+        Audio::Play(Audio::Cue::BossOctansThrow);   // 채운 상자가 날아감
         return;
     }
     if (box.stage == 1) {
@@ -1943,6 +1958,7 @@ static void TickThrowBox(float dt) {
     const float cy = ScreenToWorldY(pane->shown.y + pane->shown.h * 0.5f);
     CollapsePane(*pane);
     os_pane::Close(box.id);
+    Audio::Play(Audio::Cue::BossOctansPaneBurst);
     g_ThrowBox = {};
     const float spin = RandRange(0.0f, 6.2831853f);
     for (int i = 0; i < norma::kThrowRing; ++i)
@@ -2022,6 +2038,7 @@ static void TickOneRam(PaneRam& ram, float dt) {
                 HurtPlayer(g_GameManager.playerHP, norma::kRamDamage, "NORMA_RAM");
             }
             ApplyPlayerKnockback(ram.dirX * norma::kRamKnock, ram.dirY * norma::kRamKnock);
+            Audio::Play(Audio::Cue::SfxKnockback);
             SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
             Shake(0.25f, 12.0f);
             TriggerHitStop(0.05f);
@@ -2060,6 +2077,7 @@ static void TickOneRam(PaneRam& ram, float dt) {
                 const float half = norma::kRamBurstFan * 0.5f;
                 CollapsePane(*pane);
                 os_pane::Close(ram.id);
+                Audio::Play(Audio::Cue::BossOctansPaneBurst);
                 for (int i = 0; i < ring; ++i)
                     SpawnNormaShot(cx, cy, back - half + norma::kRamBurstFan * ((float)i + 0.5f) / ring,
                                    norma::kThrowRingSpeed);
@@ -2143,6 +2161,7 @@ static void TickPaneWarp(float dt) {
         SpawnShockWave(cx, cy, 200.0f, 0.35f, 0.92f, 0.99f, 1.0f);
         SpawnSparks(cx, cy, 16, 0.92f, 0.99f, 1.0f, 420.0f);
         Shake(0.22f, 10.0f);
+        Audio::Play(Audio::Cue::BossOctansWarp);   // 창 안으로 미끄러져 숨음
     }
     if (src && !src->flying) {
         float ox = 0.0f, oy = 0.0f;
@@ -2267,6 +2286,7 @@ static void TickPaneWall(float dt) {
             WallPane& p = wall.panes[wall.opened];
             p.id = os_pane::Open(p.x, p.y, p.w, p.h);
             if (p.id > 0) {
+                Audio::Play(Audio::Cue::BossOctansPaneOpen);   // 벽 창이 하나씩 열림
                 const float cx = ScreenToWorldX(p.x + p.w * 0.5f), cy = ScreenToWorldY(p.y + p.h * 0.5f);
                 SpawnSparks(cx, cy, 8, 1.0f, 0.45f, 0.38f, 300.0f);
                 // The pane bursts open with a shockwave.
@@ -2285,6 +2305,7 @@ static void TickPaneWall(float dt) {
                         HurtPlayer(g_GameManager.playerHP, norma::kWallDamage, "NORMA_WALL");
                     }
                     ApplyPlayerKnockback(kx * norma::kWallKnock, ky * norma::kWallKnock);
+                    Audio::Play(Audio::Cue::SfxKnockback);
                     SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
                     Shake(0.25f, 12.0f);
                     TriggerHitStop(0.05f);
@@ -2342,6 +2363,7 @@ static void TickNormaCountdown(float dt) {
     Shake(0.35f, 18.0f);
     TriggerHitStop(0.08f);
     g_PaneCollapses.push_back({ pane->shown, 0.0f });
+    Audio::Play(Audio::Cue::OsPaneClose);
     os_pane::SetLocked(id, false);
     os_pane::Close(id);
     g_NormaPanes.erase(std::remove(g_NormaPanes.begin(), g_NormaPanes.end(), id), g_NormaPanes.end());
@@ -2402,6 +2424,7 @@ static bool CountdownFor(int id, float& left) {
 
 static void CollapsePane(const os_pane::Pane& pane) {
     g_PaneCollapses.push_back({ pane.shown, 0.0f });
+    Audio::Play(Audio::Cue::OsPaneClose);   // 창이 수축하며 닫힘
 }
 
 static void DrawPaneCollapses(float dt) {
@@ -2509,8 +2532,18 @@ static void TickCrash(float dt) {
                                          RandRange(0.0f, std::max(0.0f, sh - h)), w, h, true);
             --g_Crash.toOpen;
             if (id > 0) g_Crash.storm.push_back(id);
+            if (id > 0) Audio::Play(Audio::Cue::BossOctansErrorPop);   // 오류창 폭풍 (쓰로틀이 솎아 냄)
         }
         if (g_Crash.safeId != 0) os_pane::RaiseToFront(g_Crash.safeId);   // the shelter stays on top
+    }
+    // 카운트다운 소리: 시작할 때 과부하 상승음, 1초마다 시스템 비프 (3, 2, 1)
+    if (!g_Crash.blue) {
+        const float before = g_Crash.t - dt;
+        if (before < countAt && g_Crash.t >= countAt) Audio::Play(Audio::Cue::BossOctansCrashCharge);
+        for (int k = 0; k < 3; ++k) {
+            const float at = countAt + (float)k;
+            if (before < at && g_Crash.t >= at) Audio::Play(Audio::Cue::BossOctansCrashTick);
+        }
     }
     // The glitch grows through the countdown, in steps so panes repaint only on a change.
     if (!g_Crash.blue) {
@@ -2525,6 +2558,7 @@ static void TickCrash(float dt) {
     // The crash: the blue screen falls.
     if (!g_Crash.blue && g_Crash.t >= blueAt) {
         g_Crash.blue = true;
+        Audio::Play(Audio::Cue::BossOctansCrash);   // 블루스크린이 떨어짐
         const os_pane::Pane* safe = PaneById(g_Crash.safeId);
         const float scx = safe ? safe->frame.x + safe->frame.w * 0.5f : sw * 0.5f;
         const float scy = safe ? safe->frame.y + safe->frame.h * 0.5f : sh * 0.5f;
@@ -2533,6 +2567,7 @@ static void TickCrash(float dt) {
             float kx = W2SX(g_NormaPlayerX) - scx, ky = W2SY(g_NormaPlayerY) - scy;
             const float len = std::max(1.0f, std::sqrt(kx * kx + ky * ky));
             ApplyPlayerKnockback(kx / len * norma::kCrashKnock, ky / len * norma::kCrashKnock);
+            Audio::Play(Audio::Cue::SfxKnockback);
         }
         for (int id : g_Crash.storm) os_pane::Close(id);   // hidden under the blue anyway
         g_Crash.storm.clear();
@@ -2543,6 +2578,7 @@ static void TickCrash(float dt) {
     if (g_Crash.blue && !g_Crash.shattered && g_Crash.t >= shatterAt) {
         g_Crash.shattered = true;
         norma::g_CrashOver = true;
+        Audio::Play(Audio::Cue::BossOctansCrashShatter);   // 화면이 깨지며 게임이 다시 보임
         // Mobs outside the safe pane are hit as the screen breaks, not when it
         // falls: kills (and a level-up's card) wait until the game shows again.
         for (Monster* m : g_MonsterManager.monsters)
@@ -2759,6 +2795,7 @@ static void LightPaneFuse(int id) {
     const os_pane::Pane* p = PaneById(id);
     if (!p || FuseOf(id)) return;
     g_PaneFuses.push_back({ id, 0.0f });
+    Audio::Play(Audio::Cue::BossOctansFuse);
     SpawnSparks(ScreenToWorldX(p->shown.x + p->shown.w * 0.5f),
                 ScreenToWorldY(p->shown.y + p->shown.h * 0.5f), 10, 0.86f, 0.80f, 1.0f, 300.0f);
 }
@@ -2828,6 +2865,7 @@ static void TickPaneFuses(float dt) {
         const float cy = ScreenToWorldY(pane->shown.y + pane->shown.h * 0.5f);
         SpawnSparks(cx, cy, 18, 0.92f, 0.99f, 1.0f, 320.0f);
         g_PaneCollapses.push_back({ pane->shown, 0.0f });
+        Audio::Play(Audio::Cue::BossOctansPaneBurst);   // 퓨즈가 다 타 창이 터짐 (벽·폭파·페이즈)
         os_pane::Close(fuse.id);
         fuse.timer = -1.0f;
         const int ring = (int)std::round(norma::kThrowRing * norma::kDetonateBurstShare);
@@ -3109,9 +3147,14 @@ static void TickNormaJudgment(float dt) {
     if (g_NormaJudgment < 0.0f) {
         g_NormaJudgment = kNormaJudgmentSeconds;
         g_ShakeTime = 0.5f; g_ShakeMag = 8.0f;
+        Audio::Play(Audio::Cue::WaveJudgmentTick);   // 10
         return;
     }
+    const float judgmentBefore = g_NormaJudgment;
     g_NormaJudgment -= dt;
+    // 남은 초의 정수가 바뀔 때마다 한 번 (9 … 1)
+    if (g_NormaJudgment > 0.0f && std::ceil(g_NormaJudgment) < std::ceil(judgmentBefore))
+        Audio::Play(Audio::Cue::WaveJudgmentTick);
     if (g_NormaJudgment > 0.0f) return;
     g_NormaJudgment = -1.0f;
     g_NormaDoom = true;
@@ -3341,6 +3384,130 @@ static void TriggerEliteKillHitStop(Monster& m) {
     if (g_GameManager.currentState != GameState::RUNNING) return;
     if (m.kind != MobKind::GENESIS && m.kind != MobKind::QUASAR) return;
     TriggerHitStop(ELITE_KILL_HIT_STOP);   // longest remaining wins; no stacking
+}
+
+// ── BGM 흐름 + 런 상태 효과음 (매 프레임 1회) ──
+// 지금 장면·런 순간에 맞는 곡을 고른다 (설정에서 BGM 을 다시 켜도 이 곡이 나옴).
+// 보스 등장: 런 곡을 0.5초에 걷어 내고 경고음 → 등장음 → 등장음의 '쾅' 에 보스 곡.
+// 그 밖에 저체력 심장 박동 루프, 업적 토스트, 엘리트 등장 경고, 보상 등급 하락.
+static int   g_BgmBossKind  = -1;      // 등장 연출을 시작한 보스 (MobKind), -1 = 없음
+static float g_BgmBossEntry = -1.0f;   // 보스 등장 경과 초, >= 0 동안 보스 곡 대기
+static bool  g_BgmRunEnded  = false;   // 이번 런 종료 징글을 이미 틀었음
+
+static void UpdateBgmFlow(float realDelta) {
+    GameManager& gm = g_GameManager;
+
+    // 저체력 심장 박동: 런 전투 중 HP 25% 미만일 때만 (일시정지·사망·메뉴에선 끔)
+    const float hpFrac = gm.playerHP / std::max(1.0f, g_Stats.maxHP);
+    if (gm.currentState == GameState::RUNNING && vitals_hud::IsDanger(hpFrac))
+        Audio::StartLoop(Audio::Cue::SfxLowhpLoop);
+    else
+        Audio::StopLoop(Audio::Cue::SfxLowhpLoop);
+    // 런 밖(사망·결과·메뉴)에서는 남은 루프 효과음을 모두 끔
+    if (gm.currentState != GameState::RUNNING && gm.currentState != GameState::PAUSED &&
+        gm.currentState != GameState::AUG_SELECT) {
+        Audio::StopLoop(Audio::Cue::EnemyGravisLoop);
+        Audio::StopLoop(Audio::Cue::SkillVortexLoop);
+        Audio::StopLoop(Audio::Cue::SkillChargeLoop);
+        Audio::StopLoop(Audio::Cue::SkillBoomerangLoop);
+    }
+
+    // 업적 토스트가 새로 뜸 (TryUnlockAch 가 타이머를 4초로 되돌림)
+    static float s_achToastSeen = 0.0f;
+    if (g_AchToastTimer > s_achToastSeen) Audio::Play(Audio::Cue::MetaAchievement);
+    s_achToastSeen = g_AchToastTimer;
+
+    if (gm.currentState == GameState::RUNNING) {
+        // 엘리트가 막 들어옴 (웨이브 시작 1.5초 뒤)
+        static bool s_eliteSpawned = false;
+        const bool eliteSpawned = GetScheduledElite(gm.currentWave, g_Difficulty).spawned;
+        if (eliteSpawned && !s_eliteSpawned) Audio::Play(Audio::Cue::WaveEliteWarn);
+        s_eliteSpawned = eliteSpawned;
+        // 처치 속도 창이 끝나 보상 등급이 한 단계 떨어짐
+        static int s_tierWave = 0, s_tier = -1;
+        const int wave = gm.currentWave;
+        const int quota = RegularWaveKillQuota(wave, g_Difficulty);
+        const float fight = WaveFightSeconds(wave, g_GameTime);
+        int tier = -1;
+        if (!gm.waveAdvancePending && !IsFinalBossWave(wave, g_Difficulty)) {
+            if (quota > 0)
+                tier = (int)WaveRewardTierFor(g_GameTime - gm.waveStartTime, RegularWaveRewardTimes(quota));
+            else if (fight > 0.0f)
+                tier = (int)WaveRewardTierFor(fight, IsBossWave(wave, g_Difficulty));
+        }
+        if (wave == s_tierWave && tier >= 0 && s_tier >= 0 && tier < s_tier)
+            Audio::Play(Audio::Cue::WaveTierDrop);
+        s_tierWave = wave;
+        s_tier = tier;
+    }
+
+    // 곡을 고를 장면: 일시정지(와 거기서 연 설정)는 돌아갈 장면의 곡을 이어 간다
+    GameState scene = gm.currentState;
+    if (scene == GameState::SETTINGS && g_SettingsReturnTo == GameState::PAUSED) scene = GameState::PAUSED;
+    if (scene == GameState::PAUSED) scene = gm.pauseResumeState;
+    if (scene == GameState::AUG_SELECT && ready_launch::g_TutorialMode) scene = GameState::READY;
+
+    // 런 종료: 사망 연출 동안은 조용히, 결과 화면에서 승리/패배 징글 한 번 (반복 없음)
+    if (scene == GameState::DYING || scene == GameState::GAMEOVER) {
+        g_BgmBossKind = -1;
+        g_BgmBossEntry = -1.0f;
+        if (scene == GameState::GAMEOVER && !g_BgmRunEnded) {
+            g_BgmRunEnded = true;
+            Audio::PlayBgm(gm.waveVictory ? Audio::Bgm::Victory : Audio::Bgm::Defeat, 0);
+        }
+        return;
+    }
+    g_BgmRunEnded = false;
+
+    if (scene != GameState::RUNNING && scene != GameState::AUG_SELECT) {
+        g_BgmBossKind = -1;
+        g_BgmBossEntry = -1.0f;
+        // 튜토리얼·READY 연습장 / 로비·메뉴·상점·도감·설정
+        const bool practice = scene == GameState::READY || scene == GameState::TUTORIAL;
+        Audio::PlayBgm(practice ? Audio::Bgm::Tutorial : Audio::Bgm::Main, 800);
+        return;
+    }
+
+    const Monster* boss = nullptr;
+    bool eliteAlive = false;
+    for (const Monster* m : g_MonsterManager.monsters) {
+        if (!m || !m->alive) continue;
+        if (IsBossMob(m->kind)) { boss = m; break; }
+        if (IsEliteMob(m->kind)) eliteAlive = true;
+    }
+    if (!boss) {
+        g_BgmBossKind = -1;
+        g_BgmBossEntry = -1.0f;
+        // 엘리트가 살아 있는 동안은 엘리트 곡, 처치하면 전투 곡으로 돌아감
+        Audio::PlayBgm(eliteAlive ? Audio::Bgm::Elite : Audio::Bgm::Run, eliteAlive ? 1000 : 1500);
+        return;
+    }
+    const bool eridanus = boss->kind == MobKind::CAELUM;
+    if ((int)boss->kind != g_BgmBossKind) {   // 보스가 막 들어옴 (보스 웨이브 시작)
+        g_BgmBossKind = (int)boss->kind;
+        g_BgmBossEntry = 0.0f;
+        Audio::FadeOutBgm(500);
+        Audio::Play(Audio::Cue::WaveBossWarn);
+        return;
+    }
+    if (g_BgmBossEntry >= 0.0f) {
+        constexpr float kAppearAt = 0.5f;   // 런 곡이 빠진 뒤 등장음
+        // 등장음 파일에서 가장 큰 '쾅' 위치 (OCTANS ≈1.75초, ERIDANUS ≈2.25초)
+        const float impactAt = kAppearAt + (eridanus ? 2.25f : 1.75f);
+        const float before = g_BgmBossEntry;
+        if (gm.currentState == GameState::RUNNING) g_BgmBossEntry += realDelta;
+        if (before < kAppearAt && g_BgmBossEntry >= kAppearAt)
+            Audio::Play(eridanus ? Audio::Cue::BossEridanusAppear : Audio::Cue::BossOctansAppear);
+        if (g_BgmBossEntry < impactAt) return;
+        g_BgmBossEntry = -1.0f;
+    }
+    if (g_Crash.active) return;             // 블루스크린 패턴: 곡을 끊고 패턴 소리만
+    if (g_NormaJudgment >= 0.0f)            // '심판까지' 10초
+        Audio::PlayBgm(Audio::Bgm::Judgment, 300);
+    else if (boss->normaPhase == 2)         // 이름에 II 가 붙는 2페이즈
+        Audio::PlayBgm(eridanus ? Audio::Bgm::BossEridanusPhase2 : Audio::Bgm::BossOctansPhase2, 1500);
+    else
+        Audio::PlayBgm(eridanus ? Audio::Bgm::BossEridanus : Audio::Bgm::BossOctans, 200);
 }
 
 // The resume cue comes from the state change itself, so every way out of the
@@ -3997,6 +4164,7 @@ int main() {
         PlayCaelumEvents();
         if (caelum::g.pushX != 0.0f || caelum::g.pushY != 0.0f) {   // CAELUM's wave shoves the player
             ApplyPlayerKnockback(caelum::g.pushX, caelum::g.pushY);
+            Audio::Play(Audio::Cue::SfxKnockback);
             caelum::g.pushX = caelum::g.pushY = 0.0f;
         }
         if (g_GameManager.currentState == GameState::RUNNING) {
@@ -5081,12 +5249,9 @@ int main() {
             Audio::SetBgmEnabled(g_BgmEnabled);
             Audio::SetSfxEnabled(g_SfxEnabled);
             Audio::SetVolume(g_SoundVol / 100.0f);        // 마스??볼륨
-            GameState cs = g_GameManager.currentState;
-            bool bgmOn = (cs == GameState::RUNNING || cs == GameState::PAUSED ||
-                          cs == GameState::AUG_SELECT ||
-                          cs == GameState::READY);
-            if (bgmOn) Audio::PlayBgmMain();
-            else       Audio::StopBgm();
+            // 장면·런 상태에 맞는 곡 (BGM 을 다시 켜면 그 곡부터)
+            UpdateBgmFlow(realDelta);
+            Audio::Update();   // 덕킹 복귀, 끝난 곡 정리 — 매 프레임 (메뉴 포함)
         }
 
         // ?�리?�이?�브 무적 ??�??�레??체력 ?�?고정 (?��? 죽�? ?�음)
@@ -5427,7 +5592,10 @@ int main() {
                 // ?�?�??�티�??�킬 ??쿨다??지??갱신 + ?�력(Shift ?�??/ Q·E·R ?�롯) ?�?�?
                 UpdatePlayerRuntimeTimers(
                     FIXED_DT, GravisField::DashRecoveryMult(GravisField::g_playerInfluence));
+                const float dashPulseBefore = g_SkillHudPulse.slot[0];
                 g_SkillHudPulse.Update(GatherSkillHudInputs(), FIXED_DT);
+                // 대시 슬롯 펄스가 새로 켜짐 = 대시 쿨다운이 끝남
+                if (g_SkillHudPulse.slot[0] > dashPulseBefore) Audio::Play(Audio::Cue::SfxDashReady);
 
 
                 // �÷��� ���?? ���� �̵� + ª�� ����
@@ -5545,8 +5713,10 @@ int main() {
                         if (!m || m->kind != MobKind::ANTARES ||
                             (m->antaresKnockX == 0.0f && m->antaresKnockY == 0.0f))
                             continue;
-                        if (g_PlayerRuntime.dashInvulnerability <= 0.0f)
+                        if (g_PlayerRuntime.dashInvulnerability <= 0.0f) {
                             ApplyPlayerKnockback(m->antaresKnockX, m->antaresKnockY);
+                            Audio::Play(Audio::Cue::SfxKnockback);
+                        }
                         m->antaresKnockX = m->antaresKnockY = 0.0f;
                     }
                     // Large controller enemies must remain readable on-screen.
@@ -5651,6 +5821,7 @@ CollisionSystem::Update(pCX, pCY,
                         if (m->kind == MobKind::CAELUM && m->hp <= 0.0f) PlayCaelumFall(m->worldX, m->worldY);
                         m->SpawnDeathEffect((float)now);
                         if (IsEliteMob(m->kind)) Audio::Play(Audio::Cue::EliteKill);
+                        else if (!IsBossMob(m->kind)) Audio::Play(Audio::Cue::SfxKill);   // 사망 버스트
                         TriggerEliteKillHitStop(*m);
                     }
                 }
@@ -5658,6 +5829,7 @@ CollisionSystem::Update(pCX, pCY,
                     if (!r->alive && !r->exploded) {
                         CollectScopeKill(killSink, *r);
                         r->SpawnDeathEffect();
+                        Audio::Play(Audio::Cue::SfxKill);
                     }
                 }
                     const bool atMainCap = !g_CreativeMode
@@ -5897,6 +6069,7 @@ CollisionSystem::Update(pCX, pCY,
                         AddSaveValue(g_Coins, dust.value);
                         AddSaveValue(g_RunStardust, dust.value);
                         // The first stardust ever picked up opens the lobby shop.
+                        if (!g_ShopUnlocked) Audio::Play(Audio::Cue::ShopUnlock);
                         g_ShopUnlocked = true;
                     }
                     g_StardustHudPulse = 1.0f;

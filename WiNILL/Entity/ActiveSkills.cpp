@@ -201,6 +201,7 @@ void CastChainLightning() {
         ForEachEnemy(consider);
         if (!target) break;
         visited.push_back(target);
+        Audio::Play(Audio::Cue::SfxChainZap);
         if (ranged) HitOne(*(RangedMob*)target, 350.0f);
         else        HitOne(*(Monster*)target, 350.0f);
         pts.push_back(tx); pts.push_back(ty);
@@ -231,14 +232,16 @@ void CastExecute(int aug) {
     if (ranged) { RangedMob& r = *(RangedMob*)target; HitOne(r, 1000.0f); killed = !r.alive; }
     else        { Monster& m = *(Monster*)target; HitOne(m, 1000.0f); killed = !m.alive; }
     AddLine({ s.in.px, s.in.py, tx, ty }, { 1.0f, 0.35f, 0.35f }, 0.25f);
+    Audio::Play(Audio::Cue::SkillExecute);
     const int slot = SlotOf(aug);
-    if (killed && slot >= 0) s.slots[slot].cd = 0.0f;
+    if (killed && slot >= 0) { s.slots[slot].cd = 0.0f; Audio::Play(Audio::Cue::SkillCooldownCut); }
 }
 
 void CastGust() {
     float dx, dy;
     AimDir(dx, dy);
     constexpr float kRange = 380.0f, kCos = 0.70f;   // ~45° either side
+    Audio::Play(Audio::Cue::SkillWave);
     for (Bullet& b : g_Bullets) {
         if (!b.active || !b.isEnemy) continue;
         const float ex = b.x - s.in.px, ey = b.y - s.in.py;
@@ -268,6 +271,7 @@ void CastBlink() {
     passive::ClearEnemyBullets(s.in.px, s.in.py, 140.0f);
     passive::ClearEnemyBullets(tx, ty, 140.0f);
     AddLine({ s.in.px, s.in.py, tx, ty }, { 0.70f, 0.90f, 1.0f }, 0.20f);
+    Audio::Play(Audio::Cue::SkillTeleport);
     s.teleport = true; s.teleX = tx; s.teleY = ty;
 }
 
@@ -280,6 +284,7 @@ void CastCometRush() {
         if (SegDist2(x, y, s.in.px, s.in.py, tx, ty) < 50.0f * 50.0f) HitOne(e, 800.0f);
     });
     AddLine({ s.in.px, s.in.py, tx, ty }, { 1.0f, 0.85f, 0.45f }, 0.35f);
+    Audio::Play(Audio::Cue::SkillRush);
     g_PlayerRuntime.dashInvulnerability = std::max(g_PlayerRuntime.dashInvulnerability, 0.25f);
     s.teleport = true; s.teleX = tx; s.teleY = ty;
 }
@@ -291,6 +296,8 @@ void CastRewind() {
     for (const auto& d : s.damage) lost += d.second;
     g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + lost * 0.5f);
     AddLine({ s.in.px, s.in.py, p.x, p.y }, { 0.85f, 0.75f, 1.0f }, 0.35f);
+    Audio::Play(Audio::Cue::SkillTeleport);
+    if (lost > 0.0f) Audio::Play(Audio::Cue::SfxHealBig);
     s.teleport = true; s.teleX = p.x; s.teleY = p.y;
 }
 
@@ -304,6 +311,7 @@ void CastDayAndNight() {
             if (SegDist2(x, y, s.in.px, s.in.py, ex, ey) < 40.0f * 40.0f) HitOne(e, 500.0f);
         });
         AddLine({ s.in.px, s.in.py, ex, ey }, { 1.0f, 0.92f, 0.60f }, 0.30f);
+        Audio::Play(Audio::Cue::SkillBeam);
     } else {
         passive::DamageRadius(s.in.px, s.in.py, 260.0f, 400.0f, 0.45f, 0.30f, 0.85f, DamageMult());
         passive::ClearEnemyBullets(s.in.px, s.in.py, 260.0f);
@@ -314,12 +322,13 @@ void CastDayAndNight() {
 void CastBookOfCheats() {
     int roll = std::rand() % 8;
     if (roll == 7 && passive::Chance(0.25f)) roll = std::rand() % 7;   // luck can reroll "nothing"
+    Audio::Play(Audio::Cue::SkillDice);
     switch (roll) {
     case 0: passive::DamageAll(500.0f, 0.65f, 0.80f, 1.0f, false, DamageMult()); break;
-    case 1: g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 20.0f); break;
+    case 1: g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 20.0f); Audio::Play(Audio::Cue::SfxHealBig); break;
     case 2: passive::ClearEnemyBullets(0.0f, 0.0f, -1.0f); break;
     case 3: passive::ResetDash(); break;
-    case 4: passive::AddStardust(10); break;
+    case 4: passive::AddStardust(10); Audio::Play(Audio::Cue::ProcStardustGain); break;
     case 5:
         for (int i = 0; i < 12; ++i) {
             const float a = kTwoPi * (float)i / 12.0f;
@@ -346,11 +355,13 @@ void Cast(int aug) {
     switch (TypeOf(aug)) {
     case AugType::A_NIGHT_STARFALL:
         passive::DamageAll(1200.0f, 0.75f, 0.70f, 1.0f, false, extra);
+        Audio::Play(Audio::Cue::SkillScreenwide);
         break;
     case AugType::A_NIGHT_METEOR_LANCE: {
         Bullet b = SkillShot(px, py, dx, dy, 600.0f, TAG_ARROW, 420.0f, { 0.75f, 0.70f, 1.0f }, 2.6f);
         b.piercing = true;
         g_Bullets.push_back(b);
+        Audio::Play(Audio::Cue::SkillProjLaunch);
         break;
     }
     case AugType::A_CHRONO_ORBITAL_RETURN: CastRewind(); break;
@@ -358,6 +369,7 @@ void Cast(int aug) {
         for (Slot& o : s.slots)
             if (o.aug >= 0 && o.aug != aug) o.cd *= 0.5f;
         passive::Ring(px, py, 90.0f, 0.85f, 0.75f, 1.0f);
+        Audio::Play(Audio::Cue::SkillCooldownCut);
         break;
     case AugType::A_GALE_STELLAR_GALE: CastGust(); break;
     case AugType::A_SHADOW_SHARD_VOLLEY:
@@ -366,16 +378,19 @@ void Cast(int aug) {
             g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 300.0f,
                                           TAG_KNIFE, 950.0f, { 0.60f, 0.50f, 0.95f }));
         }
+        Audio::Play(Audio::Cue::SkillProjMulti);
         break;
     case AugType::A_SHADOW_TWIN_STAR_CLONE: {
         Obj o; o.kind = ObjKind::Clone; o.x = px; o.y = py; o.life = 8.0f;
         o.col = { 0.60f, 0.50f, 0.95f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillSummon);
         break;
     }
     case AugType::A_STONE_GRAVITY_SLAM:
         passive::DamageRadius(px, py, 380.0f, 1000.0f, 0.85f, 0.70f, 0.50f, extra);
         passive::ClearEnemyBullets(px, py, 380.0f);
+        Audio::Play(Audio::Cue::SkillSlam);
         break;
     case AugType::A_STONE_ASTEROID_WALL: {
         Obj o; o.kind = ObjKind::Wall; o.life = 6.0f;
@@ -383,28 +398,33 @@ void Cast(int aug) {
         o.x2 = -dy * 120.0f; o.y2 = dx * 120.0f;    // half-extent along the wall
         o.col = { 0.85f, 0.70f, 0.50f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillWall);
         break;
     }
     case AugType::A_FLAME_PROMINENCE_SHELL: {
         Bullet b = SkillShot(px, py, dx, dy, 400.0f, TAG_FIREBALL, 800.0f, { 1.0f, 0.45f, 0.15f }, 1.6f);
         b.maxRange = 1100.0f;
         g_Bullets.push_back(b);
+        Audio::Play(Audio::Cue::SkillProjLaunch);
         break;
     }
     case AugType::A_FLAME_METEOR_BARRAGE: {
         Obj o; o.kind = ObjKind::Meteor; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 1.0f;
         o.col = { 1.0f, 0.45f, 0.15f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillTelegraph);   // 1초 예고 링 (착탄은 DamageRadius 폭발음)
         break;
     }
     case AugType::A_GEM_REFRACTION_CRYSTAL: {
         Obj o; o.kind = ObjKind::Prism; o.x = px; o.y = py; o.life = 4.0f;
         o.col = { 0.75f, 0.95f, 1.0f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillSummon);
         break;
     }
     case AugType::A_GEM_BARRAGE_RECYCLE: {
         const int n = std::min(24, passive::ClearEnemyBullets(px, py, 220.0f));
+        Audio::Play(Audio::Cue::SkillAbsorb);
         for (int i = 0; i < n; ++i) {
             const float a = kTwoPi * passive::Rand01();
             Bullet b = SkillShot(px, py, std::cos(a), std::sin(a), 100.0f, TAG_SHARD,
@@ -418,34 +438,45 @@ void Cast(int aug) {
     case AugType::A_STORM_STORM_NEBULA: {
         Obj o; o.kind = ObjKind::Cloud; o.life = 6.0f; o.col = { 0.65f, 0.80f, 1.0f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillSummon);
         break;
     }
     case AugType::A_LUCK_DICE_OF_FATE: CastBookOfCheats(); break;
     case AugType::A_LIFE_STARLIGHT_MEND:
         g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 12.0f);
         passive::ClearEnemyBullets(px, py, 220.0f);
+        Audio::Play(Audio::Cue::SfxHealBig);
         break;
     case AugType::A_ABYSS_TIDAL_SURGE:
         passive::DamageRadius(px, py, 380.0f, 600.0f, 0.30f, 0.60f, 1.0f, extra);
+        Audio::Play(Audio::Cue::SkillWave);
         break;
     case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
         Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f;
         o.col = { 0.55f, 0.35f, 0.95f };
         s.objs.push_back(o);
+        Audio::StartLoop(Audio::Cue::SkillVortexLoop);
         break;
     }
     case AugType::A_SPARK_FORCED_DISCHARGE:
         passive::DamageRadius(px, py, 260.0f, 350.0f, 0.55f, 0.85f, 1.0f, extra);
         for (int i = 0; i < 10; ++i) passive::CountHit();
+        Audio::Play(Audio::Cue::SkillWave);
         break;
     case AugType::A_SPARK_CHAIN_LIGHTNING: CastChainLightning(); break;
     case AugType::A_FLIGHT_WARP_JUMP: CastBlink(); break;
     case AugType::A_FLIGHT_COMET_RUSH: CastCometRush(); break;
-    case AugType::A_EDGE_PRECISION_SNIPE: s.snipeT = 0.6f; break;
+    case AugType::A_EDGE_PRECISION_SNIPE:
+        s.snipeT = 0.6f;
+        Audio::Play(Audio::Cue::SkillTelegraph);   // 0.6초 조준선
+        Audio::StartLoop(Audio::Cue::SkillChargeLoop);
+        break;
     case AugType::A_HERESY_LIFE_BURN_BLAST: {
         const float spent = g_GameManager.playerHP * 0.30f;
         g_GameManager.playerHP -= spent;
+        Audio::Play(Audio::Cue::SkillHpCost);
         passive::DamageAll(70.0f * spent, 0.85f, 0.20f, 0.30f, false, extra);
+        Audio::Play(Audio::Cue::SkillScreenwide);
         break;
     }
     case AugType::A_HERESY_DAY_NIGHT_BOUNDARY: CastDayAndNight(); break;
@@ -459,6 +490,7 @@ void Cast(int aug) {
         Obj o; o.kind = ObjKind::Trap; o.x = px; o.y = py; o.life = 1e9f;
         o.col = { 1.0f, 0.55f, 0.45f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillSummon);
         break;
     }
     case AugType::A_HUNTER_PINPOINT_EXECUTION: CastExecute(aug); break;
@@ -469,28 +501,33 @@ void Cast(int aug) {
             o.col = { 1.0f, 0.80f, 0.40f };
             s.objs.push_back(o);
         }
+        Audio::StartLoop(Audio::Cue::SkillBoomerangLoop);
         break;
     case AugType::A_PERFORM_ECHO_CAST:
-        if (s.lastUsedAug >= 0 && TypeOf(s.lastUsedAug) != AugType::A_PERFORM_ECHO_CAST)
+        if (s.lastUsedAug >= 0 && TypeOf(s.lastUsedAug) != AugType::A_PERFORM_ECHO_CAST) {
+            Audio::Play(Audio::Cue::SkillCooldownCut);
             Cast(s.lastUsedAug);
+        }
         break;
     case AugType::A_STILL_STARLIGHT_TURRET: {
         Obj o; o.kind = ObjKind::Turret; o.x = px; o.y = py; o.life = 10.0f;
         o.col = { 0.60f, 0.95f, 0.80f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillSummon);
         break;
     }
-    case AugType::A_STILL_CONDENSED_BLAST: s.meditateT = 0.0f; break;
+    case AugType::A_STILL_CONDENSED_BLAST: s.meditateT = 0.0f; Audio::StartLoop(Audio::Cue::SkillChargeLoop); break;
     case AugType::A_VEIN_TIMED_BOMB: {
         Obj o; o.kind = ObjKind::Dynamite; o.x = px; o.y = py;
         o.x2 = s.in.aimX; o.y2 = s.in.aimY; o.life = 1.0f;
         o.col = { 1.0f, 0.55f, 0.25f };
         s.objs.push_back(o);
+        Audio::Play(Audio::Cue::SkillFuse);
         break;
     }
     case AugType::A_NOVA_NOVA_BURST: {
         const float pct = std::min(2000.0f, 20.0f * (float)s.waveKills);
-        if (pct > 0.0f) passive::DamageAll(pct, 1.0f, 0.95f, 0.75f, false, extra);
+        if (pct > 0.0f) { passive::DamageAll(pct, 1.0f, 0.95f, 0.75f, false, extra); Audio::Play(Audio::Cue::SkillScreenwide); }
         break;
     }
     case AugType::A_NOVA_STARLIGHT_SCATTER:
@@ -499,6 +536,7 @@ void Cast(int aug) {
             g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 150.0f,
                                           TAG_STAR, 850.0f, { 1.0f, 0.95f, 0.60f }));
         }
+        Audio::Play(Audio::Cue::SkillProjMulti);
         break;
     default: break;
     }
@@ -509,15 +547,18 @@ void AfterUse(int aug, int slot) {
     const float cd = CooldownFor(aug);
     if (Has(AugType::P_CHRONO_DOUBLE_CAST) && passive::Chance(0.30f)) {
         s.slots[slot].cd = 0.0f;
+        Audio::Play(Audio::Cue::SkillCooldownCut);
         passive::ChanceTriggered();
     }
     if (Has(AugType::P_STORM_MAGNETIC_STORM) && passive::Chance(0.20f)) {
         passive::DamageAll(200.0f, 0.65f, 0.80f, 1.0f);
+        Audio::Play(Audio::Cue::SkillScreenwide);
         passive::ChanceTriggered();
     }
     if (Has(AugType::P_NIGHT_RESONANT_SHOCKWAVE) && s.moonCd[aug] <= 0.0f) {
         s.moonCd[aug] = 12.0f;
         passive::DamageRadius(s.in.px, s.in.py, 220.0f, 800.0f, 0.85f, 0.85f, 1.0f);
+        Audio::Play(Audio::Cue::ProcShockwave);
     }
     if (Has(AugType::P_ABYSS_SINGULARITY_CASCADE) && cd >= 10.0f) {
         const int n = std::min(5, 1 + (int)((cd - 10.0f) / 10.0f));
@@ -526,8 +567,12 @@ void AfterUse(int aug, int slot) {
     if (Has(AugType::P_PERFORM_ECLIPSE_COMBO) && s.ribbonWindow > 0.0f) {
         s.ribbonWindow = 0.0f;
         passive::DamageRadius(s.in.px, s.in.py, 380.0f, 250.0f, 1.0f, 0.60f, 0.85f);
+        Audio::Play(Audio::Cue::ProcShockwave);
     }
-    if (Has(AugType::P_HERESY_UNSTABLE_DRIVE) && s.lastUsedAug == aug) passive::SwitchOffDarkWings();
+    if (Has(AugType::P_HERESY_UNSTABLE_DRIVE) && s.lastUsedAug == aug) {
+        if (passive::DarkWingsOn()) Audio::Play(Audio::Cue::ProcSeal);   // 이번 웨이브 동안 꺼짐
+        passive::SwitchOffDarkWings();
+    }
     if (TypeOf(aug) != AugType::A_PERFORM_ECHO_CAST) s.lastUsedAug = aug;
 }
 
@@ -549,8 +594,11 @@ void StepObjects(float dt) {
         case ObjKind::Wall: {
             const float ax = o.x - o.x2, ay = o.y - o.y2, bx = o.x + o.x2, by = o.y + o.y2;
             for (Bullet& b : g_Bullets)
-                if (b.active && b.isEnemy && SegDist2(b.x, b.y, ax, ay, bx, by) < 16.0f * 16.0f)
+                if (b.active && b.isEnemy && SegDist2(b.x, b.y, ax, ay, bx, by) < 16.0f * 16.0f) {
                     b.active = false;
+                    Audio::Play(Audio::Cue::SkillWall);   // 적탄 막힘
+                }
+            if (o.t >= o.life) Audio::Play(Audio::Cue::SkillSummonEnd);
             const float len = std::sqrt(o.x2 * o.x2 + o.y2 * o.y2);
             const float nx = -o.y2 / len, ny = o.x2 / len;   // wall normal
             auto block = [&](auto& e) {
@@ -582,6 +630,7 @@ void StepObjects(float dt) {
                 if ((b.x - o.x) * (b.x - o.x) + (b.y - o.y) * (b.y - o.y) < 70.0f * 70.0f) {
                     b.active = false;
                     ++o.count;
+                    Audio::Play(Audio::Cue::SkillAbsorb);
                 }
             }
             if (o.t >= o.life && o.count > 0)
@@ -609,6 +658,7 @@ void StepObjects(float dt) {
                 }
             }
             if (o.t >= o.life) {
+                Audio::StopLoop(Audio::Cue::SkillVortexLoop);
                 passive::DamageRadius(o.x, o.y, 260.0f, 1000.0f + 50.0f * (float)o.count,
                                       0.55f, 0.35f, 0.95f, DamageMult());
                 TriggerFlash(0.55f, 0.35f, 0.95f, 0.25f);
@@ -625,11 +675,12 @@ void StepObjects(float dt) {
                 }
             };
             ForEachEnemy(step);
-            if (sprung) { o.life = 0.0f; passive::Ring(o.x, o.y, 60.0f, 1.0f, 0.55f, 0.45f); }
+            if (sprung) { o.life = 0.0f; passive::Ring(o.x, o.y, 60.0f, 1.0f, 0.55f, 0.45f); Audio::Play(Audio::Cue::ExplodeS); }
             break;
         }
         case ObjKind::Turret:
             o.timer += dt;
+            if (o.t >= o.life) Audio::Play(Audio::Cue::SkillSummonEnd);
             if (o.timer >= 0.4f) {
                 float tx, ty;
                 if (g_MonsterManager.FindNearestEnemy(o.x, o.y, tx, ty)) {
@@ -638,11 +689,13 @@ void StepObjects(float dt) {
                     const float d = std::max(0.001f, std::sqrt(ex * ex + ey * ey));
                     g_Bullets.push_back(SkillShot(o.x, o.y, ex / d, ey / d, 100.0f, TAG_TURRET,
                                                   1100.0f, { 0.60f, 0.95f, 0.80f }));
+                    Audio::Play(Audio::Cue::SkillTurretShot);
                 }
             }
             break;
         case ObjKind::Cloud:
             o.x = s.in.px; o.y = s.in.py - 90.0f;
+            if (o.t >= o.life) Audio::Play(Audio::Cue::SkillSummonEnd);
             o.timer += dt;
             if (o.timer >= 0.5f) {
                 o.timer -= 0.5f;
@@ -660,6 +713,7 @@ void StepObjects(float dt) {
             break;
         case ObjKind::Hoop: {
             const float half = o.life * 0.5f;
+            if (o.t >= o.life) Audio::StopLoop(Audio::Cue::SkillBoomerangLoop);   // 고리가 돌아옴
             const bool back = o.t > half;
             if (back && o.count == 0) { o.count = 1; o.hits.clear(); }   // a new leg
             const float out = back ? 1.0f - (o.t - half) / half : o.t / half;
@@ -677,6 +731,9 @@ void StepObjects(float dt) {
             });
             break;
         }
+        case ObjKind::Clone:
+            if (o.t >= o.life) Audio::Play(Audio::Cue::SkillSummonEnd);
+            break;
         default: break;
         }
     }
@@ -687,7 +744,13 @@ void StepObjects(float dt) {
 }  // namespace
 
 // ── public ──
-void Reset() { s = State{}; }
+void Reset() {
+    // 런 리셋: 돌던 루프 정지
+    Audio::StopLoop(Audio::Cue::SkillVortexLoop);
+    Audio::StopLoop(Audio::Cue::SkillChargeLoop);
+    Audio::StopLoop(Audio::Cue::SkillBoomerangLoop);
+    s = State{};
+}
 
 const Slot& GetSlot(int i) { return s.slots[i]; }
 bool SlotSealed(int i) { return i >= 0 && i < kSlots && s.sealed[i]; }
@@ -850,6 +913,8 @@ void Step(const StepInput& in) {
     if (s.snipeT >= 0.0f) {
         s.snipeT -= dt;
         if (s.snipeT < 0.0f) {
+            if (s.meditateT < 0.0f) Audio::StopLoop(Audio::Cue::SkillChargeLoop);   // 응축 충전 중이면 유지
+            Audio::Play(Audio::Cue::SkillSnipe);
             float dx, dy;
             AimDir(dx, dy);
             Bullet b = SkillShot(in.px, in.py, dx, dy, 1000.0f, TAG_SNIPE, 3200.0f,
@@ -868,6 +933,7 @@ void Step(const StepInput& in) {
             passive::DamageRadius(in.px, in.py, 300.0f, 2000.0f * k, 0.70f, 1.0f, 0.85f, DamageMult());
             g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 10.0f * k);
             s.meditateT = -1.0f;
+            if (s.snipeT < 0.0f) Audio::StopLoop(Audio::Cue::SkillChargeLoop);   // 저격 조준 중이면 유지
         }
     }
     StepObjects(dt);

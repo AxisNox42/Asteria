@@ -91,12 +91,14 @@ void Scene_MainMenu(const SceneCtx& c) {
         if (s_menuExitT > 0.70f) s_menuExitT = 0.70f;
     }
 
+    const float introPrevT = s_introT;   // 효과음 엣지용
     bool introWasActive = (s_introT < kIntroDone);
     if (!booting && lmb && !g_LmbPrev && introWasActive)
         s_introT = kIntroDone;
     if (!booting && s_introT < kIntroDone)
         s_introT = std::min(s_introT + delta, kIntroDone);
     const bool introActive = (s_introT < kIntroDone);
+    if (introActive && introPrevT <= 0.0f && s_introT > 0.0f) Audio::Play(Audio::Cue::UiTitleIn);
 
     float titlePhA = std::min(s_introT / kTitleDur, 1.0f);
     const float titleA = Smoothstep(titlePhA) * uiA;
@@ -138,7 +140,9 @@ void Scene_MainMenu(const SceneCtx& c) {
     constexpr float kVanishWait = 0.40f, kVanishGlitch = 1.30f, kVanishDur = kVanishGlitch;
     if (tutVanishing && !booting && !introActive && !introWasActive && g_FadeDir == 0
         && !exitActive && !s_confirmQuit) {
+        const float vanishPrevT = s_vanishT;
         s_vanishT += std::min(delta, 0.05f);
+        if (vanishPrevT <= kVanishWait && s_vanishT > kVanishWait) Audio::Play(Audio::Cue::UiGlitch);
         if (s_vanishT >= kVanishDur) {
             g_TutorialVanishPending = false;
             s_vanishT = 0.0f;
@@ -188,6 +192,10 @@ void Scene_MainMenu(const SceneCtx& c) {
         float baseBy = btnY0 + (float)i * (BH + BGAP);
         float rawBtnPh = (s_introT - kTitleDur - (float)i * kBtnStag) / kBtnDur;
         rawBtnPh = std::max(0.0f, std::min(rawBtnPh, 1.0f));
+        {   // 버튼이 하나씩 들어오는 순간 (클릭으로 건너뛰면 생략)
+            const float inAt = kTitleDur + (float)i * kBtnStag;
+            if (introActive && introPrevT < inAt && s_introT >= inAt) Audio::Play(Audio::Cue::UiButtonIn);
+        }
         float reveal = Smoothstep(rawBtnPh);
         bool selected = (s_menuSelect == i);
         float exitP = SceneTransitionEase(s_menuExitT / menuExitDuration);
@@ -285,6 +293,7 @@ void Scene_MainMenu(const SceneCtx& c) {
             } else {
                 s_menuSelect = i;
                 s_menuExitT = 0.0f;
+                Audio::Play(Audio::Cue::UiSceneOut);   // 퇴장 트랜지션 시작
             }
         }
     }
@@ -340,6 +349,8 @@ void Scene_MainMenu(const SceneCtx& c) {
 
 
                         if (g_BootAnim > 0.0f) {
+                    static int s_bootLogSfx = 0;   // 소리 낸 부팅 로그 줄 수
+                    if (g_BootAnim >= BOOT_DUR) { s_bootLogSfx = 0; Audio::Play(Audio::Cue::SysBootOpen); }
                     g_BootAnim -= delta;
                     float prog = 1.0f - g_BootAnim / BOOT_DUR;        // 0→1
                     if (prog < 0.0f) prog = 0.0f; if (prog > 1.0f) prog = 1.0f;
@@ -388,6 +399,8 @@ void Scene_MainMenu(const SceneCtx& c) {
                             }
                         };
                         int shown = (int)(prog * 6.5f); if (shown > 6) shown = 6;
+                        for (; s_bootLogSfx < shown; ++s_bootLogSfx)
+                            Audio::Play(s_bootLogSfx == 5 ? Audio::Cue::SysBootReady : Audio::Cue::SysBootLog);
                         for (int i = 0; i < shown; i++) {
                             bool last = (i == 5);
                             DrawShadowedText(g_TextS, LOG[li2][i],

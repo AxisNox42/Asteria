@@ -3,6 +3,7 @@
 #include "Bullet.h"
 #include "MonsterManager.h"
 #include "SpaceRules.h"
+#include "../System/Audio.h"
 #include <cmath>
 
 namespace GravisField {
@@ -21,6 +22,9 @@ void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
         field.Add(gravis->worldX - playerX, gravis->worldY - playerY);
     }
     g_playerInfluence = playerControl ? field.maxInfluence : 0.0f;
+    // 플레이어가 어느 중력장 안에든 있으면 웅웅 루프 (Start/Stop 은 중복 호출 무시)
+    if (g_playerInfluence > 0.0f) Audio::StartLoop(Audio::Cue::EnemyGravisLoop);
+    else Audio::StopLoop(Audio::Cue::EnemyGravisLoop);
     if (!playerControl || dashActive) {
         // A dash breaks free of the built-up drift; menus drop it too.
         g_playerDrift.Reset();

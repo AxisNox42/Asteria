@@ -360,14 +360,14 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
     wp = std::min(wp, (float)waveAtDeath);
     const int curWave = std::clamp((int)floorf(wp + 0.5f), 1, waveAtDeath);
     if (curWave != s_curWave) {
-        if (s_curWave != 0 && !skippedCinematic) Audio::PlaySfx(Audio::Sfx::Shoot);
+        if (s_curWave != 0 && !skippedCinematic) Audio::Play(Audio::Cue::ResultWaveTick);
         s_curWave = curWave;
         s_changeT = s_journeyT;
     }
     const bool arrived = journeyStarted && s_journeyT >= journeyTotal;
     const float burstT = arrived ? s_journeyT - journeyTotal : -1.0f;
     if (arrived && !s_burstSounded) {
-        if (!state.victory) Audio::PlaySfx(Audio::Sfx::Kill);
+        Audio::Play(state.victory ? Audio::Cue::ResultFinalVictory : Audio::Cue::ResultFinalDefeat);
         s_burstSounded = true;
     }
     float shakeX = 0.0f, shakeY = 0.0f;

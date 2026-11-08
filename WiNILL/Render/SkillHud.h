@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "Audio.h"
 #include "DrawPrim.h"
 #include "HudLines.h"
 #include "SceneUI.h"
@@ -197,6 +198,14 @@ inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
     const float keyH = g_TextS.Height(L"SHIFT", keySc);
     const float keyTop = top - 5.0f * hs - keyH;
     auto keyX = [&](int i) { return x0 + radius + i * pitch; };
+
+    // 스킬 슬롯(대시 제외)이 쿨다운에서 풀리는 순간: 준비 펄스가 새로 켜질 때 한 번
+    static float s_prevPulse[4] = {};
+    for (int i = 1; i < 4; ++i) {
+        const float p = view.slots[i].empty ? 0.0f : view.slots[i].pulse;
+        if (p > s_prevPulse[i]) Audio::Play(Audio::Cue::SkillReady);
+        s_prevPulse[i] = p;
+    }
 
     // ── shapes ──
     BindMainShader();

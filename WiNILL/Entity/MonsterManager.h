@@ -7,6 +7,7 @@
 #include "RangedMob.h"
 #include "SpaceRules.h"
 #include "../System/GameLog.h"
+#include "../System/Audio.h"
 
 class MonsterManager {
 public:
@@ -187,6 +188,7 @@ public:
                 a->worldX -= n.x * push; a->worldY -= n.y * push;
                 b->worldX += n.x * push; b->worldY += n.y * push;
                 a->antaresBounceCd = b->antaresBounceCd = Monster::ANTARES_BOUNCE_COOLDOWN;
+                Audio::Play(Audio::Cue::EliteAntaresImpact);
             }
         }
     }
@@ -201,6 +203,7 @@ public:
             if (m->kind != MobKind::ANTARES || m->alive || m->antaresSplit) continue;
             m->antaresSplit = true;
             if (m->noBlast || m->antaresGen >= Monster::ANTARES_MAX_GEN) continue;
+            Audio::Play(Audio::Cue::EliteAntaresSplit);
             const int gen = m->antaresGen + 1;
             const float base = atan2f(m->antaresHeadingY, m->antaresHeadingX) + 1.5707963f;
             for (int k = 0; k < Monster::ANTARES_SPLIT_COUNT; ++k) {
@@ -385,6 +388,7 @@ private:
                 continue;
             }
             const int shots = std::min((int)pool.size(), Monster::REGULUS_VOLLEY_COUNT);
+            Audio::Play(Audio::Cue::EliteRegulusBeam);
             for (int n = 0; n < shots; ++n) {
                 const int idx = n + rand() % ((int)pool.size() - n);
                 std::swap(pool[n], pool[idx]);
@@ -409,6 +413,7 @@ private:
                     shield->hp = shield->maxHp = shieldHp;
                     shield->flashTimer = MOB_HIT_FLASH_TIME;
                     shield->grantTimer = SHIELD_GRANT_TIME;
+                    Audio::Play(Audio::Cue::EliteRegulusShield);
                 } else if (buff == Monster::REGULUS_BUFF_SPEED) {
                     c.mob->regulusSpeedAge = 0.0f;
                 } else {
@@ -510,6 +515,7 @@ private:
         if(g.spawnTimer<duration) return;
         ++g.hiveSpawnCount;
         if(launched) {
+            Audio::Play(Audio::Cue::EliteGenesisThrow);
             g.genesisRotorShotAge=0;
             g.genesisRotorRecoilDir=glm::vec2(cosf(g.hiveOrbitAngle),sinf(g.hiveOrbitAngle));
         }
@@ -595,6 +601,7 @@ private:
                 if(m->genesisNextRotor) {
                     m->genesisShellSpin=0;
                     if(m->spawnTimer>=Monster::GENESIS_ROTOR_WAIT) {
+                        Audio::Play(Audio::Cue::EnemyTelegraph);   // Rotor 발사대 준비 예고
                         m->hivePhase=4; m->spawnTimer=0; m->hiveSpawnCount=0;
                         m->genesisRotorLoaded=false; m->genesisRotorShotAge=1;
                     }
@@ -609,6 +616,7 @@ private:
                     m->genesisSpinBase = 0.0f;
                     m->genesisShellSpin = m->genesisSpinBase;
                     // Lock the aim now so the aim lines tell the truth.
+                    Audio::Play(Audio::Cue::EliteGenesisAim);
                     m->hivePhase = 1;
                     m->spawnTimer = 0.0f;
                     m->hiveSpawnCount = 0;
@@ -676,6 +684,7 @@ private:
                             child->genesisSummonHpMult = m->genesisChildHpMult;
                         }
                         born.push_back(child);
+                        Audio::Play(Audio::Cue::EliteGenesisThrow);
                     }
                     ++m->hiveSpawnCount;
                     m->hivePulseTimer = 0.22f;

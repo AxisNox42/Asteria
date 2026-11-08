@@ -311,6 +311,8 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     const float entryHeader = SceneTransitionEase(
         (s_RcEntryT - 0.04f) / (kOutgameTransitionDuration - 0.04f));
     if (backInput && !exiting && !launchExit && s_RcEntryT >= 0.55f)
+        Audio::Play(Audio::Cue::UiBack);
+    if (backInput && !exiting && !launchExit && s_RcEntryT >= 0.55f)
         exiting = true;
     if (exiting) exitT = std::min(kOutgameTransitionDuration, exitT + dt);
     const float backP = exiting
@@ -374,10 +376,13 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         keyDown(GLFW_KEY_LEFT, GLFW_KEY_A), keyDown(GLFW_KEY_RIGHT, GLFW_KEY_D)
     };
     if (ready) {
+        const int diffBefore = s_RcDifficulty, weaponBefore = weapon;   // 효과음 엣지용
         if (keyNow[0] && !prevKey[0]) s_RcDifficulty = std::max(0, s_RcDifficulty - 1);
         if (keyNow[1] && !prevKey[1]) s_RcDifficulty = std::min(kPlayDifficultyCount - 1, s_RcDifficulty + 1);
         if (keyNow[2] && !prevKey[2]) { weapon = 0; s_RcWeapon = weapon; }
         if (keyNow[3] && !prevKey[3] && kPlaySelectableWeapons > 1) { weapon = 1; s_RcWeapon = weapon; }
+        if (s_RcDifficulty != diffBefore) Audio::Play(Audio::Cue::UiDiffPick);
+        if (weapon != weaponBefore) Audio::Play(Audio::Cue::UiClassPick);
     }
     for (int i = 0; i < 4; ++i) prevKey[i] = keyNow[i];
 
@@ -575,6 +580,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
                        weaponHover[i], kPlayWeaponColor[i],
                        weaponName(i), weaponSub(i),
                        nullptr, false, nullptr, true)) {
+            Audio::Play(Audio::Cue::UiClassPick);
             weapon = i;
             s_RcWeapon = weapon;
         }
@@ -604,8 +610,10 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         const float selShown = diffSelT[i] * diffSelT[i] * (3.0f - 2.0f * diffSelT[i]);   // smoothstep
         float midY = 0.0f;
         if (drawChoice(rightX, sideW, entryY(i), sel,
-                       diffHover[i], col, diffName(i), tailBuf, &midY, true, bigText, false, selShown))
+                       diffHover[i], col, diffName(i), tailBuf, &midY, true, bigText, false, selShown)) {
+            Audio::Play(Audio::Cue::UiDiffPick);
             s_RcDifficulty = i;
+        }
         // 이름 줄 오른쪽 끝의 4칸 게이지: 켜진 별 개수가 단계(1~4)다.
         for (int k = 0; k < kPlayDifficultyCount; ++k)
             drawDiamond(rightR - kPlayGaugeInset * uiS
@@ -725,6 +733,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         g_TrialPoolReady = true;
         launchExit = true;
         launchT = 0.0f;
+        Audio::Play(Audio::Cue::UiRunStart);   // 런 시작 확정
     }
 
     g_BatchAlpha = 1.0f;

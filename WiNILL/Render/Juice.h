@@ -74,6 +74,7 @@ inline void SpawnDamageNumber(float x, float y, float amount, bool crit) {
     d.amount = std::max(1, (int)std::floor(amount + 0.5f));
     d.crit = crit;
     g_DmgNumbers.push_back(d);
+    if (crit) Audio::Play(Audio::Cue::SfxCrit);   // 치명타 숫자
 }
 
 // ── 플레이어 이동 잔상(afterimage) — 이동 시 과거 위치에 옅게 남았다 사라짐 ──
@@ -118,6 +119,9 @@ inline void AddKillCombo() {
     // 콤보 마일스톤(10/25/50/100/…) — 카운터 강조 연출 + 칩 사운드 (전체화면 번쩍 X — 눈뽕 방지)
     if (ComboIsMilestone(g_Combo)) {
         g_ComboMilestone = 0.7f;
+        Audio::Play(Audio::Cue::SfxComboMilestone);
+    } else if (g_Combo >= 5) {
+        Audio::Play(Audio::Cue::SfxComboTick);   // HUD 콤보 카운터가 보이는 5 부터
     }
 }
 
@@ -230,6 +234,8 @@ inline void SpawnStardust(float x, float y, int totalValue,
         totalValue = 1;
     }
     const int totalDustValue = totalValue;
+    // ringRadius > 0 = 엘리트(Quasar·Genesis) 사망 링에서 쏟아지는 별가루
+    if (ringRadius > 0.0f) Audio::Play(Audio::Cue::SfxStardustDrop);
     const std::size_t pickupBegin = g_StardustPickups.size();
     for (int denomination : { 10, 5, 1 }) {
         while (totalValue >= denomination) {

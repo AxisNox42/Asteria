@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 static constexpr float DT = 1.0f / 120.0f;
 static const glm::vec4 kArena(0.0f, 0.0f, 1000.0f, 600.0f);

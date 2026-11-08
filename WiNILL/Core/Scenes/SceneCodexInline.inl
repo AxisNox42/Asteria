@@ -59,6 +59,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
 
     const std::wstring currentSearch = CodexSearchQuery();
     if (currentSearch != s_prevSearch) {
+        if (s_searchFocused) Audio::Play(Audio::Cue::UiType);   // 검색창 입력·지우기
         s_prevSearch = currentSearch;
         for (int i = 0; i < CAT_COUNT; ++i) {
             s_displaySlot[i] = 0.0f;
@@ -79,6 +80,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
         if (inputReady) beginBack();
         else s_CodexBackRequested = false;
     }
+    if ((rmbClick || (escClick && !s_searchFocused)) && inputReady) Audio::Play(Audio::Cue::UiBack);
     if (rmbClick) beginBack();
     if (escClick) {
         if (s_searchFocused) s_searchFocused = false;
@@ -275,7 +277,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
 
         if (hov && lmb && !g_LmbPrev) {
             if (isBack) beginBack();
-            else if (s_cat != i) s_cat = i;
+            else if (s_cat != i) { s_cat = i; Audio::Play(Audio::Cue::UiTab); }
         }
 
         const bool sel = (!isBack && s_cat == i);
@@ -753,6 +755,7 @@ static void Scene_CodexInline(const SceneCtx& c) {
         (glfwGetKey(c.window, GLFW_KEY_DOWN) == GLFW_PRESS ||
          glfwGetKey(c.window, GLFW_KEY_S) == GLFW_PRESS);
     int stepRequest = 0;
+    bool stepByScroll = false;   // 휠·드래그 이동은 스크롤 소리, 그 밖의 선택은 항목 소리
     const int navDir = keyUpNow == keyDownNow ? 0 : (keyUpNow ? -1 : 1);
     if (c.inputFocusChanged) {
         s_navHoldDir = navDir;
@@ -816,12 +819,15 @@ static void Scene_CodexInline(const SceneCtx& c) {
         if (fabsf(s_dragAccum) >= dragStepThreshold) {
             // Drag direction follows the reversed wheel convention.
             stepRequest = s_dragAccum > 0.0f ? -1 : 1;
+            stepByScroll = true;
             s_dragAccum += s_dragAccum > 0.0f ? -dragStepThreshold : dragStepThreshold;
             s_dragMoved = true;
         }
     }
-    if (overOrbit && g_ScrollAccum != 0.0f)
+    if (overOrbit && g_ScrollAccum != 0.0f) {
         stepRequest = g_ScrollAccum > 0.0f ? -1 : 1; // reversed wheel direction
+        stepByScroll = true;
+    }
     g_ScrollAccum = 0.0f;
     // Select a record slot and spin the orbit the short way round to it.
     auto jumpToSlot = [&](int slot) {
@@ -829,6 +835,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
         while (jump > (float)recordSlotCount * 0.5f) jump -= (float)recordSlotCount;
         while (jump < -(float)recordSlotCount * 0.5f) jump += (float)recordSlotCount;
         const CItem& target = items[recordSlots[slot]];
+        if (slot != selectedSlot)
+            Audio::Play(target.seen ? Audio::Cue::CodexOpenEntry : Audio::Cue::CodexLocked);
         setCurrentSelection(target.category, target.key);
         selectedSlot = slot;
         s_displayTarget[orbitState] += jump;
@@ -843,6 +851,8 @@ static void Scene_CodexInline(const SceneCtx& c) {
     if (recordSlotCount > 0 && stepRequest != 0) {
         selectedSlot = (selectedSlot + stepRequest + recordSlotCount) % recordSlotCount;
         const CItem& next = items[recordSlots[selectedSlot]];
+        if (stepByScroll) Audio::Play(Audio::Cue::UiScroll);
+        else Audio::Play(next.seen ? Audio::Cue::CodexOpenEntry : Audio::Cue::CodexLocked);
         setCurrentSelection(next.category, next.key);
         s_displayTarget[orbitState] += (float)stepRequest;
     }

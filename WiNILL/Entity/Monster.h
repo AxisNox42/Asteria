@@ -17,6 +17,7 @@
 #include "Experience.h"
 #include "BalanceTuning.h"
 #include "Settings.h"   // g_Difficulty: a Genesis picks its summon style from it when it is made
+#include "../System/Audio.h"
 
 class RangedMob;
 class Monster;
@@ -953,6 +954,7 @@ public:
             if (outX) antaresHeadingX = -std::fabs(antaresHeadingX) * (worldX >= maxX ? 1.0f : -1.0f);
             if (outY) antaresHeadingY = -std::fabs(antaresHeadingY) * (worldY >= maxY ? 1.0f : -1.0f);
             ++antaresBounces;
+            Audio::Play(Audio::Cue::EliteAntaresImpact);
         }
     }
 
@@ -1162,10 +1164,14 @@ public:
         case MobKind::ROTOR: SpawnRotorDeathEffect(base, visualTime, reduced); break;
         case MobKind::SWARM: SpawnSwarmDeathEffect(base, visualTime, reduced); break;
         // Elites burst into particles only, at the kill (no body animation).
-        case MobKind::QUASAR: SpawnQuasarBlastBurst(base, reduced); break;
+        case MobKind::QUASAR:
+            SpawnQuasarBlastBurst(base, reduced);
+            if (animateBody && !noBlast) Audio::Play(Audio::Cue::EliteQuasarSupernova);   // 플레이어 사망 일괄 정리 땐 X
+            break;
         case MobKind::GENESIS:
             for (int k = 0; k < GENESIS_WAVE_COUNT; ++k)
                 SpawnGenesisWaveBurst(base, k, reduced);
+            if (animateBody && !noBlast) Audio::Play(Audio::Cue::EliteGenesisDeath);
             break;
         case MobKind::GRAVIS: SpawnGravisDeathEffect(base, reduced); break;
         case MobKind::GIMBAL: SpawnGimbalDeathEffect(base, reduced); break;
@@ -1692,11 +1698,13 @@ public:
     void UpdateQuasarEruption(float playerX, float playerY, float& playerHP) {
         if (!quasarEruptBlasted && quasarEruptTimer >= QUASAR_ERUPT_BLAST_TIME) {
             quasarEruptBlasted = true;
+            Audio::Play(Audio::Cue::EliteQuasarEruption);
             if (QuasarEruptCovers(glm::vec2(playerX, playerY), 0))
                 HurtPlayer(playerHP, QUASAR_ERUPT_DAMAGE, "QUASAR_ERUPT");
         }
         if (!quasarEruptBlasted2 && quasarEruptTimer >= QUASAR_ERUPT_SECOND_BLAST) {
             quasarEruptBlasted2 = true;
+            Audio::Play(Audio::Cue::EliteQuasarEruption);
             if (QuasarEruptCovers(glm::vec2(playerX, playerY), 1))
                 HurtPlayer(playerHP, QUASAR_ERUPT_DAMAGE, "QUASAR_ERUPT");
         }
@@ -1708,6 +1716,7 @@ public:
     }
 
     void BeginQuasarFall() {
+        Audio::Play(Audio::Cue::EliteQuasarStarfallLaunch);   // 성단이 터지며 유성이 솟구침
         quasarState = QUASAR_FALL_STATE;
         quasarTimer = 0.0f;
         quasarAimSet = false;
@@ -1788,6 +1797,7 @@ public:
             if (!(quasarFallTargetsMask & bit) || (quasarFallImpacts & bit) ||
                 quasarTimer < QuasarFallImpactTime(i)) continue;
             quasarFallImpacts |= bit;
+            Audio::Play(Audio::Cue::EliteQuasarStarfallHit);
             const glm::vec2 d = glm::vec2(playerX, playerY) - quasarFallTargets[i];
             if (quasarTimer >= quasarFallHitUntil &&
                 glm::dot(d, d) <= QuasarFallRadius(i) * QuasarFallRadius(i)) {
@@ -1947,6 +1957,7 @@ public:
             if(dt>0 && thrownTimer>=thrownDuration) {
                 worldX=thrownTargetX; worldY=thrownTargetY;
                 genesisRotorPhase=3; thrownTimer=0; genesisRotorDetonated=true;
+                Audio::Play(Audio::Cue::EliteGenesisLand);
                 // One landing hit, never direct flight damage or repeated pulse damage.
                 const float dx=px-worldX,dy=py-worldY;
                 if(singularityGrace<=0 && dx*dx+dy*dy<GENESIS_ROTOR_BLAST_RADIUS*GENESIS_ROTOR_BLAST_RADIUS)
@@ -2007,6 +2018,7 @@ public:
             if (u >= 1.0f) {
                 thrownPhase = 2;
                 thrownTimer = 0.0f;
+                Audio::Play(Audio::Cue::EliteGenesisLand);
                 // A miss is still dangerous: the landing sends out a shockwave.
                 if (singularityGrace <= 0.0f && distance < THROWN_SWARM_BLAST_RADIUS)
                     HurtPlayer(playerHP, THROWN_SWARM_BLAST_DAMAGE, "THROWN_SWARM_BLAST");
@@ -2592,6 +2604,7 @@ public:
                     shot.sizeScale = 0.95f;
                     shot.color = glm::vec3(0.70f, 1.0f, 0.36f);
                     bullets->push_back(shot);
+                    Audio::Play(Audio::Cue::EnemyGimbalFire);
                 }
                 gimbalFired = true;
             }
@@ -2672,6 +2685,7 @@ public:
                 const float knock = KNOCK_PER_SPEED * antaresMoveSpeed;
                 antaresKnockX += toX * knock;
                 antaresKnockY += toY * knock;
+                Audio::Play(Audio::Cue::EliteAntaresImpact);
                 antaresState = AntaresState::STUNNED;
                 antaresStateTimer = 0.0f;
                 antaresMoveSpeed = 0.0f;
@@ -2703,6 +2717,7 @@ public:
                 ? ANTARES_STUN_TIME : ANTARES_REST_TIME;
             antaresMoveSpeed = 0.0f;
             if (antaresStateTimer >= hold) {
+                Audio::Play(Audio::Cue::EliteAntaresCharge);   // 새 돌진 시작
                 antaresState = AntaresState::CHASE;
                 antaresStateTimer = 0.0f;
                 antaresMoveSpeed = ANTARES_MIN_SPEED;
@@ -2763,6 +2778,7 @@ public:
             if (regulusShieldRegenTimer <= 0.0f) {
                 regulusShield.hp = regulusShield.maxHp;
                 regulusShield.flashTimer = MOB_HIT_FLASH_TIME;
+                Audio::Play(Audio::Cue::EliteRegulusShield);   // 자기 보호막 재생성
             }
         }
         if (singularityGrace > 0.0f)
@@ -2837,6 +2853,7 @@ public:
                 if (magnetarFaceBroken[f] < 0.0f) continue;
                 magnetarFaceBroken[f] += deltaTime;
                 if (magnetarFaceBroken[f] >= MAGNETAR_FACE_RESTORE) {
+                    Audio::Play(Audio::Cue::EnemyMagnetarRestore);
                     magnetarFaceBroken[f] = -1.0f;
                     magnetarFaceHits[f] = MAGNETAR_FACE_HITS;
                     magnetarFaceRestored[f] = 0.0f;
@@ -2876,6 +2893,9 @@ public:
                     if (--magnetarFaceHits[face] <= 0) {
                         magnetarFaceHits[face] = 0;
                         magnetarFaceBroken[face] = 0.0f;
+                        Audio::Play(Audio::Cue::EnemyMagnetarBreak);
+                    } else {
+                        Audio::Play(Audio::Cue::EnemyMagnetarBlock);
                     }
                     const float nx = cosf(hitA), ny = sinf(hitA);
                     magnetarInterceptX = worldX + nx * MAGNETAR_FIELD_RADIUS;
@@ -2962,6 +2982,7 @@ public:
                         quasarAimY = dy / distance;
                     }
                     quasarAimSet = true;
+                    Audio::Play(Audio::Cue::EliteQuasarCharge);   // 1초 예열 + 0.55초 잠금
                 }
                 if (quasarTimer >= COOLDOWN_TIME) {
                     if (quasarNextFall) BeginQuasarFall();
@@ -2986,6 +3007,7 @@ public:
                 if (quasarTimer >= LOCK_TIME) {
                     quasarState = 3;
                     quasarTimer = 0.0f;
+                    Audio::Play(Audio::Cue::EliteQuasarBeam);
                 }
             } else if (quasarState == 3) {
                 // Very slow turn toward the player while firing. The axis

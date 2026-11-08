@@ -39,3 +39,10 @@ ui_deny.wav              mitchelk — FX019
                          https://freesound.org/people/mitchelk/sounds/136787/
 aug_flip.wav             SpeedY — Clean_Finger_slide_delay.wav
                          https://freesound.org/people/SpeedY/sounds/8399/
+
+sfx/, bgm/ (2026-11-09)
+-----------------------
+게임 이벤트별 효과음(sfx/)과 BGM(bgm/)은 ElevenLabs 효과음·음악 생성으로 만든 뒤
+라우드니스 등급에 맞춰 크기를 맞췄다 (BGM -23~-26 LUFS-I, 효과음 -14~-27 LUFS-M, 피크 -1 dBFS).
+OCTANS 창·블루스크린 소리, QUASAR 성단 폭격 착탄음 일부는 코드로 합성했다.
+위 Freesound 16개(사용자가 고른 세트)는 그대로 쓰고, 목록은 WiNILL/System/AudioCues.inc · AudioBgm.inc.

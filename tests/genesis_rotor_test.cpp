@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <set>
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 static constexpr float DT=1.0f/120.0f;
 struct Scene {
