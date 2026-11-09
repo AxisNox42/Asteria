@@ -9,6 +9,7 @@
 #include "miniaudio.h"
 #include "Audio.h"
 #include "EmbeddedResource.h"
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -35,6 +36,15 @@ namespace {
         g_base = "";
     }
     std::string FullPath(const char* rel) { return g_base + rel; }
+
+    // The exe carries every sound (AudioEmbed.rc, scripts/gen_audio_embed.py):
+    // the resource name is the path upper-cased, non-alphanumerics as '_'.
+    bool EmbeddedSound(const char* rel, EmbeddedResourceView& view) {
+        std::string name;
+        for (const char* c = rel; *c; ++c)
+            name += std::isalnum((unsigned char)*c) ? (char)std::toupper((unsigned char)*c) : '_';
+        return LoadEmbeddedResource(name.c_str(), view);
+    }
 
     unsigned long long NowMs() {
 #ifdef _WIN32
@@ -156,8 +166,11 @@ namespace {
         ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0);
         ma_uint64 frames = 0;
         void* pcm = nullptr;
-        std::string full = FullPath(path);
-        if (ma_decode_file(full.c_str(), &cfg, &frames, &pcm) != MA_SUCCESS || !pcm || frames == 0) {
+        EmbeddedResourceView embedded;
+        ma_result r = EmbeddedSound(path, embedded)
+            ? ma_decode_memory(embedded.data, (size_t)embedded.size, &cfg, &frames, &pcm)
+            : ma_decode_file(FullPath(path).c_str(), &cfg, &frames, &pcm);   // 내장이 없으면 (macOS) 파일에서
+        if (r != MA_SUCCESS || !pcm || frames == 0) {
             if (pcm) ma_free(pcm, nullptr);
             return;   // 파일이 없으면 조용히 무시
         }
@@ -260,16 +273,11 @@ namespace {
     bool OpenSlot(BgmSlot& s, Audio::Bgm id) {
         const BgmDef& d = BGM_DEFS[(int)id];
         ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0);
-        std::string full = FullPath(d.path);
-        if (ma_decoder_init_file(full.c_str(), &cfg, &s.dec) == MA_SUCCESS) {
-            s.decOk = true;
-        } else if (id == Audio::Bgm::Main) {
-            // 개발 중 Resource 폴더 없이 실행할 때를 위한 예비 (예전 내장 곡)
-            EmbeddedResourceView embedded;
-            if (LoadEmbeddedResource("AUDIO_BGM_MAIN", embedded) &&
-                ma_decoder_init_memory(embedded.data, (size_t)embedded.size, &cfg, &s.dec) == MA_SUCCESS)
-                s.decOk = true;
-        }
+        EmbeddedResourceView embedded;   // 모듈이 살아 있는 동안 유효 — 디코더가 계속 읽어도 됨
+        if (EmbeddedSound(d.path, embedded))
+            s.decOk = ma_decoder_init_memory(embedded.data, (size_t)embedded.size, &cfg, &s.dec) == MA_SUCCESS;
+        else
+            s.decOk = ma_decoder_init_file(FullPath(d.path).c_str(), &cfg, &s.dec) == MA_SUCCESS;
         if (!s.decOk) return false;
         if (d.loop && d.loopEnd > d.loopBeg) {
             // MP3 앞 지연 구간을 빼고 정확한 마디로 반복
