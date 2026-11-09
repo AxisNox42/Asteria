@@ -1,59 +1,50 @@
 #pragma once
 // ─────────────────────────────────────────────────────────────
 //  Audio — miniaudio 기반 사운드 시스템 (가벼운 선언부)
-//   · Sounds/ 폴더에서 로드. 파일이 없으면 조용히 무시(크래시 X).
-//   · 파일을 하나씩 떨궈 넣으면 그때부터 자동으로 소리남.
-//   · 볼륨은 Audio.cpp 의 게인 테이블에서 코드로 조절(파일 안 건드림).
-//   · Sfx = 원본 파일, Cue = 게임 이벤트. Cue 하나가 원본 파일을
-//     피치·볼륨·지연·컷으로 바꿔 재생한다 (Docs/QA/Asteria_사운드리스트.xlsx
-//     '재활용 그룹' 시트 기준).
+//   · Resource/Audio/sfx, bgm 에서 로드. 파일이 없으면 조용히 무시(크래시 X).
+//   · Cue = 게임 이벤트 하나 = 전용 파일 1개 이상(여러 개면 무작위).
+//     파일마다 라우드니스 등급에 맞춰 크기를 맞춰 두었으므로 코드 게인은 모두 1.0,
+//     피치·속도는 바꾸지 않고 원본 그대로 재생한다.
+//   · 목록은 AudioCues.inc / AudioBgm.inc (scratchpad tools/install_audio.py 가 생성).
 // ─────────────────────────────────────────────────────────────
 namespace Audio {
 
+// 예전 호출 호환용 — 같은 이름의 Cue 로 재생된다
 enum class Sfx {
-    Shoot,      // sfx_shoot.wav
-    Kill,       // sfx_kill.wav
-    Hurt,       // sfx_hurt.wav
-    Death,      // sfx_death.wav
-    UiHover,    // ui_hover.wav
-    UiConfirm,  // ui_confirm.wav
-    UiDeny,     // ui_deny.wav
-    LevelUp,    // sfx_levelup.wav
-    CardFlip,   // aug_flip.wav
-    Dash,       // sfx_dash.wav
-    EnemyHit,   // enemy_hit.wav
-    Explosion,  // sfx_explode_m.wav
-    Zap,        // sfx_chain_zap.wav
-    Pickup,     // sfx_pickup_stardust.wav
-    SkillCast,  // skill_cast.wav
-    UiBack,     // ui_back.wav
+    Shoot, Kill, Hurt, Death, UiHover, UiConfirm, UiDeny, LevelUp,
+    CardFlip, Dash, EnemyHit, Explosion, Zap, Pickup, SkillCast, UiBack,
     COUNT
 };
 
 enum class Cue {
-    // UI
-    UiHover, UiConfirm, UiBack, UiDeny, Pause, Resume,
-    // 플레이어
-    Shoot, FieldPulse, Dash, Hurt, Death,
-    // 성장·픽업
-    Pickup, LevelUp, ShopBuy,
-    // 증강 카드
-    CardDeal, CardFlip, CardPick,
-    // 웨이브
-    WaveStart, WaveClear,
-    // 적
-    EnemyHit, Kill, EliteKill, BossDeath,
-    // 스킬·폭발
-    SkillCast, ExplodeS, ExplodeM, ExplodeL, Lightning,
+#define CUE(name, ...) name,
+#include "AudioCues.inc"
+#undef CUE
     COUNT
+};
+
+enum class Bgm {
+#define BGM(name, ...) name,
+#include "AudioBgm.inc"
+#undef BGM
+    COUNT,
+    None = COUNT
 };
 
 void Init(bool monoOutput = false);
 void Shutdown();
+void Update();            // 매 프레임: 덕킹 복귀, 끝난 BGM 정리
 void Play(Cue c);
-void PlaySfx(Sfx s);      // 원본 그대로 (기존 호출 호환)
-void PlayBgmMain();       // bgm_main.mp3 루프
-void StopBgm();
+void PlaySfx(Sfx s);      // 예전 호출 호환
+// 루프 효과음(…_loop): Start 는 이미 돌고 있으면 무시, Stop 은 짧게 페이드아웃
+void StartLoop(Cue c);
+void StopLoop(Cue c);
+// BGM: 같은 곡이면 그대로 두고, 다른 곡이면 fadeMs 동안 크로스페이드
+void PlayBgm(Bgm b, unsigned fadeMs = 800);
+Bgm  CurrentBgm();
+void PlayBgmMain();       // = PlayBgm(Bgm::Main)
+void StopBgm();           // 즉시 정지
+void FadeOutBgm(unsigned fadeMs);
 void SetEnabled(bool on); // 마스터 ON/OFF (OFF 시 BGM 정지)
 bool IsEnabled();
 void SetBgmEnabled(bool on);

@@ -49,9 +49,10 @@ void Scene_Tutorial(const SceneCtx& c, const TutorialSceneContext& state) {
     const float uiScale = UiScale(sw, sh);
 
     static int s_page = 0;
+    static int s_sfxPage = 0;   // 페이지 넘김 효과음 엣지용
     static GameState s_prevSt = GameState::MAIN_MENU;
     if (st != s_prevSt) {
-        if (st == GameState::TUTORIAL) s_page = 0;
+        if (st == GameState::TUTORIAL) s_page = s_sfxPage = 0;
         s_prevSt = st;
     }
 
@@ -190,6 +191,7 @@ void Scene_Tutorial(const SceneCtx& c, const TutorialSceneContext& state) {
         s_lPrev = lk;
         s_rPrev = rk;
     }
+    if (s_page != s_sfxPage) { s_sfxPage = s_page; Audio::Play(Audio::Cue::UiPage); }
 
     static const wchar_t* backVariants[] = { L"뒤로", L"BACK", L"戻る" };
     if (UIButton(wx + WW - pad - 180.0f * uiScale, navY,

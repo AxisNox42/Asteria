@@ -37,6 +37,7 @@
 #include "../../Render/HudLines.h"
 #include "../../Render/KeyboardPanelModel.h"
 #include "../../Render/PlayerWeaponShell.h"
+#include "../../System/Audio.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -752,6 +753,11 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         }
     }
     const bool launching = ready_launch::Launching();
+    {   // Space 출격: 필드가 조여드는 순간 한 번
+        static bool s_chargeSfx = false;
+        if (!launching) s_chargeSfx = false;
+        else if (!s_chargeSfx) { s_chargeSfx = true; Audio::Play(Audio::Cue::RunLaunchCharge); }
+    }
     ready_launch::g_LaunchLockedT = std::max(0.0f, ready_launch::g_LaunchLockedT - dt);
 
     PracticeView& v = View();
@@ -776,10 +782,23 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     const bool paused = g_GameManager.currentState == GameState::PAUSED;   // tutorial pause menu
     const bool still = picking || launching || paused;
     if (still) in = rp::Input{};
+    bool dummyWasAlive[rp::kDummyCount];
+    for (int i = 0; i < rp::kDummyCount; ++i) dummyWasAlive[i] = v.field.dummies[i].Alive();
     rp::Step(v.field, rules, in, still ? 0.0f : dt);
+    for (int i = 0; i < rp::kDummyCount; ++i) {
+        const rp::Dummy& d = v.field.dummies[i];
+        // 이번 프레임에 맞으면 hitFlash 가 막 kHitFlash 로 채워져 있다 (감쇠가 먼저 돈다)
+        if (!still && dt > 0.0f && d.hitFlash >= rp::kHitFlash) Audio::Play(Audio::Cue::TutDummyHit);
+        if (!dummyWasAlive[i] && d.Alive()) Audio::Play(Audio::Cue::TutDummyRespawn);
+    }
 
     const bool dashOk = rules.dashAvailable;
     const rp::Objective current = rp::CurrentObjective(v.field, dashOk);
+    {   // 단계 완료 → 다음 단계 해금
+        static int s_prevObjective = -1;
+        if (s_prevObjective >= 0 && (int)current > s_prevObjective) Audio::Play(Audio::Cue::TutStepClear);
+        s_prevObjective = (int)current;
+    }
     if (ready_launch::g_TutorialMode && !picking && !launching && !paused) {
         using Stage = ready_launch::TutorialStage;
         switch (ready_launch::g_Stage) {
@@ -884,6 +903,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
             const Rgb swarmText = Lighten(swarm, 0.45f);
             if (!s_burstDone) {
                 s_burstDone = true;
+                Audio::Play(Audio::Cue::RunLaunchBurst);   // 필드 확장 → 런 인트로
                 for (int i = 0; i < rp::kDummyCount; ++i) {
                     const rp::Dummy& d = v.field.dummies[i];
                     if (!d.Alive()) continue;

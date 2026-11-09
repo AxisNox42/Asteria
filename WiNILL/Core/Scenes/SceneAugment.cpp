@@ -440,10 +440,18 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         }
         if (!flippedSfx[i] && t >= T.flipStart[i]) {
             flippedSfx[i] = true;
-            Audio::Play(Audio::Cue::CardFlip);
+            // 희귀 이상은 기본 뒤집기 대신 등급 전용 소리
+            switch ((AugRarity)rarity[i]) {
+            case AugRarity::RARE:      Audio::Play(Audio::Cue::AugFlipRare);   break;
+            case AugRarity::EPIC:      Audio::Play(Audio::Cue::AugFlipEpic);   break;
+            case AugRarity::LEGENDARY: Audio::Play(Audio::Cue::AugFlipLegend); break;
+            case AugRarity::MYTHIC:    Audio::Play(Audio::Cue::AugFlipMythic); break;
+            default:                   Audio::Play(Audio::Cue::CardFlip);      break;
+            }
         }
     }
     if (inExit && !wasExit) Audio::Play(Audio::Cue::CardPick);
+    if (inExit && !wasExit && count > 1) Audio::Play(Audio::Cue::AugShatter);   // 안 고른 카드가 부서짐
     wasExit = inExit;
 
     if (g_SmokeCapture && g_SmokeAugFocus >= 0) {

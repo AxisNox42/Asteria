@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 static int g_failures = 0;
 

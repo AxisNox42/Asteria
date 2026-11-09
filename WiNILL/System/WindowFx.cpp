@@ -47,6 +47,55 @@ bool MarkShellFullscreen(HWND hwnd, bool fullscreen) {
 }
 }
 
+static LRESULT CALLBACK EdgeGuardProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;   // a click never takes focus
+    case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_RBUTTONDOWN: case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_LBUTTONDBLCLK: case WM_RBUTTONDBLCLK:
+        return 0;                                    // and does nothing
+    case WM_ERASEBKGND: return 1;
+    default: return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+}
+
+// The game window stops short of the monitor's bottom edge (see main.cpp) so
+// live wallpapers do not take it for a full-screen app. This covers the rows
+// it leaves with a window that cannot be seen (alpha 1/255), never takes
+// focus and swallows clicks, so slamming the mouse to the bottom edge and
+// clicking does not hit the desktop. It is owned by the game window: it stays
+// just above it in the z-order and hides with it.
+static void CoverEdgeGap(HWND game) {
+    RECT wr{};
+    if (!GetWindowRect(game, &wr)) return;
+    MONITORINFO mi{ sizeof(mi) };
+    if (!GetMonitorInfoW(MonitorFromWindow(game, MONITOR_DEFAULTTOPRIMARY), &mi)) return;
+    const RECT& m = mi.rcMonitor;
+    const int gap = m.bottom - wr.bottom;
+    // Only the deliberate few-row gap; smoke runs use small windows.
+    if (gap <= 0 || gap > 4 || wr.left > m.left || wr.right < m.right) return;
+
+    static const wchar_t* kClass = L"AsteriaEdgeGuard";
+    static bool registered = false;
+    HINSTANCE inst = GetModuleHandleW(nullptr);
+    if (!registered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = EdgeGuardProc;
+        wc.hInstance = inst;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        wc.lpszClassName = kClass;
+        registered = RegisterClassW(&wc) != 0;
+        if (!registered) return;
+    }
+    HWND guard = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                                 kClass, L"", WS_POPUP,
+                                 m.left, wr.bottom, m.right - m.left, gap,
+                                 game, nullptr, inst, nullptr);
+    if (!guard) return;
+    SetLayeredWindowAttributes(guard, 0, 1, LWA_ALPHA);   // alpha 0 would let clicks through
+    ShowWindow(guard, SW_SHOWNOACTIVATE);
+}
+
 void UpdateWindowTaskbarPolicy(GLFWwindow* window) {
     if (!window) return;
     HWND hwnd = glfwGetWin32Window(window);
@@ -89,6 +138,15 @@ void EnableWindowTransparency(GLFWwindow* window) {
         TransparencyLog("  DwmExtendFrameIntoClientArea → 0x%08lX (%s)\n",
             (unsigned long)hrM, SUCCEEDED(hrM) ? "OK" : "FAILED");
     }
+
+    // Apps behind the game (Chrome, Edge, Discord and other Chromium/Electron
+    // apps) pause video and stop painting when a visible, fully opaque window
+    // covers them: their occlusion check only sees Win32 styles, not our DWM
+    // per-pixel alpha, so the full-screen overlay read as an opaque cover and
+    // froze everything behind it. A layered window with whole-window alpha
+    // below 255 is skipped by that check. 254/255 is not visible on screen.
+    glfwSetWindowOpacity(window, kSeeThroughOpacity);
+    CoverEdgeGap(hwnd);
 
     LONG ex = GetWindowLong(hwnd, GWL_EXSTYLE);
     TransparencyLog("  GWL_EXSTYLE   = 0x%08lX\n", ex);

@@ -8,6 +8,7 @@
 #include "EnemyShield.h"
 #include "Experience.h"
 #include "BalanceTuning.h"
+#include "../System/Audio.h"
 #include "Settings.h"   // g_ArenaExX/Y (폴리모프 페이즈2 확장 아레나)
 
 class RangedMob {
@@ -166,6 +167,7 @@ public:
             rotAngle += IDLE_ROT * dt;
             fireTimer += dt;
             if (fireTimer >= FIRE_INTERVAL) {
+                Audio::Play(Audio::Cue::EnemyScopeCharge);
                 lensState    = State::CHARGING;
                 chargeAngle  = 0.0f;
                 chargeSpeed  = IDLE_ROT;
@@ -212,6 +214,7 @@ public:
                     b.homingTurn = 0.28f;
                     b.color = color;
                     bullets.push_back(b);
+                    if (burstShots == 0) Audio::Play(Audio::Cue::EnemyScopeBurst);   // 3발 버스트 소리는 첫 발에 한 번
                     burstShots++;
                     break;
                 }

@@ -3,6 +3,7 @@
 // player still on the line. Run with scripts/test_lynx_mob.ps1.
 #include "MonsterManager.h"
 #include "EnemyRoster.h"
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 #include <cassert>
 #include <cmath>
 #include <cstdio>

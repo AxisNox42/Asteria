@@ -270,6 +270,7 @@ void Scene_Shop(const SceneCtx& c) {
     if (s_ShopBackRequested) {
         if (inputReady) beginBack(); else s_ShopBackRequested = false;
     }
+    if ((rmbClick || escClick) && inputReady) Audio::Play(Audio::Cue::UiBack);
     if (rmbClick || escClick) beginBack();
     bool finishBack = false;
     if (s_backExit) {
@@ -337,6 +338,7 @@ void Scene_Shop(const SceneCtx& c) {
     const bool overGrid = inputReady && mx >= gridX - 20.0f * ui && mx < gridX + gridW + 30.0f * ui
                        && my >= gridTop && my < gridTop + gridH;
     if (overGrid && g_ScrollAccum != 0.0f) {
+        if (maxScroll > 0.0f) Audio::Play(Audio::Cue::UiScroll);
         s_scrollTarget -= g_ScrollAccum * 78.0f * ui;
         g_ScrollAccum = 0.0f;
     }
@@ -426,6 +428,7 @@ void Scene_Shop(const SceneCtx& c) {
                           && my >= tabsY - 6.0f * ui && my <= tabsY + th + 14.0f * ui;
             s_tabHov[t] = UpdateMenuCommandHover(s_tabHov[t], hov, dt);
             if (hov && lmbClick && s_tab != t) {
+                Audio::Play(Audio::Cue::UiTab);
                 s_tab = t; s_selKey = -1; s_scroll = s_scrollTarget = 0.0f;
                 for (float& v : s_cellSel) v = 0.0f;
             }
@@ -595,6 +598,12 @@ void Scene_Shop(const SceneCtx& c) {
         }
     }
     if (clickedIndex >= 0) {
+        {   // 이미 최대·보유 항목을 고름
+            const Entry& ce = entries[clickedIndex];
+            const bool ceMaxed = ce.kind == Kind::Meta ? g_MetaLv[ce.id] >= META_DEFS[ce.id].maxLv
+                               : (ce.kind == Kind::Theme && ThemeOwned(ce.id));
+            if (ceMaxed) Audio::Play(Audio::Cue::ShopMaxed);
+        }
         s_selKey = Key(entries[clickedIndex].kind, entries[clickedIndex].id);
         selIndex = clickedIndex;
         s_detailT = 0.0f;

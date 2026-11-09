@@ -378,7 +378,7 @@ bool DrawBottomLeftBackButton(float& hover, float sw, float sh, float uiScale,
                            uiScale, true, true, true,
                            kStrings[(int)StrId::BTN_BACK], LANG_COUNT);
     const bool clicked = hov && lmb && !lmbPrev;
-    if (clicked) Audio::Play(Audio::Cue::UiConfirm);
+    if (clicked) Audio::Play(Audio::Cue::UiBack);
     return clicked;
 }
 
@@ -409,7 +409,7 @@ bool MenuKeyboardNav(const SceneCtx& c, int& focus, int count, bool active,
         int f = focus;
         for (int k = 0; k < count; ++k) {
             f = f < 0 ? (dir > 0 ? 0 : count - 1) : (f + dir + count) % count;
-            if (!locked || !locked[f]) { focus = f; return; }
+            if (!locked || !locked[f]) { if (f != focus) Audio::Play(Audio::Cue::UiHover); focus = f; return; }
         }
     };
     if (eUp) step(-1);
@@ -507,6 +507,7 @@ ConfirmChoice DrawConfirmDialog(bool open, const ConfirmText& text,
         s_hover[0] = s_hover[1] = 0.0f;
         return ConfirmChoice::None;
     }
+    if (s_openT <= 0.0f) Audio::Play(Audio::Cue::UiDialogOpen);   // 열리는 첫 프레임
     s_openT += dt;
     const float fade = std::min(1.0f, s_openT / 0.16f);
     const float now = (float)glfwGetTime();

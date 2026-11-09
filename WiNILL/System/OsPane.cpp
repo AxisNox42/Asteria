@@ -13,6 +13,7 @@
 #include <filesystem>
 #include "Settings.h"
 #include "PaneContent.h"
+#include "Audio.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -225,8 +226,12 @@ LRESULT CALLBACK PaneProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             Refuse(i);
             return 0;
         }
+        if (i >= 0 && (cmd == SC_MINIMIZE || cmd == SC_CLOSE)) Audio::Play(Audio::Cue::OsArrange);   // 플레이어가 창 최소화/닫기
         break;
     }
+    case WM_ENTERSIZEMOVE:
+        if (i >= 0) Audio::Play(Audio::Cue::OsArrange);   // 플레이어가 창을 잡아 끌기 시작
+        break;
     case WM_CLOSE:
         if (i >= 0 && s_panes[i].locked) {
             Refuse(i);
@@ -596,6 +601,9 @@ void SetUnstable(int id, float level) {
     const bool changed = c.unstable != level;
     c.unstable = level;
     pane_content::AdvanceGlitch(c.glitch, level, c.seed);
+    // 글리치 버스트가 새로 시작될 때만. 퓨즈·블루스크린처럼 쉴 새 없이 튀는 단계(빈도 1)는 그쪽 Cue 가 맡는다.
+    if (!wasGlitching && pane_content::GlitchFrequency(level) < 1.0f && pane_content::GlitchActive(c.glitch))
+        Audio::Play(Audio::Cue::OsPaneGlitch);
     // Repaint while a burst runs, once more as it ends, or when the level moved.
     if (changed || wasGlitching || pane_content::GlitchActive(c.glitch))
         InvalidateRect(s_handles[i], nullptr, FALSE);

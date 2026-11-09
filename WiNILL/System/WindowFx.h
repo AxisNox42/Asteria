@@ -7,6 +7,11 @@
 // ─────────────────────────────────────────────────────────────
 struct GLFWwindow;
 
+// Whole-window alpha on Windows: 254/255 (GLFW truncates 255 * opacity).
+// Below 255 so apps behind do not treat the overlay as an opaque cover and
+// stop painting (see EnableWindowTransparency).
+constexpr float kSeeThroughOpacity = 254.5f / 255.0f;
+
 void EnableWindowTransparency(GLFWwindow* window);
 // Mark the borderless window fullscreen for the Shell while it is active.
 void UpdateWindowTaskbarPolicy(GLFWwindow* window);

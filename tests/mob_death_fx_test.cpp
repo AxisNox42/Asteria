@@ -4,6 +4,7 @@
 #include "../WiNILL/Render/Camera.h"
 #include <cassert>
 #include <cstdio>
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 int screenWidth = 1920;
 int screenHeight = 1080;

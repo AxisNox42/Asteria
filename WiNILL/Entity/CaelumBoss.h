@@ -61,6 +61,7 @@
 
 #include "NormaBoss.h"
 #include "PlayerStats.h"
+#include "../System/Audio.h"
 
 namespace caelum {
 
@@ -493,6 +494,7 @@ inline void Infect(int i, float warn = -1.0f) {
     c.warn = warn >= 0.0f ? warn : WarnTime();
     c.life = (g.phase == 2 ? kCorruptLifeP2 : kCorruptLife) + RndRange(-1.0f, 1.0f);
     c.glitch = (unsigned char)(rand() % 256);
+    Audio::Play(Audio::Cue::BossEridanusWarn);   // 셀 깜빡임 예고
 }
 // Clears the corruption; bad sectors stay.
 inline void ClearCells() { for (Cell& c : g.cells) if (!c.bad) c = Cell{}; }
@@ -560,6 +562,7 @@ inline void AddBadSector(float px, float py) {
             float x, y;
             CellCentre(i, x, y);
             g_Events.push_back({ Fx::Seed, x, y, 0.0f });
+            Audio::Play(Audio::Cue::BossEridanusBadsector);
             return;
         }
     }
@@ -590,9 +593,9 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
         Cell& c = g.cells[i];
         c.t += dt;
         switch (c.state) {
-        case CellState::Warn:    if (c.t >= c.warn) { c.state = CellState::Corrupt; c.t = 0.0f; } break;
+        case CellState::Warn:    if (c.t >= c.warn) { c.state = CellState::Corrupt; c.t = 0.0f; Audio::Play(Audio::Cue::BossEridanusCorrupt); } break;
         case CellState::Corrupt:
-            if (!c.bad && c.t >= c.life) { c.state = CellState::Heal; c.t = 0.0f; }
+            if (!c.bad && c.t >= c.life) { c.state = CellState::Heal; c.t = 0.0f; Audio::Play(Audio::Cue::BossEridanusHeal); }
             else if (c.bad && g_Tune.leaks && c.t >= c.life) {   // a leak into a clean neighbour
                 int nb[4];
                 const int n = Neighbours(i, nb);
@@ -642,13 +645,14 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
             }
             g.overflowT = -1.0f;
             g.overflowCd = kOverflowCooldown;
+            Audio::Play(Audio::Cue::BossEridanusHeal);   // 범람 후 한꺼번에 회복
         }
     }
     // Erosion (phase 2): the cell the player lingers in.
     if (g.phase == 2 && g_Tune.erodeAfter > 0.0f) {
         if (here != g.dwellCell) { g.dwellCell = here; g.dwell = 0.0f; }
         if (g.cells[here].state == CellState::Clean) g.dwell += dt; else g.dwell = 0.0f;
-        if (g.dwell >= g_Tune.erodeAfter) { Infect(here); g.dwell = 0.0f; }
+        if (g.dwell >= g_Tune.erodeAfter) { Infect(here); g.dwell = 0.0f; Audio::Play(Audio::Cue::BossEridanusMorph); }
     } else {
         g.dwellCell = -1; g.dwell = 0.0f;
     }
@@ -819,6 +823,7 @@ inline void TickSmear(float dt, float px, float py) {
         g.carryBase = g.carryScale = 1.0f + 0.2f * (float)lifted;
         g.carrying = true;
         g_Events.push_back({ Fx::Window, g.carryX, g.carryY, 0.0f });
+        Audio::Play(Audio::Cue::BossEridanusScan);   // Smear: 웅덩이를 들어 올림
     }
     if (g.step == 1) {                                 // dragged after the player
         const float dx = px - g.carryX, dy = py - g.carryY, d = std::hypot(dx, dy);
@@ -943,6 +948,7 @@ inline void TickSiphon(float px, float py) {
         g.step = 1;
         Click(g.bossX, g.bossY);
         g_Events.push_back({ Fx::Plug, g.bossX, g.bossY, 0.0f });
+        Audio::Play(Audio::Cue::BossEridanusSiphon);
     }
     if (t < kSiphonStart) return;
     if (g.step == 1) {                                   // it drinks: what was about to land goes too
@@ -1037,6 +1043,7 @@ inline void TickSpout() {
         g.step = 4;
         Click(g.bossX, g.bossY);
         g_Events.push_back({ Fx::Spout, g.bossX, g.bossY, (float)g.drops.size() });
+        Audio::Play(Audio::Cue::BossEridanusSiphon);
         QueueRing();                                     // its front comes as they land
     }
     bool flying = false;
@@ -1182,6 +1189,7 @@ inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
         g.scanDoneAt = -1.0f;
         AddScan(rand() % 2 == 0, px, py);
         if (g.phase == 2) AddScan(!g.scans[0].horiz, px, py);
+        Audio::Play(Audio::Cue::BossEridanusScan);
         break;
     case Pattern::Smear: StartSmear(px, py); break;
     case Pattern::Siphon: StartSiphon(); break;
@@ -1309,7 +1317,10 @@ inline void TickWave(float dt, float bx, float by, float px, float py) {
     }
     const float before = g.waveT;
     g.waveT += dt;
-    if (g.waveT >= kWaveTele && before < kWaveTele) g_Events.push_back({ Fx::Wave, g.waveX, g.waveY, 0.0f });
+    if (g.waveT >= kWaveTele && before < kWaveTele) {
+        g_Events.push_back({ Fx::Wave, g.waveX, g.waveY, 0.0f });
+        Audio::Play(Audio::Cue::BossEridanusShove);
+    }
     const float r = WaveRadius();
     const float d = WaveDistance(px, py);
     // Caught as the front passes (not by walking into it well behind).
@@ -1337,6 +1348,7 @@ inline void RunPattern(float dt, float px, float py) {
             SeedSpot(g.clicked, px, py, x, y);
             Click(x, y);
             g_Events.push_back({ Fx::Seed, x, y, 0.0f });
+            Audio::Play(Audio::Cue::BossEridanusClick);
             ++g.clicked;
         }
         if (g.clicked < 1) break;
@@ -1395,6 +1407,7 @@ inline void RunPattern(float dt, float px, float py) {
         if (g.step < n && g.t >= SnipeFireAt(g.step)) {
             FireSnipe(g.bossX, g.bossY);
             Click(g.aimX, g.aimY);   // the cursor clicks it off
+            Audio::Play(Audio::Cue::BossEridanusClick);
             ++g.step;
         }
         if (g.step >= n && g.t >= SnipeFireAt(n - 1) + 0.35f) EndPattern();
@@ -1476,6 +1489,7 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
             g.next = p;
             g.morph = 0.0f;
             g_Events.push_back({ Fx::Morph, bx, by, (float)g.form });
+            Audio::Play(Audio::Cue::BossEridanusMorph);
         }
         return;
     }

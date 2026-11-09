@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include "../Render/EnemyParticles.h"
+#include "../System/Audio.h"
 
 inline constexpr float MOB_HIT_FLASH_TIME = 0.12f;
 
@@ -110,6 +111,7 @@ inline float ApplyEnemyDamageWithShield(float& hp, bool& alive,
         if (shield.hp <= 0.0001f) {
             shield.hp = 0.0f;
             shield.breakPending = true;
+            Audio::Play(Audio::Cue::EliteEnemyShieldBreak);
             SpawnRegulusShieldBreakParticles(x, y, REGULUS_SHIELD_COLOR, bodyRadius,
                                              reinforcedShield);
         }

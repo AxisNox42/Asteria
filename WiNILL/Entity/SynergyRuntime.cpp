@@ -200,6 +200,7 @@ void Chain(float x, float y, const void* skip, int count, float range, float pct
         for (auto* r : g_MonsterManager.rangedMobs) if (r->alive) consider(r, r->worldX, r->worldY);
         if (!best) break;
         hit.insert(best);
+        Audio::Play(Audio::Cue::SfxChainZap);
         const float dmg = passive::AttackPower() * p / 100.0f * passive::AllDamageMult();
         for (auto* m : g_MonsterManager.monsters)
             if (m == best) { const float d = g_MonsterManager.ApplyDamage(*m, dmg); if (d > 0) SpawnDamageNumber(bx, by, d, false); }
@@ -572,7 +573,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         s.absorbed = 0.0f;
     }
     if (o.T_STILL && s.stillCharged) { boost *= 3.0f; s.stillCharged = false; }
-    if (o.T_RHYTHM && ++s.rhythm >= 4) { s.rhythm = 0; boost *= 3.0f; }
+    if (o.T_RHYTHM && ++s.rhythm >= 4) { s.rhythm = 0; boost *= 3.0f; Audio::Play(Audio::Cue::ProcCounterFull); }
     if (s.dashBoostT > 0.0f) boost *= 1.3f;
     if (o.T_GRUDGE && s.stored > 0.0f) {
         const float pct = std::min(600.0f, s.stored * 10.0f);
@@ -812,12 +813,14 @@ void OnWaveCleared() {
     if (o.T_CAKE && s.cakeArmed > 0) {
         --s.cakeArmed; ++s.cakeUsed;
         g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 20.0f);
+        Audio::Play(Audio::Cue::SfxHealSmall);
     }
 }
 
 bool TryRevive() {
     if (!s.on.C_REVIVE || s.revived) return false;
     s.revived = true;
+    Audio::Play(Audio::Cue::SfxRevive);
     g_GameManager.playerHP = std::min(g_Stats.maxHP, 20.0f);
     passive::Ring(s.in.px, s.in.py, 260.0f, 0.6f, 1.0f, 0.7f);
     return true;
@@ -865,6 +868,7 @@ void Step(const passive::StepInput& in) {
 
     // Shield: breaking it.
     if (s.shieldPrev > 0.0f && g_PlayerShield <= 0.0f) {
+        Audio::Play(Audio::Cue::SfxShieldBreak);
         if (o.G_MIRROR)
             for (Bullet& b : g_Bullets)
                 if (b.active && b.isEnemy &&
@@ -883,7 +887,7 @@ void Step(const passive::StepInput& in) {
             const float d = std::hypot(b.x - in.px, b.y - in.py);
             if (d > hitR && d < hitR + 18.0f) {
                 b.grazed = true;
-                if (++s.grazes >= 30) { s.grazes = 0; AddShield(25.0f); }
+                if (++s.grazes >= 30) { s.grazes = 0; AddShield(25.0f); Audio::Play(Audio::Cue::ProcCounterFull); }
             }
         }
     }

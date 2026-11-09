@@ -200,6 +200,7 @@ int ClearEnemyBullets(float x, float y, float radius) {
         SpawnSparks(b.x, b.y, 2, 0.75f, 0.95f, 1.0f, 140.0f);
     }
     if (radius > 0.0f) Ring(x, y, radius, 0.75f, 0.95f, 1.0f);
+    if (cleared > 0) Audio::Play(Audio::Cue::SfxBulletErase);
     return cleared;
 }
 
@@ -226,14 +227,17 @@ void ChanceTriggered() {
 void CountHit() {
     if (Has(AugType::P_SPARK_STATIC_BUILDUP) && ++s.staticHits >= 10) {
         s.staticHits = 0;
+        Audio::Play(Audio::Cue::ProcCounterFull);
         DamageAll(25.0f, 0.55f, 0.85f, 1.0f);
     }
     if (Has(AugType::P_SPARK_STELLAR_DYNAMO) && ++s.batteryHits >= 30) {
         s.batteryHits = 0;
+        Audio::Play(Audio::Cue::ProcCounterFull);
         ResetDash();
     }
     if (Has(AugType::P_SPARK_CRITICAL_BURST) && ++s.blackboltHits >= 50) {
         s.blackboltHits = 0;
+        Audio::Play(Audio::Cue::ProcCounterFull);
         DamageAll(600.0f, 0.45f, 0.30f, 0.85f);
     }
 }
@@ -253,6 +257,7 @@ void ExtraStrikes(float x, float y) {
     }
     const int total = (int)(mobs.size() + scopes.size());
     if (total == 0) return;
+    Audio::Play(Audio::Cue::ProcExtraHit);
     float dmg = AttackPower() * AllDamageMult();
     if (Has(AugType::P_SHADOW_MULTI_HIT_AMP)) dmg *= 1.30f;
     for (int i = 0; i < 3; ++i) {
@@ -309,6 +314,7 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
     syn::OnBulletHit(bullet, target, x, y, crit, killed);
     if (crit && Has(AugType::P_EDGE_CRITICAL_CHAIN_BURST) && ++s.crits >= 6) {
         s.crits = 0;
+        Audio::Play(Audio::Cue::ProcCounterFull);
         DamageAll(500.0f, 1.0f, 0.85f, 0.45f, true);
     }
     if (Has(AugType::P_SHADOW_TRIPLE_STRIKE) && Chance(0.10f)) {
@@ -324,7 +330,10 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
         DamageRadius(x, y, 110.0f, 200.0f, 1.0f, 0.70f, 0.30f);
         ChanceTriggered();
     }
-    if (bullet.blastOnHit) DamageRadius(x, y, 120.0f, 200.0f, 1.0f, 0.55f, 0.25f);
+    if (bullet.blastOnHit) {   // 대시 후 첫 사격 범위 피해
+        DamageRadius(x, y, 120.0f, 200.0f, 1.0f, 0.55f, 0.25f);
+        Audio::Play(Audio::Cue::ProcShockwave);
+    }
 }
 
 bool HookExecutes(const void* target, float hp, bool regular) {
@@ -339,9 +348,11 @@ void HookKill() {
     if (Has(AugType::P_NOVA_AFTERGLOW_RECOVERY)) active::ReduceAllCooldowns(0.2f);
     if (Has(AugType::P_NOVA_STARDUST_HARVEST) && Chance(0.05f)) {
         AddStardust(1);
+        Audio::Play(Audio::Cue::ProcStardustGain);
         ChanceTriggered();
     }
     if (Has(AugType::P_NOVA_STELLAR_CORE_RUPTURE) && s.kills % 20 == 0) {
+        Audio::Play(Audio::Cue::ProcCounterFull);
         DamageAll(700.0f, 1.0f, 0.95f, 0.75f);
         ClearEnemyBullets(0.0f, 0.0f, -1.0f);
     }
@@ -355,10 +366,14 @@ void HookHurt(float& hp, float dmg) {
         const float blocked = std::min(dmg, s.emeraldLeft);   // the plate takes what it can
         s.emeraldLeft -= blocked;
         dmg -= blocked;
+        Audio::Play(s.emeraldLeft <= 0.0f ? Audio::Cue::SfxShieldBreak : Audio::Cue::SfxShieldBlock);
         if (dmg <= 0.0f) return;
     }
     hp -= dmg;
     syn::OnHurt(dmg);
+    if ((s.amethystLeft > 0.0f && s.amethystLeft <= dmg) || (s.topazLeft > 0.0f && s.topazLeft <= dmg) ||
+        (s.rubyLeft > 0.0f && s.rubyLeft <= dmg))
+        Audio::Play(Audio::Cue::SfxShieldBreak);   // 피해 누적으로 깨지는 증강
     s.amethystLeft = std::max(0.0f, s.amethystLeft - dmg);
     s.topazLeft = std::max(0.0f, s.topazLeft - dmg);
     s.rubyLeft = std::max(0.0f, s.rubyLeft - dmg);
@@ -368,6 +383,7 @@ void HookHurt(float& hp, float dmg) {
             s.cakeDamage -= kShardEvery;
             --s.cakeSlices;
             hp = std::min(g_Stats.maxHP, hp + 30.0f);
+            Audio::Play(Audio::Cue::SfxHealSmall);
         }
     }
 }
@@ -560,6 +576,7 @@ void Step(const StepInput& in) {
         s.shinobiCd = 10.0f;
         ClearEnemyBullets(in.px, in.py, kNearRadius);
         active::ResetLongestCooldown();
+        Audio::Play(Audio::Cue::SkillCooldownCut);
     }
     if (Has(AugType::P_STILL_SEA_OF_TRANQUILITY) && s.stillT >= 1.0f &&
         !s.greavesFired && s.greavesCd <= 0.0f) {
@@ -579,6 +596,7 @@ void Step(const StepInput& in) {
         b.speed = g_Stats.bulletSpeed * 1.1f;
         b.color = glm::vec3(0.75f, 0.70f, 1.0f);
         g_Bullets.push_back(b);
+        Audio::Play(Audio::Cue::ProcAutoShot);
     }
     if (Has(AugType::P_STILL_STATIONARY_SATELLITE) && !in.moving && (s.floralT += dt) >= 6.0f) {
         float tx = 0.0f, ty = 0.0f;
@@ -591,6 +609,7 @@ void Step(const StepInput& in) {
             b.sizeScale = 1.3f;
             b.color = glm::vec3(1.0f, 0.60f, 0.80f);
             g_Bullets.push_back(b);
+            Audio::Play(Audio::Cue::ProcAutoShot);
         }
     }
     if (Has(AugType::P_VEIN_CIRCULATING_COOLER) && (s.headlampT += dt) >= 6.0f) {
@@ -613,6 +632,7 @@ void Step(const StepInput& in) {
             if (d > hitR && d < hitR + 18.0f) {
                 b.grazed = true;
                 g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 0.3f);
+                Audio::Play(Audio::Cue::SfxHealSmall);
             }
         }
     }
@@ -643,8 +663,10 @@ void ModifyShot(Bullet& bullet) {
 
 void OnShot() {
     ++s.shots;
-    if (Has(AugType::P_GALE_SCAN_PULSE) && s.shots % 10 == 0)
+    if (Has(AugType::P_GALE_SCAN_PULSE) && s.shots % 10 == 0) {
+        Audio::Play(Audio::Cue::ProcCounterFull);
         DamageAll(15.0f, 0.80f, 0.95f, 0.85f);
+    }
     // Shinsoku's chance does not feed Crown of Storms: it would fire on half
     // of all shots.
     s.fastNext = Has(AugType::P_GALE_VARIABLE_FIRE) && Chance(0.50f);
@@ -662,15 +684,20 @@ void OnDashStarted() {
     cd = std::max(0.4f, cd);
     g_PlayerRuntime.dashCooldown = cd;
     g_PlayerRuntime.dashCooldownMax = cd;
+    if ((Has(AugType::P_FLAME_LIMIT_BREAK) && !s.hornsOffThisWave) ||
+        (Has(AugType::P_FLAME_STELLAR_OVERHEAT) && !s.firescaleOffThisWave))
+        Audio::Play(Audio::Cue::ProcSeal);   // 이번 웨이브 동안 꺼짐
     if (Has(AugType::P_FLAME_LIMIT_BREAK)) s.hornsOffThisWave = true;
     if (Has(AugType::P_FLAME_STELLAR_OVERHEAT)) s.firescaleOffThisWave = true;
     active::OnDash();
     if (Has(AugType::P_CHRONO_DOUBLE_CAST) && Chance(0.30f)) {
         ResetDash();
+        Audio::Play(Audio::Cue::SkillCooldownCut);
         ChanceTriggered();
     }
     if (Has(AugType::P_STORM_MAGNETIC_STORM) && Chance(0.20f)) {
         DamageAll(200.0f, 0.65f, 0.80f, 1.0f);
+        Audio::Play(Audio::Cue::SkillScreenwide);
         ChanceTriggered();
     }
     syn::OnDashStarted();
@@ -678,9 +705,13 @@ void OnDashStarted() {
 
 void OnWaveCleared() {
     syn::OnWaveCleared();
-    if (Has(AugType::P_VEIN_GROWING_STAR))
+    if (Has(AugType::P_VEIN_GROWING_STAR) && s.canaryBonus < 0.30f) {
         s.canaryBonus = std::min(0.30f, s.canaryBonus + 0.02f);
-    if (Has(AugType::P_LUCK_GIFT_OF_STARS) && s.topazLeft > 0.0f) AddStardust(8);
+        Audio::Play(Audio::Cue::ProcGrow);
+    }
+    if (Has(AugType::P_LUCK_GIFT_OF_STARS) && s.topazLeft > 0.0f) { AddStardust(8); Audio::Play(Audio::Cue::ProcStardustGain); }
+    if (s.hornsOffThisWave || s.firescaleOffThisWave || s.darkWingsOffThisWave)
+        Audio::Play(Audio::Cue::ProcSeal);   // 꺼졌던 증강이 다시 켜짐
     s.hornsOffThisWave = false;
     s.firescaleOffThisWave = false;
     s.darkWingsOffThisWave = false;
@@ -691,6 +722,7 @@ bool TryPhoenix() {
     if (syn::TryRevive()) return true;
     if (!Has(AugType::P_FLAME_UNDYING_REIGNITION) || s.phoenixUsed) return false;
     s.phoenixUsed = true;
+    Audio::Play(Audio::Cue::SfxRevive);
     g_GameManager.playerHP = g_Stats.maxHP;
     DamageAll(1000.0f, 1.0f, 0.55f, 0.20f);
     Ring(s.in.px, s.in.py, 520.0f, 1.0f, 0.55f, 0.20f);

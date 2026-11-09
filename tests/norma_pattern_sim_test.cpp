@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <vector>
+#include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 static constexpr float DT = 1.0f / 60.0f;
 static int g_failures = 0;
