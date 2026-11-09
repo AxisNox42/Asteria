@@ -31,6 +31,7 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
     const float homingDelta = fixedDelta;
 
     for (auto& bullet : bullets) {
+        ClampPlayerBulletSize(bullet);
         const float bulletDelta = fixedDelta;
         if (bullet.homing && !bullet.isEnemy && bullet.active) {
             float targetX = 0.0f, targetY = 0.0f;

@@ -97,7 +97,8 @@ State s;
 
 const std::vector<synergy::Aug>& T() { return synergy::Table(); }
 int Index(const char* code) { return synergy::FindCode(code); }
-float Rand01() { return (float)(std::rand() % 10000) / 10000.0f; }
+// MSVC's RAND_MAX is 32767: `rand() % 10000` only reached 0..0.33 and chances fired ~3x too often.
+float Rand01() { return (float)std::rand() / ((float)RAND_MAX + 1.0f); }
 float Hp01() { return std::clamp(g_GameManager.playerHP / std::max(1.0f, g_Stats.maxHP), 0.0f, 1.0f); }
 
 template <class F> void ForEachEnemy(F&& f) {
@@ -988,7 +989,10 @@ void Step(const passive::StepInput& in) {
     for (Bullet& b : g_Bullets) {
         if (!b.active || b.isEnemy || b.skillShot || b.synFlags == 0) continue;
         const uint32_t f = b.synFlags;
-        if (f & synf::Grow) b.sizeScale = std::max(b.sizeScale, b.synA * (1.0f + std::min(1.5f, b.traveled / 450.0f)));
+        if (f & synf::Grow) {
+            b.sizeScale = std::max(b.sizeScale, b.synA * (1.0f + std::min(1.5f, b.traveled / 450.0f)));
+            ClampPlayerBulletSize(b);
+        }
         if ((f & synf::Trail) && b.traveled - b.synB >= 60.0f) {
             b.synB = b.traveled;
             AddZone(b.x, b.y, 26.0f, 1.2f, 40.0f, 0.0f);

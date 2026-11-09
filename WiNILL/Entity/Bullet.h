@@ -154,6 +154,16 @@ public:
     }
 };
 
+// Upper limit of a player shot's sizeScale. Size boosts (warhead, sniper,
+// crossbow, growth, ...) multiply together; without a cap a stack covers the
+// screen. Skill shots and enemy bullets keep their own sizes.
+inline constexpr float kPlayerBulletMaxSizeScale = 4.0f;
+
+inline void ClampPlayerBulletSize(Bullet& bullet) {
+    if (bullet.isEnemy || bullet.skillShot) return;
+    if (bullet.sizeScale > kPlayerBulletMaxSizeScale) bullet.sizeScale = kPlayerBulletMaxSizeScale;
+}
+
 struct BulletHaloStyle {
     float innerRadius;
     float innerAlpha;

@@ -3157,7 +3157,7 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         gm.rewardTierCap = WaveRewardTierCap(gm.currentWave, g_Difficulty);
         const WaveRewardTier earned = WaveRewardTierFor(seconds, times);
         gm.rewardTier = WaveRewardLuckyBump(WaveRewardGuaranteedTier(earned, gm.rewardTierCap), earned,
-                                            (float)(std::rand() % 10000) / 10000.0f,
+                                            (float)std::rand() / ((float)RAND_MAX + 1.0f),
                                             passive::LuckChanceMult(), gm.rewardPityCount);
         gm.rewardSpeed = WaveRewardSpeed(seconds, times);
         gamelog::Event("WAVE_CLEAR", "cleared_wave=%d,clear_sec=%.2f,by=%s,kills=%d,quota=%d,"
