@@ -1895,6 +1895,7 @@ public:
         quasarFallControl1[i] = origin + tangent * arc + side * (turn * arc * 0.45f);
         quasarFallControl2[i] = target - forward * (distanceToTarget * 0.18f) + side * (turn * arc);
         quasarFallTargetsMask |= 1u << i;
+        Audio::Play(Audio::Cue::EliteQuasarStarfallFly);   // 0.75초 동안 커지며 날아가 착탄 순간에 끝남
     }
 
     // Continuous bowed trajectory. Its nose follows the tangent, with a
@@ -2213,6 +2214,7 @@ public:
         }
         if (singularityGrace <= 0.0f && mira::InZone(worldX, worldY, worldX + dx, worldY + dy, g_PlayerSizeMult)) {
             HurtPlayer(playerHP, mira::kZoneDps * deltaTime, "MIRA_ZONE");
+            if (mira::g_weaken <= 0.0f) Audio::Play(Audio::Cue::EnemyMiraTouch);   // just stepped in
             mira::Touch();
         }
     }
@@ -2249,6 +2251,7 @@ public:
             if (lynxInArena && lynxSnipeTimer >= lynx::kRestTime) {
                 lynxSnipe = lynx::SnipeAim;
                 lynxSnipeTimer = 0.0f;
+                Audio::Play(Audio::Cue::EnemyLynxAim);
                 lynxHoldX = worldX;
                 lynxHoldY = worldY;
             }
@@ -2261,12 +2264,14 @@ public:
                 lynxSnipe = lynx::SnipeLock;
                 lynxSnipeTimer = 0.0f;
                 lynxCharge = 1.0f;
+                Audio::Play(Audio::Cue::EnemyLynxLock);
             }
             break;
         case lynx::SnipeLock:
             if (lynxSnipeTimer >= lynx::kLockTime) {
                 if (singularityGrace <= 0.0f && lynx::RayHits(worldX, worldY, lynxHeading, worldX + dx, worldY + dy, g_PlayerSizeMult))
                     HurtPlayer(playerHP, lynx::kRayDamage, "LYNX_RAY");
+                Audio::Play(Audio::Cue::EnemyLynxFire);
                 lynxSnipe = lynx::SnipeFlash;
                 lynxSnipeTimer = 0.0f;
             }

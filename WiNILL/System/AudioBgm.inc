@@ -4,8 +4,9 @@
 BGM(Main, "Resource/Audio/bgm/bgm_main.mp3", true, 1105, 4420177)
 BGM(Tutorial, "Resource/Audio/bgm/bgm_tutorial.mp3", true, 1105, 3975505)
 BGM(Run, "Resource/Audio/bgm/bgm_run.mp3", true, 1105, 7940689)
-BGM(Elite, "Resource/Audio/bgm/bgm_elite.mp3", true, 1105, 3298412)
-BGM(BossOctans, "Resource/Audio/bgm/bgm_boss_octans.mp3", true, 1105, 4707025)
+BGM(Elite, "Resource/Audio/bgm/bgm_elite.mp3", true, 1105, 3298412)
+BGM(Augment, "Resource/Audio/bgm/bgm_augment.mp3", true, 1105, 2206015)
+BGM(BossOctans, "Resource/Audio/bgm/bgm_boss_octans.mp3", true, 1105, 3308633)
 BGM(BossOctansPhase2, "Resource/Audio/bgm/bgm_boss_octans_phase2.mp3", true, 1105, 4137937)
 BGM(BossEridanus, "Resource/Audio/bgm/bgm_boss_eridanus.mp3", true, 1105, 4235857)
 BGM(BossEridanusPhase2, "Resource/Audio/bgm/bgm_boss_eridanus_phase2.mp3", true, 1105, 5445457)

@@ -242,6 +242,7 @@ public:
             if (!m->exploded) continue;                                   // kill not processed yet
             if (m->deathEffectTimer >= 0.0f && m->deathEffectTimer < triangulum::kHoldTime) continue;
             m->triangulumReleased = true;
+            Audio::Play(Audio::Cue::EnemyTrigonShatter);
             for (int k = 0; k < triangulum::kChildCount; ++k) {
                 float offX, offY;
                 triangulum::ScatterOffset(k, m->triangulumSpin, (float)rand() / (float)RAND_MAX * 2.0f - 1.0f,
@@ -286,8 +287,11 @@ public:
                    const glm::vec4& attackBounds = glm::vec4(0.0f)) {
         TickRegulusBuffs(dt);
         // A dead MIRA's zone keeps hurting where it fell.
-        if (mira::Tick(dt, playerCX, playerCY, g_PlayerSizeMult))
+        const bool miraWasIn = mira::g_weaken > 0.0f;
+        if (mira::Tick(dt, playerCX, playerCY, g_PlayerSizeMult)) {
             HurtPlayer(playerHP, mira::kZoneDps * dt, "MIRA_ZONE");
+            if (!miraWasIn) Audio::Play(Audio::Cue::EnemyMiraTouch);   // just stepped in
+        }
         for (auto m : monsters) {
             // Whatever this mob does to the player only lands in its own space.
             space::HurtSourceScope hurtSource(space::SpaceAt(m->worldX, m->worldY));

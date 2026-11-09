@@ -32,7 +32,7 @@ CUE(ShopBuy, 60, 3, false, false, 1, "Resource/Audio/sfx/shop_buy.wav")
 // aug_deal — 덱에서 카드 최대 5장 배분
 CUE(CardDeal, 60, 3, false, false, 1, "Resource/Audio/sfx/aug_deal.wav")
 // aug_flip — 카드가 순차로 뒤집힘
-CUE(CardFlip, 70, 3, false, false, 1, "Resource/Audio/aug_flip.wav")
+CUE(CardFlip, 70, 3, false, false, 1, "Resource/Audio/sfx/aug_flip.wav")
 // aug_pick — 선택 카드 펄스 → 노드가 스킬 줄로 날아감 → 링·플래시
 CUE(CardPick, 60, 3, false, false, 1, "Resource/Audio/sfx/aug_pick.wav")
 // wave_start — 웨이브 시작 / HUD 노드 도착 링
@@ -74,7 +74,7 @@ CUE(BossEridanusBadsector, 60, 3, false, false, 1, "Resource/Audio/sfx/boss_erid
 // boss_eridanus_click — Spread: 커서가 클릭하며 씨앗 뿌림
 CUE(BossEridanusClick, 80, 6, false, false, 1, "Resource/Audio/sfx/boss_eridanus_click.wav")
 // boss_eridanus_corrupt — 셀 오염 (피해·약화)
-CUE(BossEridanusCorrupt, 700, 1, false, false, 1, "Resource/Audio/sfx/boss_eridanus_corrupt.wav")
+CUE(BossEridanusCorrupt, 700, 1, false, false, 5, "Resource/Audio/sfx/boss_eridanus_corrupt_01.wav", "Resource/Audio/sfx/boss_eridanus_corrupt_02.wav", "Resource/Audio/sfx/boss_eridanus_corrupt_03.wav", "Resource/Audio/sfx/boss_eridanus_corrupt_04.wav", "Resource/Audio/sfx/boss_eridanus_corrupt_05.wav")
 // boss_eridanus_heal — 오염 셀 회복
 CUE(BossEridanusHeal, 900, 1, false, false, 1, "Resource/Audio/sfx/boss_eridanus_heal.wav")
 // boss_eridanus_morph — Morph / Erode (2페이즈)
@@ -86,7 +86,7 @@ CUE(BossEridanusShove, 60, 3, false, false, 1, "Resource/Audio/sfx/boss_eridanus
 // boss_eridanus_siphon — Siphon: Plug → Swallow → Spout
 CUE(BossEridanusSiphon, 60, 3, false, false, 1, "Resource/Audio/sfx/boss_eridanus_siphon.wav")
 // boss_eridanus_warn — 화면 셀이 깜빡이며 오염 예고
-CUE(BossEridanusWarn, 700, 1, false, false, 1, "Resource/Audio/sfx/boss_eridanus_warn.wav")
+CUE(BossEridanusWarn, 700, 1, false, false, 5, "Resource/Audio/sfx/boss_eridanus_warn_01.wav", "Resource/Audio/sfx/boss_eridanus_warn_02.wav", "Resource/Audio/sfx/boss_eridanus_warn_03.wav", "Resource/Audio/sfx/boss_eridanus_warn_04.wav", "Resource/Audio/sfx/boss_eridanus_warn_05.wav")
 // boss_octans_aim — 추적 스트림 / Volley / Burst
 CUE(BossOctansAim, 70, 6, false, false, 1, "Resource/Audio/sfx/boss_octans_aim.wav")
 // boss_octans_appear — 
@@ -155,6 +155,20 @@ CUE(EnemyGimbalFire, 40, 6, false, false, 1, "Resource/Audio/sfx/enemy_gimbal_fi
 CUE(EnemyGimbalSpin, 300, 2, false, false, 1, "Resource/Audio/sfx/enemy_gimbal_spin.wav")
 // enemy_gravis_loop — 중력장(반경 570) 안에 있는 동안 저음 웅웅
 CUE(EnemyGravisLoop, 60, 1, false, true, 1, "Resource/Audio/sfx/enemy_gravis_loop.wav")
+// enemy_lynx_aim — LYNX 조준선이 플레이어를 따라가는 1.2초 (차오르는 낮은 웅)
+CUE(EnemyLynxAim, 150, 2, false, false, 1, "Resource/Audio/sfx/enemy_lynx_aim.wav")
+// enemy_lynx_lock — 각도가 잠김 (철컥) — 이때 비키면 피한다
+CUE(EnemyLynxLock, 80, 2, false, false, 1, "Resource/Audio/sfx/enemy_lynx_lock.wav")
+// enemy_lynx_fire — 폭 32px 레이저 발사
+CUE(EnemyLynxFire, 80, 2, false, false, 3, "Resource/Audio/sfx/enemy_lynx_fire_01.wav", "Resource/Audio/sfx/enemy_lynx_fire_02.wav", "Resource/Audio/sfx/enemy_lynx_fire_03.wav")
+// enemy_mira_death — MIRA 가 죽고 지대가 남음 (낮은 베이스 '둥', ERIDANUS 와 같은 F 단조)
+CUE(EnemyMiraDeath, 150, 2, false, false, 3, "Resource/Audio/sfx/enemy_mira_death_01.wav", "Resource/Audio/sfx/enemy_mira_death_02.wav", "Resource/Audio/sfx/enemy_mira_death_03.wav")
+// enemy_mira_touch — 플레이어가 오염 지대에 들어섬 (낮게 타는 소리, 들어갈 때 한 번)
+CUE(EnemyMiraTouch, 900, 1, false, false, 1, "Resource/Audio/sfx/enemy_mira_touch.wav")
+// enemy_trigon_unstable — TRIGON 이 죽고 0.45초 우리가 덜컹임
+CUE(EnemyTrigonUnstable, 120, 2, false, false, 1, "Resource/Audio/sfx/enemy_trigon_unstable.wav")
+// enemy_trigon_shatter — 껍질이 터지고 새끼 Swarm 셋이 튀어나옴
+CUE(EnemyTrigonShatter, 120, 2, false, false, 1, "Resource/Audio/sfx/enemy_trigon_shatter.wav")
 // enemy_magnetar_block — 탄이 방패 면에 막힘
 CUE(EnemyMagnetarBlock, 40, 6, false, false, 1, "Resource/Audio/sfx/enemy_magnetar_block.wav")
 // enemy_magnetar_break — 4회 피격으로 면 파괴
@@ -353,3 +367,19 @@ CUE(BossOctansCrashTick, 500, 2, false, false, 1, "Resource/Audio/sfx/boss_octan
 CUE(BossOctansCrashShatter, 1000, 1, true, false, 1, "Resource/Audio/sfx/boss_octans_crash_shatter.wav")
 // elite_quasar_starfall_launch — QUASAR 성단 폭격 시작: 성단이 터지며 파편이 솟구침
 CUE(EliteQuasarStarfallLaunch, 500, 1, false, false, 1, "Resource/Audio/sfx/elite_quasar_starfall_launch.wav")
+// elite_quasar_starfall_fly — QUASAR 성단 폭격: 유성 하나가 날아감 (착탄까지 0.75초)
+CUE(EliteQuasarStarfallFly, 90, 4, false, false, 3, "Resource/Audio/sfx/elite_quasar_starfall_fly_01.wav", "Resource/Audio/sfx/elite_quasar_starfall_fly_02.wav", "Resource/Audio/sfx/elite_quasar_starfall_fly_03.wav")
+// boss_octans_enter_pane — OCTANS 가 창 안으로 미끄러져 숨음
+CUE(BossOctansEnterPane, 200, 2, false, false, 1, "Resource/Audio/sfx/boss_octans_enter_pane.wav")
+// boss_octans_leave_pane — OCTANS 가 창을 깨고 나옴
+CUE(BossOctansLeavePane, 200, 2, false, false, 1, "Resource/Audio/sfx/boss_octans_leave_pane.wav")
+// boss_octans_wave — OCTANS 범람 파동이 퍼짐
+CUE(BossOctansWave, 300, 2, false, false, 1, "Resource/Audio/sfx/boss_octans_wave.wav")
+// boss_octans_volley — OCTANS 네 갈래 사격 반동
+CUE(BossOctansVolley, 150, 3, false, false, 1, "Resource/Audio/sfx/boss_octans_volley.wav")
+// boss_octans_reboot — 블루스크린 뒤 재부팅: 팬·디스크·삑
+CUE(BossOctansReboot, 1000, 1, false, false, 1, "Resource/Audio/sfx/boss_octans_reboot.wav")
+// boss_octans_shot — OCTANS 난사·조준 연사 한 발
+CUE(BossOctansShot, 60, 3, false, false, 3, "Resource/Audio/sfx/boss_octans_shot_01.wav", "Resource/Audio/sfx/boss_octans_shot_02.wav", "Resource/Audio/sfx/boss_octans_shot_03.wav")
+// boss_octans_warp_charge — OCTANS 2페이즈 창 속으로 빨려 들어가려 함 (0.7초)
+CUE(BossOctansWarpCharge, 500, 1, false, false, 1, "Resource/Audio/sfx/boss_octans_warp_charge.wav")

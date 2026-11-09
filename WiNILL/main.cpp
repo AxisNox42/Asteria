@@ -958,7 +958,7 @@ static void FlashNormaPane(int id, const Monster& boss) {
 }
 
 struct PaneCollapse;
-static void CollapsePane(const os_pane::Pane& pane);
+static void CollapsePane(const os_pane::Pane& pane, bool quiet = false);
 
 // Lets go of the real windows the boss claimed. Panes it opened itself stay
 // until the player closes them or they wear out.
@@ -1556,6 +1556,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             FlashNormaPane(src->id, *boss);
             FlashNormaPane(dst->id, *boss);
             boss->normaPaneId = src->id;
+            Audio::Play(Audio::Cue::BossOctansWarpCharge);   // 0.7초 동안 창으로 빨려 들어가려 함
             break;
         }
         case norma::Ask::WarpSmash: {
@@ -1585,7 +1586,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                     Audio::Play(Audio::Cue::SfxKnockback);
                     SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
                 }
-                CollapsePane(*dst);
+                CollapsePane(*dst, true);
                 os_pane::Close(dst->id);
                 Audio::Play(Audio::Cue::BossOctansPaneBurst);   // 숨은 창을 깨고 나옴
                 // The glass: a ring of shots, shards flying from the frame's
@@ -1824,12 +1825,14 @@ static void PlayNormaEvents() {
     for (const norma::Event& e : norma::g_Events) {
         switch (e.fx) {
         case norma::Fx::Volley:
+            Audio::Play(Audio::Cue::BossOctansShot);   // 난사: 네 갈래 한 발씩
             for (int k = 0; k < 4; ++k) {
                 const float a = e.a + 1.5707963f * (float)k;
                 SpawnSparks(e.x + cosf(a) * 62.0f, e.y + sinf(a) * 62.0f, 2, ir, ig, ib, 220.0f);
             }
             break;
         case norma::Fx::Muzzle:
+            Audio::Play(Audio::Cue::BossOctansShot);   // 조준 연사 한 발
             SpawnSparks(e.x + cosf(e.a) * 70.0f, e.y + sinf(e.a) * 70.0f, 2, ir, ig, ib, 260.0f);
             if (g_ShakeTime < 0.05f) Shake(0.05f, 2.5f);
             break;
@@ -1848,12 +1851,15 @@ static void PlayNormaEvents() {
             TriggerHitStop(0.05f);
             break;
         case norma::Fx::Wave:
+            Audio::Play(Audio::Cue::BossOctansWave);
             SpawnShockWave(e.x, e.y, e.a * 1.6f, 1.6f, 0.76f, 0.80f, 1.0f);
             SpawnSparks(e.x, e.y, 6, ir, ig, ib, 260.0f);
             Shake(0.10f, 5.0f);
             break;
         case norma::Fx::EnterPane:
         case norma::Fx::LeavePane:
+            Audio::Play(e.fx == norma::Fx::EnterPane ? Audio::Cue::BossOctansEnterPane
+                                                     : Audio::Cue::BossOctansLeavePane);
             SpawnShockWave(e.x, e.y, 150.0f, 0.35f, 0.92f, 0.99f, 1.0f);
             SpawnEnemyExplosion(e.x, e.y, ir, ig, ib, false);
             Shake(0.20f, 9.0f);
@@ -1956,7 +1962,7 @@ static void TickThrowBox(float dt) {
     // Burst: the shots it held fly out from where it landed.
     const float cx = ScreenToWorldX(pane->shown.x + pane->shown.w * 0.5f);
     const float cy = ScreenToWorldY(pane->shown.y + pane->shown.h * 0.5f);
-    CollapsePane(*pane);
+    CollapsePane(*pane, true);
     os_pane::Close(box.id);
     Audio::Play(Audio::Cue::BossOctansPaneBurst);
     g_ThrowBox = {};
@@ -2075,7 +2081,7 @@ static void TickOneRam(PaneRam& ram, float dt) {
                 const int inner = (int)std::round(norma::kThrowInner * norma::kRamBurstShare);
                 const float back = std::atan2(-ram.dirY, -ram.dirX);
                 const float half = norma::kRamBurstFan * 0.5f;
-                CollapsePane(*pane);
+                CollapsePane(*pane, true);
                 os_pane::Close(ram.id);
                 Audio::Play(Audio::Cue::BossOctansPaneBurst);
                 for (int i = 0; i < ring; ++i)
@@ -2161,7 +2167,6 @@ static void TickPaneWarp(float dt) {
         SpawnShockWave(cx, cy, 200.0f, 0.35f, 0.92f, 0.99f, 1.0f);
         SpawnSparks(cx, cy, 16, 0.92f, 0.99f, 1.0f, 420.0f);
         Shake(0.22f, 10.0f);
-        Audio::Play(Audio::Cue::BossOctansWarp);   // 창 안으로 미끄러져 숨음
     }
     if (src && !src->flying) {
         float ox = 0.0f, oy = 0.0f;
@@ -2422,9 +2427,9 @@ static bool CountdownFor(int id, float& left) {
     return true;
 }
 
-static void CollapsePane(const os_pane::Pane& pane) {
+static void CollapsePane(const os_pane::Pane& pane, bool quiet) {
     g_PaneCollapses.push_back({ pane.shown, 0.0f });
-    Audio::Play(Audio::Cue::OsPaneClose);   // 창이 수축하며 닫힘
+    if (!quiet) Audio::Play(Audio::Cue::OsPaneClose);   // 창이 수축하며 닫힘 (터진 창은 폭발음만)
 }
 
 static void DrawPaneCollapses(float dt) {
@@ -2573,6 +2578,11 @@ static void TickCrash(float dt) {
         g_Crash.storm.clear();
         BuildCrashCracks();
         TriggerHitStop(norma::kCrashBlue + norma::kCrashCrack);
+    }
+    // 재부팅 소리: 팬이 돌고 디스크가 읽히고 '삑' 한 뒤 화면이 깨지며 게임이 돌아온다
+    if (g_Crash.blue && !g_Crash.shattered) {
+        const float rebootAt = shatterAt - 1.2f;
+        if (g_Crash.t - dt < rebootAt && g_Crash.t >= rebootAt) Audio::Play(Audio::Cue::BossOctansReboot);
     }
     // The shattering: the game shows again and the boss turns open.
     if (g_Crash.blue && !g_Crash.shattered && g_Crash.t >= shatterAt) {
@@ -3459,6 +3469,10 @@ static void UpdateBgmFlow(float realDelta) {
     }
     g_BgmRunEnded = false;
 
+    if (scene == GameState::AUG_SELECT) {   // 증강 고르는 화면은 전용 곡
+        Audio::PlayBgm(Audio::Bgm::Augment, 600);
+        return;
+    }
     if (scene != GameState::RUNNING && scene != GameState::AUG_SELECT) {
         g_BgmBossKind = -1;
         g_BgmBossEntry = -1.0f;
@@ -3501,7 +3515,15 @@ static void UpdateBgmFlow(float realDelta) {
         if (g_BgmBossEntry < impactAt) return;
         g_BgmBossEntry = -1.0f;
     }
+    static bool s_crashBefore = false;
+    const bool crashJustEnded = s_crashBefore && !g_Crash.active;
+    s_crashBefore = g_Crash.active;
     if (g_Crash.active) return;             // 블루스크린 패턴: 곡을 끊고 패턴 소리만
+    if (crashJustEnded) {                   // 재부팅 뒤 곡이 천천히 돌아옴
+        Audio::PlayBgm(boss->normaPhase == 2 ? (eridanus ? Audio::Bgm::BossEridanusPhase2 : Audio::Bgm::BossOctansPhase2)
+                                             : (eridanus ? Audio::Bgm::BossEridanus : Audio::Bgm::BossOctans), 2500);
+        return;
+    }
     if (g_NormaJudgment >= 0.0f)            // '심판까지' 10초
         Audio::PlayBgm(Audio::Bgm::Judgment, 300);
     else if (boss->normaPhase == 2)         // 이름에 II 가 붙는 2페이즈
@@ -5825,6 +5847,8 @@ CollisionSystem::Update(pCX, pCY,
                     if (!m->alive && !m->exploded) {
                         CollectMonsterKill(killSink, *m);
                         if (m->kind == MobKind::MIRA) mira::AddZone(m->worldX, m->worldY, mira::kDeathLife, mira::kZoneRadius, m->miraChain);   // its zone stays, joined to its trail
+                        if (m->kind == MobKind::MIRA && !m->noBlast) Audio::Play(Audio::Cue::EnemyMiraDeath);
+                        if (m->kind == MobKind::TRIANGULUM && !m->noBlast) Audio::Play(Audio::Cue::EnemyTrigonUnstable);
                         // A CAELUM that withdrew for NORMA still has health: no send-off.
                         if (m->kind == MobKind::CAELUM && m->hp <= 0.0f) PlayCaelumFall(m->worldX, m->worldY);
                         m->SpawnDeathEffect((float)now);
