@@ -30,6 +30,7 @@ struct PlayerStats {
 
 // 전투 피해 감소 — main 에서 g_Stats.GetDamageTakenMult() 로 매 프레임 동기화
 inline float g_PlayerDmgMult = 1.0f;
+inline float g_PlayerSizeMult = 1.0f;   // PlayerStats::playerSizeMult, for mob hit tests that have no stats
 inline float g_PlayerShield     = 0.0f;
 inline float g_PlayerShieldTimer = 0.0f;
 inline float g_PlayerDamagePulse = 0.0f;

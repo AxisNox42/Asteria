@@ -25,6 +25,7 @@ inline GLuint g_IconProg = 0, g_IconVAO = 0, g_IconVBO = 0;
 inline GLint  g_IconProjLoc = -1, g_IconTintLoc = -1;
 inline GLint  g_IconDarkenLoc = -1;
 inline GLuint g_IconBatchProg = 0, g_IconBatchVAO = 0, g_IconBatchVBO = 0;
+inline GLint  g_IconBatchDarkenLoc = -1;
 inline GLint  g_IconBatchProjLoc = -1;
 inline size_t g_IconBatchCapacityFloats = 0;
 
@@ -114,12 +115,17 @@ inline void InitIconGL() {
         "in vec2 uv;\n"
         "in vec4 color;\n"
         "uniform sampler2D tex;\n"
+        "uniform float darkenMode;\n"
         "out vec4 fragColor;\n"
         "void main(){\n"
         "  vec4 t=texture(tex,uv);\n"
         "  float a=color.a*t.a;\n"
         "  if(a<0.002) discard;\n"
-        "  fragColor=vec4(color.rgb*t.rgb,a);\n"
+        "  if(darkenMode>0.5){\n"
+        "    fragColor=vec4(mix(vec3(1.0),color.rgb*t.rgb,a),a);\n"
+        "  } else {\n"
+        "    fragColor=vec4(color.rgb*t.rgb,a);\n"
+        "  }\n"
         "}\n";
     GLuint bv = IconCompile(GL_VERTEX_SHADER, BatchVS);
     GLuint bf = IconCompile(GL_FRAGMENT_SHADER, BatchFS);
@@ -128,6 +134,7 @@ inline void InitIconGL() {
     glLinkProgram(g_IconBatchProg);
     glDeleteShader(bv); glDeleteShader(bf);
     g_IconBatchProjLoc = glGetUniformLocation(g_IconBatchProg, "proj");
+    g_IconBatchDarkenLoc = glGetUniformLocation(g_IconBatchProg, "darkenMode");
     glUseProgram(g_IconBatchProg);
     glUniform1i(glGetUniformLocation(g_IconBatchProg, "tex"), 0);
     glUseProgram(0);
@@ -149,7 +156,11 @@ inline void InitIconGL() {
 
 inline void DrawIconBatch(GLuint tex, const std::vector<IconBatchQuad>& quads,
                           bool additive = false,
-                          bool flushPendingGeometry = true) {
+                          bool flushPendingGeometry = true,
+                          bool darken = false) {
+    // darken: overlapping quads do NOT accumulate. Each fragment becomes
+    // mix(white, rgb, a) and GL_MIN keeps the darkest, so a pile of dark
+    // fields is as dark as its single darkest one, never pure black.
     if (!tex || !g_IconBatchProg || quads.empty()) return;
 
     static std::vector<float> vertices;
@@ -198,11 +209,21 @@ inline void DrawIconBatch(GLuint tex, const std::vector<IconBatchQuad>& quads,
         glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, vertices.data());
     }
     glEnable(GL_BLEND);
-    if (additive) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    if (g_IconBatchDarkenLoc >= 0)
+        glUniform1f(g_IconBatchDarkenLoc, darken ? 1.0f : 0.0f);
+    if (darken) {
+        // The window is a transparent overlay, so darkness lives in alpha:
+        // RGB takes the min, alpha takes the MAX (ADD would pile up to opaque).
+        glBlendEquationSeparate(GL_MIN, GL_MAX);
+        glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+    }
+    else if (additive) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     else SetStandardIconBlend();
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(needed / 8u));
     // Geometry and UI passes expect regular alpha blending.
-    if (additive)
+    if (darken)
+        glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    if (additive || darken)
         SetStandardIconBlend();
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);

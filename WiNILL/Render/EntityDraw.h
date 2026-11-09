@@ -11,6 +11,8 @@ void DrawBulletHalos(const std::vector<Bullet>& bullets);
 void drawMob(const Monster* m, float visualTime = -1.0f);
 void drawRangedMob(const RangedMob* r, float visualTime = -1.0f);
 void DrawRegulusBuffMarks(const Monster* m, float visualTime);
+void DrawLynxRay(const Monster* m);
+void DrawMiraZones();
 void DrawRegulusBeams(const MonsterManager& manager, float visualTime);
 // Render an Astral Log entity preview with the same silhouette as gameplay.
 void drawCodexMobPreview(int codexId, float x, float y, float scale = 3.0f);

@@ -258,6 +258,8 @@ enum CodexMobId {
     CM_RETIRED_08, // Reserved to preserve saved Codex indices after Sagitta removal.
     CM_ANTARES,
     CM_MAGNETAR,
+    CM_LYNX,
+    CM_TRIGON,      // MobKind::TRIANGULUM, shown as TRIGON
     CM_COUNT
 };
 
@@ -288,7 +290,7 @@ inline const CodexMobProfile CODEX_MOB_PROFILES[CM_COUNT] = {
       { L"로터는 후방 외피에서 생산되어 전방 두 외피 사이로 출격합니다. 매 발 현재 위치를 조준하지만 발사 후에는 직진합니다. 옆으로 이동하거나 격추하세요.", L"Rotors form in the rear shell and launch between two front guides. Each shot aims at your current position, then flies straight. Move sideways or shoot them down.", L"ロターは後方の殻で生産され前方2つの殻の間から射出されます。各射出時に現在位置を狙い、その後は直進します。横移動か撃墜で対処しましょう。" } },
     { { L"스코프", L"SCOPE", L"スコープ" },
       { L"중앙 코어와 조준선으로 원거리에서 공격하는 감시 신호", L"Ranged surveillance signal that attacks from afar with a central core and aim lanes", L"中央コアと照準線で遠距離攻撃する監視シグナル" },
-      L"MODERATE", 2, 5, 720,L"10 / shot (3-shot burst)", L"Variable",
+      L"MODERATE", 2, 5, 360,L"10 / shot (3-shot burst)", L"Variable",
       { L"유도탄 3발 연속 발사", L"Fires 3 homing shots per burst", L"誘導弾を3発連続発射" },
       { L"중앙 렌즈를 원형 고리와 네 개의 관측점이 둘러싸고 있습니다.", L"A central lens is surrounded by circular rings and four observation nodes.", L"中央のレンズを円形のリングと4つの観測点が囲んでいます。" } },
     { { L"스웜", L"SWARM", L"スウォーム" },
@@ -340,6 +342,28 @@ inline const CodexMobProfile CODEX_MOB_PROFILES[CM_COUNT] = {
       { L"천천히 도는 정이십면체 격자가 곧 결계이며, 안쪽의 작은 결정 씨앗이 연결선으로 격자를 붙잡고 있습니다.",
         L"A slowly turning icosahedral lattice is the ward itself, held by tethers from a small crystal seed inside.",
         L"ゆっくり回る正二十面体の格子そのものが結界で、内側の小さな結晶の種が連結線で格子を支えています。" } },
+    { { L"링크스", L"LYNX", L"リンクス" },
+      { L"거리를 벌린 채 플레이어를 조준하다 코어에서 굵은 레이저를 쏘는 저격수",
+        L"Sniper that keeps its distance, aims at you, then fires a thick laser from its core",
+        L"距離を取ってプレイヤーを狙い、コアから太いレーザーを撃つ狙撃手" },
+      L"HIGH", 2, 6, 216, L"12 / ray, 4 / sec (contact)", L"54-81 px/s",
+      { L"가는 조준선이 플레이어를 따라오다 멈춘 뒤 0.25초 만에 굵은 레이저 발사 · 선이 멈춘 뒤 옆으로 비키면 피할 수 있음",
+        L"A thin aim line tracks you, freezes, and a thick laser fires 0.25s later · step aside once the line freezes to dodge",
+        L"細い照準線が追尾し、止まってから0.25秒で太いレーザーを発射 · 線が止まった後に横へ避ければ回避できる" },
+      { L"긴 삼각 판 두 장이 마름모 코어를 양옆에서 감싸고, 앞쪽 끝이 좁게 모입니다. 조준할수록 몸체 선이 주황으로 달아오릅니다.",
+        L"Two long triangular plates flank a diamond core and narrow toward the front. Its lines glow orange as it aims.",
+        L"2枚の長い三角形の板がひし形のコアを囲み、前方で細く集まります。狙うほど本体の線が橙色に熱を帯びます。" } },
+    { { L"트라이곤", L"TRIGON", L"トライゴン" },
+      { L"공격하지 않는 대신 삼각 껍질 안에 SWARM 세 마리를 가두고 다니는 운반형 신호",
+        L"Passive carrier signal that hauls three caged SWARMs inside a triangular shell",
+        L"攻撃しない代わりに三角の殻の中にSWARMを3体閉じ込めて運ぶ運搬型シグナル" },
+      L"LOW", 2, 5, 400, L"None (freed Swarms: 5 / sec contact)", L"36-54 px/s",
+      { L"공격 없음 · 쓰러지면 잠시 멈춰 흔들린 뒤 SWARM 3마리를 주변에 풀어놓음",
+        L"No attack · when killed it stalls and shakes, then lets three SWARMs loose around it",
+        L"攻撃なし · 倒すと一瞬止まって揺れた後、周囲にSWARMを3体解き放つ" },
+      { L"굵은 자홍 삼각 껍질 안에서 안쪽 틀이 반대로 돌고, 코어에 묶인 분홍 SWARM 세 마리가 모서리를 밀어냅니다. 멀리서 잡으면 풀려난 SWARM이 다가오기까지 시간을 벌 수 있습니다.",
+        L"Inside a thick magenta triangular shell an inner frame turns the other way, and three pink SWARMs tethered to the core shove at its corners. Kill it from afar to buy time before the freed SWARMs reach you.",
+        L"太い赤紫の三角の殻の中で内側のフレームが逆向きに回り、コアにつながれたピンクのSWARM3体が角を押し広げます。遠くで倒せば、解き放たれたSWARMが届くまでの時間を稼げます。" } },
 };
 
 inline const CodexMobProfile* CodexMobProfileFor(int id) {
@@ -406,6 +430,8 @@ inline CodexMobId CodexMobIdForKind(MobKind k) {
     case MobKind::REGULUS: return CM_REGULUS;
     case MobKind::ANTARES: return CM_ANTARES;
     case MobKind::MAGNETAR: return CM_MAGNETAR;
+    case MobKind::LYNX:  return CM_LYNX;
+    case MobKind::TRIANGULUM: return CM_TRIGON;
     default:               return CM_COUNT;
     }
 }
@@ -423,7 +449,7 @@ template <typename Fn>
 inline void ForEachCodexMobEntry(Fn&& fn) {
     static constexpr CodexMobId kRosterOrder[] = {
         CM_ROTOR, CM_ANTARES, CM_SCOPE, CM_REGULUS, CM_GIMBAL, CM_SWARM,
-        CM_GENESIS, CM_GRAVIS, CM_QUASAR, CM_MAGNETAR
+        CM_GENESIS, CM_GRAVIS, CM_QUASAR, CM_MAGNETAR, CM_LYNX, CM_TRIGON
     };
     for (CodexMobId id : kRosterOrder) fn((int)id);
 }
@@ -547,6 +573,8 @@ inline MobKind CodexMobKind(int id) {
     case CM_REGULUS: return MobKind::REGULUS;
     case CM_ANTARES: return MobKind::ANTARES;
     case CM_MAGNETAR: return MobKind::MAGNETAR;
+    case CM_LYNX:  return MobKind::LYNX;
+    case CM_TRIGON: return MobKind::TRIANGULUM;
     default:         return MobKind::ROTOR;
     }
 }

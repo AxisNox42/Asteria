@@ -16,7 +16,7 @@
 inline constexpr int kRosterDifficulties = 4;   // EASY, NORMAL, HARD, NIGHTMARE
 
 enum class RosterKind {
-    SWARM, ROTOR, GIMBAL, SCOPE, GRAVIS, MAGNETAR,
+    SWARM, ROTOR, GIMBAL, SCOPE, GRAVIS, MAGNETAR, LYNX, MIRA, TRIANGULUM,
     COUNT
 };
 
@@ -92,6 +92,9 @@ inline constexpr RosterEntry kEnemyRoster[] = {
     { RosterKind::SCOPE,    { 0,  5,  5,  6 },  0,  0 },   // rate: kGimbalScope
     { RosterKind::GRAVIS,   { 0,  7,  6,  5 },  3,  7 },
     { RosterKind::MAGNETAR, { 0,  0, 11,  9 },  4, 12 },
+    { RosterKind::LYNX,     { 0,  6,  7,  7 },  5, 10 },
+    { RosterKind::MIRA,     { 0,  9,  9,  9 },  4,  9 },
+    { RosterKind::TRIANGULUM, { 0, 7,  7,  7 },  4,  8 },
 };
 
 inline const RosterEntry& RosterEntryFor(RosterKind kind) {

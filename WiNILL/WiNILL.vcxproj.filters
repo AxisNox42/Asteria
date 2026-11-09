@@ -308,6 +308,15 @@
     <ClInclude Include="Entity\NormaBoss.h">
       <Filter>Entity</Filter>
     </ClInclude>
+    <ClInclude Include="Entity\LynxMob.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
+    <ClInclude Include="Entity\MiraMob.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
+    <ClInclude Include="Entity\TriangulumMob.h">
+      <Filter>Entity</Filter>
+    </ClInclude>
     <ClInclude Include="System\OsPane.h">
       <Filter>System</Filter>
     </ClInclude>

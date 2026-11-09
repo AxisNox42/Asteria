@@ -2,6 +2,9 @@
 
 #include "NormaBoss.h"
 #include "CaelumBoss.h"
+#include "LynxMob.h"
+#include "MiraMob.h"
+#include "TriangulumMob.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -79,6 +82,9 @@ enum class MobKind {
     MAGNETAR,
     NORMA,      // window boss (NormaBoss.h); keep last so XP slots stay put
     CAELUM,     // wallpaper boss (CaelumBoss.h): the mid-run boss, after NORMA
+    LYNX,     // regular sniper (LynxMob.h)
+    MIRA,     // regular corruption walker (MiraMob.h)
+    TRIANGULUM, // regular passive carrier: three Swarms burst out when it dies (TriangulumMob.h)
 };
 
 // Short names for the balance log (System/GameLog.h).
@@ -95,6 +101,9 @@ inline const char* MobKindName(MobKind kind) {
     case MobKind::MAGNETAR: return "MAGNETAR";
     case MobKind::NORMA:    return "NORMA";
     case MobKind::CAELUM:   return "CAELUM";
+    case MobKind::LYNX:   return "LYNX";
+    case MobKind::MIRA:   return "MIRA";
+    case MobKind::TRIANGULUM: return "TRIANGULUM";
     }
     return "?";
 }
@@ -126,6 +135,9 @@ inline void MobKillReward(MobKind kind, float& xpBase, float& scoreBase) {
     case MobKind::REGULUS: xpBase = 6.0f;  scoreBase = 260.0f; break;
     case MobKind::ANTARES: xpBase = 8.0f;  scoreBase = 350.0f; break;
     case MobKind::MAGNETAR: xpBase = 10.0f; scoreBase = 520.0f; break;
+    case MobKind::LYNX:  xpBase = 5.0f;  scoreBase = 240.0f; break;
+    case MobKind::MIRA:  xpBase = 4.0f;  scoreBase = 200.0f; break;
+    case MobKind::TRIANGULUM: xpBase = 6.0f; scoreBase = 240.0f; break;
     case MobKind::CAELUM:  xpBase = 40.0f; scoreBase = 2500.0f; break;   // the mid-run boss
     default: break;
     }
@@ -142,6 +154,9 @@ inline int StardustRewardFor(MobKind kind) {
     case MobKind::REGULUS: return 3;
     case MobKind::ANTARES: return 4;
     case MobKind::MAGNETAR: return 6;
+    case MobKind::LYNX:  return 3;
+    case MobKind::MIRA:  return 2;
+    case MobKind::TRIANGULUM: return 3;
     case MobKind::CAELUM:  return 30;
     default:               return 0;
     }
@@ -194,6 +209,10 @@ public:
     // Genesis and the enemies it controls share one colour family (magenta), clearly
     // apart from the red/orange of free Swarms and Rotors. A controlled enemy uses it
     // until its Genesis dies; then it falls back to its own colour and plain AI.
+    static inline const glm::vec3 LYNX_COLOR = glm::vec3(0.39f, 0.90f, 0.77f);
+    static inline const glm::vec3 TRIANGULUM_COLOR = glm::vec3(0.74f, 0.10f, 0.52f);    // Genesis's body colour: a lesser Genesis
+    static inline const glm::vec3 MIRA_COLOR = glm::vec3(1.0f, 0.59f, 0.38f);           // the core; the zone is ERIDANUS amber
+    static inline const glm::vec3 LYNX_HOT =glm::vec3(1.0f, 0.58f, 0.39f);            // the aim line and the ray
     static inline const glm::vec3 GENESIS_COLOR = glm::vec3(0.74f, 0.10f, 0.52f);        // body
     static inline const glm::vec3 GENESIS_PRODUCTION = glm::vec3(0.98f, 0.28f, 0.74f);   // shells, glow
     static inline const glm::vec3 GENESIS_HEAT = glm::vec3(1.0f, 0.72f, 0.92f);          // heated edge
@@ -444,7 +463,7 @@ public:
     float hitStunCooldown = 0.0f;
     float hitKnockX = 0.0f, hitKnockY = 0.0f;
     void TryHitStun(float dirX, float dirY) {
-        if (hitStunCooldown > 0.0f) return;
+        if (hitStunCooldown > 0.0f || LynxHoldsPosition()) return;
         hitStunTimer = HIT_STUN_TIME;
         hitStunCooldown = HIT_STUN_COOLDOWN;
         hitKnockX = dirX * HIT_KNOCK_SPEED;
@@ -544,6 +563,17 @@ public:
     // Seconds since the buff landed (drives the fade-in); < 0 = not buffed.
     float regulusSpeedAge = -1.0f;
     float regulusStealthAge = -1.0f;
+
+    // LYNX sniper (LynxMob.h).
+    bool lynxInArena = false;           // reached the view; only then it aims
+    float lynxHeading = 0.0f;           // where the plates and the ray point
+    int lynxSnipe = lynx::SnipeRest;
+    float lynxSnipeTimer = 0.0f;
+    float lynxHoldX = 0.0f, lynxHoldY = 0.0f;   // where it stands from aim to shot
+    float lynxCharge = 0.0f;            // 0..1 how hot the outline is drawn
+    float miraTrailDist = 0.0f;         // MIRA: walked since its last trail puddle
+    int miraChain = 0;                  // MIRA: the ribbon its trail puddles belong to
+    float triangulumSpin = 0.0f;        // TRIANGULUM: angle of its inner triangle (drawn only)
 
     // Genesis station state.
     float spawnTimer = 0.0f;
@@ -701,6 +731,8 @@ public:
     // Spawns sit off-map; the edge only holds Antares once it has come in.
     bool antaresInArena = false;
     int antaresGen = 0;               // 0 elite, 1 and 2 split descendants
+    bool triangulumReleased = false;  // TRIANGULUM: its children are out
+    float triangulumChildHpMult = 1.0f;   // TRIANGULUM: spawn-time HP ramp handed to its Swarms
     bool antaresSplit = false;        // children already released
     int antaresBounces = 0;           // edge reflections so far
     float antaresBounceCd = 0.0f;     // after bouncing off another Antares
@@ -778,6 +810,34 @@ public:
             speed = norma::kMoveSpeed;
             sizeScale = caelum::kSizeScale;
             contactDmg = caelum::kContactDps;
+            return;
+        }
+        if (kind == MobKind::LYNX) {
+            color = LYNX_COLOR;
+            hp *= lynx::kHpMult;
+            speed *= lynx::kSpeedMult;
+            sizeScale = lynx::kSizeScale;
+            contactDmg = lynx::kContactDps;
+            lynxHeading = lynx::WrapAngle((float)(rand() % 628) * 0.01f);
+            lynxSnipeTimer = (float)(rand() % 100) * 0.01f;     // a group never fires as one
+            return;
+        }
+        if (kind == MobKind::TRIANGULUM) {
+            color = TRIANGULUM_COLOR;
+            triangulumChildHpMult = hp / 90.0f;
+            hp *= triangulum::kHpMult;
+            speed *= triangulum::kSpeedMult;
+            sizeScale = triangulum::kSizeScale;
+            contactDmg = 0.0f;                  // it never attacks
+            triangulumSpin = (float)(rand() % 628) * 0.01f;
+            return;
+        }
+        if (kind == MobKind::MIRA) {
+            color = MIRA_COLOR;
+            hp *= mira::kHpMult;
+            speed *= mira::kSpeedMult;
+            sizeScale = mira::kSizeScale;
+            contactDmg = 0.0f;                  // the zone hurts instead
             return;
         }
         if (kind == MobKind::GENESIS) {
@@ -1038,7 +1098,9 @@ public:
 
     bool DeathEffectVisible() const {
         if (deathEffectTimer < 0.0f) return false;
-        const float duration = kind == MobKind::GRAVIS ? 0.40f : 0.0f;
+        const float duration = kind == MobKind::GRAVIS ? 0.40f
+                             : kind == MobKind::TRIANGULUM ? triangulum::kHoldTime + triangulum::kShatterTime
+                             : 0.0f;
         return deathEffectTimer < duration;
     }
 
@@ -1155,7 +1217,7 @@ public:
                            bool animateBody = true) {
         if (exploded) return;
         exploded = true;
-        if (animateBody && kind == MobKind::GRAVIS)
+        if (animateBody && (kind == MobKind::GRAVIS || kind == MobKind::TRIANGULUM))
             deathEffectTimer = 0.0f;
         const float base = (summoned ? 28.0f : 18.0f) * sizeScale;
         switch (kind) {
@@ -1171,6 +1233,31 @@ public:
         case MobKind::GIMBAL: SpawnGimbalDeathEffect(base, reduced); break;
         case MobKind::REGULUS: SpawnRegulusDeathEffect(base, reduced); break;
         case MobKind::ANTARES: SpawnAntaresDeathEffect(base, reduced); break;
+        case MobKind::TRIANGULUM:
+        case MobKind::MIRA: {
+            const float radius = MobDeathParticleRadius(base);
+            EnemyParticleBurst burst;
+            burst.count = 14; burst.life = 0.40f;
+            burst.startRadius = 0.25f; burst.jitter = 0.35f;
+            burst.speedMin = radius * 1.6f; burst.speedMax = radius * 3.0f;
+            burst.sizeMin = 2.0f; burst.sizeMax = 4.0f;
+            burst.colorLift = 0.25f;
+            SpawnEnemyParticleBurst(worldX, worldY, color, radius, burst, reduced);
+            break;
+        }
+        case MobKind::LYNX: {
+            const float radius = MobDeathParticleRadius(base);
+            EnemyParticleBurst burst;
+            burst.count = 16; burst.life = 0.34f;
+            burst.phase = lynxHeading;
+            burst.startRadius = 0.25f; burst.jitter = 0.30f;
+            burst.speedMin = radius * 2.2f; burst.speedMax = radius * 3.8f;
+            burst.sizeMin = 2.0f; burst.sizeMax = 4.5f;
+            burst.colorLift = 0.25f;
+            SpawnEnemyParticleBurst(worldX, worldY, color, radius, burst, reduced);
+            SpawnMobDeathSparks(worldX, worldY, color, radius, 5, reduced);
+            break;
+        }
         case MobKind::MAGNETAR: {
             const float radius = MobDeathParticleRadius(base);
             EnemyParticleBurst burst;
@@ -1239,6 +1326,36 @@ public:
         case REGULUS_BUFF_STEALTH: return glm::vec3(0.72f, 0.50f, 1.0f);
         default:                   return glm::vec3(0.722f, 0.937f, 1.0f);
         }
+    }
+
+    // A Lynx flies straight into the view from its spawn edge, wherever the
+    // player is, then stays inside it with the hull fully visible.
+    void ConstrainLynxToViewport(float left, float top, float right, float bottom,
+                                   float deltaTime) {
+        if (kind != MobKind::LYNX) return;
+        if (LynxHoldsPosition()) {
+            worldX = lynxHoldX;
+            worldY = lynxHoldY;
+            return;
+        }
+        const float margin = 120.0f * lynx::HullScale(sizeScale);
+        const float minX = left + std::min(margin, std::max(0.0f, right - left) * 0.5f);
+        const float minY = top + std::min(margin, std::max(0.0f, bottom - top) * 0.5f);
+        const float maxX = std::max(minX, right - margin);
+        const float maxY = std::max(minY, bottom - margin);
+        if (!lynxInArena) {
+            const float gapX = std::clamp(worldX, minX, maxX) - worldX;
+            const float gapY = std::clamp(worldY, minY, maxY) - worldY;
+            const float gap = sqrtf(gapX * gapX + gapY * gapY);
+            const float step = lynx::kEntrySpeed * deltaTime;
+            lynxInArena = gap <= step;
+            const float t = lynxInArena ? 1.0f : step / gap;
+            worldX += gapX * t;
+            worldY += gapY * t;
+            return;
+        }
+        worldX = std::clamp(worldX, minX, maxX);
+        worldY = std::clamp(worldY, minY, maxY);
     }
 
     void ConstrainRegulusToViewport(float left, float top,
@@ -1421,6 +1538,12 @@ public:
     // over (lock, beam, starfall, recovery), and while an eruption runs. Nothing
     // may move it then: not crowding, not the player's pulls and pushes, not the
     // viewport clamp.
+    // Aiming through firing: nothing shoves it, so the ray leaves from where
+    // the player saw the line.
+    bool LynxHoldsPosition() const {
+        return kind == MobKind::LYNX && alive && lynxSnipe != lynx::SnipeRest;
+    }
+
     bool QuasarHoldsPosition() const {
         return kind == MobKind::QUASAR && alive &&
                (quasarState != 0 || QuasarPrecharge() > 0.0f || quasarEruptActive);
@@ -2049,6 +2172,104 @@ public:
             ? threshold : 26.0f * sizeScale;
         if (distance < contactRange)
             HurtPlayer(playerHP, dps * deltaTime, MobKindName(kind));
+    }
+
+    // TRIANGULUM: walks at the player and does nothing else (TriangulumMob.h).
+    void UpdateTriangulum(float dx, float dy, float distance, float deltaTime, float speedMult) {
+        triangulumSpin += deltaTime * triangulum::kOrbitSpeed;
+        if (distance > 24.0f) {
+            worldX += dx / distance * speed * speedMult * deltaTime;
+            worldY += dy / distance * speed * speedMult * deltaTime;
+        }
+    }
+
+    // MIRA: walks at the player; its own zone (MiraMob.h) is the only danger.
+    void UpdateMira(float dx, float dy, float distance, float deltaTime, float& playerHP, float speedMult) {
+        if (!miraChain) miraChain = mira::NewChain();
+        mira::SetHead(miraChain, worldX, worldY);
+        if (!miraChain) miraChain = mira::NewChain();
+        mira::SetHead(miraChain, worldX, worldY);
+        if (distance > 24.0f) {
+            const float step = speed * speedMult * deltaTime;
+            worldX += dx / distance * step;
+            worldY += dy / distance * step;
+            miraTrailDist += step;
+            if (miraTrailDist >= mira::kTrailSpacing) {   // a puddle that shrinks away behind it
+                miraTrailDist = 0.0f;
+                mira::AddTrail(worldX, worldY, miraChain);
+            }
+        }
+        if (singularityGrace <= 0.0f && mira::InZone(worldX, worldY, worldX + dx, worldY + dy, g_PlayerSizeMult)) {
+            HurtPlayer(playerHP, mira::kZoneDps * deltaTime, "MIRA_ZONE");
+            mira::Touch();
+        }
+    }
+
+    // Keeps its distance while resting, stands still to aim. The line tracks
+    // the player, freezes, and the ray fires down it from the core.
+    void UpdateLynx(float dx, float dy, float distance, float deltaTime,
+                      float& playerHP, float speedMult,
+                      float gateWX, float gateWY, float gateWW, float gateWH) {
+        const auto turnToPlayer = [&](float rate) {
+            const float turn = lynx::WrapAngle(atan2f(dy, dx) - lynxHeading);
+            lynxHeading = lynx::WrapAngle(lynxHeading + std::clamp(turn, -rate * deltaTime, rate * deltaTime));
+        };
+        if (LynxHoldsPosition()) {
+            worldX = lynxHoldX;
+            worldY = lynxHoldY;
+        }
+        if (lynxInArena) lynxSnipeTimer += deltaTime;     // the rest starts once it has arrived
+        switch (lynxSnipe) {
+        case lynx::SnipeRest: {
+            turnToPlayer(lynx::kRestTurnRate);
+            lynxCharge = 0.0f;
+            const float ux = dx / distance, uy = dy / distance;
+            const float pace = speed * speedMult * deltaTime;
+            if (lynxInArena) {
+                if (distance > lynx::kFarRange) {
+                    worldX += ux * pace;
+                    worldY += uy * pace;
+                } else if (distance < lynx::kNearRange) {
+                    worldX -= ux * pace * lynx::kRetreatMult;
+                    worldY -= uy * pace * lynx::kRetreatMult;
+                }
+            }
+            if (lynxInArena && lynxSnipeTimer >= lynx::kRestTime) {
+                lynxSnipe = lynx::SnipeAim;
+                lynxSnipeTimer = 0.0f;
+                lynxHoldX = worldX;
+                lynxHoldY = worldY;
+            }
+            break;
+        }
+        case lynx::SnipeAim:
+            turnToPlayer(lynx::kTurnRate);
+            lynxCharge = lynxSnipeTimer / lynx::kAimTime;
+            if (lynxSnipeTimer >= lynx::kAimTime) {
+                lynxSnipe = lynx::SnipeLock;
+                lynxSnipeTimer = 0.0f;
+                lynxCharge = 1.0f;
+            }
+            break;
+        case lynx::SnipeLock:
+            if (lynxSnipeTimer >= lynx::kLockTime) {
+                if (singularityGrace <= 0.0f && lynx::RayHits(worldX, worldY, lynxHeading, worldX + dx, worldY + dy, g_PlayerSizeMult))
+                    HurtPlayer(playerHP, lynx::kRayDamage, "LYNX_RAY");
+                lynxSnipe = lynx::SnipeFlash;
+                lynxSnipeTimer = 0.0f;
+            }
+            break;
+        case lynx::SnipeFlash:
+            lynxCharge = 1.0f - lynxSnipeTimer / lynx::kFlashTime;
+            if (lynxSnipeTimer >= lynx::kFlashTime) {
+                lynxSnipe = lynx::SnipeRest;
+                lynxSnipeTimer = 0.0f;
+                lynxCharge = 0.0f;
+            }
+            break;
+        }
+        TryContact(distance, playerHP, contactDmg, deltaTime, lynx::kContactRange,
+                   gateWX, gateWY, gateWW, gateWH);
     }
 
     // CAELUM (CaelumBoss.h): drifts at a distance like NORMA and lets the
@@ -2799,6 +3020,18 @@ public:
         }
         if (kind == MobKind::CAELUM) {
             UpdateCaelum(dx, dy, distance, deltaTime, playerHP, speedMult);
+            return;
+        }
+        if (kind == MobKind::LYNX) {
+            UpdateLynx(dx, dy, distance, deltaTime, playerHP, speedMult, gateWX, gateWY, gateWW, gateWH);
+            return;
+        }
+        if (kind == MobKind::MIRA) {
+            UpdateMira(dx, dy, distance, deltaTime, playerHP, speedMult);
+            return;
+        }
+        if (kind == MobKind::TRIANGULUM) {
+            UpdateTriangulum(dx, dy, distance, deltaTime, speedMult);
             return;
         }
 

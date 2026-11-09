@@ -401,6 +401,9 @@ void QueueMonsterSightFront(const Monster* m) {
         radiusScale = 2.35f;
     } else if (m->kind == MobKind::ANTARES) {
         alpha = 0.15f + 0.07f * m->AntaresSpeedRatio();
+    } else if (m->kind == MobKind::LYNX) {
+        alpha = 0.14f + 0.08f * m->lynxCharge;
+        radiusScale = 1.75f;
     } else if (m->kind == MobKind::MAGNETAR) {
         alpha = m->magnetarInterceptTimer > 0.0f ? 0.25f : 0.16f;
         radiusScale = 2.20f;
@@ -522,7 +525,8 @@ void DrawEnemySightRearBatch(const std::vector<EnemySightRearMarker>& markers,
                          projection.worldSize, projection.worldSize,
                          0.0f, 0.0f, 0.0f, alpha});
     }
-    DrawIconBatch(rearTexture, quads);
+    // Min-blend so dense packs don't stack toward pure black.
+    DrawIconBatch(rearTexture, quads, false, true, true);
 }
 
 // Rear (black) sight field radius per kind, in units of `base`.
@@ -536,6 +540,7 @@ static float MonsterSightRearScale(MobKind kind) {
     // Genesis' shells, plates and orbit frame reach 2.6 base; the field must
     // keep its dark core over all of them, not only the core.
     case MobKind::GENESIS: return 3.40f;
+    case MobKind::LYNX:  return 1.75f;
     default:               return 2.55f;
     }
 }
@@ -1084,6 +1089,7 @@ static float AegisMarkExtent(MobKind kind) {
     // pole cell touches the brackets at any rotation.
     switch (kind) {
     case MobKind::GENESIS:  return 2.75f;   // orbit frame + scale plates
+    case MobKind::LYNX:   return 1.60f;
     case MobKind::QUASAR:   return 2.40f;   // tilted outer orbit
     case MobKind::GRAVIS:   return 1.55f;
     case MobKind::ANTARES:  return 1.85f;   // pentagon vertices and afterimages
@@ -1358,10 +1364,346 @@ static void DrawAntares(const Monster* m, float base) {
     DrawEnemyCore(x, y, base * 0.26f, cr, cg, cb, coreAlpha, topSpeed);
 }
 
+// The aim line and the ray, drawn on their own so a stealthed Lynx still warns.
+// A solid line, per the no-dashes rule; the dark keyline keeps it readable on
+// bright wallpapers, like enemy shots.
+void DrawLynxRay(const Monster* m) {
+    if (m->lynxSnipe == lynx::SnipeRest) return;
+    const float x = m->worldX, y = m->worldY, heading = m->lynxHeading;
+    const float ex = x + cosf(heading) * lynx::kRayDrawLength, ey = y + sinf(heading) * lynx::kRayDrawLength;
+    const float r = Monster::LYNX_HOT.r, g = Monster::LYNX_HOT.g, b = Monster::LYNX_HOT.b;
+    const float keyline = CombatKeylineStrength();
+    const auto Line = [&](float width, float alpha) {
+        drawLineQuad(x, y, ex, ey, width + 2.0f * keyline, r * 0.22f, g * 0.22f, b * 0.22f, 0.70f * keyline * alpha);
+        drawLineQuad(x, y, ex, ey, width, r, g, b, alpha);
+    };
+    const float t = m->lynxSnipeTimer;
+    if (m->lynxSnipe == lynx::SnipeAim) {
+        Line(1.4f, 0.45f + 0.40f * t / lynx::kAimTime);
+    } else if (m->lynxSnipe == lynx::SnipeLock) {
+        // The band the laser will fill, so its width is known before it fires.
+        drawLineQuad(x, y, ex, ey, lynx::kRayHalfWidth * 2.0f, r, g, b, 0.20f);
+        Line(2.0f, 0.80f + 0.20f * sinf(t * 62.0f));
+    } else {
+        const float fade = std::max(0.0f, 1.0f - t / lynx::kFlashTime);
+        const float width = lynx::kRayHalfWidth * 2.0f * (0.45f + 0.55f * fade);
+        drawLineQuad(x, y, ex, ey, width + 14.0f, r, g, b, 0.26f * fade);
+        Line(width, 0.95f * fade);
+        drawLineQuad(x, y, ex, ey, width * 0.42f, 1.0f, 0.94f, 0.86f, fade);
+    }
+}
+
+// LYNX: a regular sniper, from the user's sketch, all straight lines. Two long
+// triangular plates, mirror images, flank a diamond core. A thin aim line grows
+// from the core; it freezes and brightens at the lock, then the ray fires down it.
+// DrawLynxRay draws that line.
+static constexpr float kPlate[3][2] = {
+    { 110.0f, 15.5f }, { -34.0f, 52.0f }, { -73.0f, 22.0f } };
+static constexpr float kCoreFrame[4][2] = {
+    { 33.0f, 0.0f }, { 0.0f, 13.0f }, { -32.0f, 0.0f }, { 0.0f, -13.0f } };
+
+static void DrawLynx(const Monster* m) {
+    float cr = m->color.r, cg = m->color.g, cb = m->color.b;
+    ApplyMobStyleTint(cr, cg, cb);
+    const float x = m->worldX, y = m->worldY, heading = m->lynxHeading;
+    const float sc = lynx::HullScale(m->sizeScale);
+    const auto P = [&](float hx, float hy) { return lynx::HullToWorld(x, y, heading, sc, hx, hy); };
+    const float hotR = Monster::LYNX_HOT.r, hotG = Monster::LYNX_HOT.g, hotB = Monster::LYNX_HOT.b;
+    const float warm = m->lynxCharge * m->lynxCharge;
+    const float ir = cr + (hotR - cr) * warm, ig = cg + (hotG - cg) * warm, ib = cb + (hotB - cb) * warm;
+    const auto Loop = [&](const float (*v)[2], int count, float width, float mirror) {
+        for (int i = 0; i < count; ++i) {
+            const int n = (i + 1) % count;
+            const lynx::Vec a = P(v[i][0], v[i][1] * mirror), b = P(v[n][0], v[n][1] * mirror);
+            drawLineQuad(a.x, a.y, b.x, b.y, width + 1.3f, ir, ig, ib, 0.13f);
+            drawLineQuad(a.x, a.y, b.x, b.y, width, ir, ig, ib, 0.96f);
+        }
+    };
+
+    EliteHitFxScope hitFx(m, x, y);
+    constexpr int kPlatePoints = (int)(sizeof(kPlate) / sizeof(kPlate[0]));
+    Loop(kPlate, kPlatePoints, 1.5f, 1.0f);
+    Loop(kPlate, kPlatePoints, 1.5f, -1.0f);
+    Loop(kCoreFrame, 4, 1.4f, 1.0f);
+    DrawEnemyCore(x, y, 4.6f * sc, ir, ig, ib, 1.0f);
+}
+
+// MIRA: a bare two-ring core wrapped in a corruption zone, drawn with
+// ERIDANUS's film look (translucent amber fill + outline, a slow wobble). The
+// zone is the only thing it leaves; a dead MIRA's zone is DrawMiraZones.
+static void DrawMiraRing(float x, float y, float radius, float width, float r, float g, float b, float a) {
+    constexpr int kN = 28;
+    float px = x + radius, py = y;
+    for (int i = 1; i <= kN; ++i) {
+        const float ang = 6.2831853f * (float)i / (float)kN;
+        const float cx = x + cosf(ang) * radius, cy = y + sinf(ang) * radius;
+        drawLineQuad(px, py, cx, cy, width, r, g, b, a);
+        px = cx; py = cy;
+    }
+}
+
+// Joined trail puddles are drawn as one ribbon whose width follows each puddle's
+// shrinking radius, with a rounded cap on each end. No overlapping discs, so the
+// film stays evenly tinted.
+struct MiraDisc { float x, y, r; };
+
+// One chain of joined puddles (and the walking MIRA's own zone as its head) as a
+// dense run of discs along a smooth curve through them.
+static void MiraChainDiscs(const std::vector<MiraDisc>& ctl, std::vector<MiraDisc>& out) {
+    const int m = (int)ctl.size();
+    if (m == 1) { out.push_back(ctl[0]); return; }
+    constexpr int kSub = 6;
+    const auto cr = [](float p0, float p1, float p2, float p3, float u) {
+        return 0.5f * ((2.0f * p1) + (-p0 + p2) * u + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * u * u +
+                       (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * u * u * u);
+    };
+    for (int i = 0; i + 1 < m; ++i) {
+        const MiraDisc& p0 = ctl[std::max(0, i - 1)]; const MiraDisc& p1 = ctl[i];
+        const MiraDisc& p2 = ctl[i + 1]; const MiraDisc& p3 = ctl[std::min(m - 1, i + 2)];
+        for (int k = 0; k < kSub; ++k) {
+            const float u = (float)k / (float)kSub;
+            // the radius follows the straight blend between the two puddles (a
+            // spline can overshoot negative); the centre follows the curve
+            out.push_back({ cr(p0.x, p1.x, p2.x, p3.x, u), cr(p0.y, p1.y, p2.y, p3.y, u),
+                            std::max(0.0f, p1.r + (p2.r - p1.r) * u) });
+        }
+    }
+    out.push_back(ctl[m - 1]);
+}
+
+// Every MIRA zone on screen (trail ribbons, walking bodies, dead zones) as ONE
+// shape: the exact union of all the discs, filled and outlined with marching
+// squares. A union, not overlapping discs, so zones that touch fuse into one
+// puddle: an even tint, no inner outlines, nothing that folds.
+static void DrawMiraUnion(const std::vector<MiraDisc>& d) {
+    constexpr float kR = 1.0f, kG = 0.82f, kB = 0.50f;
+    if (d.empty()) return;
+    float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
+    for (const MiraDisc& q : d) {
+        if (q.r < 0.5f) continue;
+        minX = std::min(minX, q.x - q.r); maxX = std::max(maxX, q.x + q.r);
+        minY = std::min(minY, q.y - q.r); maxY = std::max(maxY, q.y + q.r);
+    }
+    if (minX > maxX) return;
+    float step = 6.0f;
+    while (((maxX - minX) / step + 3.0f) * ((maxY - minY) / step + 3.0f) > 60000.0f) step *= 1.5f;
+    minX -= step; minY -= step;
+    const int nx = (int)((maxX - minX) / step) + 3, ny = (int)((maxY - minY) / step) + 3;
+    std::vector<float> v((size_t)nx * ny, -1.0f);
+    // splat each disc into the cells it can reach: value = (radius - distance), max over discs
+    for (const MiraDisc& q : d) {
+        if (q.r < 0.5f) continue;
+        const int i0 = std::max(0, (int)floorf((q.x - q.r - minX) / step));
+        const int i1 = std::min(nx - 1, (int)ceilf((q.x + q.r - minX) / step));
+        const int j0 = std::max(0, (int)floorf((q.y - q.r - minY) / step));
+        const int j1 = std::min(ny - 1, (int)ceilf((q.y + q.r - minY) / step));
+        for (int j = j0; j <= j1; ++j)
+            for (int i = i0; i <= i1; ++i) {
+                const float dx = minX + (float)i * step - q.x, dy = minY + (float)j * step - q.y;
+                const float val = q.r - sqrtf(dx * dx + dy * dy);
+                float& cell = v[(size_t)j * nx + i];
+                if (val > cell) cell = val;
+            }
+    }
+    static const int ci[4] = { 0, 1, 1, 0 }, cj[4] = { 0, 0, 1, 1 };
+    for (int j = 0; j + 1 < ny; ++j)
+        for (int i = 0; i + 1 < nx; ++i) {
+            float px[8], py[8], cx[4], cy[4];
+            int np = 0, nc = 0;
+            for (int k = 0; k < 4; ++k) {
+                const int n = (k + 1) & 3;
+                const float va = v[(size_t)(j + cj[k]) * nx + (i + ci[k])];
+                const float vb = v[(size_t)(j + cj[n]) * nx + (i + ci[n])];
+                const float ax = minX + (float)(i + ci[k]) * step, ay = minY + (float)(j + cj[k]) * step;
+                const float bx = minX + (float)(i + ci[n]) * step, by = minY + (float)(j + cj[n]) * step;
+                if (va >= 0.0f) { px[np] = ax; py[np] = ay; ++np; }
+                if ((va >= 0.0f) != (vb >= 0.0f)) {
+                    const float u = (0.0f - va) / (vb - va);
+                    px[np] = ax + (bx - ax) * u; py[np] = ay + (by - ay) * u;
+                    cx[nc] = px[np]; cy[nc] = py[np]; ++nc; ++np;
+                }
+            }
+            for (int k = 1; k + 1 < np; ++k)
+                BatchTri(px[0], py[0], px[k], py[k], px[k + 1], py[k + 1], kR, kG, kB, 0.20f);
+            for (int k = 0; k + 1 < nc; k += 2)
+                drawLineQuad(cx[k], cy[k], cx[k + 1], cy[k + 1], 1.7f, kR, kG, kB, 0.80f);
+        }
+}
+
+// The zones are all drawn by DrawMiraZones (one union); a MIRA itself is only
+// its two-ring core.
+static void DrawMira(const Monster* m, float visualTime) {
+    (void)visualTime;
+    float cr = m->color.r, cg = m->color.g, cb = m->color.b;
+    ApplyMobStyleTint(cr, cg, cb);
+    ApplyMobHitFlash(cr, cg, cb, m->hitFlashTimer);
+    const float x = m->worldX, y = m->worldY;
+    EliteHitFxScope hitFx(m, x, y);
+    const float hr = cr + (1.0f - cr) * 0.55f, hg = cg + (1.0f - cg) * 0.55f, hb = cb + (1.0f - cb) * 0.55f;
+    DrawMiraRing(x, y, 13.0f * m->sizeScale, 3.0f, hr, hg, hb, 1.0f);
+    DrawMiraRing(x, y, 5.0f * m->sizeScale, 1.8f, cr, cg, cb, 0.95f);
+}
+
+// TRIANGULUM: a small core with three Swarms in a thin orbit round it, drawn as
+// the same triangular packets free Swarms are. They are the three it releases
+// when it dies (MonsterManager::SpawnTriangulumChildren). Lines only.
+// unstable (0..1) is the death hold: the frozen body shakes, flickers, every
+// corner strains and the caged Swarms thrash.
+static void DrawTriangulumBody(const Monster* m, float base, float visualTime, float unstable) {
+    // A living cage. The body is the star: a heavy triangular shell with star
+    // nodes on its corners, a counter-turning inner frame and a pulsing core
+    // that holds three small Swarms on tethers. The Swarms rattle in their
+    // corners and the corner they shove at swells; they break out when it dies.
+    float cr = m->color.r, cg = m->color.g, cb = m->color.b;
+    ApplyMobStyleTint(cr, cg, cb);
+    ApplyMobHitFlash(cr, cg, cb, m->hitFlashTimer);
+    const float t = visualTime + (float)((size_t)m % 628) * 0.01f;
+    const float shake = 3.5f * unstable * unstable;
+    const float x = m->worldX + sinf(t * 91.0f) * shake;
+    const float y = m->worldY + cosf(t * 77.0f) * shake;
+    // Flicker toward white while unstable.
+    const bool flash = unstable > 0.0f && sinf(t * 47.0f) > 0.0f;
+    const float lift = unstable * (flash ? 0.55f : 0.15f);
+    cr += (1.0f - cr) * lift; cg += (1.0f - cg) * lift; cb += (1.0f - cb) * lift;
+    const float shellA = 1.0f - (flash ? 0.30f * unstable : 0.0f);
+    EliteHitFxScope hitFx(m, x, y);
+    const float spin = m->triangulumSpin;
+    const float breathe = 1.0f + 0.035f * sinf(t * 2.2f);
+    const float shellR = base * 1.70f * breathe;
+
+    // How hard each caged Swarm shoves outward right now (0..1).
+    float push[3];
+    for (int k = 0; k < 3; ++k) {
+        const float s1 = sinf(t * (5.1f + 9.0f * unstable) + (float)k * 2.3f);
+        const float calm = s1 > 0.0f ? s1 * s1 : 0.0f;
+        push[k] = calm + (1.0f - calm) * unstable * (0.6f + 0.4f * fabsf(s1));
+    }
+
+    // Shell: corners swell when their Swarm shoves.
+    EnemyNodeAnchor corner[3];
+    float ox[3], oy[3], sx[3], sy[3];
+    for (int k = 0; k < 3; ++k) {
+        float dx, dy;
+        triangulum::ChildDir(k, spin, dx, dy);
+        const float r = shellR * (1.0f + 0.07f * push[k]);
+        ox[k] = x + dx * r;          oy[k] = y + dy * r;
+        sx[k] = x + dx * r * 0.84f;  sy[k] = y + dy * r * 0.84f;
+        corner[k] = { ox[k], oy[k], base * 0.17f, 0.80f + 0.20f * push[k] };
+    }
+    DrawEnemyWirePolygon(ox, oy, 3, cr, cg, cb, 0.98f * shellA, 0.20f, 2.6f);
+    DrawEnemyWirePolygon(sx, sy, 3, cr, cg, cb, 0.55f * shellA, 0.08f, 1.2f);       // seam
+    // Inner frame turning against the shell (spinning up while unstable).
+    float fx[3], fy[3];
+    const float frameR = shellR * 0.55f;
+    for (int v = 0; v < 3; ++v) {
+        const float a = -spin * 2.4f - unstable * t * 14.0f + 1.0471976f + (float)v * 2.0943951f;
+        fx[v] = x + cosf(a) * frameR; fy[v] = y + sinf(a) * frameR;
+    }
+    DrawEnemyWirePolygon(fx, fy, 3, cr, cg, cb, 0.62f * shellA, 0.10f, 1.4f);
+
+    // Caged Swarms: smaller and dimmer than the body, rattling about their corner.
+    float sr = Monster::GENESIS_CONTROLLED_COLOR.r, sg = Monster::GENESIS_CONTROLLED_COLOR.g,
+          sb = Monster::GENESIS_CONTROLLED_COLOR.b;
+    ApplyMobStyleTint(sr, sg, sb);
+    ApplyMobHitFlash(sr, sg, sb, m->hitFlashTimer);
+    const float swarmBase = 18.0f * 0.50f;
+    const float tri = swarmBase * 0.92f;
+    const float rattle = 1.0f + 1.8f * unstable;
+    for (int k = 0; k < triangulum::kChildCount; ++k) {
+        float dx, dy;
+        triangulum::ChildDir(k, spin, dx, dy);
+        const float along = triangulum::kOrbitRadius + 5.0f * push[k] - 1.5f;
+        const float side = 3.0f * rattle * sinf(t * (3.7f + 11.0f * unstable) + (float)k * 1.7f);
+        const float px = x + dx * along - dy * side;
+        const float py = y + dy * along + dx * side;
+        // Tether from the core to the Swarm; it tightens (brightens) as the Swarm pulls.
+        drawLineQuad(x + dx * base * 0.42f, y + dy * base * 0.42f, px, py,
+                     1.0f, cr, cg, cb, 0.30f + 0.45f * push[k]);
+        const float face = atan2f(dy, dx) + 0.35f * rattle * sinf(t * (6.3f + 14.0f * unstable) + (float)k);
+        float vx[3], vy[3];
+        for (int v = 0; v < 3; ++v) {
+            const float a = face + (float)v * 2.0943951f;
+            vx[v] = px + cosf(a) * tri; vy[v] = py + sinf(a) * tri;
+        }
+        DrawEnemyWirePolygon(vx, vy, 3, sr, sg, sb, 0.62f + 0.30f * unstable, 0.06f, 0.9f);
+        DrawEnemyCore(px, py, swarmBase * 0.26f, sr, sg, sb, 0.75f + 0.2f * unstable, false);
+    }
+
+    for (int k = 0; k < 3; ++k) DrawEnemyNode(corner[k], cr, cg, cb, 0.95f);
+    // Core: the real mob. A ring that throbs with the shoving.
+    const float strain = (push[0] + push[1] + push[2]) / 3.0f;
+    DrawMiraRing(x, y, base * (0.44f + 0.06f * strain), 2.0f, cr, cg, cb, 0.85f + 0.15f * strain);
+    DrawEnemyCore(x, y, base * 0.34f, cr, cg, cb, 0.96f, false);
+}
+
+static void DrawTriangulum(const Monster* m, float base, float visualTime) {
+    DrawTriangulumBody(m, base, visualTime, 0.0f);
+}
+
+// Death: the body freezes and shakes for kHoldTime, then its shell's three
+// edges fly apart and fade while the freed Swarms scatter.
+static void DrawTriangulumDeath(const Monster* m, float visualTime) {
+    const float base = 18.0f * m->sizeScale;
+    const float timer = m->deathEffectTimer;
+    if (timer < triangulum::kHoldTime) {
+        const float u = std::clamp(timer / triangulum::kHoldTime, 0.0f, 1.0f);
+        DrawTriangulumBody(m, base, visualTime, 0.35f + 0.65f * u);
+        return;
+    }
+    const float v = std::clamp((timer - triangulum::kHoldTime) / triangulum::kShatterTime, 0.0f, 1.0f);
+    float cr = m->color.r, cg = m->color.g, cb = m->color.b;
+    ApplyMobStyleTint(cr, cg, cb);
+    const float lift = 0.6f * (1.0f - v);
+    cr += (1.0f - cr) * lift; cg += (1.0f - cg) * lift; cb += (1.0f - cb) * lift;
+    const float x = m->worldX, y = m->worldY, R = base * 1.70f;
+    for (int k = 0; k < 3; ++k) {
+        float ax, ay, bx, by;
+        triangulum::ChildDir(k, m->triangulumSpin, ax, ay);
+        triangulum::ChildDir((k + 1) % 3, m->triangulumSpin, bx, by);
+        // Each edge flies out along its own normal, shrinking as it goes.
+        const float nx = ax + bx, ny = ay + by;
+        const float nl = std::max(0.001f, sqrtf(nx * nx + ny * ny));
+        const float push = 34.0f * v, shrink = 1.0f - 0.45f * v;
+        const float mx = x + (ax + bx) * 0.5f * R + nx / nl * push;
+        const float my = y + (ay + by) * 0.5f * R + ny / nl * push;
+        const float hx = (bx - ax) * 0.5f * R * shrink, hy = (by - ay) * 0.5f * R * shrink;
+        drawLineQuad(mx - hx, my - hy, mx + hx, my + hy, 2.4f, cr, cg, cb, 0.95f * (1.0f - v));
+    }
+    DrawMiraRing(x, y, base * (0.5f + 1.6f * v), 2.0f, cr, cg, cb, 0.8f * (1.0f - v));
+}
+
+void DrawMiraZones() {
+    const float t = (float)glfwGetTime();
+    const auto wob = [&](float r, float k) { return r * (1.0f + 0.06f * sinf(1.9f * k + t * 1.2f)); };
+    std::vector<MiraDisc> discs;
+    std::vector<int> done;
+    for (size_t i = 0; i < mira::g_zones.size(); ++i) {
+        const mira::Zone& z = mira::g_zones[i];
+        if (z.chain <= 0) {
+            discs.push_back({ z.x, z.y, wob(mira::ZoneRadius(z), z.x * 0.013f) });
+            continue;
+        }
+        if (std::find(done.begin(), done.end(), z.chain) != done.end()) continue;
+        done.push_back(z.chain);
+        std::vector<MiraDisc> ctl;
+        for (const mira::Zone& o : mira::g_zones)
+            if (o.chain == z.chain) ctl.push_back({ o.x, o.y, wob(mira::ZoneRadius(o), (float)ctl.size()) });
+        if (const mira::Head* h = mira::HeadOf(z.chain))
+            ctl.push_back({ h->x, h->y, wob(mira::kZoneRadius, (float)ctl.size()) });
+        MiraChainDiscs(ctl, discs);
+    }
+    // A walking MIRA that has dropped nothing yet: just its own zone.
+    for (const mira::Head& h : mira::g_heads) {
+        if (h.stamp != mira::g_tick || std::find(done.begin(), done.end(), h.chain) != done.end()) continue;
+        discs.push_back({ h.x, h.y, wob(mira::kZoneRadius, (float)h.chain) });
+    }
+    DrawMiraUnion(discs);
+}
+
 // Magnetar (lattice ward). The shield IS the body: a slowly turning
 // icosahedron lattice at the real interception radius, back edges faint and
 // front edges gold. Inside, a small crystal seed (octahedron) turns the other
-// way and holds the lattice by four tethers. Each of the 20 faces is its own
+// way, free of the lattice (no tethers). Each of the 20 faces is its own
 // shield (Monster::MAGNETAR_FACE_HITS shots from its side); only broken faces
 // change, the rest of the lattice stays gold.
 //   hit       the face that stopped the shot flashes white
@@ -1581,29 +1923,6 @@ static void DrawMagnetar(const Monster* m, float base, float visualTime) {
                      sb + (1.0f - sb) * seedFlash, 0.85f + 0.15f * depth);
     }
     drawCircle(seedX, seedY, base * 0.07f, 1.0f, 1.0f, 1.0f, 0.95f);
-
-    // Tethers: four seed tips (equator) each hold one fixed lattice vertex
-    // (two antipodal pairs, so the seed is held from all sides). The pairing
-    // never changes as the lattice turns; only the brightness follows depth,
-    // so nothing pops on and off. A cut tether (broken face on its vertex)
-    // fades out quickly and returns on restore.
-    {
-        static const int kTips[4] = { 0, 1, 4, 5 };
-        static const int kHold[4] = { 9, 10, 0, 3 };
-        for (int k = 0; k < 4; ++k) {
-            const int tip = kTips[k], v = kHold[k];
-            float hold = 1.0f;
-            if (vBroken[v] >= 0.0f) hold = std::max(0.0f, 1.0f - vBroken[v] / 0.15f);
-            else hold = std::min(1.0f, vRestored[v] / kRestoreTime);
-            if (vBroken[v] < 0.0f && vRestored[v] >= 90.0f) hold = 1.0f;
-            if (hold <= 0.01f) continue;
-            const float z01 = std::clamp(0.5f + 0.5f * pv[v].z, 0.0f, 1.0f);
-            const float depth = 0.70f + 0.30f * z01 * z01 * (3.0f - 2.0f * z01);
-            drawLineQuad(sx[tip], sy[tip], vx[v], vy[v], 1.4f, cr, cg, cb,
-                         0.70f * depth * hold);
-            drawCircle(vx[v], vy[v], 2.4f, 1.0f, 1.0f, 1.0f, 0.6f * depth * hold * z01);
-        }
-    }
 }
 
 // Three incommensurate sines: a [-1, 1] signal with no audible "beat", used
@@ -1638,7 +1957,7 @@ static void DrawEllipseLoop(float cx, float cy, float th, float a, float b,
 // Quasar (tier 4, Q2 gyro orb): a double-contour orb wrapped by two gyro
 // bands that keep turning (faster with heat), girdled by an equatorial
 // flange that spins on its own. Inside, the contained, unstable attack core
-// (diamond frame, clamps, jets, leak sparks) holds the beam axis.
+// (diamond frame, clamps, jets) holds the beam axis.
 // Charge choreography:
 //   wind-up 0-0.5s   the bands slow and fold flat into the flange plane
 //   wind-up 0.5-1s   rings shrink into the orb, inner contour brightens
@@ -2738,6 +3057,10 @@ static void DrawGenesisLauncherShot(const Monster* m, float x, float y, float cr
 void drawMob(const Monster* m, float visualTime) {
     if (!m) return;
     if (!m->alive) {
+        if (m->kind == MobKind::TRIANGULUM) {
+            if (m->DeathEffectVisible()) DrawTriangulumDeath(m, visualTime);
+            return;
+        }
         m->DrawDeathEffect(drawLineQuad, drawCircle,
             [](float x, float y, float radius, float phase,
                float r, float g, float b, float alpha) {
@@ -2752,6 +3075,7 @@ void drawMob(const Monster* m, float visualTime) {
     if (m->kind == MobKind::GIMBAL) MarkMobSeenId(CM_GIMBAL);
     if (m->kind == MobKind::REGULUS) MarkMobSeenId(CM_REGULUS);
     if (m->kind == MobKind::MAGNETAR) MarkMobSeenId(CM_MAGNETAR);
+    if (m->kind == MobKind::LYNX) MarkMobSeenId(CM_LYNX);
     float base = (m->summoned ? 28.0f : 18.0f) * m->sizeScale;
     if (visualTime < 0.0f) visualTime = (float)glfwGetTime();
     if (m->genesisCarryScope) {
@@ -3143,6 +3467,12 @@ void drawMob(const Monster* m, float visualTime) {
         g_BatchAlpha = savedBatchAlpha;
     } else if (m->kind == MobKind::ANTARES) {
         DrawAntares(m, base);
+    } else if (m->kind == MobKind::LYNX) {
+        DrawLynx(m);
+    } else if (m->kind == MobKind::MIRA) {
+        DrawMira(m, visualTime);
+    } else if (m->kind == MobKind::TRIANGULUM) {
+        DrawTriangulum(m, base, visualTime);
     } else if (m->kind == MobKind::MAGNETAR) {
         DrawMagnetar(m, base, visualTime);
     } else if (m->kind == MobKind::SWARM) {
@@ -3347,6 +3677,8 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         case CM_REGULUS: kind = MobKind::REGULUS; break;
         case CM_ANTARES: kind = MobKind::ANTARES; break;
         case CM_MAGNETAR: kind = MobKind::MAGNETAR; break;
+        case CM_LYNX:  kind = MobKind::LYNX;  break;
+        case CM_TRIGON: kind = MobKind::TRIANGULUM; break;
         default: break;                                // ROTOR
         }
         Monster preview(x, y, 1.0f, 1.0f, false);
@@ -3363,6 +3695,10 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         preview.antaresVisualAngle = t * 0.5236f;
         preview.magnetarFacing = t * 0.4f;
         preview.magnetarVisualAngle = t * 0.72f;
+        preview.lynxHeading = t * 0.2f;
+        preview.triangulumSpin = t * triangulum::kOrbitSpeed;
+        // TRIGON's shell reaches 1.7x its base; shrink it to fit the card.
+        if (kind == MobKind::TRIANGULUM) preview.sizeScale = scale * 0.72f;
         drawMob(&preview);
     }
     g_SuppressMobSeen = wasSuppressed;

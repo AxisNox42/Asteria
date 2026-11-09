@@ -295,6 +295,9 @@
     <ClInclude Include="System\PaneImages.h" />
     <ClInclude Include="Entity\SpaceRules.h" />
     <ClInclude Include="Entity\NormaBoss.h" />
+    <ClInclude Include="Entity\LynxMob.h" />
+    <ClInclude Include="Entity\MiraMob.h" />
+    <ClInclude Include="Entity\TriangulumMob.h" />
     <ClInclude Include="System\WindowFx.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

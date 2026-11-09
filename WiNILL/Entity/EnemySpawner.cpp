@@ -51,16 +51,38 @@ static MobKind MobKindFor(RosterKind kind) {
     case RosterKind::GIMBAL:   return MobKind::GIMBAL;
     case RosterKind::GRAVIS:   return MobKind::GRAVIS;
     case RosterKind::MAGNETAR: return MobKind::MAGNETAR;
+    case RosterKind::LYNX:     return MobKind::LYNX;
+    case RosterKind::MIRA:     return MobKind::MIRA;
+    case RosterKind::TRIANGULUM: return MobKind::TRIANGULUM;
     default:                   return MobKind::ROTOR;
     }
 }
 
 // Converts a freshly spawned ROTOR into this wave's pick from the roster
 // (EnemyRoster.h holds each enemy's first wave per difficulty and its odds).
-static void SpecializeRegularMob(Monster& mob, int wave, Difficulty difficulty) {
+static void SpecializeRegularMob(const MonsterManager& monsters, Monster& mob, int wave,
+                                 Difficulty difficulty) {
     const RosterKind pick = RosterPickRegular(wave, (int)difficulty, rand() % 100);
-    if (pick != RosterKind::ROTOR)
-        mob.MakeKind(MobKindFor(pick));
+    if (pick == RosterKind::ROTOR) return;
+    if (pick == RosterKind::LYNX) {                 // too many aim lines hide everything else
+        int alive = 0;
+        for (const Monster* other : monsters.monsters)
+            alive += other->alive && other->kind == MobKind::LYNX;
+        if (alive >= lynx::kMaxAlive) return;
+    }
+    if (pick == RosterKind::MIRA) {                 // overlapping zones would cover the screen
+        int alive = 0;
+        for (const Monster* other : monsters.monsters)
+            alive += other->alive && other->kind == MobKind::MIRA;
+        if (alive >= mira::kMaxAlive) return;
+    }
+    if (pick == RosterKind::TRIANGULUM) {           // each one is three Swarms in waiting
+        int alive = 0;
+        for (const Monster* other : monsters.monsters)
+            alive += other->alive && other->kind == MobKind::TRIANGULUM;
+        if (alive >= triangulum::kMaxAlive) return;
+    }
+    mob.MakeKind(MobKindFor(pick));
 }
 
 // Every elite wave, on every difficulty, brings one of these at random.
@@ -382,7 +404,7 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         monsters.SpawnMob(screenWidth, screenHeight,
                           (int)before + 1, hpMultiplier);
         if (monsters.monsters.size() > before) {
-            SpecializeRegularMob(*monsters.monsters.back(), wave, difficulty);
+            SpecializeRegularMob(monsters, *monsters.monsters.back(), wave, difficulty);
             ++g_EnemySpawnState.spawnedThisWave;
             if (g_EnemySpawnState.mobTimer >= spawnInterval)
                 g_EnemySpawnState.mobTimer -= spawnInterval;
