@@ -126,12 +126,14 @@ public:
     // of making the important target visibly jitter or stall.
     static int CollisionTier(const Monster* m) {
         if (!m) return 0;
+        if (m->LynxHoldsPosition()) return 99;
         if (m->QuasarHoldsPosition()) return 99;     // a Quasar in its attack cannot be pushed by anything
         int tier = 0;
         switch (m->kind) {
         case MobKind::NORMA:    tier = 5; break;   // nothing pushes the boss
         case MobKind::CAELUM:   tier = 5; break;
         case MobKind::GENESIS:  tier = 4; break;
+        case MobKind::LYNX:   tier = 2; break;
         case MobKind::GRAVIS:   tier = 3; break;
         case MobKind::QUASAR:   tier = 4; break;
         case MobKind::REGULUS:  tier = 3; break;
@@ -227,6 +229,48 @@ public:
         }
     }
 
+    // A killed TRIANGULUM freezes and shakes for kHoldTime (its death effect),
+    // then lets out its three caged Swarms: each is shoved from its cage spot
+    // to a random landing spot within kScatterRadius, then chases. Silent clears
+    // (noBlast) release nothing. The shove reuses the hit-stun knockback.
+    void SpawnTriangulumChildren() {
+        const size_t count = monsters.size();
+        for (size_t i = 0; i < count; ++i) {
+            Monster* m = monsters[i];
+            if (m->kind != MobKind::TRIANGULUM || m->alive || m->triangulumReleased) continue;
+            if (m->noBlast) { m->triangulumReleased = true; continue; }
+            if (!m->exploded) continue;                                   // kill not processed yet
+            if (m->deathEffectTimer >= 0.0f && m->deathEffectTimer < triangulum::kHoldTime) continue;
+            m->triangulumReleased = true;
+            for (int k = 0; k < triangulum::kChildCount; ++k) {
+                float offX, offY;
+                triangulum::ScatterOffset(k, m->triangulumSpin, (float)rand() / (float)RAND_MAX * 2.0f - 1.0f,
+                                          (float)rand() / (float)RAND_MAX, offX, offY);
+                const float dist = std::sqrt(offX * offX + offY * offY);
+                const float dirX = offX / dist, dirY = offY / dist;
+                auto* c = new Monster(m->worldX + dirX * triangulum::kOrbitRadius,
+                                      m->worldY + dirY * triangulum::kOrbitRadius,
+                                      m->triangulumChildHpMult);
+                c->MakeKind(MobKind::SWARM);
+                c->color = Monster::GENESIS_CONTROLLED_COLOR;   // the same pink as the Swarms Genesis throws
+                c->hp *= triangulum::kChildHpMult;
+                const float speed = (dist - triangulum::kOrbitRadius) / triangulum::kBurstTime;
+                c->hitStunTimer = triangulum::kBurstTime;
+                c->hitKnockX = dirX * speed;
+                c->hitKnockY = dirY * speed;
+                monsters.push_back(c);
+            }
+            const float radius = MobDeathParticleRadius(18.0f * m->sizeScale);
+            EnemyParticleBurst burst;
+            burst.count = 22; burst.life = 0.45f;
+            burst.startRadius = 0.30f; burst.jitter = 0.40f;
+            burst.speedMin = radius * 2.0f; burst.speedMax = radius * 3.6f;
+            burst.sizeMin = 2.0f; burst.sizeMax = 5.0f;
+            burst.colorLift = 0.40f;
+            SpawnEnemyParticleBurst(m->worldX, m->worldY, m->color, radius, burst, false);
+        }
+    }
+
     void UpdateDeathEffects(float delta) {
         for (auto* mob : monsters) mob->UpdateDeathEffect(delta);
     }
@@ -241,6 +285,9 @@ public:
                    float gateWW = -1.0f, float gateWH = -1.0f,
                    const glm::vec4& attackBounds = glm::vec4(0.0f)) {
         TickRegulusBuffs(dt);
+        // A dead MIRA's zone keeps hurting where it fell.
+        if (mira::Tick(dt, playerCX, playerCY, g_PlayerSizeMult))
+            HurtPlayer(playerHP, mira::kZoneDps * dt, "MIRA_ZONE");
         for (auto m : monsters) {
             // Whatever this mob does to the player only lands in its own space.
             space::HurtSourceScope hurtSource(space::SpaceAt(m->worldX, m->worldY));
@@ -251,6 +298,13 @@ public:
                     child->genesisRotorPhase=3; child->thrownTimer=0;
                     for(auto& p:child->antaresTrail) p=glm::vec3(child->worldX,child->worldY,child->thrownSpin);
                 }
+        }
+        // A living MIRA is always the head of its ribbon, also on frames its own
+        // Update returns early (hit-stun), so a hit never drops the joined look.
+        for (auto m : monsters) {
+            if (m->kind != MobKind::MIRA || !m->alive) continue;
+            if (!m->miraChain) m->miraChain = mira::NewChain();
+            mira::SetHead(m->miraChain, m->worldX, m->worldY);
         }
 
         for (auto r : rangedMobs) {
@@ -270,6 +324,7 @@ public:
         ResolveMonsterCrowding(dt);
         ResolveAntaresCollisions();
         SpawnAntaresSplits();
+        SpawnTriangulumChildren();
 
         UpdateRegulusShots(dt);
         UpdateRegulusBeams(dt);
@@ -304,6 +359,7 @@ public:
 
     void Clear() {
         regulusBeams.clear();
+        mira::Reset();
         for (auto m : monsters) delete m;
         monsters.clear();
         for (auto r : rangedMobs) delete r;
@@ -314,6 +370,7 @@ private:
     static float RegulusTargetTier(const Monster& mob) {
         switch (mob.kind) {
         case MobKind::GENESIS: return 4.0f;
+        case MobKind::LYNX:  return 2.0f;
         case MobKind::GRAVIS:
         case MobKind::QUASAR:  return 3.0f;
         case MobKind::MAGNETAR: return 3.0f;
@@ -709,6 +766,8 @@ private:
         for (auto* child : born) monsters.push_back(child);
     }
 
+    // A finished craft leaves through the door a Lynx has open. Craft whose
+    // Lynx has gone burst at once.
     // Position separation only; crowding never damages anyone.
     void ResolveMonsterCrowding(float /*dt*/) {
         constexpr float kNormalGap = 24.0f;

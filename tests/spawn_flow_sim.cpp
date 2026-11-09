@@ -22,7 +22,7 @@ static constexpr int kDeciles = 10;
 struct WaveCount {
     int regular = 0, scope = 0, elite = 0, boss = 0;
     int decile[kDeciles] = {};
-    int kinds[(int)MobKind::MAGNETAR + 1] = {};
+    int kinds[(int)MobKind::LYNX + 1] = {};
 };
 
 // Nominal fight length of a wave (waves end on a kill, not a clock).
@@ -58,7 +58,7 @@ static std::vector<WaveCount> SimulateRun(Difficulty difficulty) {
             else if (IsEliteMob(mob->kind)) ++w.elite;
             else {
                 ++w.regular; ++w.decile[dec];
-                if ((int)mob->kind <= (int)MobKind::MAGNETAR) ++w.kinds[(int)mob->kind];
+                if ((int)mob->kind <= (int)MobKind::LYNX) ++w.kinds[(int)mob->kind];
             }
             delete mob;
         }
@@ -89,19 +89,19 @@ int main(int argc, char** argv) {
         const std::vector<WaveCount> base = SimulateRun(diff);
 
         std::printf("\n=== %s (%d waves)\n", kDiff[d], FinalWaveCount(diff));
-        std::printf("wave type    sec | base/10s  new/10s  ratio  band |  elite boss | swarm rotor gimbal gravis magnetar scope (new)\n");
+        std::printf("wave type    sec | base/10s  new/10s  ratio  band |  elite boss | swarm rotor gimbal gravis magnetar lynx scope (new)\n");
         for (int w = 1; w <= FinalWaveCount(diff); ++w) {
             const float sec = WaveSeconds(w, diff);
             const float b = (base[w].regular + base[w].scope) * 10.0f / sec;
             const float n = (now[w].regular + now[w].scope) * 10.0f / sec;
             const char* type = IsBossWave(w, diff) ? "boss " : IsEliteWaveNumber(w, diff) ? "elite" : "     ";
             const WaveCount& c = now[w];
-            std::printf("%4d %s %5.0f | %8.2f %8.2f %6.3f %5.3f | %5d %4d | %5d %5d %6d %6d %8d %5d\n",
+            std::printf("%4d %s %5.0f | %8.2f %8.2f %6.3f %5.3f | %5d %4d | %5d %5d %6d %6d %8d %4d %5d\n",
                         w, type, sec, b, n, b > 0 ? n / b : 0.0f, WaveBandMult(live[d], w),
                         c.elite, c.boss,
                         c.kinds[(int)MobKind::SWARM], c.kinds[(int)MobKind::ROTOR],
                         c.kinds[(int)MobKind::GIMBAL], c.kinds[(int)MobKind::GRAVIS],
-                        c.kinds[(int)MobKind::MAGNETAR], c.scope);
+                        c.kinds[(int)MobKind::MAGNETAR], c.kinds[(int)MobKind::LYNX], c.scope);
         }
         // In-wave shape: spawns per decile of wave 2 (an elite wave everywhere).
         std::printf("wave 2 by 10%% | base:");

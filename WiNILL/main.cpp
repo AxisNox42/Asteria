@@ -3908,6 +3908,28 @@ int main() {
     // Runtime debug toolkit bindings. The toolkit is inert unless the
     // persisted DEBUG MODE setting is enabled, but its callbacks are wired
     // once here so the normal game loop remains the single owner of state.
+    const auto debugSpawnMob = [&](int mobKind, int count) {
+        if ((mobKind < 0 || mobKind > (int)MobKind::MAGNETAR) &&
+            mobKind != (int)MobKind::LYNX && mobKind != (int)MobKind::MIRA &&
+            mobKind != (int)MobKind::TRIANGULUM) return 0;
+        int spawned = 0;
+        for (int i = 0; i < count; ++i) {
+            const size_t before = g_MonsterManager.monsters.size();
+            g_MonsterManager.SpawnMob(screenWidth, screenHeight, 160, 1.0f);
+            if (g_MonsterManager.monsters.size() <= before) break;
+            Monster* mob = g_MonsterManager.monsters.back();
+            mob->MakeKind((MobKind)mobKind);
+            if (mob->kind == MobKind::REGULUS) {
+                const float playerX = playerWin.x + playerWin.width * 0.5f;
+                const float playerY = playerWin.y + playerWin.height * 0.5f;
+                const float angle = (float)i * 2.39996323f;
+                mob->worldX = playerX + std::cos(angle) * 360.0f;
+                mob->worldY = playerY + std::sin(angle) * 360.0f;
+            }
+            ++spawned;
+        }
+        return spawned;
+    };
     g_DebugToolkit.Configure({
         &g_Stats,
         &g_GameManager,
@@ -3937,26 +3959,7 @@ int main() {
             playerWin.y = cy - playerWin.height * 0.5f;
             g_WindowSizeCur = g_Stats.windowSize;
         },
-        [&](int mobKind, int count) {
-            if (mobKind < 0 || mobKind > (int)MobKind::MAGNETAR) return 0;
-            int spawned = 0;
-            for (int i = 0; i < count; ++i) {
-                const size_t before = g_MonsterManager.monsters.size();
-                g_MonsterManager.SpawnMob(screenWidth, screenHeight, 160, 1.0f);
-                if (g_MonsterManager.monsters.size() <= before) break;
-                Monster* mob = g_MonsterManager.monsters.back();
-                mob->MakeKind((MobKind)mobKind);
-                if (mob->kind == MobKind::REGULUS) {
-                    const float playerX = playerWin.x + playerWin.width * 0.5f;
-                    const float playerY = playerWin.y + playerWin.height * 0.5f;
-                    const float angle = (float)i * 2.39996323f;
-                    mob->worldX = playerX + std::cos(angle) * 360.0f;
-                    mob->worldY = playerY + std::sin(angle) * 360.0f;
-                }
-                ++spawned;
-            }
-            return spawned;
-        },
+        debugSpawnMob,
         [&](int count) {
             int spawned = 0;
             for (int i = 0; i < count; ++i)
@@ -4014,7 +4017,9 @@ int main() {
     float accumulator      = 0.0f;
     const float FIXED_DT = 1.0f / 60.0f;
 
-    Audio::Init(g_AudioMonoOutput);   // Uses the saved stereo/mono output preference.
+    // Smoke runs are silent: with no engine, every Audio call is a no-op, as on a
+    // machine without a sound device.
+    if (!g_SmokeCapture) Audio::Init(g_AudioMonoOutput);   // Uses the saved stereo/mono output preference.
     g_AudioMonoOutput = Audio::IsMonoOutput();
     Audio::SetBgmVolume(g_BgmVol / 100.0f);
     Audio::SetSfxVolume(g_SfxVol / 100.0f);
@@ -4831,7 +4836,8 @@ int main() {
                         for (Monster* mob : g_MonsterManager.monsters) {
                             if (!mob->alive) continue;
                             if (mob->kind != MobKind::GRAVIS && mob->kind != MobKind::REGULUS &&
-                                mob->kind != MobKind::ANTARES && mob->kind != MobKind::QUASAR) continue;
+                                mob->kind != MobKind::ANTARES && mob->kind != MobKind::QUASAR &&
+                                mob->kind != MobKind::LYNX) continue;
                             mob->worldX = playerWin.x + playerWin.width * 0.5f + dx;
                             mob->worldY = playerWin.y + playerWin.height * 0.5f;
                         }
@@ -4927,6 +4933,10 @@ int main() {
                                         label, mob->worldX, mob->worldY, mob->quasarState, mob->quasarTimer,
                                         std::atan2(mob->quasarAimY, mob->quasarAimX), mob->quasarNearTimer,
                                         mob->quasarEruptCooldown, mob->quasarEruptCount);
+                                else if (mob->kind == MobKind::LYNX) {
+                                    std::fprintf(mf, "%s lynx x=%.1f y=%.1f heading=%.3f snipe=%d timer=%.2f\n",
+                                        label, mob->worldX, mob->worldY, mob->lynxHeading, mob->lynxSnipe, mob->lynxSnipeTimer);
+                                }
                                 else if (mob->kind == MobKind::REGULUS)
                                     std::fprintf(mf, "%s regulus x=%.1f y=%.1f shield=%.1f elite=%d\n",
                                         label, mob->worldX, mob->worldY,
@@ -4960,7 +4970,7 @@ int main() {
                         // player, for capturing a specific enemy's visuals.
                         const int kind = std::atoi(step.c_str() + 6);
                         const size_t before = g_MonsterManager.monsters.size();
-                        if (kind >= 0 && kind <= (int)MobKind::MAGNETAR)
+                        if ((kind >= 0 && kind <= (int)MobKind::MAGNETAR) || kind == (int)MobKind::LYNX || kind == (int)MobKind::MIRA || kind == (int)MobKind::TRIANGULUM)
                             g_MonsterManager.SpawnMob(screenWidth, screenHeight, 160);
                         if (g_MonsterManager.monsters.size() > before) {
                             Monster* mob = g_MonsterManager.monsters.back();
@@ -4968,6 +4978,10 @@ int main() {
                             mob->worldY = playerWin.y + playerWin.height * 0.5f;
                             mob->MakeKind((MobKind)kind);
                         }
+                    } else if (step.rfind("DEBUGSPAWN=", 0) == 0) {
+                        // DEBUGSPAWN=<MobKind index>: the F1 > Spawn path, from
+                        // the screen edge as a hand-spawned mob arrives.
+                        debugSpawnMob(std::atoi(step.c_str() + 11), 1);
                     } else if (step.rfind("SKILLHUD=", 0) == 0) {
                         // SKILLHUD=MIX|EMPTY|PULSE: dash HUD states (cooling
                         // down, ready, ready pulse) on a fresh run.
@@ -5283,18 +5297,8 @@ int main() {
             g_ViewZoom = 1.0f; g_ViewZoomTarget = 1.0f;
             // ?�망 ?�인 ???�티????�� ?? 가??가까운 ?�협(?�로?�스)??기록 (결과창에 ?�시??
             {
-                float best = 1e18f; const wchar_t* nm = nullptr;
-                auto consider = [&](float ex, float ey, const wchar_t* n) {
-                    float dx = ex-pCX, dy = ey-pCY, d = dx*dx+dy*dy;
-                    if (d < best) { best = d; nm = n; }
-                };
-                for (auto m  : g_MonsterManager.monsters)   if (m->alive)  consider(m->worldX,  m->worldY,  MobName(CodexMobIdForKind(m->kind)));
-                for (auto r  : g_MonsterManager.rangedMobs) if (r->alive)  consider(r->worldX,  r->worldY,  MobName(CM_SCOPE));
                 int li = LangIndex();
-                const wchar_t* FMT[3] = { L"%ls: signal dispersed", L"Dispersed by %ls", L"%ls dispersed" };
-                const wchar_t* UNK[3] = { L"Unknown error", L"Terminated by unknown error", L"Unknown error" };
-                if (nm) swprintf_s(g_DeathReason, FMT[li], nm);
-                else    wcscpy_s(g_DeathReason, UNK[li]);
+                g_DeathReason[0] = L'\0';   // no "signal dispersed" line; the result screen falls back to the outcome label
                 if (g_NormaDoom) {
                     static const wchar_t* const DOOM[3] = {
                         L"OCTANS의 심판: 시간 초과", L"Judged by OCTANS: time ran out",
@@ -5557,7 +5561,7 @@ int main() {
                     playerWin.x, playerWin.y,
                     mv.up, mv.down, mv.left, mv.right,
                     playerControl, MOVE_SPEED * g_Stats.moveSpeedMult *
-                        caelum::MoveFactor(),   // weakened by CAELUM's corruption
+                        caelum::MoveFactor() * mira::MoveFactor(),   // weakened by corruption
                     FIXED_DT, g_PlayerRuntime.dashActive, mvX, mvY);
                 // CAELUM's siphon draws the player toward its body while it drinks.
                 playerWin.x += caelum::g.pullX * FIXED_DT;
@@ -5694,6 +5698,7 @@ int main() {
                 float mobSpdRamp = EnemySpeedRamp(g_GameTime);
                 // Ư���� ? �� AI ���� �����衤�Ұ�, AI �� �÷��̾� �о��
                 if (!timeStopped) {
+                    g_PlayerSizeMult = g_Stats.playerSizeMult;
                     g_MonsterManager.UpdateAll(pCX, pCY, enemyDt,
                                                g_GameManager.playerHP, g_Bullets,
                                                mobSpdRamp,
@@ -5725,7 +5730,7 @@ int main() {
                     for (auto* m : g_MonsterManager.monsters) {
                         if (!m || !m->alive ||
                             (m->kind != MobKind::GRAVIS && m->kind != MobKind::QUASAR)) continue;
-                        if (m->QuasarHoldsPosition()) continue;         // no clamp slide during its attack
+                        if (m->QuasarHoldsPosition() || m->LynxHoldsPosition()) continue;         // no clamp slide during its attack
                         const float margin = m->kind == MobKind::GRAVIS ? 92.0f : 76.0f;
                         const float minX = margin;
                         const float maxX = std::max(minX, (float)screenWidth - margin);
@@ -5794,6 +5799,8 @@ CollisionSystem::Update(pCX, pCY,
                                                      viewportRight, viewportBottom);
                         m->ConstrainRegulusToViewport(viewportLeft, viewportTop,
                                                       viewportRight, viewportBottom);
+                        m->ConstrainLynxToViewport(viewportLeft, viewportTop,
+                                                     viewportRight, viewportBottom, enemyDt);
                     }
                 if (g_Bullets.size() > 2800) {
                     g_Bullets.erase(
@@ -5817,6 +5824,7 @@ CollisionSystem::Update(pCX, pCY,
                 for (auto m : g_MonsterManager.monsters) {
                     if (!m->alive && !m->exploded) {
                         CollectMonsterKill(killSink, *m);
+                        if (m->kind == MobKind::MIRA) mira::AddZone(m->worldX, m->worldY, mira::kDeathLife, mira::kZoneRadius, m->miraChain);   // its zone stays, joined to its trail
                         // A CAELUM that withdrew for NORMA still has health: no send-off.
                         if (m->kind == MobKind::CAELUM && m->hp <= 0.0f) PlayCaelumFall(m->worldX, m->worldY);
                         m->SpawnDeathEffect((float)now);
@@ -6002,7 +6010,8 @@ CollisionSystem::Update(pCX, pCY,
             }
 
             UpdateEnemyFx(delta);
-            g_MonsterManager.UpdateDeathEffects(delta);
+            // Death animations advance inside MonsterManager::UpdateAll, on the
+            // gameplay clock; advancing them here too ran them twice as fast.
 
             // 충격???�데?�트
             for (auto& sw : g_ShockWaves) {
@@ -6420,6 +6429,14 @@ CollisionSystem::Update(pCX, pCY,
             g_BatchAlpha = space::Active() && space::SpaceAt(x, y) != space::g_PlayerSpace
                 ? spaceBaseAlpha * 0.35f : spaceBaseAlpha;
         };
+        DrawMiraZones();   // under the bodies, so the cores stay readable
+        // Lynx aim lines first, apart from the bodies: a telegraph must stay
+        // readable under the Regulus stealth buff.
+        for (auto m : g_MonsterManager.monsters) {
+            if (!m->alive || m->kind != MobKind::LYNX) continue;
+            dimIfElsewhere(m->worldX, m->worldY);
+            DrawLynxRay(m);
+        }
         for (auto m : g_MonsterManager.monsters) {
             if (!(m->alive || m->DeathEffectVisible())) continue;
             dimIfElsewhere(m->worldX, m->worldY);

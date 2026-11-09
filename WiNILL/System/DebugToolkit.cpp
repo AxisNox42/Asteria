@@ -94,7 +94,7 @@ float Clamp01(float v) {
 // What each spawn category offers: spawn-target ids (see MobLabel).
 //   0-9 mobs as before, 10 NORMA, 11 NORMA's test window.
 int SpawnEntries(int category, const int*& ids) {
-    static const int kRegular[] = { 0, 2, 3, 5, 6, 9 };
+    static const int kRegular[] = { 0, 2, 3, 5, 6, 9, 13, 14, 15 };
     static const int kElite[] = { 1, 4, 7, 8 };
     static const int kBoss[] = { 10, 12, 11 };
     switch (category) {
@@ -337,7 +337,7 @@ const wchar_t* DebugToolkit::MobLabel(int index) {
     static const wchar_t* labels[] = {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
         L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR",
-        L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS"
+        L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS", L"LYNX", L"MIRA", L"TRIGON"
     };
     if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
         return L"알 수 없음";
@@ -802,6 +802,21 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                         spawned = context_.spawnMob((int)MobKind::MAGNETAR,
                                                     spawnCount_);
                     break;
+                case 13:
+                    if (context_.spawnMob)
+                        spawned = context_.spawnMob((int)MobKind::LYNX,
+                                                    spawnCount_);
+                    break;
+                case 14:
+                    if (context_.spawnMob)
+                        spawned = context_.spawnMob((int)MobKind::MIRA,
+                                                    spawnCount_);
+                    break;
+                case 15:
+                    if (context_.spawnMob)
+                        spawned = context_.spawnMob((int)MobKind::TRIANGULUM,
+                                                    spawnCount_);
+                    break;
                 case 10:
                     if (context_.spawnBoss) spawned = context_.spawnBoss(0);
                     break;
@@ -817,7 +832,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                     return true;
                 }
                 if (spawned <= 0) {
-                    SetMessage(selectedMob_ >= 10
+                    SetMessage(selectedMob_ >= 10 && selectedMob_ != 13 && selectedMob_ != 14 && selectedMob_ != 15
                         ? L"소환 실패: 보스가 이미 필드에 있거나 런이 진행 중이 아닙니다"
                         : L"소환 실패: 몬스터 수용 한도에 도달했습니다");
                     return true;
@@ -1042,7 +1057,7 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
         DrawButton(bx, by, buttonW, buttonH, MobLabel(ids[slot]),
                    selectedMob_ == ids[slot], true);
     }
-    const bool bossPick = selectedMob_ >= 10;
+    const bool bossPick = selectedMob_ >= 10 && selectedMob_ != 13 && selectedMob_ != 14 && selectedMob_ != 15;
     const std::wstring summonLabel = selectedMob_ >= 0
         ? (selectedMob_ == 11 ? std::wstring(L"열기 ") + MobLabel(selectedMob_)
            : bossPick ? std::wstring(L"소환 ") + MobLabel(selectedMob_)
