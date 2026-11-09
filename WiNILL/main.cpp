@@ -3727,10 +3727,12 @@ int main() {
     const GLFWvidmode* mode    = glfwGetVideoMode(monitor);
     screenWidth  = mode->width;
 #ifdef _WIN32
-    // Avoid an exact monitor-size surface without exposing the desktop.
-    // The extra row extends below the monitor instead of leaving a clickable
-    // one-pixel strip at its bottom edge.
-    screenHeight = mode->height + 1;
+    // One row short of the monitor. A foreground window whose rect covers the
+    // whole monitor reads as a full-screen app, and live wallpapers (Wallpaper
+    // Engine) pause behind it, so the overlay must not cover the bottom row.
+    // That row is covered by a click-eating guard window instead (see
+    // CoverEdgeGap in WindowFx.cpp), so it cannot click through to the desktop.
+    screenHeight = mode->height - 1;
 #else
     screenHeight = mode->height;
 #endif
@@ -3777,7 +3779,7 @@ int main() {
     // circular VFX clean while avoiding the 4x full-screen sample cost.
     glfwWindowHint(GLFW_SAMPLES,                2);
 
-    // Windows overscans below the monitor to retain a non-exact window size.
+    // On Windows the window stops one row above the monitor's bottom edge.
     GLFWwindow* window = glfwCreateWindow(screenWidth, screenHeight,
                                           "Asteria", NULL, NULL);
     if (!window) { glfwTerminate(); return -1; }
