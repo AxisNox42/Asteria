@@ -904,10 +904,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // on a rigid text column.
     BatchFlush();
     glEnable(GL_SCISSOR_TEST);
-    glScissor((GLint)(listX - 34.0f * uiS),
-              (GLint)(sh - listBottom),
-              (GLint)(listW + 72.0f * uiS),
-              (GLint)(listBottom - listTop));
+    ScissorUnits(listX - 34.0f * uiS, listTop,
+                 listW + 72.0f * uiS, listBottom - listTop);
     LogoLine(listRailTopX, listTop - 8.0f * uiS,
              listRailBottomX, listBottom + 8.0f * uiS,
              0.82f * uiS, 0.34f, 0.72f, 1.0f, 0.24f * dA);
@@ -1272,10 +1270,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     }
     BatchFlush();
     glEnable(GL_SCISSOR_TEST);
-    glScissor((GLint)rpX,
-              (GLint)(sh - rightListBottom),
-              (GLint)rClickW,
-              (GLint)(rightListBottom - rightListTop));
+    ScissorUnits(rpX, rightListTop, rClickW, rightListBottom - rightListTop);
     for (int i = 0; i < rightListCount; ++i) {
         const float categoryOffset = (1.0f - categoryReveal) * 14.0f * uiS;
         const float y = rightListTop + i * rightRowH - rightScroll

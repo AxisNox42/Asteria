@@ -123,7 +123,7 @@ public:
         if (step.hasMouse) {
             mx = step.fx * (float)sw;
             my = step.fy * (float)sh;
-            glfwSetCursorPos(window, mx, my);
+            glfwSetCursorPos(window, mx * g_PixelScale, my * g_PixelScale);
         } else {
             mx = my = -10000.0;
         }

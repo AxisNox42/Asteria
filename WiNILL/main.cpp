@@ -3806,6 +3806,19 @@ int main() {
 
     // ?�상??기�? ?��??????��? ?�면?�서 �??�티?��? 비�? 축소?�도�?계산 ???�괄 ?�용.
     //   (?��? ?��??�라 ?��? ?�면?�수�??��??�으�?컸던 문제 ?�결 + ?�체?�으�?�?축소)
+    // The window keeps its physical size; from here on screenWidth/Height are
+    // logical units (see kLogicalH). Smoke runs use the same rule, so a small
+    // capture window shows the full-size layout scaled down.
+    g_FramebufferW = screenWidth;
+    g_FramebufferH = screenHeight;
+    {
+        const int refH = (g_SmokeRun.Active() && g_SmokeRun.Height() > 0)
+            ? screenHeight : mode->height;
+        g_PixelScale = refH > 0 ? (float)refH / kLogicalH : 1.0f;
+        screenWidth  = (int)std::lround(g_FramebufferW / g_PixelScale);
+        screenHeight = (int)std::lround(g_FramebufferH / g_PixelScale);
+        g_TaskbarH   = (int)std::lround(g_TaskbarH / g_PixelScale);
+    }
     g_Scale = (float)screenHeight / SCALE_REF_H;
     if (g_Scale > 1.0f) g_Scale = 1.0f;
     if (g_Scale < 0.5f) g_Scale = 0.5f;
@@ -4269,6 +4282,8 @@ int main() {
         // 마우???�태 (mx,my = ?�면 ?��? / wmx,wmy = �?보정???�드 좌표 = 조�???
         double mx, my;
         glfwGetCursorPos(window, &mx, &my);
+        mx /= g_PixelScale;   // window pixels to logical units
+        my /= g_PixelScale;
         const bool rawLmb = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         const bool rawRmb = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
         if (inputFocusChanged) {
@@ -6225,7 +6240,7 @@ CollisionSystem::Update(pCX, pCY,
             (tutRealState == GameState::AUG_SELECT);
         ready_launch::g_SelectionUp = tutSelectionRender;
         if (tutSelectionRender) g_GameManager.currentState = GameState::READY;
-        glViewport(0, 0, screenWidth, screenHeight);
+        SetFullViewport();
         // The pane prototype hides the desktop so its screen captures stay private.
         glClearColor(0.0f, 0.0f, 0.0f, g_PaneDebug ? 1.0f : 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -6754,13 +6769,14 @@ CollisionSystem::Update(pCX, pCY,
                         // field) at its top-left; the viewport maps that back to
                         // the field and everything outside it is clipped.
                         const float s = ready_launch::kCardScreenScale;
-                        const float vglY = (float)screenHeight - (fy + sh * s);
-                        glViewport((GLint)fx, (GLint)vglY,
-                                   (GLsizei)(sw * s), (GLsizei)(sh * s));
-                        g_ViewportMap = { fx, vglY, s };
+                        const float k = g_PixelScale;
+                        const float vglY = ((float)screenHeight - (fy + sh * s)) * k;
+                        glViewport((GLint)(fx * k), (GLint)vglY,
+                                   (GLsizei)(sw * s * k), (GLsizei)(sh * s * k));
+                        g_ViewportMap = { fx * k, vglY, s * k };
                         glEnable(GL_SCISSOR_TEST);
-                        glScissor((GLint)fx, (GLint)((float)screenHeight - (fy + fh)),
-                                  (GLsizei)fw, (GLsizei)fh);
+                        glScissor((GLint)(fx * k), (GLint)(((float)screenHeight - (fy + fh)) * k),
+                                  (GLsizei)(fw * k), (GLsizei)(fh * k));
                         SceneCtx mini = ctx;
                         mini.sw = fw / s;
                         mini.sh = fh / s;
@@ -6770,9 +6786,8 @@ CollisionSystem::Update(pCX, pCY,
                         Scene_AugSelect(mini);
                         tutRealState = g_GameManager.currentState;
                         g_GameManager.currentState = GameState::READY;
-                        g_ViewportMap = ViewportMap{};
                         glDisable(GL_SCISSOR_TEST);
-                        glViewport(0, 0, screenWidth, screenHeight);
+                        SetFullViewport();
                     }
                     break;
                 // Pause is drawn after the HUD and version so its veil dims
@@ -6969,7 +6984,7 @@ CollisionSystem::Update(pCX, pCY,
         BatchFlush();   // ?�레??마�?�????��? ?�형 모두 그림
         if (g_DebugToolkit.SuppressOverlayForCapture())
             g_DebugToolkit.CaptureFrameAfterRender(
-                screenWidth, screenHeight, g_GameManager.currentState);
+                g_FramebufferW, g_FramebufferH, g_GameManager.currentState);
         if (tutSelectionRender && g_GameManager.currentState == GameState::READY)
             g_GameManager.currentState = tutRealState;
         glfwSwapBuffers(window);

@@ -1,6 +1,7 @@
 #pragma once
 #include <glad/glad.h>
 #include "DrawPrim.h"
+#include "MainShader.h"
 
 // ── 디스플레이 / 줌 카메라 (월드 ↔ 스크린, 가짜창 scissor) ──
 extern int   screenWidth;
@@ -39,5 +40,5 @@ inline void WorldScissor(float wx, float wy, float ww, float wh) {
     float sw = ww * z, sh = wh * z;
     if (sw < 1.0f) sw = 1.0f;
     if (sh < 1.0f) sh = 1.0f;
-    glScissor((GLint)sx, (GLint)(screenHeight - (sy + sh)), (GLint)sw, (GLint)sh);
+    ScissorUnits(sx, sy, sw, sh);
 }

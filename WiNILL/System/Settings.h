@@ -53,6 +53,18 @@ inline int g_TaskbarH = 0;
 inline float g_Scale = 1.0f;
 inline constexpr float SCALE_REF_H = 2000.0f;   // 이 높이에서 g_Scale=1.0 (값↑일수록 전체적으로 작아짐)
 
+// Logical resolution. The game lays out, simulates and draws in units of a
+// screen kLogicalH tall (a 2560x1600 display is 1:1); the width follows the
+// monitor's aspect. g_PixelScale = physical pixels per unit, so a 1920x1080
+// monitor shows the same mobs, panes and UI at 0.675x instead of letting
+// fixed pixel sizes grow relative to the screen. Convert only at the edges:
+// GL viewport/scissor, cursor input, glyph baking, and real OS windows.
+inline constexpr float kLogicalH = 1600.0f;
+inline float g_PixelScale = 1.0f;
+inline int   g_FramebufferW = 0, g_FramebufferH = 0;   // physical client size
+inline int   ToPx(float units) { return (int)std::lround(units * g_PixelScale); }
+inline float FromPx(float px)  { return px / g_PixelScale; }
+
 // 인게임 작업표시줄 여백(px). Windows에서는 활성 창을 Shell fullscreen으로
 // 표시해 작업표시줄을 숨기므로 0을 유지한다. 하단 HUD는 전체 화면을 사용한다.
 inline constexpr float g_GameBarH = 0.0f;

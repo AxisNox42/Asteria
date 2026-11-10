@@ -105,10 +105,19 @@ POINT OverlayOrigin() {
     return origin;
 }
 
+// Screen pixels to overlay units (the game's logical space, see g_PixelScale).
 Rect ToOverlay(const RECT& r) {
     const POINT o = OverlayOrigin();
-    return { (float)(r.left - o.x), (float)(r.top - o.y),
-             (float)(r.right - r.left), (float)(r.bottom - r.top) };
+    return { FromPx((float)(r.left - o.x)), FromPx((float)(r.top - o.y)),
+             FromPx((float)(r.right - r.left)), FromPx((float)(r.bottom - r.top)) };
+}
+
+// The overlay's client size in overlay units.
+void OverlaySize(float& w, float& h) {
+    RECT oc{};
+    GetClientRect(s_overlayHwnd, &oc);
+    w = FromPx((float)(oc.right - oc.left));
+    h = FromPx((float)(oc.bottom - oc.top));
 }
 
 // Visible bounds: GetWindowRect includes the invisible resize border.
@@ -181,7 +190,7 @@ void PaintClient(HWND hwnd, HDC dc) {
             Content still = *c;
             still.unstable = 0.0f;
             still.cache = nullptr;
-            pane_content::Paint(mem, RECT{ 0, 0, w, h }, &still, UserPrefersDark());
+            pane_content::Paint(mem, RECT{ 0, 0, w, h }, &still, UserPrefersDark(), g_PixelScale);
             SelectObject(mem, prev);
         }
         HDC back = CreateCompatibleDC(dc);
@@ -198,7 +207,7 @@ void PaintClient(HWND hwnd, HDC dc) {
         return;
     }
     // A worn pane's content breaks up and tints as its warning.
-    pane_content::Paint(dc, r, c, UserPrefersDark());
+    pane_content::Paint(dc, r, c, UserPrefersDark(), g_PixelScale);
 }
 
 LRESULT CALLBACK PaneProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -367,9 +376,8 @@ BOOL CALLBACK CollectDesktopWindow(HWND hwnd, LPARAM) {
     s_scanFront.push_back(r);
     if (share < kMinVisibleShare) return TRUE;
     if (r.w < kMinDesktopW || r.h < kMinDesktopH) return TRUE;
-    RECT oc{};
-    GetClientRect(s_overlayHwnd, &oc);
-    const float ow = (float)(oc.right - oc.left), oh = (float)(oc.bottom - oc.top);
+    float ow = 0.0f, oh = 0.0f;
+    OverlaySize(ow, oh);
     const float ix = (std::max)(0.0f, (std::min)(r.x + r.w, ow) - (std::max)(r.x, 0.0f));
     const float iy = (std::max)(0.0f, (std::min)(r.y + r.h, oh) - (std::max)(r.y, 0.0f));
     if (ix * iy <= 0.0f) return TRUE;
@@ -394,9 +402,9 @@ BOOL CALLBACK FindShellView(HWND hwnd, LPARAM out) {
 // would hide the game, so arrange mode stops just above it.
 HWND CoveringWindow() {
     if (!s_overlayHwnd) return nullptr;
-    RECT oc{};
-    GetClientRect(s_overlayHwnd, &oc);
-    const float area = (float)(oc.right - oc.left) * (float)(oc.bottom - oc.top);
+    float ow = 0.0f, oh = 0.0f;
+    OverlaySize(ow, oh);
+    const float area = ow * oh;
     if (area <= 0.0f) return nullptr;
     for (HWND h = GetTopWindow(nullptr); h; h = GetWindow(h, GW_HWNDNEXT)) {
         if (!IsWindowVisible(h) || IsIconic(h) || IsShellWindow(h)) continue;
@@ -408,8 +416,8 @@ HWND CoveringWindow() {
         DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
         if (cloaked) continue;
         const Rect r = ToOverlay(FrameBounds(h));
-        const float ix = (std::max)(0.0f, (std::min)(r.x + r.w, (float)oc.right) - (std::max)(r.x, 0.0f));
-        const float iy = (std::max)(0.0f, (std::min)(r.y + r.h, (float)oc.bottom) - (std::max)(r.y, 0.0f));
+        const float ix = (std::max)(0.0f, (std::min)(r.x + r.w, ow) - (std::max)(r.x, 0.0f));
+        const float iy = (std::max)(0.0f, (std::min)(r.y + r.h, oh) - (std::max)(r.y, 0.0f));
         if (ix * iy >= area * 0.95f) return h;
     }
     return nullptr;
@@ -479,8 +487,9 @@ int Open(float x, float y, float w, float h, bool decor) {
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
                         WS_MINIMIZEBOX | WS_THICKFRAME;
     const DWORD exStyle = WS_EX_NOACTIVATE;
+    const int px = ToPx(x), py = ToPx(y), pw = ToPx(w), ph = ToPx(h);
     HWND hwnd = CreateWindowExW(exStyle, kClassName, BaseTitle(), style,
-                                o.x + (int)x, o.y + (int)y, (int)w, (int)h,
+                                o.x + px, o.y + py, pw, ph,
                                 s_ownerHwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!hwnd) return 0;
     ApplyTheme(hwnd);
@@ -492,8 +501,8 @@ int Open(float x, float y, float w, float h, bool decor) {
     const RECT fr = FrameBounds(hwnd);
     const int left = fr.left - wr.left, top = fr.top - wr.top;
     const int right = wr.right - fr.right, bottom = wr.bottom - fr.bottom;
-    SetWindowPos(hwnd, nullptr, o.x + (int)x - left, o.y + (int)y - top,
-                 (int)w + left + right, (int)h + top + bottom,
+    SetWindowPos(hwnd, nullptr, o.x + px - left, o.y + py - top,
+                 pw + left + right, ph + top + bottom,
                  SWP_NOZORDER | SWP_NOACTIVATE);
     if (!s_arrange) StackBelowGame(hwnd);
 
@@ -569,7 +578,7 @@ void Place(int id, float x, float y) {
     const RECT fr = FrameBounds(s_handles[i]);
     const POINT o = OverlayOrigin();
     SetWindowPos(s_handles[i], nullptr,
-                 o.x + (int)x - (fr.left - wr.left), o.y + (int)y - (fr.top - wr.top), 0, 0,
+                 o.x + ToPx(x) - (fr.left - wr.left), o.y + ToPx(y) - (fr.top - wr.top), 0, 0,
                  SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     RefreshRects(i);
     p.shown = p.frame;
@@ -586,8 +595,8 @@ void Resize(int id, float x, float y, float w, float h) {
     const int left = fr.left - wr.left, top = fr.top - wr.top;
     const int right = wr.right - fr.right, bottom = wr.bottom - fr.bottom;
     const POINT o = OverlayOrigin();
-    SetWindowPos(s_handles[i], nullptr, o.x + (int)x - left, o.y + (int)y - top,
-                 (int)w + left + right, (int)h + top + bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(s_handles[i], nullptr, o.x + ToPx(x) - left, o.y + ToPx(y) - top,
+                 ToPx(w) + left + right, ToPx(h) + top + bottom, SWP_NOZORDER | SWP_NOACTIVATE);
     RefreshRects(i);
     p.shown = p.frame;
 }
@@ -879,13 +888,13 @@ void DebugMoveBy(int id, float dx, float dy) {
     if (i < 0) return;
     RECT wr{};
     GetWindowRect(s_handles[i], &wr);
-    SetWindowPos(s_handles[i], nullptr, wr.left + (int)dx, wr.top + (int)dy, 0, 0,
+    SetWindowPos(s_handles[i], nullptr, wr.left + ToPx(dx), wr.top + ToPx(dy), 0, 0,
                  SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 unsigned long DebugProcessAt(float x, float y, bool* isOverlay) {
     const POINT o = OverlayOrigin();
-    POINT pt{ o.x + (LONG)x, o.y + (LONG)y };
+    POINT pt{ o.x + (LONG)ToPx(x), o.y + (LONG)ToPx(y) };
     HWND root = GetAncestor(WindowFromPoint(pt), GA_ROOT);
     if (isOverlay) *isOverlay = root == s_overlayHwnd;
     DWORD pid = 0;

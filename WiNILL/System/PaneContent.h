@@ -673,7 +673,11 @@ inline void GlitchFast(HDC dst, HDC src, int w, int h, float u, const GlitchBurs
 // The whole client: paper, then the content, then the glitch. Double-buffered
 // in a 32-bit DIB so the glitch can work on the pixels and a worn pane's
 // repaint does not flash.
-inline void Paint(HDC target, const RECT& r, const Content* c, bool darkIfNone) {
+// scale: window pixels per layout unit. The painters lay out in units (fixed
+// line heights, fonts, margins), so a pane shows the same lines at every
+// monitor resolution; GDI's world transform draws them at the pane's real size.
+inline void Paint(HDC target, const RECT& r, const Content* c, bool darkIfNone,
+                  float scale = 1.0f) {
     const int w = r.right - r.left, h = r.bottom - r.top;
     if (w <= 0 || h <= 0) return;
     HDC dc = CreateCompatibleDC(target);
@@ -688,9 +692,16 @@ inline void Paint(HDC target, const RECT& r, const Content* c, bool darkIfNone) 
     HBITMAP bmp = CreateDIBSection(target, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
     if (!bmp || !bits) { if (bmp) DeleteObject(bmp); DeleteDC(dc); return; }
     HGDIOBJ oldBmp = SelectObject(dc, bmp);
-    const RECT local{ 0, 0, w, h };
+    if (!(scale > 0.0f)) scale = 1.0f;
+    const bool scaled = std::fabs(scale - 1.0f) > 0.001f;
+    if (scaled) {
+        SetGraphicsMode(dc, GM_ADVANCED);
+        const XFORM xf{ scale, 0.0f, 0.0f, scale, 0.0f, 0.0f };
+        SetWorldTransform(dc, &xf);
+    }
+    const RECT local{ 0, 0, (LONG)std::ceil(w / scale), (LONG)std::ceil(h / scale) };
     const bool dark = c ? c->dark : darkIfNone;
-    Fill(dc, 0, 0, w, h, dark ? kPaperDark : kPaperLight);
+    Fill(dc, 0, 0, local.right, local.bottom, dark ? kPaperDark : kPaperLight);
     if (c) {
         if (c->role == Role::Error) PaintError(dc, local, *c);
         else if (c->role == Role::Shutdown) PaintShutdown(dc, local, *c);
@@ -699,11 +710,13 @@ inline void Paint(HDC target, const RECT& r, const Content* c, bool darkIfNone) 
         else if (c->kind == Kind::Memo) PaintMemo(dc, local, *c);
         else if (c->kind == Kind::Code) PaintCode(dc, local, *c);
         else if (c->kind == Kind::Image) PaintImage(dc, local, *c);
+        if (scaled) ModifyWorldTransform(dc, nullptr, MWT_IDENTITY);
         if (c->unstable > 0.0f) {
             GdiFlush();
             Glitch(static_cast<unsigned*>(bits), w, h, c->unstable, c->glitch);
         }
     }
+    if (scaled) ModifyWorldTransform(dc, nullptr, MWT_IDENTITY);   // BitBlt reads raw pixels
     BitBlt(target, r.left, r.top, w, h, dc, 0, 0, SRCCOPY);
     SelectObject(dc, oldBmp);
     DeleteObject(bmp);

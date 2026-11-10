@@ -452,8 +452,7 @@ void Scene_Shop(const SceneCtx& c) {
     {
         BatchFlush();
         glEnable(GL_SCISSOR_TEST);
-        glScissor((GLint)(gridX - 24.0f * ui - slideIn), (GLint)(sh - (gridTop + gridH)),
-                  (GLsizei)(gridW + 70.0f * ui), (GLsizei)gridH);
+        ScissorUnits(gridX - 24.0f * ui - slideIn, gridTop, gridW + 70.0f * ui, gridH);
         for (int s = 0; s < secCount; ++s) {
             const float sy = gridTop + secY[s] - s_scroll;
             if (sy + secHdrH < gridTop - 4.0f || sy > gridTop + gridH) { }

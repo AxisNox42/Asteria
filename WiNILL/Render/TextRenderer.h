@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cmath>
 #include "stb_truetype.h"   // 선언부. 구현은 stb_impl.cpp 의 STB_TRUETYPE_IMPLEMENTATION
+#include "Settings.h"        // g_PixelScale: glyphs bake at physical pixel size
 #include "DrawPrim.h"        // BatchFlush — 텍스트 그리기 전 메인 배치를 비움
 
 // Optional last-moment text rewrite (the Chinese UI swaps English strings for
@@ -123,7 +124,8 @@ private:
     // small text is drawn ~1:1 instead of stretching the base bitmap (blur/fat halo).
     Glyph& GetGlyph(int cp, float px = -1.0f);
     float  ChooseBakePx(float scale) const {
-        const float want = emPx_ * scale;
+        // Bake at the size the glyph lands on screen, in window pixels.
+        const float want = emPx_ * scale * g_PixelScale;
         if (!(want > 0.0f) || std::fabs(want - emPx_) < 1.5f) return emPx_;
         return std::max(8.0f, std::min(300.0f, std::floor(want * 0.5f + 0.5f) * 2.0f));
     }
@@ -477,8 +479,10 @@ inline void TextRenderer::Draw(const wchar_t* text, float x, float y, float scal
                     (GLsizei)(drawVertices_.size() / 4u), 0});
             }
             GlyphRun& run = runs.back();
-            const float gx = std::floor(penX + glyph.xoff * k + 0.5f);
-            const float gy = std::floor(baseline + glyph.yoff * k + 0.5f);
+            // Snap to whole window pixels, not whole logical units.
+            const float px = g_PixelScale;
+            const float gx = std::floor((penX + glyph.xoff * k) * px + 0.5f) / px;
+            const float gy = std::floor((baseline + glyph.yoff * k) * px + 0.5f) / px;
             const float gw = glyph.w * k, gh = glyph.h * k;
             const float quad[] = {
                 gx,      gy,      glyph.u0, glyph.v0,
