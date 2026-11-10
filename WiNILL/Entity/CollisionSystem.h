@@ -13,9 +13,20 @@
 #include "Juice.h"
 #include "../Core/Codex.h"
 
-// A player shot hits a monster within this radius, times its sizeScale
-// (also used by the READY practice field).
-inline constexpr float MONSTER_BULLET_HIT_RADIUS = 15.0f;
+// Player shot vs enemy: the two circles touch (enemy body + shot), instead of
+// the old enemy radius x shot size. Multiplying shrank small enemies' targets
+// along with the shot and blew big shots up on big enemies; adding keeps a
+// SWARM easy to hit and a 4x shot sane. At sizes 1/1 the totals match the
+// 1.2x aim forgiveness from the 2026-11-10 playtest (regular 18, SCOPE 24,
+// OCTANS 31). Enemy shots on the player are unchanged.
+inline constexpr float kMonsterBodyHitPx = 13.0f;    // per enemy sizeScale
+inline constexpr float kScopeBodyHitPx   = 19.0f;    // SCOPE has no sizeScale
+inline constexpr float kNormaBodyHitPx   = norma::kShotHitPx;   // OCTANS (NORMA), per sizeScale
+inline constexpr float kPlayerShotHitPx  = 5.0f;     // per shot sizeScale (drawn core is 4.8)
+
+inline float PlayerShotHitRadius(float bodyPx, float shotSizeScale) {
+    return bodyPx + kPlayerShotHitPx * std::max(1.0f, shotSizeScale);
+}
 
 // Kill stardust: spawned now, or held on the mob (Quasar, Genesis) and
 // released by ReleasePendingStardust.
@@ -207,13 +218,14 @@ public:
 
             const int shotSpace = bullet.space >= 0 ? bullet.space : space::kPlayerSource;
             ClampPlayerBulletSize(bullet);   // spawned or grown since the last projectile step
-            const float shotScale = std::max(1.0f, bullet.sizeScale);
+            const float shotScale = bullet.sizeScale;
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
                 if (bullet.HasHit(monster)) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
-                const float hitRadius = (monster->kind == MobKind::NORMA
-                    ? norma::kShotHitPx : MONSTER_BULLET_HIT_RADIUS) * monster->sizeScale * shotScale;
+                const float hitRadius = PlayerShotHitRadius(
+                    (monster->kind == MobKind::NORMA ? kNormaBodyHitPx : kMonsterBodyHitPx) * monster->sizeScale,
+                    shotScale);
                 if (monster->worldX < minX - hitRadius || monster->worldX > maxX + hitRadius ||
                     monster->worldY < minY - hitRadius || monster->worldY > maxY + hitRadius)
                     continue;
@@ -263,7 +275,7 @@ public:
                 if (!ranged->alive) continue;
                 if (bullet.HasHit(ranged)) continue;
                 if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) continue;
-                const float HIT_RADIUS = 20.0f * shotScale;
+                const float HIT_RADIUS = PlayerShotHitRadius(kScopeBodyHitPx, shotScale);
                 if (ranged->worldX < minX - HIT_RADIUS || ranged->worldX > maxX + HIT_RADIUS ||
                     ranged->worldY < minY - HIT_RADIUS || ranged->worldY > maxY + HIT_RADIUS)
                     continue;

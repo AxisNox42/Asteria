@@ -249,7 +249,7 @@ rp::Rules LiveRules(const PracticeView& v, bool firing) {
     r.pulseRadius = STATIC_FIELD_PULSE_RADIUS;
     r.pulseDamage = r.bulletDamage * STATIC_FIELD_PULSE_DAMAGE_MULT;
     r.dummyHp = v.swarmHp;
-    r.dummyHitRadius = MONSTER_BULLET_HIT_RADIUS * v.swarmScale;
+    r.dummyHitRadius = PlayerShotHitRadius(kMonsterBodyHitPx * v.swarmScale, 1.0f);
     r.dashAvailable = DashPractisable();
     return r;
 }
