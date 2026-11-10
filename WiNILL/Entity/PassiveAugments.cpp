@@ -81,7 +81,8 @@ struct State {
 State s;
 
 bool Has(AugType type) { return s.count[(int)type] > 0; }
-float Rand01() { return (float)(std::rand() % 10000) / 10000.0f; }
+// MSVC's RAND_MAX is 32767: `rand() % 10000` only reached 0..0.33 and chances fired ~3x too often.
+float Rand01() { return (float)std::rand() / ((float)RAND_MAX + 1.0f); }
 bool Chance(float p) { return Rand01() < p * LuckChanceMult(); }
 
 float AttackPower() { return g_Stats.GetBaseDamage() * g_Stats.GetDamageMultiplier(); }

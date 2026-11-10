@@ -253,7 +253,9 @@ void GameManager::PickRewardChoices() {
             total += w;
         }
         if (total <= 0.0f) break;
-        float roll = (float)(std::rand() % 100000) / 100000.0f * total;
+        // MSVC's RAND_MAX is 32767, so `rand() % 100000` only reached the first
+        // third of the weight sum and Rare and above almost never came up.
+        float roll = (float)std::rand() / ((float)RAND_MAX + 1.0f) * total;
         int rarity = 0;
         for (; rarity < 4 && roll >= weights[rarity]; ++rarity) roll -= weights[rarity];
         while (weights[rarity] <= 0.0f && rarity > 0) --rarity;

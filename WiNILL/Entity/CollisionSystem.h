@@ -206,6 +206,7 @@ public:
             bool consumed = false;
 
             const int shotSpace = bullet.space >= 0 ? bullet.space : space::kPlayerSource;
+            ClampPlayerBulletSize(bullet);   // spawned or grown since the last projectile step
             const float shotScale = std::max(1.0f, bullet.sizeScale);
             for (auto* monster : manager.monsters) {
                 if (!monster->alive) continue;
