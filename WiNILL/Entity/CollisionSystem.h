@@ -245,7 +245,9 @@ public:
                 const float dealt = manager.ApplyDamage(*monster, baseDamage, shotSpace,
                                                         crit ? bullet.dirX : 0.0f,
                                                         crit ? bullet.dirY : 0.0f);
-                SpawnDamageNumber(monster->worldX, monster->worldY, dealt, crit);
+                // The popup is the shot's own attack power, every time: invulnerable
+                // frames, phase caps, shields and overkill never change the number.
+                SpawnDamageNumber(monster->worldX, monster->worldY, baseDamage, crit);
                 if (monster->alive) Audio::Play(Audio::Cue::EnemyHit);
                 const bool regular = !IsBossMob(monster->kind) && !IsEliteMob(monster->kind);
                 if (monster->alive && passive_hooks::executes &&
@@ -292,7 +294,7 @@ public:
                 const float baseDamage = stats.GetBaseDamage() *
                     stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
                 const float dealt = manager.ApplyDamage(*ranged, baseDamage, shotSpace);
-                SpawnDamageNumber(ranged->worldX, ranged->worldY, dealt, crit);
+                SpawnDamageNumber(ranged->worldX, ranged->worldY, baseDamage, crit);
                 if (ranged->alive) Audio::Play(Audio::Cue::EnemyHit);
                 if (ranged->alive && passive_hooks::executes &&
                     passive_hooks::executes(ranged, ranged->hp, true))

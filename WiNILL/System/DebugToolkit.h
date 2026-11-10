@@ -38,6 +38,8 @@ struct DebugToolkitContext {
     std::function<int(int boss)> spawnBoss;
     // NORMA's test window (Boss category); true when one opened.
     std::function<bool()> openTestPane;
+    // Augment tab: takes the card as if it were picked (returns false when refused).
+    std::function<bool(int augIdx)> grantAugment;
 };
 
 class DebugToolkit {
@@ -86,6 +88,7 @@ private:
     bool visible_ = false;
     int tab_ = 0;
     int fieldOffset_ = 0;
+    int augOffset_ = 0;       // first visible row of the augment tab
     int selectedField_ = -1;
     int selectedMob_ = -1;
     int spawnCategory_ = 0;   // 0 regular, 1 elite, 2 boss
@@ -119,6 +122,7 @@ private:
     void RenderSpawnTab(float x, float y, float w, float h,
                         float mouseX, float mouseY,
                         bool click);
+    void RenderAugmentTab(float x, float y, float w, float h);
     void RenderCaptureTab(float x, float y, float w, float h,
                           float mouseX, float mouseY,
                           bool click);

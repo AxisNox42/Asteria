@@ -1,6 +1,6 @@
 ﻿# Asteria
 
-Version: 0.3.15
+Version: 0.3.16
 
 ## Windows 실행
 

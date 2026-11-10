@@ -674,6 +674,8 @@ void OnShot() {
 
 bool DashSealed() { return Has(AugType::P_HERESY_BOUND_AMP); }
 
+float PlateShieldLeft() { return Has(AugType::P_GEM_BUFFER_PLATING) ? s.emeraldLeft : 0.0f; }
+
 void OnDashStarted() {
     gamelog::Dash();
     gamelog::Event("DASH", "hp=%.1f", g_GameManager.playerHP);

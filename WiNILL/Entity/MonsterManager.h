@@ -218,6 +218,7 @@ public:
                 c->antaresGen = gen;
                 c->sizeScale *= powf(Monster::ANTARES_CHILD_SCALE, (float)gen);
                 c->hp = c->hp / Monster::ANTARES_ELITE_HP_MULT * powf(Monster::ANTARES_CHILD_HP, (float)gen);
+                c->eliteMaxHp = c->hp;
                 c->antaresInArena = true;
                 c->antaresHeadingX = cosf(a);
                 c->antaresHeadingY = sinf(a);

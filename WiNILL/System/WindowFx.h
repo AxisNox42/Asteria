@@ -16,6 +16,10 @@ void EnableWindowTransparency(GLFWwindow* window);
 // Mark the borderless window fullscreen for the Shell while it is active.
 void UpdateWindowTaskbarPolicy(GLFWwindow* window);
 void ReleaseWindowTaskbarPolicy(GLFWwindow* window);
+// True when the display under the window has HDR on (Windows only). The menu
+// darkness veil is compensated for it: DWM blends HDR in linear light.
+// ASTERIA_FORCE_HDR=1/0 overrides it for checks.
+bool IsWindowOnHdrDisplay(GLFWwindow* window);
 
 // transparency_debug.txt 에 로그 기록 (printf 스타일, 크로스플랫폼)
 void TransparencyLog(const char* fmt, ...);

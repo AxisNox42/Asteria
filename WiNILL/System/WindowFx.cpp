@@ -1,6 +1,9 @@
 #include "WindowFx.h"
 #include <cstdio>
 #include <cstdarg>
+#include <cstdlib>
+#include <cwchar>
+#include <vector>
 
 // --- 디버그 로그 — 비활성화(no-op). 과거 transparency_debug.txt 를 만들던 기능 제거.
 //     (F26: 배포본에 디버그 파일이 생기지 않도록. 호출부는 그대로 두고 함수만 비움.)
@@ -121,6 +124,53 @@ void ReleaseWindowTaskbarPolicy(GLFWwindow* window) {
     if (window) MarkShellFullscreen(glfwGetWin32Window(window), false);
 }
 
+// Is the display under the window running with HDR (advanced color) on?
+// Matches the window's monitor to a display-config source by GDI device name.
+bool IsWindowOnHdrDisplay(GLFWwindow* window) {
+    {   // A/B captures and tests
+        char* f = nullptr;
+        size_t n = 0;
+        if (_dupenv_s(&f, &n, "ASTERIA_FORCE_HDR") == 0 && f) {
+            const bool on = f[0] == '1';
+            free(f);
+            return on;
+        }
+    }
+    if (!window) return false;
+    HWND hwnd = glfwGetWin32Window(window);
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mi))
+        return false;
+
+    UINT32 pathCount = 0, modeCount = 0;
+    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS)
+        return false;
+    std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(),
+                           &modeCount, modes.data(), nullptr) != ERROR_SUCCESS)
+        return false;
+    for (UINT32 i = 0; i < pathCount; ++i) {
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME src{};
+        src.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        src.header.size = sizeof(src);
+        src.header.adapterId = paths[i].sourceInfo.adapterId;
+        src.header.id = paths[i].sourceInfo.id;
+        if (DisplayConfigGetDeviceInfo(&src.header) != ERROR_SUCCESS) continue;
+        if (wcscmp(src.viewGdiDeviceName, mi.szDevice) != 0) continue;
+
+        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO col{};
+        col.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
+        col.header.size = sizeof(col);
+        col.header.adapterId = paths[i].targetInfo.adapterId;
+        col.header.id = paths[i].targetInfo.id;
+        if (DisplayConfigGetDeviceInfo(&col.header) != ERROR_SUCCESS) return false;
+        return col.advancedColorEnabled != 0;
+    }
+    return false;
+}
+
 void EnableWindowTransparency(GLFWwindow* window) {
     HWND hwnd = glfwGetWin32Window(window);
     TransparencyLog("=== EnableWindowTransparency ===\n");
@@ -157,6 +207,7 @@ void EnableWindowTransparency(GLFWwindow* window) {
 #else
 void UpdateWindowTaskbarPolicy(GLFWwindow*) {}
 void ReleaseWindowTaskbarPolicy(GLFWwindow*) {}
+bool IsWindowOnHdrDisplay(GLFWwindow*) { return false; }
 // ═══════════════════════ macOS / Linux ═════════════════════════════════════════
 //   투명도는 glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE) 가 처리.
 //   (Cocoa: NSWindow opaque=NO / X11: 32bit visual). 추가 OS 호출 불필요.

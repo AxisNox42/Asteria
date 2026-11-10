@@ -36,6 +36,23 @@ static void CheckFactor() {
     assert(Near(MenuDimFactor(900), MenuDimFactor(100)));
 }
 
+static void CheckHdrCompensation() {
+    // HDR blends in linear light, so each step must be at least as dark as SDR
+    // and the same slider position passes the same light as SDR does.
+    for (int v = 0; v <= 100; v += 10) {
+        g_DesktopHdr = false;
+        const float sdrLight = 1.0f - MenuDimEquivAlpha(v);
+        g_DesktopHdr = true;
+        const float hdrLight = 1.0f - MenuDimAlphaOfFactor(MenuDimFactor(v));
+        const float hdrEncoded = std::pow(hdrLight, 1.0f / 2.2f);   // linear -> encoded
+        if (v <= 90) assert(std::fabs(hdrEncoded - sdrLight) < 0.02f);   // top end is capped by the max factor
+    }
+    assert(HdrCompensatedAlpha(0.5f) > 0.78f);
+    g_DesktopHdr = false;
+    assert(Near(HdrCompensatedAlpha(0.5f), 0.5f));
+    assert(Near(MenuDimFactor(50), 1.0f));
+}
+
 static void CheckCombatShare() {
     assert(Near(CombatDimAlpha(0), 0.0f));                          // 0 = no extra dark anywhere
     assert(Near(MenuDimEquivAlpha(50), 0.16f));                     // default: the navy base only
@@ -66,6 +83,7 @@ static void CheckSnapshot() {
 int main() {
     _putenv_s("ASTERIA_SAVE_DIR", ".");
     CheckFactor();
+    CheckHdrCompensation();
     CheckCombatShare();
     CheckSaveRoundTrip();
     CheckSnapshot();

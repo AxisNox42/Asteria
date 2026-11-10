@@ -508,6 +508,7 @@ public:
 
     // NORMA boss state (NormaBoss.h).
     float normaMaxHp = 0.0f;
+    float eliteMaxHp = 0.0f;   // an elite's HP at spawn, for its HP bar (set by MakeKind)
     int normaPhase = 1;
     float normaPhaseFlash = 0.0f;   // > 0 right after entering phase 2
     float normaInvuln = 0.0f;       // > 0: holds still, takes no damage (phase change)
@@ -972,6 +973,7 @@ public:
             magnetarVisualAngle = (float)(rand() % 628) * 0.01f;
             magnetarInterceptTimer = 0.0f;
         }
+        if (IsEliteMob(kind)) eliteMaxHp = hp;
     }
 
     // Stages 1-4 are read from the current speed, so they rise continuously

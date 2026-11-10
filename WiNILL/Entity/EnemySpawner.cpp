@@ -118,7 +118,7 @@ static void SpawnScheduledElite(MonsterManager& monsters, int screenWidth,
     const size_t before = monsters.monsters.size();
     // Natural spawns share the wave budget, but have no concurrent population cap.
     monsters.SpawnMob(screenWidth, screenHeight,
-                      (int)before + 1, hpMultiplier * kEliteWaveHpMult);
+                      (int)before + 1, hpMultiplier * EliteWaveHpMult(difficulty));
     if (monsters.monsters.size() == before) return;
     Monster& mob = *monsters.monsters.back();
     mob.MakeKind(elite);

@@ -401,6 +401,264 @@ static void DrawSealChain(float x0, float y, float w, float scale, float ratio, 
     BindMainShader();
 }
 
+// An elite's health: a short star-chart line in the elite's own colour.
+//   - a faint full line, the lit health over it, a four-point star riding the
+//     lit end (it flares white when hit and throbs under a quarter)
+//   - damage leaves a white stretch that catches up after kEliteTrailHold
+//   - REGULUS' shield is a second pale line laid just over the bar; while it
+//     is down, a faint line re-grows along it as the regrowth timer runs
+//   - ANTARES counts its whole family: splitting does not refill the bar
+//   - on entry the name swells in over the bar and settles; on death the
+//     star blooms and the line lets go
+static constexpr float kEliteTrailHold = 0.40f;
+static void DrawEliteBar(float sw, float scale, float topY) {
+    static int s_key = 0;
+    static float s_ratio = 1.0f, s_trail = 1.0f, s_lastHit = -10.0f, s_lastT = 0.0f;
+    static float s_peak = 1.0f, s_born = -10.0f, s_gone = -10.0f;
+    static float s_shield = 0.0f, s_regen = 0.0f, s_shieldFlash = 0.0f;
+    static MobKind s_kind = MobKind::REGULUS;
+    static glm::vec3 s_color(1.0f);
+    static int s_frags = 1;
+
+    const Monster* lead = nullptr;
+    float sum = 0.0f;
+    int frags = 0;
+    for (const Monster* m : g_MonsterManager.monsters) {
+        if (!m->alive || !IsEliteMob(m->kind)) continue;
+        if (!lead) lead = m;
+        if (m->kind == MobKind::ANTARES && lead->kind == MobKind::ANTARES &&
+            m->antaresFamily == lead->antaresFamily) { sum += m->hp; ++frags; }
+    }
+    const float dt = std::clamp(g_GameTime - s_lastT, 0.0f, 0.1f);
+    s_lastT = g_GameTime;
+    if (lead) {
+        const int key = lead->kind == MobKind::ANTARES ? 1000 + lead->antaresFamily
+                                                       : (int)lead->kind;
+        if (key != s_key) {
+            s_key = key; s_born = g_GameTime; s_gone = -10.0f;
+            s_ratio = s_trail = 1.0f; s_lastHit = -10.0f;
+            s_peak = 1.0f; s_shield = 0.0f;
+        } else if (s_gone > s_born) {
+            s_gone = -10.0f;   // an Antares between split and fragments: carry on
+        }
+        s_kind = lead->kind;
+        s_color = lead->color;
+        s_frags = frags;
+        const float hpNow = lead->kind == MobKind::ANTARES ? sum : lead->hp;
+        s_peak = lead->kind == MobKind::ANTARES ? std::max(s_peak, hpNow)
+                                                : std::max(1.0f, lead->eliteMaxHp);
+        const float ratio = std::clamp(hpNow / std::max(1.0f, s_peak), 0.0f, 1.0f);
+        if (ratio < s_ratio - 0.0005f) {
+            if (g_GameTime - s_lastHit > kEliteTrailHold + 0.5f) s_lastHit = g_GameTime;
+            else s_lastHit = std::max(s_lastHit, g_GameTime - 0.12f);
+        }
+        s_ratio = ratio;
+        if (ratio > s_trail) s_trail = ratio;
+        if (g_GameTime - s_lastHit > kEliteTrailHold)
+            s_trail += (ratio - s_trail) * std::min(1.0f, dt * 5.0f);
+        if (lead->kind == MobKind::REGULUS) {
+            const float now = lead->regulusShield.hp / std::max(1.0f, lead->eliteMaxHp);
+            if (s_shield > 0.0f && now <= 0.0f) s_shieldFlash = g_GameTime;
+            s_shield = now;
+            s_regen = lead->regulusShieldRegenTimer > 0.0f
+                ? 1.0f - lead->regulusShieldRegenTimer / Monster::REGULUS_SHIELD_REGEN_DELAY : 0.0f;
+        } else {
+            s_shield = s_regen = 0.0f;
+        }
+    } else if (s_key != 0 && s_gone < s_born) {
+        s_gone = g_GameTime;   // the last elite just fell
+    }
+    if (s_key == 0) return;
+    const float gone = s_gone < s_born ? 0.0f : (g_GameTime - s_gone);
+    if (gone > 0.7f) { s_key = 0; return; }
+    const float fade = 1.0f - std::clamp(gone / 0.7f, 0.0f, 1.0f);
+
+    // Entry: the line draws outward from its middle.
+    const float age = g_GameTime - s_born;
+    const float open = std::clamp(age / 0.55f, 0.0f, 1.0f);
+    const float ease = 1.0f - (1.0f - open) * (1.0f - open) * (1.0f - open);
+    const float fullW = sw * 0.28f;
+    const float w = fullW * ease, cx = sw * 0.5f, x0 = cx - w * 0.5f;
+    const float y = topY + 104.0f * scale;
+    // The elite's own colour: a deeper edge, a lighter head.
+    const hud_lines::Rgb base{ s_color.r, s_color.g, s_color.b };
+    const hud_lines::Rgb white{ 0.97f, 0.97f, 1.0f };
+    const auto mix = [](hud_lines::Rgb a, hud_lines::Rgb b, float t) {
+        return hud_lines::Rgb{ a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t };
+    };
+    const hud_lines::Rgb deep = mix(base, hud_lines::Rgb{ 0, 0, 0 }, 0.28f);
+    const hud_lines::Rgb hot = mix(base, white, 0.38f);
+    const float ratio = s_ratio;
+    const float hit = std::clamp(1.0f - (g_GameTime - s_lastHit) / 0.25f, 0.0f, 1.0f);
+    const float low = ratio < 0.25f && ratio > 0.0f ? 0.5f + 0.5f * sinf(g_GameTime * 12.0f) : 0.0f;
+    const float tt = g_GameTime;
+
+    BindMainShader();
+    const auto span = [&](float a, float b, float width, hud_lines::Rgb c, float al, float dy = 0.0f) {
+        if (b > a + 0.0005f) hud_lines::Segment(x0 + w * a, y + dy, x0 + w * b, y + dy, width, c, al);
+    };
+    const auto burn = [&](float to, float width, float al) {
+        constexpr int kRuns = 36;
+        for (int i = 0; i < kRuns; ++i) {
+            const float a = to * (float)i / kRuns, b = to * (float)(i + 1) / kRuns;
+            const float t = (float)(i + 1) / kRuns;
+            span(a, b + 0.002f, width, mix(deep, hot, t * t), al);
+        }
+    };
+    // A closed polygon (or one with a gap at each corner) around (px, py).
+    const auto poly = [&](float px, float py, float r, int n, float rot, float width, hud_lines::Rgb c,
+                          float al, float gap) {
+        for (int i = 0; i < n; ++i) {
+            const float a0 = rot + 6.2831853f * (float)i / n, a1 = rot + 6.2831853f * (float)(i + 1) / n;
+            const float xa = px + r * cosf(a0), ya = py + r * sinf(a0);
+            const float xb = px + r * cosf(a1), yb = py + r * sinf(a1);
+            hud_lines::Segment(xa + (xb - xa) * gap, ya + (yb - ya) * gap,
+                               xb - (xb - xa) * gap, yb - (yb - ya) * gap, width, c, al);
+        }
+    };
+    const auto ellipse = [&](float px, float py, float rx, float ry, float rot, float width,
+                             hud_lines::Rgb c, float al) {
+        constexpr int kN = 28;
+        const float cs = cosf(rot), sn = sinf(rot);
+        float lx = 0, ly = 0;
+        for (int i = 0; i <= kN; ++i) {
+            const float a = 6.2831853f * (float)i / kN;
+            const float ex = rx * cosf(a), ey = ry * sinf(a);
+            const float X = px + ex * cs - ey * sn, Y = py + ex * sn + ey * cs;
+            if (i > 0) hud_lines::Segment(lx, ly, X, Y, width, c, al);
+            lx = X; ly = Y;
+        }
+    };
+
+    // The health: the same line for everyone (faint lost part, damage lag, a
+    // lit run that goes from the deep edge to the light head, a thin sheen).
+    const float lostA = s_kind == MobKind::QUASAR ? 0.55f : 0.38f;   // QUASAR: the beam runs on past the orb
+    span(ratio, 1.0f, (s_kind == MobKind::QUASAR ? 1.8f : 1.4f) * scale, deep, lostA * fade);
+    if (s_trail > ratio) span(ratio, s_trail, 5.0f * scale, white, 0.88f * fade);
+    span(0.0f, ratio, 9.0f * scale, hot, 0.12f * fade);
+    burn(ratio, 4.6f * scale, 0.96f * fade);
+    span(0.0f, ratio, 1.2f * scale, white, 0.45f * fade, -1.2f * scale);
+    const float tk = 6.0f * scale;
+    hud_lines::Segment(x0, y - tk, x0, y + tk, 1.8f * scale, deep, 0.75f * fade);
+    hud_lines::Segment(x0 + w, y - tk, x0 + w, y + tk, 1.8f * scale, deep, 0.55f * fade);
+
+    const float hx = x0 + w * ratio;
+    const hud_lines::Rgb hc = hit > 0.0f || gone > 0.0f ? white : hot;
+    const float ha = (0.92f + 0.08f * low) * fade;
+    const float bloom = gone > 0.0f ? 1.0f + gone * 5.0f : 1.0f;
+    const float pulse = (1.0f + 0.28f * hit + 0.18f * low) * bloom;
+
+    if (s_kind == MobKind::REGULUS) {
+        // The shield it has gained, laid over the health: an inlaid pale line
+        // from the left whose length is the shield's share of the elite's max
+        // HP, so the health shows as a rim round it. A white flash when it
+        // breaks; while it is down a thin line re-grows just above the bar.
+        if (open >= 1.0f) {
+            const float sf = std::clamp(1.0f - (g_GameTime - s_shieldFlash) / 0.4f, 0.0f, 1.0f);
+            const hud_lines::Rgb sc = mix(base, white, 0.85f);
+            if (s_shield > 0.0f) {
+                const float e = std::min(1.0f, s_shield);
+                span(0.0f, e, 7.5f * scale, sc, 0.22f * fade);
+                span(0.0f, e, 2.8f * scale, sc, 0.98f * fade);
+                hud_lines::Segment(x0 + w * e, y - 6.5f * scale, x0 + w * e, y + 6.5f * scale,
+                                   1.8f * scale, sc, 0.95f * fade);
+            } else if (s_regen > 0.0f) {
+                span(0.0f, 0.9f * s_regen, 1.2f * scale, sc, 0.4f * fade, -7.0f * scale);
+            }
+            if (sf > 0.0f) {
+                span(0.0f, 0.9f, 6.0f * scale, white, sf * fade);
+                span(0.0f, 0.9f, 12.0f * scale, white, 0.25f * sf * fade);
+            }
+        }
+        // The head: a small square heart inside curved shield arcs (two thin
+        // layers, turning slowly). The arcs are the shield: bright while it
+        // holds, a faint ghost once broken that thickens back as it regrows,
+        // a white flash when it breaks.
+        const float R = 9.0f * scale * pulse;
+        const float ph = tt * 0.7f;
+        poly(hx, y, R, 4, 0.7853982f, 2.2f * scale, hc, ha, 0.0f);
+        poly(hx, y, R * 0.34f, 12, 0.0f, 1.8f * scale, hc, ha, 0.0f);
+        {
+            const bool holds = s_shield > 0.0f;
+            const float brk = std::clamp(1.0f - (g_GameTime - s_shieldFlash) / 0.4f, 0.0f, 1.0f);
+            // Broken: the arcs flash white and are gone (they come back with the shield).
+            const float sa = holds ? std::min(1.0f, 0.95f + brk) : brk;
+            const float wd = (holds ? 2.4f : 2.4f + 1.6f * (1.0f - brk)) * scale;
+            const hud_lines::Rgb ac = brk > 0.0f ? white : mix(base, white, 0.55f);
+            const auto arcs = [&](float r, float rotOff, float trim, float width, float al) {
+                for (int k = 0; k < 4; ++k) {
+                    const float a0 = ph + rotOff + 1.5707963f * (float)k + 0.22f + trim;
+                    const float sweep = 1.5707963f - 0.44f - 2.0f * trim;
+                    constexpr int kN = 10;
+                    for (int i = 0; i < kN; ++i) {
+                        const float u0 = a0 + sweep * (float)i / kN, u1 = a0 + sweep * (float)(i + 1) / kN;
+                        hud_lines::Segment(hx + r * cosf(u0), y + r * sinf(u0),
+                                           hx + r * cosf(u1), y + r * sinf(u1), width, ac, al * fade);
+                    }
+                }
+            };
+            if (sa > 0.0f) {
+                const float burst = holds ? 1.0f : 1.0f + 0.5f * (1.0f - brk);   // the arcs fly outward as they break
+                arcs(25.0f * scale * pulse * burst, 0.0f, 0.0f, wd, sa);
+                arcs(20.5f * scale * pulse * burst, 0.0f, 0.08f, 1.0f * scale, sa * 0.5f);
+            }
+        }
+    } else if (s_kind == MobKind::ANTARES) {
+        // A pentagon split at every corner, as its body is: it spins as the
+        // bull speeds up and leaves afterimages behind. Fragments alive past
+        // the first show as small pentagons past the bar's end.
+        const float spin = tt * 1.6f;
+        for (int k = 2; k >= 1; --k)
+            poly(hx - 22.0f * scale * (float)k, y, 12.0f * scale, 5, spin - 0.5f * k, 1.8f * scale, base,
+                 (0.55f - 0.2f * (float)k) * fade, 0.16f);
+        poly(hx, y, 16.0f * scale * pulse, 5, spin, 2.8f * scale, hc, ha, 0.14f);
+        poly(hx, y, 6.5f * scale * pulse, 5, -spin * 1.4f, 1.6f * scale, hc, 0.75f * ha, 0.0f);
+        for (int k = 1; k < std::min(s_frags, 5); ++k)
+            poly(x0 + w + 30.0f * scale + 16.0f * scale * (float)(k - 1), y, 6.0f * scale, 5, -1.5708f,
+                 1.8f * scale, hot, 0.9f * fade, 0.12f);
+    } else if (s_kind == MobKind::QUASAR) {
+        // The bar is the beam axis; the head is the orb under its two gyro
+        // bands, which turn against each other.
+        const float r = 9.0f * scale * pulse;
+        ellipse(hx, y, r, r, 0.0f, 2.6f * scale, hc, ha);
+        ellipse(hx, y, 24.0f * scale * pulse, 8.0f * scale, tt * 1.5f, 2.0f * scale, hc, 0.95f * ha);
+        ellipse(hx, y, 24.0f * scale * pulse, 8.0f * scale, -tt * 1.1f + 1.05f, 2.0f * scale, hot, 0.8f * ha);
+        hud_lines::Segment(hx - 4.5f * scale, y, hx + 4.5f * scale, y, 2.6f * scale, white, 0.9f * ha);
+    } else if (s_kind == MobKind::GENESIS) {
+        // The core, and a Swarm triangle circling it. Along the bar, five
+        // forged Swarm triangles go out one by one as health falls.
+        for (int q = 1; q <= 5; ++q) {
+            const float u = 0.17f * (float)q;
+            const bool lit = u <= ratio;
+            poly(x0 + w * u, y - 14.0f * scale, 5.6f * scale, 3, -1.5708f, (lit ? 1.9f : 1.2f) * scale,
+                 lit ? hot : deep, (lit ? 0.9f : 0.3f) * fade, 0.0f);
+        }
+        const float r = 11.0f * scale * pulse;
+        poly(hx, y, r, 24, 0.0f, 2.6f * scale, hc, ha, 0.0f);
+        poly(hx, y, 4.5f * scale * pulse, 24, 0.0f, 1.7f * scale, hc, 0.85f * ha, 0.0f);
+        const float oa = tt * 2.2f;
+        poly(hx + 23.0f * scale * cosf(oa), y + 23.0f * scale * sinf(oa), 5.6f * scale, 3, oa + 1.57f,
+             1.9f * scale, hot, 0.95f * ha, 0.0f);
+    } else {
+        const float a = 9.0f * scale * pulse;
+        hud_lines::Segment(hx - a, y, hx + a, y, 2.2f * scale, hc, ha);
+        hud_lines::Segment(hx, y - a, hx, y + a, 2.2f * scale, hc, ha);
+    }
+    BatchFlush();
+
+    // The name, over the bar's left end.
+    const CodexMobId cid = CodexMobIdForKind(s_kind);
+    if (cid != CM_COUNT) {
+        const wchar_t* name = CODEX_MOB_PROFILES[cid].name[std::max(0, std::min(2, LangIndex()))];
+        const float ts = 0.55f * scale;   // the boss bar's name size
+        const float nh = g_TextS.Height(name, ts);
+        const float rise = std::clamp((age - 0.25f) / 0.4f, 0.0f, 1.0f);
+        const hud_lines::Rgb nc = mix(base, white, 0.2f);
+        g_TextS.Draw(name, cx - fullW * 0.5f, y - 14.0f * scale - nh, ts,
+                     nc.r, nc.g, nc.b, rise * fade);
+    }
+}
+
 // The boss's health under the wave track: a dim full-length line and the
 // bright remaining share of the current phase's bar over it (ERIDANUS: a
 // filled river instead, OCTANS: a seal chain).
@@ -4046,6 +4304,12 @@ int main() {
                                          screenHeight * 0.5f - 180.0f + 40.0f * (g_PaneTestId % 5),
                                          520.0f, 360.0f);
             return g_PaneTestId > 0;
+        },
+        // F1 > Augment: takes the card as a normal pick would (no codex mark).
+        [&](int augIdx) {
+            if (augIdx < 0 || augIdx >= AUG_TOTAL) return false;
+            passive::Acquire(augIdx);
+            return true;
         }
     });
 
@@ -4164,6 +4428,13 @@ int main() {
         InputUpdateTextInput(window);
         glfwPollEvents();
         UpdateWindowTaskbarPolicy(window);
+        {   // HDR can be switched, or the window moved to another display, at any time
+            static double s_hdrNext = 0.0;
+            if (nowPrecise >= s_hdrNext) {
+                s_hdrNext = nowPrecise + 2.0;
+                g_DesktopHdr = IsWindowOnHdrDisplay(window);
+            }
+        }
         {
             // Moved windows' in-game rectangles wait for the game to resume.
             const GameState hs = g_GameManager.currentState;
@@ -6556,6 +6827,9 @@ CollisionSystem::Update(pCX, pCY,
                                       g_HpGhost.frac,
                                       std::min(1.0f, hpRest + 0.30f * hpHit),
                                       g_GameTime);
+                vitals_hud::DrawShieldArc(pCX, pCY, playerSize,
+                    (g_PlayerShield + passive::PlateShieldLeft()) / std::max(1.0f, g_Stats.maxHP),
+                    g_GameTime);
             }
             DrawPlayerWeaponShell(pCX, pCY, playerSize,
                                   atan2f(wmy - pCY, wmx - pCX), g_GameTime);
@@ -6873,6 +7147,7 @@ CollisionSystem::Update(pCX, pCY,
                 }
                 DrawWaveHud(sw, hudScale, hudTopY, g_GameTime, g_Difficulty, g_GameManager);
                 DrawNormaBossBar(sw, hudScale, hudTopY);
+                DrawEliteBar(sw, hudScale, hudTopY);
                 DrawCrashCountdown(sw, hudScale, hudTopY);
 
                 // ?�상?? FPS

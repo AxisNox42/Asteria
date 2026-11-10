@@ -48,6 +48,7 @@ float FireInterval(float base);       // seconds between shots
 void  ModifyShot(Bullet& bullet);     // each bullet the gun fires
 void  OnShot();                       // one shot (trigger pull) fired
 bool  DashSealed();
+float PlateShieldLeft();              // Buffer Plating damage still blockable (0 if not owned)
 void  OnDashStarted();                // right after BeginPlayerDash
 void  OnWaveCleared();
 bool  TryPhoenix();                   // lethal hit: true when it revives

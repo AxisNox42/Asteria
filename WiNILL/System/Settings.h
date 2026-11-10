@@ -354,11 +354,24 @@ inline float MenuDimAlphaOfFactor(float f) {
 // The slider is spread by how dark the backdrop LOOKS: 0..50 ramps the original
 // look in (alpha 0..0.16), 50..100 climbs linearly in alpha 0.16..0.985, so each
 // step darkens about the same amount (the raw multiplier is steep near 100).
+// True while the game window sits on a display with HDR (advanced color) on.
+// Set from main.cpp. DWM blends in encoded values on SDR but in linear light
+// on HDR, so the same black veil looks far weaker there (alpha 0.5 passes 22%
+// of the light on SDR, 50% on HDR).
+inline bool g_DesktopHdr = false;
+// Alpha that gives, under linear blending, the darkness alpha `a` gives on SDR.
+inline float HdrCompensatedAlpha(float a) {
+    if (!g_DesktopHdr) return a;
+    const float c = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+    return 1.0f - std::pow(1.0f - c, 2.2f);
+}
 inline float MenuDimFactor(int value) {
     const int v = value < 0 ? 0 : (value > 100 ? 100 : value);
-    if (v <= 50) return v / 50.0f;
-    const float target = 0.16f + (0.985f - 0.16f) * (float)(v - 50) / 50.0f;
-    float lo = 1.0f, hi = kMenuDimMax;
+    if (v <= 50 && !g_DesktopHdr) return v / 50.0f;
+    const float sdrTarget = v <= 50 ? 0.16f * (float)v / 50.0f
+                                    : 0.16f + (0.985f - 0.16f) * (float)(v - 50) / 50.0f;
+    const float target = HdrCompensatedAlpha(sdrTarget);
+    float lo = v <= 50 ? 0.0f : 1.0f, hi = kMenuDimMax;
     for (int i = 0; i < 28; ++i) {
         const float mid = 0.5f * (lo + hi);
         if (MenuDimAlphaOfFactor(mid) < target) lo = mid; else hi = mid;
@@ -382,7 +395,8 @@ inline float g_CombatDimLive = 0.0f;
 inline void TickMenuDim(bool inRun, bool tutorial, float dt) {
     const float targetFactor = inRun ? 1.0f : MenuDimFactor(g_MenuDim);
     const float share = tutorial ? kTutorialDimShare : kCombatDimShare;
-    const float targetCombat = inRun ? share * MenuDimEquivAlpha(g_MenuDim) : 0.0f;
+    const float targetCombat =
+        inRun ? HdrCompensatedAlpha(share * MenuDimEquivAlpha(g_MenuDim)) : 0.0f;
     if (g_MenuDimFactorLive < 0.0f) {
         g_MenuDimFactorLive = targetFactor;
         g_CombatDimLive = targetCombat;

@@ -115,9 +115,21 @@ inline int RegularWaveKillQuota(int wave, Difficulty difficulty) {
     return quota;
 }
 
-// A wave's elite gets this much more HP than the wave's ramp alone gives it
-// (first elite on NORMAL ≈ 9,000 effective HP). Antares fragments inherit it.
-inline constexpr float kEliteWaveHpMult = 3.0f;
+// A wave's elite gets this much more HP than the wave's ramp alone gives it.
+// It is tuned per difficulty (the run's own enemyHpMultiplier 0.9/1/1.15/1.3 is
+// already inside the ramp) so the strongest first elite (Quasar, 3,200 base)
+// lands at about 1,500 / 2,500 / 4,000 / 6,000 effective HP on
+// EASY / NORMAL / HARD / NIGHTMARE. Later elites follow WaveHpRamp.
+// Antares fragments inherit it.
+inline float EliteWaveHpMult(Difficulty difficulty) {
+    switch (difficulty) {
+    case Difficulty::EASY:      return 0.534f;
+    case Difficulty::NORMAL:    return 0.800f;
+    case Difficulty::HARD:      return 1.114f;
+    case Difficulty::NIGHTMARE: return 1.478f;
+    }
+    return 0.800f;
+}
 
 // Elite waves the run has already passed on its way to `wave`.
 inline int EliteWavesBefore(int wave, Difficulty difficulty) {

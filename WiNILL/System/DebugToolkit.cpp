@@ -22,6 +22,7 @@
 #include "TextRenderer.h"
 #include "Settings.h"
 #include "Input.h"
+#include "PassiveAugments.h"
 
 extern TextRenderer g_TextS;
 extern TextRenderer g_TextL;
@@ -102,6 +103,21 @@ int SpawnEntries(int category, const int*& ids) {
     case 2: ids = kBoss;  return (int)(sizeof(kBoss) / sizeof(kBoss[0]));
     default: ids = kRegular; return (int)(sizeof(kRegular) / sizeof(kRegular[0]));
     }
+}
+
+// Augment tab: every card in the build (synergy + level-up stat cards), in catalog order.
+const std::vector<int>& AugmentList() {
+    static const std::vector<int> list = [] {
+        std::vector<int> v;
+        for (int i = 0; i < AUG_TOTAL; ++i)
+            if (AugInBuild(ALL_AUGS[i])) v.push_back(i);
+        return v;
+    }();
+    return list;
+}
+
+int AugmentVisibleRows(float panelHeight) {
+    return std::max(1, (int)((panelHeight - STATS_ROWS_Y - 24.0f) / ROW_H));
 }
 
 float SpawnGridStep(float panelHeight) {
@@ -619,6 +635,12 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                                            (int)Fields().size() - visibleRows);
             fieldOffset_ = std::max(0, std::min(maxOffset, fieldOffset_));
         }
+        if (tab_ == 3) {
+            augOffset_ -= (int)std::round(g_ScrollAccum * 2.0f);
+            const int maxOffset = std::max(0, (int)AugmentList().size() -
+                                              AugmentVisibleRows(p.h));
+            augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
+        }
         g_ScrollAccum = 0.0f;
     }
 
@@ -628,7 +650,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         return true;
     }
 
-    for (int t = 0; t < 3; ++t) {
+    for (int t = 0; t < 4; ++t) {
         if (click && Hit(p.x + 16.0f + t * (TAB_W + TAB_GAP),
                         p.y + TAB_Y, TAB_W, TAB_H, mx, my)) {
             tab_ = t;
@@ -864,6 +886,31 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 }
             }
         }
+    } else if (click && tab_ == 3) {
+        const auto& list = AugmentList();
+        const int rows = AugmentVisibleRows(p.h);
+        for (int row = 0; row < rows; ++row) {
+            const int idx = augOffset_ + row;
+            if (idx >= (int)list.size()) break;
+            if (!Hit(p.x + 16.0f, p.y + STATS_ROWS_Y + row * ROW_H,
+                     p.w - 32.0f, ROW_H - 2.0f, mx, my)) continue;
+            const int aug = list[(size_t)idx];
+            const GameState st = context_.game ? context_.game->currentState
+                                               : GameState::MAIN_MENU;
+            if (st != GameState::RUNNING && st != GameState::PAUSED &&
+                st != GameState::READY) {
+                SetMessage(L"증강은 진행 중/일시정지/준비 화면에서만 받을 수 있습니다");
+            } else if (!passive::CanOffer(aug)) {
+                SetMessage(L"받을 수 없는 증강입니다 (이미 보유했거나 슬롯 부족)");
+            } else if (context_.grantAugment && context_.grantAugment(aug)) {
+                std::wstring m = L"증강 획득: ";
+                m += AugName(ALL_AUGS[aug]);
+                SetMessage(m);
+            } else {
+                SetMessage(L"증강을 적용하지 못했습니다");
+            }
+            break;
+        }
     }
 
     HandleNumericKeys(window);
@@ -1070,6 +1117,55 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
                  0.52f, 0.68f, 0.80f, 0.84f);
 }
 
+void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
+    const auto& list = AugmentList();
+    const int rows = AugmentVisibleRows(h);
+    const int maxOffset = std::max(0, (int)list.size() - rows);
+    augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
+
+    g_TextS.Draw(L"증강 선택", x + 20.0f, y + CONTENT_Y, 0.55f,
+                 0.70f, 0.94f, 1.0f, 0.94f);
+    g_TextS.Draw(L"카드를 클릭하면 즉시 획득합니다  |  휠로 스크롤",
+                 x + 20.0f, y + STATS_RUNTIME_Y, 0.44f,
+                 0.52f, 0.68f, 0.80f, 0.84f);
+    g_TextS.Draw(lastMessage_.empty() ? L"획득할 증강을 선택하세요" : lastMessage_.c_str(),
+                 x + 20.0f, y + STATS_STATUS_Y, 0.48f,
+                 0.56f, 0.76f, 0.88f, 0.86f);
+
+    for (int row = 0; row < rows; ++row) {
+        const int idx = augOffset_ + row;
+        if (idx >= (int)list.size()) break;
+        const int aug = list[(size_t)idx];
+        const AugDef& d = ALL_AUGS[aug];
+        const float ry = y + STATS_ROWS_Y + row * ROW_H;
+        const bool offerable = passive::CanOffer(aug);
+        float cr = 1, cg = 1, cb = 1;
+        GetRarityColor(d.rarity, cr, cg, cb);
+        BindMainShader();
+        drawRect(x + 16.0f, ry, w - 32.0f, ROW_H - 3.0f,
+                 0.018f, 0.032f, 0.055f, 0.72f);
+        drawRect(x + 16.0f, ry, 4.0f, ROW_H - 3.0f, cr, cg, cb, offerable ? 0.95f : 0.35f);
+        const float a = offerable ? 0.95f : 0.45f;
+        g_TextS.Draw(AugName(d), x + 30.0f, ry + 6.0f, 0.50f, 0.86f, 0.92f, 1.0f, a);
+        g_TextS.Draw(GetRarityLabel(d.rarity), x + w - 190.0f, ry + 7.0f, 0.42f,
+                     std::min(1.0f, cr + 0.25f), std::min(1.0f, cg + 0.25f),
+                     std::min(1.0f, cb + 0.25f), a);
+        const int owned = passive::AcquiredCount(aug);
+        if (owned > 0) {
+            wchar_t buf[32] = {};
+            std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"보유 x%d", owned);
+            g_TextS.Draw(buf, x + w - 110.0f, ry + 7.0f, 0.42f,
+                         1.0f, 0.88f, 0.42f, 0.95f);
+        }
+    }
+    wchar_t page[64] = {};
+    std::swprintf(page, sizeof(page) / sizeof(page[0]), L"증강 %d-%d / %d",
+                  augOffset_ + 1,
+                  std::min(augOffset_ + rows, (int)list.size()), (int)list.size());
+    g_TextS.Draw(page, x + w - 190.0f, y + h - 22.0f, 0.46f,
+                 0.52f, 0.68f, 0.78f, 0.78f);
+}
+
 void DebugToolkit::RenderCaptureTab(float x, float y, float w, float h,
                                     float /*mouseX*/, float /*mouseY*/,
                                     bool /*click*/) {
@@ -1126,13 +1222,14 @@ void DebugToolkit::Render(float screenW, float screenH, GameState sceneState) {
     DrawButton(p.x + p.w - 52.0f, p.y + 12.0f, 36.0f, 28.0f,
                L"X", false, true);
 
-    const wchar_t* tabs[] = { L"능력치", L"소환", L"캡처" };
-    for (int t = 0; t < 3; ++t)
+    const wchar_t* tabs[] = { L"능력치", L"소환", L"캡처", L"증강" };
+    for (int t = 0; t < 4; ++t)
         DrawButton(p.x + 16.0f + t * (TAB_W + TAB_GAP),
                    p.y + TAB_Y, TAB_W, TAB_H, tabs[t], tab_ == t, true);
 
     if (tab_ == 0) RenderStatsTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
     else if (tab_ == 1) RenderSpawnTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
+    else if (tab_ == 3) RenderAugmentTab(p.x, p.y, p.w, p.h);
     else RenderCaptureTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
     g_BatchAlpha = oldAlpha;
 }

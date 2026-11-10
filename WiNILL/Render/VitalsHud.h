@@ -7,6 +7,10 @@
 //             short ticks just outside the arc. One colour; red only below
 //             25%, with "LOW HP" beside the arc.
 //             The HP just lost stays red for a moment, then drains.
+//   Shield  — a thin see-through (45% transparent) gold band over the HP arc
+//             with a fine rim on each edge, from the arc's start for
+//             shield / max HP of its length, a small star at its end. When it breaks the band
+//             flashes wide and fades.
 //   XP line — screen space, bottom edge. Level label at its left end.
 // Model (fills, ghost, thresholds): VitalsHudModel.h.
 // ─────────────────────────────────────────────────────────────
@@ -36,6 +40,7 @@ inline constexpr Rgb kDangerCol = { 1.00f, 0.36f, 0.38f };
 inline constexpr Rgb kTrackCol  = { 0.55f, 0.62f, 0.72f };
 inline constexpr Rgb kXpCol     = { 0.30f, 0.82f, 1.00f };
 inline constexpr Rgb kXpCapCol  = { 1.00f, 0.82f, 0.30f };
+inline constexpr Rgb kShieldCol = { 1.00f, 0.88f, 0.08f };     // bright yellow
 
 inline float HpArcRadius(float playerSize) { return std::max(66.0f, playerSize * 2.72f); }
 // Stroke weight stays fixed: enlarging the player (debug / size augments) must not fatten the bar.
@@ -95,6 +100,38 @@ inline void DrawHpArc(float cx, float cy, float playerSize, float hpFrac,
     for (int i = 0; i < n; ++i)
         Arc(cx, cy, radius, thick, pieces[i].a0, pieces[i].sweep, pieces[i].c, pieces[i].alpha);
     ticks(tickW, kTrackCol, tickA);
+}
+
+// Shield sheath over the HP arc (world space, after DrawHpArc).
+// shieldFrac: absorbable shield / max HP (clamped to the whole arc).
+inline void DrawShieldArc(float cx, float cy, float playerSize, float shieldFrac, float time) {
+    using hud_lines::Arc;
+    static float s_prevFrac = 0.0f;     // last frame's length, for the break flash
+    static float s_breakAt = -10.0f;
+    static float s_breakFrac = 0.0f;
+    shieldFrac = std::clamp(shieldFrac, 0.0f, 1.0f);
+    if (s_prevFrac > 0.0f && shieldFrac <= 0.0f) { s_breakAt = time; s_breakFrac = s_prevFrac; }
+    if (time < s_breakAt) s_breakAt = -10.0f;   // a new run restarted the clock
+    s_prevFrac = shieldFrac;
+
+    constexpr float kBreakSec = 0.35f;
+    const float breakT = (time - s_breakAt) / kBreakSec;
+    const bool breaking = breakT >= 0.0f && breakT < 1.0f;
+    if (shieldFrac <= 0.0f && !breaking) return;
+
+    const float radius = HpArcRadius(playerSize);
+    const float thick = HpArcThick(playerSize);
+    // A separate yellow arc just inside the HP line, from the same start, so
+    // the HP line stays fully visible (the ticks sit outside). Its length is
+    // the shield.
+    constexpr float kGap = 3.0f;                    // px between the two lines
+    const float shieldW = std::max(2.0f, thick * 0.75f);
+    const float shieldR = radius - thick * 0.5f - kGap - shieldW * 0.5f;
+    auto sheath = [&](float frac, float spread, float a) {
+        Arc(cx, cy, shieldR, shieldW + spread * 2.0f, kArcStart, kArcSweep * frac, kShieldCol, a);
+    };
+    if (shieldFrac > 0.0f) sheath(shieldFrac, 0.0f, 1.0f);
+    if (breaking) sheath(s_breakFrac, 7.0f * breakT, 0.9f * (1.0f - breakT));
 }
 
 // Screen space text for the arc: "LOW HP" at the arc's right end while in
