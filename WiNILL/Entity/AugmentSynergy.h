@@ -256,7 +256,7 @@ inline const std::vector<Aug>& Table() {
         T_NONE, 0, false, Fx{}.perTag_(0.09f), kVerbTags},
     {"A_REACTOR", "반응 공명",  "서로 다른 이벤트 효과 1종마다 피해 +14% (최대 6종)", Rar::Rare, Role::Amp,
         T_NONE, 0, false, Fx{}.perTag_(0.14f), kEventTags},
-    {"A_GAMBLER", "위험 수집","체력을 걸거나 피해를 받는 효과 1종마다 피해 +10% (최대 6종)", Rar::Common, Role::Amp,
+    {"A_GAMBLER", "위험 수집","위험 증강(체력·유리대포·피격·저장) 1장마다 피해 +10% (최대 6장)", Rar::Common, Role::Amp,
         T_NONE, 0, false, Fx{}.perTag_(0.10f), kRiskTags},
     // ── 신화 ──
     {"Y_ECHO",    "겹겹 메아리 사격","모든 사격이 0.2초 뒤 한 번 더 울림", Rar::Mythic, Role::Verb,

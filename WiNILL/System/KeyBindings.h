@@ -19,7 +19,7 @@ inline constexpr int kBindKeySpace = 32;    // READY 시작 / 일시정지 (바�
 inline constexpr int kBindKeyEscape = 256;
 inline constexpr int kBindKeyA = 65, kBindKeyD = 68, kBindKeyE = 69, kBindKeyQ = 81;
 inline constexpr int kBindKeyR = 82, kBindKeyS = 83, kBindKeyW = 87;
-inline constexpr int kBindKeyF8 = 297, kBindKeyF9 = 298;
+inline constexpr int kBindKeyF8 = 297, kBindKeyF9 = 298, kBindKeyF12 = 301;
 inline constexpr int kBindKeyLeftShift = 340, kBindKeyLeftCtrl = 341, kBindKeyLeftAlt = 342;
 inline constexpr int kBindKeyRightShift = 344, kBindKeyRightCtrl = 345, kBindKeyRightAlt = 346;
 inline constexpr int kBindKeyLast = 348;   // GLFW_KEY_MENU
@@ -56,12 +56,21 @@ inline int NormalizeBindKey(int key) {
     }
 }
 
-// 바인딩할 수 있는 키: 알려진 GLFW 키 범위 (스페이스 이상), 예약 키 제외.
-//   예약: ESC (취소/일시정지), F8/F9 (디버그).
+// 게임이 직접 읽는 고정 키: 바인딩하면 두 기능이 한 키에 겹친다.
+//   ESC (취소/일시정지), SPACE (READY 시작/일시정지/카드 확정), 1~5 (카드 선택),
+//   F8/F9 (디버그), F12 (스크린샷).
+inline bool KeyReserved(int key) {
+    key = NormalizeBindKey(key);
+    if (key >= '1' && key <= '5') return true;
+    return key == kBindKeyEscape || key == kBindKeySpace || key == kBindKeyF8 ||
+           key == kBindKeyF9 || key == kBindKeyF12;
+}
+
+// 바인딩할 수 있는 키: 알려진 GLFW 키 범위 (스페이스 이상), 고정 키 제외.
 inline bool KeyBindable(int key) {
     key = NormalizeBindKey(key);
     if (key < 32 || key > kBindKeyLast) return false;
-    return key != kBindKeyEscape && key != kBindKeyF8 && key != kBindKeyF9;
+    return !KeyReserved(key);
 }
 
 enum class BindResult { Rejected, Unchanged, Assigned, Swapped };

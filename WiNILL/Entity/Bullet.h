@@ -70,7 +70,14 @@ public:
     mutable bool splitSpent = false;   // set by the hit hook (it only sees a const shot)
     // Synergy cards (SynergyRuntime.cpp): behaviour flags and the little state they need.
     uint32_t synFlags = 0;
-    float synA = 0.0f, synB = 0.0f;    // timers / distances, per flag
+    // Each flag keeps its own state: Grow, Hover, Trail and Orbit can sit on the same shot,
+    // and a shared field let Hover's stored speed become Grow's base size.
+    float synGrowBase  = 0.0f;         // Grow: sizeScale when fired
+    float synTrailAt   = 0.0f;         // Trail: distance of the last dropped zone
+    float synHoverSpeed = 0.0f;        // Hover: speed to restore after the stop
+    float synHoverLeft = 0.0f;         // Hover: seconds of stop left
+    float synOrbitAngle = 0.0f;        // Orbit: angle around the player
+    float synOrbitLeft = 0.0f;         // Orbit: seconds left
     float synTx = 0.0f, synTy = 0.0f;  // a fixed point: where a mortar shell lands, where a mine sits
     int   synBounces = 0;              // arena-edge bounces so far
     int   synRicochet = 0;             // enemy-to-enemy bounces left

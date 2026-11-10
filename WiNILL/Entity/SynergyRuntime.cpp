@@ -278,7 +278,14 @@ void Rebuild() {
         s.dmgAdd += f.dmgAdd;
         if (t[i].scales) {
             int n = 0;
-            for (uint64_t m = s.tags & t[i].scales; m; m &= m - 1) ++n;
+            if (t[i].scales == synergy::kRiskTags) {
+                // Risk Collector counts risky cards, not tag kinds: there are only 4 risk
+                // tags, so counting kinds could never reach the card's "max 6".
+                for (int j = 1; j <= kCards; ++j)
+                    if (j != i && s.own[j] > 0 && (t[j].gives & synergy::kRiskTags)) ++n;
+            } else {
+                for (uint64_t m = s.tags & t[i].scales; m; m &= m - 1) ++n;
+            }
             s.dmgAdd += f.perTag * (float)std::min(n, 6);
         }
     }
@@ -311,7 +318,7 @@ void ApplyVerbs(Bullet& b, float tx, float ty) {
     if (o.V_BLAST) b.blastPct = 0.30f;
     if (o.V_MARK) b.synFlags |= synf::Mark;
     if (o.V_BURN) b.synFlags |= synf::Burn;
-    if (o.V_GROW) { b.synFlags |= synf::Grow; b.synA = b.sizeScale; }
+    if (o.V_GROW) { b.synFlags |= synf::Grow; b.synGrowBase = b.sizeScale; }
     if (o.V_HOVER) b.synFlags |= synf::Hover;
     if (o.V_RETURN || o.V_HUNTER) { b.synFlags |= synf::Return; b.maxRange = 0.0f; }
     if (o.V_TRAIL) b.synFlags |= synf::Trail;
@@ -641,7 +648,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         const int cap = 2 + (o.Y_HALO ? 2 : 0);
         if (CountOrbiters() < cap) {
             Bullet b = out.front();
-            b.synFlags |= synf::Orbit; b.synA = Rand01() * 2.0f * kPi; b.synB = 4.5f;
+            b.synFlags |= synf::Orbit; b.synOrbitAngle = Rand01() * 2.0f * kPi; b.synOrbitLeft = 4.5f;
             b.speed = 0.0f; b.piercing = true; b.maxRange = 0.0f; b.sizeScale *= 1.2f;
             b.x = px; b.y = py;
             out.push_back(b);
@@ -994,20 +1001,20 @@ void Step(const passive::StepInput& in) {
         if (!b.active || b.isEnemy || b.skillShot || b.synFlags == 0) continue;
         const uint32_t f = b.synFlags;
         if (f & synf::Grow) {
-            b.sizeScale = std::max(b.sizeScale, b.synA * (1.0f + std::min(1.5f, b.traveled / 450.0f)));
+            b.sizeScale = std::max(b.sizeScale, b.synGrowBase * (1.0f + std::min(1.5f, b.traveled / 450.0f)));
             ClampPlayerBulletSize(b);
         }
-        if ((f & synf::Trail) && b.traveled - b.synB >= 60.0f) {
-            b.synB = b.traveled;
+        if ((f & synf::Trail) && b.traveled - b.synTrailAt >= 60.0f) {
+            b.synTrailAt = b.traveled;
             AddZone(b.x, b.y, 26.0f, 1.2f, 40.0f, 0.0f);
         }
         if ((f & synf::Hover) && !(f & synf::Hovered)) {
             if (!(f & synf::Hovering) && b.traveled >= 300.0f) {
-                b.synFlags |= synf::Hovering; b.synA = b.speed; b.synB = 0.8f; b.speed = 0.0f;
+                b.synFlags |= synf::Hovering; b.synHoverSpeed = b.speed; b.synHoverLeft = 0.8f; b.speed = 0.0f;
             } else if (f & synf::Hovering) {
-                b.synB -= dt;
-                if (b.synB <= 0.0f) {
-                    b.speed = b.synA; b.synFlags = (b.synFlags & ~synf::Hovering) | synf::Hovered;
+                b.synHoverLeft -= dt;
+                if (b.synHoverLeft <= 0.0f) {
+                    b.speed = b.synHoverSpeed; b.synFlags = (b.synFlags & ~synf::Hovering) | synf::Hovered;
                 }
             }
         }
@@ -1020,10 +1027,10 @@ void Step(const passive::StepInput& in) {
             else { b.dirX = dx / d; b.dirY = dy / d; }
         }
         if (f & synf::Orbit) {
-            b.synA += 5.0f * dt; b.synB -= dt;
-            b.x = b.prevX = in.px + std::cos(b.synA) * 90.0f; b.y = b.prevY = in.py + std::sin(b.synA) * 90.0f;
-            if (std::fmod(b.synB, 0.4f) < dt) b.ClearHits();
-            if (b.synB <= 0.0f) b.active = false;
+            b.synOrbitAngle += 5.0f * dt; b.synOrbitLeft -= dt;
+            b.x = b.prevX = in.px + std::cos(b.synOrbitAngle) * 90.0f; b.y = b.prevY = in.py + std::sin(b.synOrbitAngle) * 90.0f;
+            if (std::fmod(b.synOrbitLeft, 0.4f) < dt) b.ClearHits();
+            if (b.synOrbitLeft <= 0.0f) b.active = false;
             if (o.Y_HALO) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 30.0f);
         }
         if (f & synf::Erase) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 38.0f * b.sizeScale);

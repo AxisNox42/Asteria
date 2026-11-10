@@ -3679,6 +3679,8 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         case CM_MAGNETAR: kind = MobKind::MAGNETAR; break;
         case CM_LYNX:  kind = MobKind::LYNX;  break;
         case CM_TRIGON: kind = MobKind::TRIANGULUM; break;
+        case CM_OCTANS:   kind = MobKind::NORMA;  break;
+        case CM_ERIDANUS: kind = MobKind::CAELUM; break;
         default: break;                                // ROTOR
         }
         Monster preview(x, y, 1.0f, 1.0f, false);
@@ -3699,6 +3701,8 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         preview.triangulumSpin = t * triangulum::kOrbitSpeed;
         // TRIGON's shell reaches 1.7x its base; shrink it to fit the card.
         if (kind == MobKind::TRIANGULUM) preview.sizeScale = scale * 0.72f;
+        // Boss bodies are drawn at boss size; bring them down to an elite's card footprint.
+        if (IsBossMob(kind)) preview.sizeScale = scale * 0.55f;
         drawMob(&preview);
     }
     g_SuppressMobSeen = wasSuppressed;

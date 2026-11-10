@@ -275,9 +275,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
                         g_KeyBinds, (GameAction)captureAction, pressed);
                     if (result == BindResult::Rejected) {
                         // Stay in capture so another key can be tried.
-                        keyMsg = SettingsText(L"사용할 수 없는 키입니다",
-                                              L"THAT KEY IS RESERVED",
-                                              L"使用できないキーです");
+                        keyMsg = SettingsText(L"고정 키입니다 (ESC · SPACE · 1~5 · F8 · F9 · F12)",
+                                              L"RESERVED KEY (ESC, SPACE, 1-5, F8, F9, F12)",
+                                              L"固定キーです (ESC・SPACE・1~5・F8・F9・F12)");
                         keyMsgT = 2.2f;
                         Audio::Play(Audio::Cue::UiDeny);   // 예약 키
                     } else {

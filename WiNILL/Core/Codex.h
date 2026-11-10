@@ -260,6 +260,8 @@ enum CodexMobId {
     CM_MAGNETAR,
     CM_LYNX,
     CM_TRIGON,      // MobKind::TRIANGULUM, shown as TRIGON
+    CM_OCTANS,      // MobKind::NORMA boss, shown as OCTANS
+    CM_ERIDANUS,    // MobKind::CAELUM boss, shown as ERIDANUS
     CM_COUNT
 };
 
@@ -364,6 +366,31 @@ inline const CodexMobProfile CODEX_MOB_PROFILES[CM_COUNT] = {
       { L"굵은 자홍 삼각 껍질 안에서 안쪽 틀이 반대로 돌고, 코어에 묶인 분홍 SWARM 세 마리가 모서리를 밀어냅니다. 멀리서 잡으면 풀려난 SWARM이 다가오기까지 시간을 벌 수 있습니다.",
         L"Inside a thick magenta triangular shell an inner frame turns the other way, and three pink SWARMs tethered to the core shove at its corners. Kill it from afar to buy time before the freed SWARMs reach you.",
         L"太い赤紫の三角の殻の中で内側のフレームが逆向きに回り、コアにつながれたピンクのSWARM3体が角を押し広げます。遠くで倒せば、解き放たれたSWARMが届くまでの時間を稼げます。" } },
+    // Bosses (class 2). Code names stay NORMA / CAELUM.
+    { { L"옥탄스", L"OCTANS", L"オクタンス" },
+      { L"[보스] 실제 창을 열고 닫으며 전장을 가르는 팔각 봉인",
+        L"[BOSS] Octagram seal that opens and closes real windows to carve up the arena",
+        L"[ボス] 本物のウィンドウを開け閉めして戦場を切り分ける八角の封印" },
+      L"BOSS", 3, 8, (int)norma::kBaseHp,
+      L"9 / shot, 20-45 / window attacks", L"70 px/s (keeps its distance)",
+      { L"대피 창 → 범람 · 창 투척 · 추적 사격 · 창 벽 · 창 폭파\n2페이즈: 서 있는 창 닫기 · 창 사이 순간이동",
+        L"Shelter windows then a flood · thrown window · tracking stream · window wall · window detonation\nPhase 2: closes the window you stand in · warps between windows",
+        L"避難ウィンドウ→氾濫 · ウィンドウ投擲 · 追尾射撃 · ウィンドウの壁 · ウィンドウ爆破\n第2フェーズ: 立っているウィンドウを閉じる · ウィンドウ間ワープ" },
+      { L"범람 전에는 열린 대피 창 안으로 들어가세요. 2페이즈에서 카운트다운이 뜬 창은 즉시 빠져나와야 합니다. 창이 터진 직후 몸체가 열리면 피해가 1.5배 들어갑니다.",
+        L"Get inside an open shelter window before the flood. In phase 2, leave any window that starts a countdown at once. When the body opens after a detonation it takes 1.5x damage.",
+        L"氾濫の前に開いた避難ウィンドウへ入りましょう。第2フェーズでカウントダウンが出たウィンドウからはすぐ出てください。爆破の直後に本体が開くと1.5倍のダメージが入ります。" } },
+    { { L"에리다누스", L"ERIDANUS", L"エリダヌス" },
+      { L"[보스] 바탕화면을 칸 단위로 손상시키며 오염 지대를 넓히는 손상된 이미지",
+        L"[BOSS] Corrupted image that breaks the desktop picture cell by cell and spreads its damage",
+        L"[ボス] デスクトップの画像をマス単位で壊し、汚染を広げる破損イメージ" },
+      L"BOSS", 3, 8, (int)caelum::kBaseHp,
+      L"18 / snipe, 30 / overflow, cells", L"Glides cell to cell",
+      { L"오염 확산 · 줄 선택(틈 하나) · 웅덩이 끌기 · 예측 저격 · 흡수 후 분출\n상시: 충격파 밀치기 · 오염 과다 시 폭발",
+        L"Spreading seeds · row/column select with one gap · dragged puddle · leading snipe · siphon then spout\nAlways: shockwave shove · overflow burst when too much is corrupted",
+        L"汚染拡散 · 行・列選択(隙間ひとつ) · 水たまりドラッグ · 予測狙撃 · 吸収と噴出\n常時: 衝撃波の押し出し · 汚染過多で爆発" },
+      { L"칸은 오염되기 전에 테두리가 깜빡입니다. 충격파 경고 중에는 밀려날 곳을 보고 오염 칸이 없는 쪽으로 서세요. 저격 형태는 이동 방향을 앞질러 쏘므로 방향을 자주 바꾸세요.",
+        L"A cell's outline flickers before it corrupts. During a shockwave warning, look where you will land and stand so it is clean. The sniper form leads your movement, so change direction often.",
+        L"マスは汚染される前に枠が点滅します。衝撃波の警告中は押し出される先を見て、汚染のない側に立ちましょう。狙撃形態は移動方向を先読みするので、こまめに向きを変えてください。" } },
 };
 
 inline const CodexMobProfile* CodexMobProfileFor(int id) {
@@ -432,15 +459,17 @@ inline CodexMobId CodexMobIdForKind(MobKind k) {
     case MobKind::MAGNETAR: return CM_MAGNETAR;
     case MobKind::LYNX:  return CM_LYNX;
     case MobKind::TRIANGULUM: return CM_TRIGON;
+    case MobKind::NORMA:   return CM_OCTANS;
+    case MobKind::CAELUM:  return CM_ERIDANUS;
     default:               return CM_COUNT;
     }
 }
 
-// Codex signal classes: 0 = regular, 1 = elite, 2 = boss. No boss has a
-// codex entry yet; the class exists so the list and gauges already have the slot.
+// Codex signal classes: 0 = regular, 1 = elite, 2 = boss.
 inline int CodexMobClass(int id) {
     switch (id) {
-    case CM_QUASAR: case CM_REGULUS: case CM_ANTARES: return 1;
+    case CM_QUASAR: case CM_REGULUS: case CM_ANTARES: case CM_GENESIS: return 1;
+    case CM_OCTANS: case CM_ERIDANUS: return 2;
     default: return 0;
     }
 }
@@ -449,7 +478,8 @@ template <typename Fn>
 inline void ForEachCodexMobEntry(Fn&& fn) {
     static constexpr CodexMobId kRosterOrder[] = {
         CM_ROTOR, CM_ANTARES, CM_SCOPE, CM_REGULUS, CM_GIMBAL, CM_SWARM,
-        CM_GENESIS, CM_GRAVIS, CM_QUASAR, CM_MAGNETAR, CM_LYNX, CM_TRIGON
+        CM_GENESIS, CM_GRAVIS, CM_QUASAR, CM_MAGNETAR, CM_LYNX, CM_TRIGON,
+        CM_OCTANS, CM_ERIDANUS
     };
     for (CodexMobId id : kRosterOrder) fn((int)id);
 }
@@ -494,6 +524,11 @@ inline long long CodexMobKillThreshold(int id, int milestone) {
         { 1, 50, 400 },
         { 1, 20, 100 },
     };
+    // A boss falls at most once a run, so its milestones come far sooner.
+    if (CodexMobClass(id) == 2) {
+        static const long long kBossThresholds[3] = { 1, 3, 10 };
+        return kBossThresholds[milestone];
+    }
     // Reward milestones have three bands; tier-4 enemies use the top band.
     return kThresholds[std::min(tier, 3) - 1][milestone];
 }

@@ -69,7 +69,7 @@ LOC = {
     "T_FIREWORK": ("Dash Fireworks", "ダッシュ花火", "When a dash ends, fires 12 bullets in all directions", "ダッシュ終了時に全方向へ弾12発"),
     "A_COLLECTOR": ("Verb Collector", "動詞コレクター", "+9% damage per different bullet verb you own (max 6)", "異なる弾の動詞1種ごとにダメージ+9% (最大6種)"),
     "A_REACTOR": ("Reaction Resonance", "反応共鳴", "+14% damage per different event effect you own (max 6)", "異なるイベント効果1種ごとにダメージ+14% (最大6種)"),
-    "A_GAMBLER": ("Risk Collector", "危険コレクター", "+10% damage per different risky effect you own (max 6)", "体力を賭ける・ダメージを受ける効果1種ごとにダメージ+10% (最大6種)"),
+    "A_GAMBLER": ("Risk Collector", "危険コレクター", "+10% damage per risky card you own: HP, Glass, Hurt or Store (max 6)", "危険な増強(体力・ガラス・被弾・保存)1枚ごとにダメージ+10% (最大6枚)"),
     # ── mythic ──
     "Y_ECHO": ("Layered Echo Fire", "重なるこだま射撃", "Every volley rings out once more 0.2s later", "全ての射撃が0.2秒後にもう一度鳴り響く"),
     "Y_SINGULAR": ("Singularity Collapse Warhead", "特異点崩壊弾頭", "On hit, gathers enemies from a wide area, then explodes for 150% attack", "命中時に広範囲の敵を引き寄せ、攻撃力150%で爆発"),

@@ -53,6 +53,13 @@ static void CheckAssign() {
     const KeyBindSet before = s;
     assert(AssignKeyBinding(s, GameAction::Dash, kBindKeyEscape) == BindResult::Rejected);
     assert(AssignKeyBinding(s, GameAction::Dash, kBindKeyF8) == BindResult::Rejected);
+    // Keys the game reads directly: SPACE (pause / confirm), 1-5 (card picks), F12.
+    assert(AssignKeyBinding(s, GameAction::Dash, kBindKeySpace) == BindResult::Rejected);
+    assert(AssignKeyBinding(s, GameAction::Skill1, '1') == BindResult::Rejected);
+    assert(AssignKeyBinding(s, GameAction::Skill1, '5') == BindResult::Rejected);
+    assert(AssignKeyBinding(s, GameAction::Skill1, kBindKeyF12) == BindResult::Rejected);
+    assert(AssignKeyBinding(s, GameAction::Skill1, '6') != BindResult::Rejected);
+    s = before;
     assert(AssignKeyBinding(s, GameAction::Dash, -1) == BindResult::Rejected);
     assert(AssignKeyBinding(s, GameAction::Dash, 9999) == BindResult::Rejected);
     assert(s == before);
@@ -106,9 +113,9 @@ static void CheckTutorialTokens() {
         assert(all.find(L"WASD") != std::wstring::npos);
         assert(all.find(L"SHIFT") != std::wstring::npos);
     }
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 32);
+    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
     g_Language = Language::EN;
-    assert(std::wstring(TutorialControls()).find(L"SPACE dash") != std::wstring::npos);
+    assert(std::wstring(TutorialControls()).find(L"F dash") != std::wstring::npos);
     ResetKeyBindings();
     g_Language = Language::KR;
 }
@@ -117,7 +124,7 @@ static void CheckSaveRoundTrip() {
     g_SmokeCapture = false;
     ResetKeyBindings();
     AssignKeyBinding(g_KeyBinds, GameAction::Skill1, 'Z');
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 32);
+    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
     const KeyBindSet wanted = g_KeyBinds;
     SaveGame();
     ResetKeyBindings();

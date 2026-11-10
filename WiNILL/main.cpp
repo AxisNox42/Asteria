@@ -4056,7 +4056,8 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         PlayStateTransitionAudio();
         s_PlayerBoundsRef = &playerWin;
-        float now   = (float)glfwGetTime();
+        const double nowPrecise = glfwGetTime();   // FPS counter and cap need the full precision
+        float now   = (float)nowPrecise;
         float delta = now - lastFrame;
         if (delta > 0.1f) delta = 0.1f;
         const float realDelta = delta;   // panes run on wall time
@@ -4138,11 +4139,13 @@ int main() {
         }
 
         // FPS 측정 (1�??�위)
+        // Frames over the real elapsed time: counting "frames until 1 s passed" saw
+        // the cap + 1 (61 at 60), since the window always runs a little past 1 s.
         ++g_FpsFrames;
-        if (now - g_FpsLastTime >= 1.0f) {
-            g_CurrentFPS  = g_FpsFrames;
+        if (nowPrecise - g_FpsLastTime >= 1.0) {
+            g_CurrentFPS  = (int)std::lround((double)g_FpsFrames / (nowPrecise - g_FpsLastTime));
             g_FpsFrames   = 0;
-            g_FpsLastTime = now;
+            g_FpsLastTime = nowPrecise;
         }
 
         InputUpdateTextInput(window);
@@ -6979,7 +6982,7 @@ CollisionSystem::Update(pCX, pCY,
         int capFps = (g_FpsCap < 0) ? 300 : g_FpsCap;
         if (capFps > 0) {
             double target = 1.0 / (double)capFps;
-            double frameStart = (double)now;
+            double frameStart = nowPrecise;   // the float `now` loses precision late in a session
             double remain = target - (glfwGetTime() - frameStart);
             if (remain > 0.001) {
                 unsigned ms = (unsigned)((remain - 0.001) * 1000.0);
