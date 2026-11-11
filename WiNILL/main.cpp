@@ -30,7 +30,7 @@
 #include <algorithm>
 #include <functional>
 
-#include "FakeWindow.h"
+#include "SpatialBounds.h"
 #include "GameManager.h"
 #include "GameVersion.h"
 #include "Monster.h"
@@ -1078,11 +1078,6 @@ static void DumpPaneState(const char* label, GLFWwindow* window) {
 }
 
 //   1초마???�레?�어 ?�치??1개씩 배치, �?5�?지????맵에 ~5�??�시
-// Window sizes for active ranged and signal frames.
-float GENESIS_WIN_W = 300.0f;
-float SWARM_WIN_W = 210.0f;
-float g_RfwW = 500.0f, g_RfwH = 500.0f;
-
 // LIGHT_STEP ?�격 감�????�전 HP 기록
 
 // 초당 EXP ?�적??(?�버?????��??�는 죽음, ?�몹 가??
@@ -1103,17 +1098,15 @@ struct ShockWave {
     float maxRadius;
     float r, g, b;
     bool  active  = false;
-    bool  needsBg = false;
 };
 static const int MAX_SHOCKS = 16;
 ShockWave g_ShockWaves[MAX_SHOCKS] = {};
 
 static void SpawnShockWave(float x, float y, float maxR, float life,
-                           float r, float g, float b,
-                           bool needsBg = false) {
+                           float r, float g, float b) {
     for (int i = 0; i < MAX_SHOCKS; i++) {
         if (!g_ShockWaves[i].active) {
-            g_ShockWaves[i] = { x, y, life, life, maxR, r, g, b, true, needsBg };
+            g_ShockWaves[i] = { x, y, life, life, maxR, r, g, b, true };
             return;
         }
     }
@@ -4080,9 +4073,6 @@ int main() {
     g_Scale = (float)screenHeight / SCALE_REF_H;
     if (g_Scale > 1.0f) g_Scale = 1.0f;
     if (g_Scale < 0.5f) g_Scale = 0.5f;
-    GENESIS_WIN_W *= g_Scale;
-    SWARM_WIN_W    *= g_Scale;
-    g_RfwW *= g_Scale; g_RfwH *= g_Scale;
     glfwMakeContextCurrent(window);
     InputRegisterCallbacks(window);
     glfwSwapInterval((g_FpsCap == 0) ? 1 : 0);
@@ -6630,90 +6620,12 @@ CollisionSystem::Update(pCX, pCY,
         glUniformMatrix4fv(g_MainProjLoc, 1, GL_FALSE, orthoShake);
         memcpy(g_MainOrtho, orthoShake, sizeof(orthoShake));
 
-        // ?�거�?�?FakeWindow ?�기 ?�수 (?�더·?�리??공용)
-        const float RFW_W = g_RfwW;
-        const float RFW_H = g_RfwH;
-
-        // ============================================================
-        // ?�더 z-order (?�래?�위)
-        //  (a) ?�거�?�?FakeWindow 배경  ??가???�래
-        //  (b) ?�거�?�?�??��????�몹·총알·?�이?�몬??(scissor ?�리??
-        //  (c) ?�레?�어 FakeWindow 배경 ???�에????��
-        // ============================================================
-
-        // (a0) ?�명 배경 가리기 ??충격??배경 + ?�레그래??배경
-        //      glDisable(GL_BLEND) + 불투�??�두???�형 ???�후 FakeWindow �???��?�?
-        BatchFlush(); glDisable(GL_BLEND);
-        BindMainShader();
-
-        // (a0-1) ?�폭�?충격??배경 ??needsBg ?�래그�? ?�정??충격?�에 ?�해
-        for (auto& sw : g_ShockWaves) {
-            if (!sw.active || !sw.needsBg) continue;
-            float t   = 1.0f - sw.life / sw.maxLife;  // 0??
-            float bgR = sw.maxRadius * t + 30.0f;      // 링보??조금 ?�게
-            drawCircle(sw.x, sw.y, bgR, 0.08f, 0.08f, 0.10f, 1.0f);
-        }
-
-        // (a) FakeWindow 영역은 아래의 스크리저를 위해 유지한다.
-        //     시각적으로는 불투명한 창 대신 얇은 신호 프레임만 사용한다.
-        // ?�?�?가짜창 ?�합 z-리스??(??��?�높?? 봇넷 < ?�거�?< 보스/?�라??. 같�? ?�?��?
-        //    ?�환(벡터) ?�서 = 먼�? ?�환???��? ?�래. 배경+?�온보더�????�서�?'�??�위'
-        //    �?그려, ?��? 창의 불투�?배경????? 창의 배경·?�곽?�을 ?�연????��(?�선?�위 가�?.
-        //    (?�레?�어 창�? ???�에 ?�로 그려 ??�� 최상??)
-        struct FWin { float x, y, w, h; const wchar_t* name;
-                      float br, bgc, bbc, nr, ngc, nbc;
-                      float gaugePct = -1.0f; float tb = 0.0f; };
-        std::vector<FWin> zwins;
-        auto addW = [&](float cx, float cy, float w, float h, const wchar_t* nm,
-                        float br, float bgc, float bbc, float nr, float ngc, float nbc,
-                        float tb = 0.0f, float gaugePct = -1.0f) {
-            zwins.push_back({ cx - w*0.5f, cy - h*0.5f, w, h, nm, br,bgc,bbc, nr,ngc,nbc, gaugePct, tb });
-        };
-        // 봇넷 ?�드 (최하?? ?�환 ?�서)
-        for (auto m : g_MonsterManager.monsters) {
-            if (!m->alive || m->kind != MobKind::GENESIS) continue;
-            float w = GENESIS_WIN_W * m->sizeScale;
-            addW(m->worldX, m->worldY, w, w, L"HIVE", 0.10f,0.04f,0.05f, 0.85f,0.20f,0.24f);
-        }
-        // Swarm app window composite pass.
-        // ?�거�?�?(?�환 ?�서)
-        for (auto r : g_MonsterManager.rangedMobs) {
-            if (r->deathScale <= 0.0f) continue;
-            float sc = r->deathScale;
-            addW(r->worldX, r->worldY, RFW_W*sc, RFW_H*sc,
-                 L"LENS",
-                 0.05f,0.07f,0.12f,
-                 0.20f, 0.75f, 0.88f);
-        }
-        // 터렛 신호 프레임. 실제 터렛 영역/스크리저는 그대로 유지한다.
-                // z-order signal layer. Scissor/collision geometry is intentionally
-        // kept below; only the heavy visual window treatment is removed.
-        BatchFlush(); glDisable(GL_SCISSOR_TEST); glEnable(GL_BLEND);
-        for (auto& fw : zwins) {
-            if (fw.w < 64.0f || fw.h < 64.0f || fw.w != fw.w || fw.h != fw.h) continue;
-            const float signalA = (fw.tb > 0.0f) ? 0.26f : 0.22f;
-            DrawInGameSignalFrame(fw.x, fw.y, fw.w, fw.h,
-                                  fw.nr, fw.ngc, fw.nbc, signalA);
-            if (fw.tb > 0.0f) {
-                if (fw.gaugePct >= 0.0f) {
-                    float pct = fw.gaugePct < 0.0f ? 0.0f : fw.gaugePct > 1.0f ? 1.0f : fw.gaugePct;
-                    float gy = fw.y + 4.0f;
-                    drawRect(fw.x + 10.0f, gy, fw.w - 20.0f, 2.0f,
-                             0.08f, 0.10f, 0.14f, 0.55f);
-                    drawRect(fw.x + 10.0f, gy, (fw.w - 20.0f) * pct, 2.0f,
-                             fw.nr, fw.ngc, fw.nbc, 0.90f);
-                }
-            }
-        }
-        BatchFlush(); glEnable(GL_BLEND);  // ?�후 ?�반 ?�파 블렌??보장
-
-        // (b) Global combat pass.
-        // The old implementation rendered the same entities through each
-        // fake window's WorldScissor. That made enemies and bullets disappear
-        // whenever they crossed a window boundary, and also multiplied draw
-        // calls. Fake windows remain visual/collision metadata only.
+        // (b) Global combat pass: every entity draws straight to the scene
+        // (no per-window scissor passes).
         BatchFlush();
+        BindMainShader();
         glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_BLEND);
 
         // Rear and front sight fields stay before entity bodies to preserve
         // the existing combat render order.
@@ -6839,78 +6751,9 @@ CollisionSystem::Update(pCX, pCY,
         }
         caelum_draw::DrawCursor(g_GameTime);   // over the player
 
-        // (c) player playfield signal. The rectangular region itself remains
-        // available to gameplay/scissor code, but no opaque fake window is drawn.
+        // (c) Player bounds stay a plain gameplay rectangle; nothing is drawn for them.
         BatchFlush(); glDisable(GL_SCISSOR_TEST); glEnable(GL_BLEND);
         EnsurePlayerBounds(playerWin);
-
-
-
-        // (c2) HP/EXP �????�레?�어 �??�단 ?�쪽??부�?(창과 ?�께 ?�동) ?�?�?
-        // ?�?�?(h3) 가�?OS �??�롬 ???�?��?�?+ [X] ?�기 (?�스?�톱 ?�계관) ?�?�?
-        //    "??= ?�로?�스, 창을 ?�아 종료?�다" ?�체?? ?�드 좌표(�?반영)�?그림.
-        {
-            GameState gst = g_GameManager.currentState;
-            bool inGame = (gst == GameState::RUNNING ||
-                           (gst == GameState::PAUSED && !TutorialPaused()) ||
-                           gst == GameState::DYING || gst == GameState::AUG_SELECT);
-            if (inGame) {
-                auto winChrome = [&](float x, float y, float w, float h,
-                                     const wchar_t* title, float tr, float tg, float tb,
-                                     float gaugePct = -1.0f) {
-                    (void)x; (void)y; (void)w; (void)h;
-                    (void)title; (void)tr; (void)tg; (void)tb; (void)gaugePct;
-                };
-                // 가짜창 ?�?��?�????�에??만든 z-리스????��?�높?? ?�서�?그림.
-                //   '?�기보다 ?��? �? ?�는 '?�레?�어 �????�?��?바�? ??���? ?�체�?                //   ?�기??�??�니??**겹친 가�?구간�?* ?�라?�다(부�??�리??.
-                //   ?�?��?바의 ?�로 ??y,y+TB]?�?겹치??가림창??x구간??가?�구간에??빼고,
-                //   ?��? 구간?�만 glScissor �??�립??그린?? (봇넷<?�거�?보스<?�레?�어,
-                //   같�? ?�?��? ?�환?�서)
-                const float TBH = 22.0f;
-                glEnable(GL_SCISSOR_TEST);
-                auto drawBarClipped = [&](float x, float y, float w, float h,
-                                          const wchar_t* nm, float nr, float ng, float nb,
-                                          size_t selfIdx, bool isPlayer, float gaugePct = -1.0f) {
-                    // 가??x구간 리스??(�?vec2: x=?�작, y=??
-                    std::vector<glm::vec2> vis{ glm::vec2(x, x + w) };
-                    auto subtract = [&](float c0, float c1) {
-                        if (c1 <= c0) return;
-                        std::vector<glm::vec2> out;
-                        for (auto& iv : vis) {
-                            float a = iv.x, b = iv.y;
-                            if (c1 <= a || c0 >= b) { out.push_back(iv); continue; }
-                            if (c0 > a) out.push_back(glm::vec2(a, c0));
-                            if (c1 < b) out.push_back(glm::vec2(c1, b));
-                        }
-                        vis.swap(out);
-                    };
-                    auto consider = [&](float ox, float oy, float ow, float oh) {
-                        if (oy < y + TBH && oy + oh > y)   // 가림창???�?��?�??�로 ?��? 겹침
-                            subtract(std::max(x, ox), std::min(x + w, ox + ow));
-                    };
-                    if (!isPlayer)
-                        consider(playerWin.x, playerWin.y, playerWin.width, playerWin.height);
-                    for (size_t j = selfIdx + 1; j < zwins.size(); j++)
-                        consider(zwins[j].x, zwins[j].y, zwins[j].w, zwins[j].h);
-                    // ?��? 구간�??�립??그림
-                    for (auto& iv : vis) {
-                        float a = iv.x, b = iv.y;
-                        if (b - a < 0.5f) continue;
-                        WorldScissor(a, y, b - a, TBH);
-                        winChrome(x, y, w, h, nm, nr, ng, nb, gaugePct);
-                    }
-                };
-                for (size_t i = 0; i < zwins.size(); i++) {
-                    const FWin& fw = zwins[i];
-                    drawBarClipped(fw.x, fw.y, fw.w, fw.h, fw.name,
-                                   fw.nr, fw.ngc, fw.nbc, i, false, fw.gaugePct);
-                }
-                BatchFlush();
-                // ?�레?�어 �?????�� 최상?? ?�립 ?�이 ?�체
-                BatchFlush();
-                glDisable(GL_SCISSOR_TEST);
-            }
-        }
 
         BatchFlush();   // Restore the base orthographic projection for the HUD.
         glUniformMatrix4fv(g_MainProjLoc, 1, GL_FALSE, g_BaseOrtho);

@@ -109,9 +109,6 @@
     <ClCompile Include="System\DebugToolkit.cpp">
       <Filter>System</Filter>
     </ClCompile>
-    <ClCompile Include="System\FakeWindow.cpp">
-      <Filter>System</Filter>
-    </ClCompile>
     <ClCompile Include="System\OsPane.cpp">
       <Filter>System</Filter>
     </ClCompile>
@@ -281,7 +278,7 @@
     <ClInclude Include="System\EmbeddedResource.h">
       <Filter>System</Filter>
     </ClInclude>
-    <ClInclude Include="System\FakeWindow.h">
+    <ClInclude Include="System\SpatialBounds.h">
       <Filter>System</Filter>
     </ClInclude>
     <ClInclude Include="System\miniaudio.h">

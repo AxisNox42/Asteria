@@ -486,7 +486,9 @@ int Open(float x, float y, float w, float h, bool decor) {
     const POINT o = OverlayOrigin();
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
                         WS_MINIMIZEBOX | WS_THICKFRAME;
-    const DWORD exStyle = WS_EX_NOACTIVATE;
+    // APPWINDOW: owned windows are otherwise hidden from the taskbar and
+    // Alt+Tab; this makes each pane a normal app window (closable from there).
+    const DWORD exStyle = WS_EX_NOACTIVATE | WS_EX_APPWINDOW;
     const int px = ToPx(x), py = ToPx(y), pw = ToPx(w), ph = ToPx(h);
     HWND hwnd = CreateWindowExW(exStyle, kClassName, BaseTitle(), style,
                                 o.x + px, o.y + py, pw, ph,

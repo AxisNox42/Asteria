@@ -7,7 +7,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#include "FakeWindow.h"
+#include "SpatialBounds.h"
 #include "GameManager.h"
 #include "MonsterManager.h"
 #include "PlayerStats.h"

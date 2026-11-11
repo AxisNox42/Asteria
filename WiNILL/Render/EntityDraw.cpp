@@ -17,7 +17,6 @@
 #include <vector>
 
 extern TextRenderer g_TextS;
-extern float g_RfwW;
 
 static void ApplyMobStyleTint(float& r, float& g, float& b) {
     if (g_MobVisualStyle != MobVisualStyle::SOFT) return;
@@ -154,30 +153,6 @@ void DrawApproachOrb(float x, float y, float visualTime) {
     }
     drawCircle(x, y, 4.2f + pulse * 1.2f,
                1.0f, 0.62f, 0.48f, 0.96f);
-}
-
-void DrawAppWindow(float wx, float wy, float w, float h, const wchar_t* title, float tb) {
-    // App bounds stay readable without an opaque window so the transparent
-    // observatory background remains visible.
-    drawConstellFrame(wx, wy, w, h, 0.48f, 0.88f, 1.0f, 0.36f,
-                      std::max(14.0f, std::min(28.0f, std::min(w, h) * 0.12f)),
-                      3.0f, 0.05f, 1.0f);
-    drawRect(wx + 8.0f, wy + std::max(4.0f, tb * 0.5f),
-             std::max(12.0f, w - 16.0f), 1.5f,
-             0.48f, 0.88f, 1.0f, 0.28f);
-    BatchFlush();
-    if (title) {
-        float tScale = (tb <= 16.0f) ? 0.38f : 0.5f;
-        float ty = wy + (tb - 11.0f * tScale) * 0.5f;
-        if (ty < wy + 1.0f) ty = wy + 1.0f;
-        g_TextS.Draw(title, wx + 8.0f, ty, tScale, 0.82f, 0.94f, 1.0f, 0.90f);
-    }
-    BatchFlush();
-}
-
-bool inWin(float x, float y, float rx, float ry, float rw, float rh, float margin) {
-    return x >= rx - margin && x <= rx + rw + margin &&
-           y >= ry - margin && y <= ry + rh + margin;
 }
 
 static void DrawDiscWithTexture(float x, float y, float radius,

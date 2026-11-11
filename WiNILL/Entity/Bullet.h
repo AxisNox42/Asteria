@@ -79,6 +79,7 @@ public:
     float synOrbitAngle = 0.0f;        // Orbit: angle around the player
     float synOrbitLeft = 0.0f;         // Orbit: seconds left
     float synTx = 0.0f, synTy = 0.0f;  // a fixed point: where a mortar shell lands, where a mine sits
+    float synLandDist = 0.0f;          // distance from the muzzle at which a shell lands / a mine sits (fixed at fire time)
     int   synBounces = 0;              // arena-edge bounces so far
     int   synRicochet = 0;             // enemy-to-enemy bounces left
     int   synPierced = 0;              // enemies passed so far

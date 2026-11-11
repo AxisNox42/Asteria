@@ -198,15 +198,6 @@ static void DrawPlayerZigzagLine(float x0, float y0, float x1, float y1,
     miter::Path(zx, zy, zn, thick, r, g, b, a);
 }
 
-// In-game regions remain rectangular for scissor/collision logic, but their
-// visual identity is reduced to a light signal frame instead of a fake window.
-void DrawInGameSignalFrame(float x, float y, float w, float h,
-                                  float r, float g, float b, float alpha) {
-    if (w < 24.0f || h < 24.0f || w != w || h != h) return;
-    const float corner = std::max(10.0f, std::min(22.0f, std::min(w, h) * 0.12f));
-    drawConstellFrame(x, y, w, h, r, g, b, alpha, corner, 3.0f, alpha * 0.12f, 1.0f);
-}
-
 void DrawPlayerWeaponShell(float cx, float cy, float sz, float aimAng, float visualTime) {
     if (!(aimAng == aimAng)) aimAng = 0.0f;
 

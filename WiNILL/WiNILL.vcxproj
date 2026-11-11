@@ -210,7 +210,6 @@
     <ClCompile Include="Render\stb_impl.cpp" />
     <ClCompile Include="System\Audio.cpp" />
     <ClCompile Include="System\DebugToolkit.cpp" />
-    <ClCompile Include="System\FakeWindow.cpp" />
     <ClCompile Include="System\Input.cpp" />
     <ClCompile Include="System\OsPane.cpp" />
     <ClCompile Include="System\WindowFx.cpp" />
@@ -282,7 +281,7 @@
     <ClInclude Include="System\DebugToolkit.h" />
     <ClInclude Include="System\CrashHandler.h" />
     <ClInclude Include="System\EmbeddedResource.h" />
-    <ClInclude Include="System\FakeWindow.h" />
+    <ClInclude Include="System\SpatialBounds.h" />
     <ClInclude Include="System\GameplayTelemetry.h" />
     <ClInclude Include="System\Input.h" />
     <ClInclude Include="System\miniaudio.h" />

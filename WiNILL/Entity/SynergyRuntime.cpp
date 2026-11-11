@@ -359,7 +359,12 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
         b.color = glm::vec3(0.55f, 0.95f, 1.0f);
     }
     if (o.F_MORTAR) {
-        b.synFlags |= synf::Lob; b.synTx = tx; b.synTy = ty; b.speed = 900.0f; b.sizeScale *= 1.4f;
+        // The shell lands at a distance fixed now, along its own heading (spread shells land spread
+        // around the aim instead of vanishing short of a point they never fly to).
+        const float aimDist = std::max(40.0f, std::hypot(tx - b.x, ty - b.y));
+        b.synFlags |= synf::Lob; b.synLandDist = aimDist;
+        b.synTx = b.x + b.dirX * aimDist; b.synTy = b.y + b.dirY * aimDist;
+        b.speed = 900.0f; b.sizeScale *= 1.4f;
         b.color = glm::vec3(1.0f, 0.55f, 0.25f);
     }
 }
@@ -661,6 +666,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         b.dmgMult = base.dmgMult * boost;
         b.synFlags |= synf::Mine;
         b.synTx = b.x + (tx - b.x) * 0.55f; b.synTy = b.y + (ty - b.y) * 0.55f;
+        b.synLandDist = std::hypot(b.synTx - b.x, b.synTy - b.y);
         out.push_back(b);
     }
     // Echo: the same volley again a moment later.
@@ -1035,7 +1041,7 @@ void Step(const passive::StepInput& in) {
         }
         if (f & synf::Erase) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 38.0f * b.sizeScale);
         if (f & synf::Absorb) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 22.0f);
-        if (f & synf::Seek) {
+        if ((f & synf::Seek) && !(f & synf::Lob)) {   // a shell flies a set course; steering it would miss its landing
             float tx = 0, ty = 0; bool found = false;
             float bd = 600.0f * 600.0f;
             ForEachEnemy([&](auto& e, float ex, float ey) {
@@ -1054,17 +1060,19 @@ void Step(const passive::StepInput& in) {
             }
         }
         if (f & synf::Lob) {
-            const float dx = b.synTx - b.x, dy = b.synTy - b.y;
-            if (b.traveled >= std::sqrt((b.synTx - in.px) * (b.synTx - in.px) + (b.synTy - in.py) * (b.synTy - in.py)) - 2.0f ||
-                dx * dx + dy * dy < 30.0f * 30.0f) {
+            if (b.traveled >= b.synLandDist) {
                 b.active = false;
+                // Back off the last step's overshoot so it lands exactly on the aimed distance (the cursor).
+                const float over = b.traveled - b.synLandDist;
+                b.synTx = b.x - b.dirX * over; b.synTy = b.y - b.dirY * over;
                 const float r = 110.0f;
+                SparkRing(b.synTx, b.synTy, r, 0.45f, 1.0f, 0.55f, 0.25f, true, 28);
                 Burst(b.synTx, b.synTy, r, 90.0f * b.dmgMult * s.dmg * (1.0f + s.dmgAdd));
                 Landed(b, r);
             }
         }
         if (f & synf::Mine) {
-            if (b.traveled >= std::sqrt((b.synTx - in.px) * (b.synTx - in.px) + (b.synTy - in.py) * (b.synTy - in.py)) - 2.0f) {
+            if (b.traveled >= b.synLandDist - 2.0f) {
                 b.active = false;
                 if (s.mines.size() < 40) s.mines.push_back({ b.x, b.y, 8.0f, 220.0f * b.dmgMult * s.dmg * (1.0f + s.dmgAdd), 0.0f });
             }

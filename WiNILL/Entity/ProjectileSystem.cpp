@@ -4,7 +4,7 @@
 #include "MonsterManager.h"
 #include "SpaceRules.h"
 #include "PassiveHooks.h"
-#include "../System/FakeWindow.h"
+#include "../System/SpatialBounds.h"
 #include <algorithm>
 #include <cmath>
 
