@@ -78,7 +78,7 @@ constexpr float kKeyboardY = 780.0f;
 constexpr float kCaptionMinW = 1.5f;   // key units
 constexpr float kKeyPx = 19.0f, kKeyLongPx = 14.0f, kKeyCaptionPx = 13.0f, kSpacePx = 20.0f;
 constexpr float kLegendRowH = 34.0f, kLegendPx = 20.0f, kLegendMark = 16.0f;
-constexpr float kLegendBlockY = kFieldY + 350.0f;   // key legend, under the objectives
+constexpr float kLegendBlockY = kFieldY + 350.0f;   // key legend, under the objectives
 
 // The arena in world px. At 1:1 on the 1920x1080 canvas the ship, Swarms,
 // bullets, dash and field radius are exactly the size they are in a run.
@@ -249,7 +249,7 @@ rp::Rules LiveRules(const PracticeView& v, bool firing) {
     r.pulseRadius = STATIC_FIELD_PULSE_RADIUS;
     r.pulseDamage = r.bulletDamage * STATIC_FIELD_PULSE_DAMAGE_MULT;
     r.dummyHp = v.swarmHp;
-    r.dummyHitRadius = PlayerShotHitRadius(kMonsterBodyHitPx * v.swarmScale, 1.0f);
+    r.dummyHitRadius = PlayerShotHitRadius(MobBodyHitPx(MobKind::SWARM) * v.swarmScale, 1.0f);
     r.dashAvailable = DashPractisable();
     return r;
 }

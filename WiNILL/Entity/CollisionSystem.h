@@ -16,13 +16,34 @@
 // Player shot vs enemy: the two circles touch (enemy body + shot), instead of
 // the old enemy radius x shot size. Multiplying shrank small enemies' targets
 // along with the shot and blew big shots up on big enemies; adding keeps a
-// SWARM easy to hit and a 4x shot sane. At sizes 1/1 the totals match the
-// 1.2x aim forgiveness from the 2026-11-10 playtest (regular 18, SCOPE 24,
-// OCTANS 31). Enemy shots on the player are unchanged.
-inline constexpr float kMonsterBodyHitPx = 13.0f;    // per enemy sizeScale
-inline constexpr float kScopeBodyHitPx   = 19.0f;    // SCOPE has no sizeScale
-inline constexpr float kNormaBodyHitPx   = norma::kShotHitPx;   // OCTANS (NORMA), per sizeScale
+// SWARM easy to hit and a 4x shot sane. Enemy shots on the player are unchanged.
+//
+// The body radius is the drawn vector outline (frames, plates, arms, rings that
+// belong to the body; not the faint node halos or transient effects), measured
+// from EntityDraw.cpp at sizeScale 1. It used to be the core only (13 px).
+inline constexpr float kScopeBodyHitPx   = 32.0f;    // SCOPE has no sizeScale (instrument 1.26 x 25.6)
 inline constexpr float kPlayerShotHitPx  = 5.0f;     // per shot sizeScale (drawn core is 4.8)
+
+// Body hit radius per enemy sizeScale, by kind.
+inline float MobBodyHitPx(MobKind kind) {
+    switch (kind) {
+    case MobKind::ROTOR:      return 20.0f;   // corners 1.10 b
+    case MobKind::SWARM:      return 18.0f;   // vertices 0.92 b + jitter
+    case MobKind::GENESIS:    return 47.7f;   // frame arcs and scale plates, 2.65 b
+    case MobKind::GRAVIS:     return 20.2f;   // nodes 1.12 b
+    case MobKind::QUASAR:     return 40.5f;   // tilted outer orbit 2.25 b
+    case MobKind::GIMBAL:     return 23.4f;   // outer triangle 1.30 b
+    case MobKind::REGULUS:    return 36.4f;   // outer plate arcs 2.02 b
+    case MobKind::ANTARES:    return 25.2f;   // pentagon vertex 1.40 b
+    case MobKind::MAGNETAR:   return 82.0f;   // lattice, a fixed 148 px at its scale 1.8
+    case MobKind::NORMA:      return 37.6f;   // broken ring 2.09 b
+    case MobKind::CAELUM:     return 23.4f;   // frame 1.30 b
+    case MobKind::LYNX:       return 27.8f;   // hull nose
+    case MobKind::MIRA:       return 14.5f;   // outer ring
+    case MobKind::TRIANGULUM: return 33.9f;   // shell corner 1.88 b
+    }
+    return 18.0f;
+}
 
 inline float PlayerShotHitRadius(float bodyPx, float shotSizeScale) {
     return bodyPx + kPlayerShotHitPx * std::max(1.0f, shotSizeScale);
@@ -224,7 +245,7 @@ public:
                 if (bullet.HasHit(monster)) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
                 const float hitRadius = PlayerShotHitRadius(
-                    (monster->kind == MobKind::NORMA ? kNormaBodyHitPx : kMonsterBodyHitPx) * monster->sizeScale,
+                    MobBodyHitPx(monster->kind) * monster->sizeScale,
                     shotScale);
                 if (monster->worldX < minX - hitRadius || monster->worldX > maxX + hitRadius ||
                     monster->worldY < minY - hitRadius || monster->worldY > maxY + hitRadius)
