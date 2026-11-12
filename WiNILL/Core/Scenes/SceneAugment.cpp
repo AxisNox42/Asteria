@@ -7,6 +7,7 @@
 #include "SceneInternal.h"
 #include "UiLayout.h"
 #include "Settings.h"
+#include "KeyBindings.h"
 #include "Augment.h"
 #include "SynergyRuntime.h"
 #include "../../System/Audio.h"
@@ -654,13 +655,29 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
 
     // Guide line, only once the cards can be picked.
     if (inputReady) {
-        // The key range follows the card count (a stat pick has three).
-        static const wchar_t* kGuide[3] = {
-            L"카드를 클릭하거나 1~%d 키로 고른 뒤 Space로 확정",
-            L"CLICK A CARD, OR PRESS 1-%d AND CONFIRM WITH SPACE",
-            L"カードをクリック、または1〜%dキーで選んでSpaceで確定" };
-        wchar_t guide[96];
-        std::swprintf(guide, 96, kGuide[CurLangIdx()], std::max(1, count));
+        // The card and confirm keys follow the bindings (KeyBindings.h); unbound
+        // card keys drop out, leaving the click.
+        static const GameAction kCardKeys[3] = {
+            GameAction::Card1, GameAction::Card2, GameAction::Card3 };
+        std::wstring cardKeys;
+        for (int i = 0; i < std::min(3, std::max(1, count)); ++i) {
+            if (!ActionBound(kCardKeys[i])) continue;
+            if (!cardKeys.empty()) cardKeys += L"/";
+            cardKeys += KeyName(ActionKey(kCardKeys[i]));
+        }
+        const std::wstring confirmKey = KeyName(ActionKey(GameAction::Confirm));
+        const int li = CurLangIdx();
+        std::wstring guideText;
+        if (cardKeys.empty()) {
+            guideText = li == 0 ? L"카드를 클릭해 고른 뒤 " + confirmKey + L"(으)로 확정"
+                      : li == 2 ? L"カードをクリックして選び、" + confirmKey + L"で確定"
+                                : L"CLICK A CARD AND CONFIRM WITH " + confirmKey;
+        } else {
+            guideText = li == 0 ? L"카드를 클릭하거나 " + cardKeys + L" 키로 고른 뒤 " + confirmKey + L"(으)로 확정"
+                      : li == 2 ? L"カードをクリック、または" + cardKeys + L"キーで選んで" + confirmKey + L"で確定"
+                                : L"CLICK A CARD, OR PRESS " + cardKeys + L" AND CONFIRM WITH " + confirmKey;
+        }
+        const wchar_t* guide = guideText.c_str();
         const float gs = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
         const float gw = g_TextS.Width(guide, gs);
         DrawShadowedText(g_TextS, guide, sw * 0.5f - gw * 0.5f, L.cy - L.cardH * 0.5f - 64.0f * ui, gs,

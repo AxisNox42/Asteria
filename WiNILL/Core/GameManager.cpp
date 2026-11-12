@@ -6,6 +6,7 @@
 #include "Scenes.h"
 #include "ReadyLaunch.h"
 #include "PassiveAugments.h"
+#include "Input.h"
 #include <algorithm>
 #include <cstdlib>
 
@@ -108,11 +109,18 @@ void GameManager::drawQuad(float x, float y, float w, float h,
 }
 
 void GameManager::HandleInput(GLFWwindow* window) {
-    int sp  = glfwGetKey(window, GLFW_KEY_SPACE);
+    // Confirm (READY launch) and Pause are bound keys (KeyBindings.h); they may
+    // share one key since they act in different states. One press does one
+    // thing, then both wait for the release.
+    const bool confirmDown = ActionHeld(GameAction::Confirm);
+    const bool pauseDown = ActionHeld(GameAction::Pause);
     int esc = glfwGetKey(window, GLFW_KEY_ESCAPE);
 
-    if (sp == GLFW_PRESS && spaceReleased) {
-        if (currentState == GameState::READY) {
+    const bool confirmHit = confirmDown && currentState == GameState::READY;
+    const bool pauseHit = pauseDown && (currentState == GameState::RUNNING ||
+                                        currentState == GameState::PAUSED);
+    if ((confirmHit || pauseHit) && confirmPauseReleased) {
+        if (confirmHit) {
             // Lobby tutorial: Space launches an Easy run with the loadout the
             // TUTORIAL button already set up (ESC opens the tutorial pause menu).
             // The practice wall squeezes and swells out first; the READY scene
@@ -123,7 +131,7 @@ void GameManager::HandleInput(GLFWwindow* window) {
             else
                 ready_launch::g_LaunchLockedT = ready_launch::kLaunchLockedSec;
         } else if (currentState == GameState::RUNNING) {
-            // Augment selection opens by itself after a level-up.
+            // Pause key. Augment selection opens by itself after a level-up.
             pauseResumeState = GameState::RUNNING;
             currentState = GameState::PAUSED;
         } else if (currentState == GameState::PAUSED) {
@@ -131,9 +139,9 @@ void GameManager::HandleInput(GLFWwindow* window) {
             pauseResumeState = GameState::RUNNING;
         }
         // MAIN_MENU/SETTINGS 는 마우스 버튼으로만 진행
-        spaceReleased = false;
+        confirmPauseReleased = false;
     }
-    if (sp == GLFW_RELEASE) spaceReleased = true;
+    if (!confirmDown && !pauseDown) confirmPauseReleased = true;
 
     if (esc == GLFW_PRESS && escReleased) {
         if (!TryEscNavigateBack()) {

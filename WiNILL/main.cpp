@@ -123,7 +123,6 @@ int     g_VolLen = 0;
 PlayerStats    g_Stats;
 GameplayTelemetry g_GameplayTelemetry;
 bool g_aug1Released = true, g_aug2Released = true, g_aug3Released = true;
-bool g_aug4Released = true, g_aug5Released = true;
 float g_AugExitT    = -1.0f;
 int   g_AugExitSlot = -1;
 TextRenderer   g_TextL;   // ??글??(증강 ?�름, ?�태 ?�?��?)
@@ -4458,10 +4457,9 @@ int main() {
         if (inputFocusChanged) {
             ResetPlayerInputEdges();
             g_aug1Released = g_aug2Released = g_aug3Released = true;
-            g_aug4Released = g_aug5Released = true;
         }
         if (focus.lost) {
-            g_GameManager.spaceReleased = true;
+            g_GameManager.confirmPauseReleased = true;
             g_GameManager.escReleased = true;
             // Smoke captures run unattended; a stray focus change must not
             // pause them mid-sequence.
@@ -4474,7 +4472,7 @@ int main() {
             }
         }
         if (focus.gained) {
-            g_GameManager.spaceReleased = true;
+            g_GameManager.confirmPauseReleased = true;
             g_GameManager.escReleased = true;
         }
         // Away from the game (Alt-Tab), its panes hide; back, they return
@@ -4582,15 +4580,13 @@ int main() {
         // panes. Only smoke captures still force it on.
         os_pane::SetArrangeMode(g_PaneArrangeForce);
         if (inputFocusChanged) {
-            g_GameManager.spaceReleased =
-                glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE;
+            g_GameManager.confirmPauseReleased =
+                !ActionHeld(GameAction::Confirm) && !ActionHeld(GameAction::Pause);
             g_GameManager.escReleased =
                 glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_RELEASE;
-            g_aug1Released = glfwGetKey(window, GLFW_KEY_1) == GLFW_RELEASE;
-            g_aug2Released = glfwGetKey(window, GLFW_KEY_2) == GLFW_RELEASE;
-            g_aug3Released = glfwGetKey(window, GLFW_KEY_3) == GLFW_RELEASE;
-            g_aug4Released = glfwGetKey(window, GLFW_KEY_4) == GLFW_RELEASE;
-            g_aug5Released = glfwGetKey(window, GLFW_KEY_5) == GLFW_RELEASE;
+            g_aug1Released = !ActionHeld(GameAction::Card1);
+            g_aug2Released = !ActionHeld(GameAction::Card2);
+            g_aug3Released = !ActionHeld(GameAction::Card3);
             g_PlayerRuntime.dashInputHeld = ActionHeld(GameAction::Dash);
             active::ResetInputEdges();
         }
@@ -4751,7 +4747,7 @@ int main() {
             g_AugExitT = -1.0f;
             g_AugExitSlot = -1;
             g_GameManager.ClearAugmentRewardQueue();
-            g_GameManager.spaceReleased = true;
+            g_GameManager.confirmPauseReleased = true;
             g_GameManager.escReleased = true;
             g_GameManager.pauseResumeState = GameState::RUNNING;
             g_GameManager.currentState = GameState::RUNNING;
@@ -4824,6 +4820,9 @@ int main() {
                         // A fresh run held on the READY screen (practice field).
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
                         gm.currentState = GameState::READY;
+                    } else if (step.rfind("CAPTUREKEY=", 0) == 0) {
+                        // Settings key capture: feed this GLFW key code as if pressed.
+                        if (g_KeyCaptureActive) g_CapturedKey = std::atoi(step.c_str() + 11);
                     } else if (step == "TUTDONE") {
                         g_TutorialDone = true;   // unlock the lobby for captures (not saved in smoke)
                     } else if (step.rfind("COINS=", 0) == 0) {
@@ -5799,21 +5798,16 @@ int main() {
             }
         }
 
-        // --- AUG_SELECT: 1~5 focus, SPACE confirm ---
+        // --- AUG_SELECT: Card1~3 keys focus, Confirm key confirms (KeyBindings.h) ---
         static bool s_augSpaceReleased = true;
         if (inputFocusChanged)
-            s_augSpaceReleased = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE;
-        {
-            const int spaceState = glfwGetKey(window, GLFW_KEY_SPACE);
-            if (spaceState == GLFW_RELEASE) s_augSpaceReleased = true;
-        }
+            s_augSpaceReleased = !ActionHeld(GameAction::Confirm);
+        if (!ActionHeld(GameAction::Confirm)) s_augSpaceReleased = true;
         if (!debugInputCaptured &&
             g_GameManager.currentState == GameState::AUG_SELECT) {
-            const int k1 = glfwGetKey(window, GLFW_KEY_1);
-            const int k2 = glfwGetKey(window, GLFW_KEY_2);
-            const int k3 = glfwGetKey(window, GLFW_KEY_3);
-            const int k4 = glfwGetKey(window, GLFW_KEY_4);
-            const int k5 = glfwGetKey(window, GLFW_KEY_5);
+            const int k1 = ActionHeld(GameAction::Card1) ? GLFW_PRESS : GLFW_RELEASE;
+            const int k2 = ActionHeld(GameAction::Card2) ? GLFW_PRESS : GLFW_RELEASE;
+            const int k3 = ActionHeld(GameAction::Card3) ? GLFW_PRESS : GLFW_RELEASE;
             // The placeholder card has no effect: taking it only closes the pick.
             auto applyAug = [&](int slot) {
                 if (slot < 0 || slot >= g_GameManager.augChoiceCount) return;
@@ -5837,7 +5831,7 @@ int main() {
                     g_AugExitT    = -1.0f;
                     g_AugExitSlot = -1;
                     s_augSpaceReleased      = false;
-                    g_GameManager.spaceReleased = false;
+                    g_GameManager.confirmPauseReleased = false;
                     augExitFired = true;
                 }
             }
@@ -5857,30 +5851,20 @@ int main() {
                         g_HoveredAug = 2; g_GameManager.augmentKeyboardFocus = true;
                         g_aug3Released = false;
                     }
-                    if (k4 == GLFW_PRESS && g_aug4Released && g_GameManager.augChoiceCount > 3) {
-                        g_HoveredAug = 3; g_GameManager.augmentKeyboardFocus = true;
-                        g_aug4Released = false;
-                    }
-                    if (k5 == GLFW_PRESS && g_aug5Released && g_GameManager.augChoiceCount > 4) {
-                        g_HoveredAug = 4; g_GameManager.augmentKeyboardFocus = true;
-                        g_aug5Released = false;
-                    }
                 }
                 if (k1 == GLFW_RELEASE) g_aug1Released = true;
                 if (k2 == GLFW_RELEASE) g_aug2Released = true;
                 if (k3 == GLFW_RELEASE) g_aug3Released = true;
-                if (k4 == GLFW_RELEASE) g_aug4Released = true;
-                if (k5 == GLFW_RELEASE) g_aug5Released = true;
 
-                // SPACE = confirm the focused constellation.
-                int kSp = glfwGetKey(window, GLFW_KEY_SPACE);
+                // Confirm key = confirm the focused constellation.
+                const int kSp = ActionHeld(GameAction::Confirm) ? GLFW_PRESS : GLFW_RELEASE;
                 if (kSp == GLFW_PRESS && s_augSpaceReleased &&
                     g_HoveredAug >= 0 && g_HoveredAug < g_GameManager.augChoiceCount &&
                     g_AugExitT < 0.0f) {
                     g_AugExitT    = 0.0f;
                     g_AugExitSlot = g_HoveredAug;
                     s_augSpaceReleased = false;
-                    g_GameManager.spaceReleased = false;
+                    g_GameManager.confirmPauseReleased = false;
                 }
 
 

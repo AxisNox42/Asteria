@@ -249,14 +249,17 @@ static void CheckRolesFollowBindings() {
     assert(kb::RoleOf(kBindKeyEscape) == kb::KeyRole::Quit);
     assert(kb::RoleOf('F') == kb::KeyRole::None);
 
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
-    AssignKeyBinding(g_KeyBinds, GameAction::MoveUp, kb::key::Up);
+    ApplyKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
+    ApplyKeyBinding(g_KeyBinds, GameAction::MoveUp, kb::key::Up);
     assert(kb::RoleOf('F') == kb::KeyRole::Dash);
     assert(kb::RoleOf(kBindKeyLeftShift) == kb::KeyRole::None);
     assert(kb::RoleOf(kb::key::Up) == kb::KeyRole::Move);
     assert(kb::RoleOf('W') == kb::KeyRole::None);
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, kBindKeySpace);
-    assert(kb::RoleOf(kBindKeySpace) == kb::KeyRole::Start);
+    // SPACE taken by Dash: Confirm becomes unbound, so SPACE now dashes.
+    ApplyKeyBinding(g_KeyBinds, GameAction::Dash, kBindKeySpace);
+    assert(kb::RoleOf(kBindKeySpace) == kb::KeyRole::Dash);
+    ApplyKeyBinding(g_KeyBinds, GameAction::Confirm, kBindKeyQ);
+    assert(kb::RoleOf(kBindKeyQ) == kb::KeyRole::Start);
     ResetKeyBindings();
 }
 
@@ -282,7 +285,7 @@ static void CheckLabels() {
     }
     g_Language = Language::EN;
     assert(std::wstring(ReadyLegend(1)) == L"SHIFT  dash");
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
+    ApplyKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
     assert(std::wstring(ReadyLegend(1)) == L"F  dash");
     assert(std::wstring(ReadyStepHint(2)).find(L"Press F to dash") == 0);
     assert(std::wstring(ReadyLegend(4)) == L"ESC  pause");   // ESC opens the tutorial pause menu

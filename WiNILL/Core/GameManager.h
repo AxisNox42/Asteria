@@ -64,7 +64,7 @@ public:
     bool      augmentRewardActive = false;
     LevelUpTransition levelUpTransition;  // slow-mo before the reward opens
 
-    bool spaceReleased = true;
+    bool confirmPauseReleased = true;
     bool escReleased   = true;
 
     int screenW = 0, screenH = 0;

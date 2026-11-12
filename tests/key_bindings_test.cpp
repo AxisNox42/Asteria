@@ -1,4 +1,4 @@
-// Key bindings: swap-on-conflict assignment, reserved keys, load validation,
+// Key bindings: conflicts leave the other action unbound, required keys, load validation,
 // save -> reload, and the settings snapshot. Run with
 // scripts/test_key_bindings.ps1 from an empty temporary folder (the save path
 // is relative, so the real save is never near).
@@ -36,68 +36,94 @@ static void CheckDefaults() {
 
 static void CheckAssign() {
     KeyBindSet s = kDefaultKeyBinds;
-    // Free key: simply assigned.
-    assert(AssignKeyBinding(s, GameAction::Skill1, 'F') == BindResult::Assigned);
+    int out[GAME_ACTION_COUNT];
+    // Free key: simply assigned, nothing else changes.
+    assert(KeyBindingConflicts(s, GameAction::Skill1, 'F', out) == 0);
+    ApplyKeyBinding(s, GameAction::Skill1, 'F');
     assert(s.key[(int)GameAction::Skill1] == 'F');
-    // Same key again: nothing changes.
-    assert(AssignKeyBinding(s, GameAction::Skill1, 'F') == BindResult::Unchanged);
-    // Key used by another action: the two swap, nothing is left unbound.
-    assert(AssignKeyBinding(s, GameAction::MoveUp, kBindKeyS) == BindResult::Swapped);
+    // Key used by another action: that action is named, then left unbound.
+    assert(KeyBindingConflicts(s, GameAction::MoveUp, kBindKeyS, out) == 1);
+    assert(out[0] == (int)GameAction::MoveDown);
+    ApplyKeyBinding(s, GameAction::MoveUp, kBindKeyS);
     assert(s.key[(int)GameAction::MoveUp] == kBindKeyS);
-    assert(s.key[(int)GameAction::MoveDown] == kBindKeyW);
+    assert(s.key[(int)GameAction::MoveDown] == kKeyUnbound);
     // Right Shift is the same key as Left Shift.
-    assert(AssignKeyBinding(s, GameAction::Skill2, kBindKeyRightShift) == BindResult::Swapped);
-    assert(s.key[(int)GameAction::Skill2] == kBindKeyLeftShift);
-    assert(s.key[(int)GameAction::Dash] == kBindKeyE);
-    // Reserved and unknown keys are refused and leave the set untouched.
-    const KeyBindSet before = s;
-    assert(AssignKeyBinding(s, GameAction::Dash, kBindKeyEscape) == BindResult::Rejected);
-    assert(AssignKeyBinding(s, GameAction::Dash, kBindKeyF8) == BindResult::Rejected);
-    // Keys the game reads directly: SPACE (pause / confirm), 1-5 (card picks), F12.
-    assert(AssignKeyBinding(s, GameAction::Dash, kBindKeySpace) == BindResult::Rejected);
-    assert(AssignKeyBinding(s, GameAction::Skill1, '1') == BindResult::Rejected);
-    assert(AssignKeyBinding(s, GameAction::Skill1, '5') == BindResult::Rejected);
-    assert(AssignKeyBinding(s, GameAction::Skill1, kBindKeyF12) == BindResult::Rejected);
-    assert(AssignKeyBinding(s, GameAction::Skill1, '6') != BindResult::Rejected);
-    s = before;
-    assert(AssignKeyBinding(s, GameAction::Dash, -1) == BindResult::Rejected);
-    assert(AssignKeyBinding(s, GameAction::Dash, 9999) == BindResult::Rejected);
-    assert(s == before);
-    // No two actions ever share a key.
+    assert(KeyBindingConflicts(s, GameAction::Skill2, kBindKeyRightShift, out) == 1);
+    assert(out[0] == (int)GameAction::Dash);
+    // SPACE is no longer fixed: binding it to Dash unbinds Confirm and Pause.
+    s = kDefaultKeyBinds;
+    assert(KeyBindable(kBindKeySpace) && KeyBindable('1') && KeyBindable(301));
+    assert(KeyBindingConflicts(s, GameAction::Dash, kBindKeySpace, out) == 2);
+    ApplyKeyBinding(s, GameAction::Dash, kBindKeySpace);
+    assert(s.key[(int)GameAction::Confirm] == kKeyUnbound);
+    assert(s.key[(int)GameAction::Pause] == kKeyUnbound);
+    // Confirm is required, Pause optional: one missing required key.
+    int missing[GAME_ACTION_COUNT];
+    assert(MissingRequiredKeys(s, missing) == 1 && missing[0] == (int)GameAction::Confirm);
+    // Confirm and Pause may share a key.
+    assert(KeyBindingConflicts(s, GameAction::Confirm, 'P', out) == 0);
+    ApplyKeyBinding(s, GameAction::Confirm, 'P');
+    assert(KeyBindingConflicts(s, GameAction::Pause, 'P', out) == 0);
+    ApplyKeyBinding(s, GameAction::Pause, 'P');
+    assert(MissingRequiredKeys(s) == 0);
+    // Card keys: '1' moves from Card1 to Skill1, Card1 is optional.
+    ApplyKeyBinding(s, GameAction::Skill1, '1');
+    assert(s.key[(int)GameAction::Card1] == kKeyUnbound && MissingRequiredKeys(s) == 0);
+    // Only ESC and unknown keys are refused.
+    assert(!KeyBindable(kBindKeyEscape));
+    assert(!KeyBindable(-1) && !KeyBindable(9999));
+    // Defaults: every required action bound, only Confirm/Pause share.
+    assert(MissingRequiredKeys(kDefaultKeyBinds) == 0);
     for (int i = 0; i < GAME_ACTION_COUNT; ++i)
         for (int j = i + 1; j < GAME_ACTION_COUNT; ++j)
-            assert(s.key[i] != s.key[j]);
+            assert(kDefaultKeyBinds.key[i] != kDefaultKeyBinds.key[j] || ActionsMayShareKey(i, j));
+    assert(!ActionRequired(GameAction::Pause) && !ActionRequired(GameAction::Card3));
+    assert(ActionRequired(GameAction::Confirm) && ActionRequired(GameAction::Dash));
 }
 
 static void CheckSanitize() {
     KeyBindSet s = kDefaultKeyBinds;
-    s.key[(int)GameAction::Skill3] = kBindKeyEscape;       // reserved -> that action's default
+    s.key[(int)GameAction::Skill3] = kBindKeyEscape;       // unbindable -> that action's default
     SanitizeKeyBindings(s);
     assert(s == kDefaultKeyBinds);
     s = kDefaultKeyBinds;
     s.key[(int)GameAction::Skill1] = 'Z';
     SanitizeKeyBindings(s);                             // valid change survives
     assert(s.key[(int)GameAction::Skill1] == 'Z');
-    s.key[(int)GameAction::Skill2] = 'Z';               // duplicate -> everything resets
+    s.key[(int)GameAction::Skill2] = 'Z';               // required duplicate -> everything resets
     SanitizeKeyBindings(s);
     assert(s == kDefaultKeyBinds);
     s = kDefaultKeyBinds;
     s.key[(int)GameAction::Dash] = kBindKeyRightShift;      // normalised to Left Shift
     SanitizeKeyBindings(s);
     assert(s.key[(int)GameAction::Dash] == kBindKeyLeftShift);
+    // Optional unbound stays unbound; required unbound gets its default.
+    s = kDefaultKeyBinds;
+    s.key[(int)GameAction::Pause] = kKeyUnbound;
+    s.key[(int)GameAction::Confirm] = kKeyUnbound;
+    SanitizeKeyBindings(s);
+    assert(s.key[(int)GameAction::Pause] == kKeyUnbound);
+    assert(s.key[(int)GameAction::Confirm] == kBindKeySpace);
+    // An old save with Skill1 on '1' (before card keys existed): Card1 yields.
+    s = kDefaultKeyBinds;
+    s.key[(int)GameAction::Skill1] = '1';
+    SanitizeKeyBindings(s);
+    assert(s.key[(int)GameAction::Skill1] == '1');
+    assert(s.key[(int)GameAction::Card1] == kKeyUnbound);
 }
 
 static void CheckNames() {
     assert(KeyName('W') == L"W");
     assert(KeyName(kBindKeyRightShift) == L"SHIFT");
     assert(KeyName(32) == L"SPACE");
+    assert(KeyName(kKeyUnbound) != L"KEY-1");
     assert(KeyName(290) == L"F1");
     assert(KeyName(265) == L"UP");
     // Group labels used by the tutorial texts.
     ResetKeyBindings();
     assert(MoveKeysLabel() == L"WASD");
     assert(SkillKeysLabel() == L"Q/E/R");
-    AssignKeyBinding(g_KeyBinds, GameAction::MoveUp, 265);
+    ApplyKeyBinding(g_KeyBinds, GameAction::MoveUp, 265);
     assert(MoveKeysLabel() == L"UP/A/S/D");
     ResetKeyBindings();
 }
@@ -113,7 +139,7 @@ static void CheckTutorialTokens() {
         assert(all.find(L"WASD") != std::wstring::npos);
         assert(all.find(L"SHIFT") != std::wstring::npos);
     }
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
+    ApplyKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
     g_Language = Language::EN;
     assert(std::wstring(TutorialControls()).find(L"F dash") != std::wstring::npos);
     ResetKeyBindings();
@@ -123,8 +149,9 @@ static void CheckTutorialTokens() {
 static void CheckSaveRoundTrip() {
     g_SmokeCapture = false;
     ResetKeyBindings();
-    AssignKeyBinding(g_KeyBinds, GameAction::Skill1, 'Z');
-    AssignKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
+    ApplyKeyBinding(g_KeyBinds, GameAction::Skill1, 'Z');
+    ApplyKeyBinding(g_KeyBinds, GameAction::Dash, 'F');
+    g_KeyBinds.key[(int)GameAction::Pause] = kKeyUnbound;   // optional: stays unbound
     const KeyBindSet wanted = g_KeyBinds;
     SaveGame();
     ResetKeyBindings();
@@ -136,7 +163,7 @@ static void CheckSnapshot() {
     ResetKeyBindings();
     const SettingsSnapshot snap = CaptureSettingsSnapshot();
     assert(!SettingsSnapshotChanged(snap));
-    AssignKeyBinding(g_KeyBinds, GameAction::Skill1, 'Z');
+    ApplyKeyBinding(g_KeyBinds, GameAction::Skill1, 'Z');
     assert(SettingsSnapshotChanged(snap));
     RestoreSettingsSnapshot(snap);
     assert(g_KeyBinds == kDefaultKeyBinds && !SettingsSnapshotChanged(snap));

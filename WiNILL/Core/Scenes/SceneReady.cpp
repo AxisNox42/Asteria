@@ -229,7 +229,7 @@ PracticeView& View() {
 constexpr double kReenterGap = 0.25;
 
 // The dash cannot be practised here when it shares the start key.
-bool DashPractisable() { return NormalizeBindKey(ActionKey(GameAction::Dash)) != kBindKeySpace; }
+bool DashPractisable() { return ActionKey(GameAction::Dash) != ActionKey(GameAction::Confirm); }
 
 // The live game's numbers for this frame.
 rp::Rules LiveRules(const PracticeView& v, bool firing) {

@@ -86,7 +86,7 @@ enum class KeyRole { None, Move, Dash, Skill, Start, Quit };
 // What pressing this key does on the READY screen, by the current bindings.
 inline KeyRole RoleOf(int glfwKey) {
     const int k = NormalizeBindKey(glfwKey);
-    if (k == kBindKeySpace)  return KeyRole::Start;   // GameManager starts the run on Space
+    if (k == ActionKey(GameAction::Confirm)) return KeyRole::Start;   // GameManager launches the run
     if (k == kBindKeyEscape) return KeyRole::Quit;
     for (int i = 0; i < GAME_ACTION_COUNT; ++i) {
         if (ActionKey((GameAction)i) != k) continue;
@@ -94,7 +94,9 @@ inline KeyRole RoleOf(int glfwKey) {
         case GameAction::MoveUp: case GameAction::MoveDown:
         case GameAction::MoveLeft: case GameAction::MoveRight: return KeyRole::Move;
         case GameAction::Dash: return KeyRole::Dash;
-        default:               return KeyRole::Skill;
+        case GameAction::Skill1: case GameAction::Skill2:
+        case GameAction::Skill3: return KeyRole::Skill;
+        default:               break;   // pause / card keys do nothing on READY
         }
     }
     return KeyRole::None;

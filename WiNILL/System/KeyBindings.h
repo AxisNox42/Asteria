@@ -4,22 +4,28 @@
 
 // ── 게임플레이 키 바인딩 (데이터 + 규칙, 입력 상태에는 의존하지 않음) ──
 //   게임 로직은 GLFW 키 코드를 직접 읽지 않고 GameAction 으로만 입력을 묻는다
-//   (Input.h 의 ActionHeld). 메뉴 탐색/ESC/증강 선택/디버그 키는 바인딩 대상이 아님.
+//   (Input.h 의 ActionHeld). 메뉴 탐색/ESC/디버그 키는 바인딩 대상이 아님.
+//   새 액션은 반드시 끝에 붙인다: 저장 파일의 keybind<N> 이 이 순서를 쓴다.
 
 enum class GameAction {
     MoveUp, MoveDown, MoveLeft, MoveRight,
     Dash,
     Skill1, Skill2, Skill3,
+    Confirm,               // READY 출격 · 증강 카드 확정
+    Pause,                 // 일시정지 / 재개 (ESC 는 항상 일시정지)
+    Card1, Card2, Card3,   // 증강 카드 고르기 (마우스로도 고를 수 있음)
     Count
 };
 inline constexpr int GAME_ACTION_COUNT = (int)GameAction::Count;
 
+// 지정되지 않은 액션의 키 값.
+inline constexpr int kKeyUnbound = -1;
+
 // GLFW_KEY_* 와 같은 값 (GLFW 헤더 없이 쓰기 위해 값만 둔다).
-inline constexpr int kBindKeySpace = 32;    // READY 시작 / 일시정지 (바인딩 대상 아님, GameManager)
+inline constexpr int kBindKeySpace = 32;
 inline constexpr int kBindKeyEscape = 256;
 inline constexpr int kBindKeyA = 65, kBindKeyD = 68, kBindKeyE = 69, kBindKeyQ = 81;
 inline constexpr int kBindKeyR = 82, kBindKeyS = 83, kBindKeyW = 87;
-inline constexpr int kBindKeyF8 = 297, kBindKeyF9 = 298, kBindKeyF12 = 301;
 inline constexpr int kBindKeyLeftShift = 340, kBindKeyLeftCtrl = 341, kBindKeyLeftAlt = 342;
 inline constexpr int kBindKeyRightShift = 344, kBindKeyRightCtrl = 345, kBindKeyRightAlt = 346;
 inline constexpr int kBindKeyLast = 348;   // GLFW_KEY_MENU
@@ -38,13 +44,36 @@ inline constexpr KeyBindSet kDefaultKeyBinds = {{
     kBindKeyW, kBindKeyS, kBindKeyA, kBindKeyD,
     kBindKeyLeftShift,
     kBindKeyQ, kBindKeyE, kBindKeyR,
+    kBindKeySpace,       // Confirm
+    kBindKeySpace,       // Pause (Confirm 과 같은 키를 함께 쓸 수 있음)
+    '1', '2', '3',
 }};
 
 inline KeyBindSet g_KeyBinds = kDefaultKeyBinds;
 
 inline int ActionKey(GameAction a) { return g_KeyBinds.key[(int)a]; }
+inline bool ActionBound(GameAction a) { return ActionKey(a) != kKeyUnbound; }
 
 inline void ResetKeyBindings() { g_KeyBinds = kDefaultKeyBinds; }
+
+// 필수 액션: 지정되지 않으면 설정 화면을 나갈 수 없다.
+//   선택 액션: 일시정지 (ESC 로도 됨), 카드 1~3 (마우스로도 고름).
+inline bool ActionRequired(GameAction a) {
+    switch (a) {
+    case GameAction::Pause:
+    case GameAction::Card1: case GameAction::Card2: case GameAction::Card3:
+        return false;
+    default:
+        return true;
+    }
+}
+
+// 같은 키를 함께 써도 되는 짝: 확정(READY·카드 화면)과 일시정지(전투 중)는
+// 쓰이는 상태가 겹치지 않는다.
+inline bool ActionsMayShareKey(int a, int b) {
+    const int c = (int)GameAction::Confirm, p = (int)GameAction::Pause;
+    return (a == c && b == p) || (a == p && b == c);
+}
 
 // 좌우 구분이 없는 키는 왼쪽 값으로 통일한다 (오른쪽 Shift == 왼쪽 Shift).
 inline int NormalizeBindKey(int key) {
@@ -56,54 +85,74 @@ inline int NormalizeBindKey(int key) {
     }
 }
 
-// 게임이 직접 읽는 고정 키: 바인딩하면 두 기능이 한 키에 겹친다.
-//   ESC (취소/일시정지), SPACE (READY 시작/일시정지/카드 확정), 1~5 (카드 선택),
-//   F8/F9 (디버그), F12 (스크린샷).
+// ESC 만 고정: 키 지정 취소 · 뒤로 · 일시정지에 항상 쓰인다.
 inline bool KeyReserved(int key) {
-    key = NormalizeBindKey(key);
-    if (key >= '1' && key <= '5') return true;
-    return key == kBindKeyEscape || key == kBindKeySpace || key == kBindKeyF8 ||
-           key == kBindKeyF9 || key == kBindKeyF12;
+    return NormalizeBindKey(key) == kBindKeyEscape;
 }
 
-// 바인딩할 수 있는 키: 알려진 GLFW 키 범위 (스페이스 이상), 고정 키 제외.
+// 바인딩할 수 있는 키: 알려진 GLFW 키 범위 (스페이스 이상), ESC 제외.
 inline bool KeyBindable(int key) {
     key = NormalizeBindKey(key);
     if (key < 32 || key > kBindKeyLast) return false;
     return !KeyReserved(key);
 }
 
-enum class BindResult { Rejected, Unchanged, Assigned, Swapped };
-
-// action 에 key 를 바인딩한다. 이미 다른 액션이 쓰는 키면 두 액션의 키를 맞바꾼다.
-inline BindResult AssignKeyBinding(KeyBindSet& set, GameAction action, int key) {
-    if (!KeyBindable(key)) return BindResult::Rejected;
+// action 에 key 를 지정할 때 '지정 안 됨' 으로 바뀌는 다른 액션들.
+// out 에 액션 번호를 채우고 개수를 돌려준다.
+inline int KeyBindingConflicts(const KeyBindSet& set, GameAction action, int key,
+                               int out[GAME_ACTION_COUNT]) {
     key = NormalizeBindKey(key);
     const int self = (int)action;
-    if (set.key[self] == key) return BindResult::Unchanged;
-    for (int i = 0; i < GAME_ACTION_COUNT; ++i) {
-        if (i != self && set.key[i] == key) {
-            set.key[i] = set.key[self];
-            set.key[self] = key;
-            return BindResult::Swapped;
-        }
-    }
-    set.key[self] = key;
-    return BindResult::Assigned;
+    int n = 0;
+    for (int i = 0; i < GAME_ACTION_COUNT; ++i)
+        if (i != self && set.key[i] == key && !ActionsMayShareKey(self, i))
+            out[n++] = i;
+    return n;
 }
 
-// 불러온 값 검증: 잘못된 키는 해당 액션만 기본값으로, 중복이 있으면 전체를 기본값으로.
-inline void SanitizeKeyBindings(KeyBindSet& set) {
+// action 에 key 를 지정하고, 같은 키를 쓰던 (함께 쓸 수 없는) 액션은 지정 해제한다.
+inline void ApplyKeyBinding(KeyBindSet& set, GameAction action, int key) {
+    key = NormalizeBindKey(key);
+    int conflicts[GAME_ACTION_COUNT];
+    const int n = KeyBindingConflicts(set, action, key, conflicts);
+    for (int i = 0; i < n; ++i) set.key[conflicts[i]] = kKeyUnbound;
+    set.key[(int)action] = key;
+}
+
+// 지정되지 않은 필수 액션 수 (out 이 있으면 액션 번호를 채운다).
+inline int MissingRequiredKeys(const KeyBindSet& set, int* out = nullptr) {
+    int n = 0;
     for (int i = 0; i < GAME_ACTION_COUNT; ++i)
+        if (set.key[i] == kKeyUnbound && ActionRequired((GameAction)i)) {
+            if (out) out[n] = i;
+            ++n;
+        }
+    return n;
+}
+
+// 불러온 값 검증: 잘못된 키는 해당 액션만 기본값으로 (선택 액션은 '지정 안 됨'
+// 도 유지). 함께 쓸 수 없는 중복은 선택 액션 쪽을 해제하고, 둘 다 필수면 전체를
+// 기본값으로 되돌린다.
+inline void SanitizeKeyBindings(KeyBindSet& set) {
+    for (int i = 0; i < GAME_ACTION_COUNT; ++i) {
+        const bool optional = !ActionRequired((GameAction)i);
+        if (set.key[i] == kKeyUnbound && optional) continue;
         set.key[i] = KeyBindable(set.key[i]) ? NormalizeBindKey(set.key[i])
                                              : kDefaultKeyBinds.key[i];
+    }
     for (int i = 0; i < GAME_ACTION_COUNT; ++i)
-        for (int j = i + 1; j < GAME_ACTION_COUNT; ++j)
-            if (set.key[i] == set.key[j]) { set = kDefaultKeyBinds; return; }
+        for (int j = i + 1; j < GAME_ACTION_COUNT; ++j) {
+            if (set.key[i] == kKeyUnbound || set.key[i] != set.key[j]) continue;
+            if (ActionsMayShareKey(i, j)) continue;
+            if (!ActionRequired((GameAction)j))      set.key[j] = kKeyUnbound;
+            else if (!ActionRequired((GameAction)i)) set.key[i] = kKeyUnbound;
+            else { set = kDefaultKeyBinds; return; }
+        }
 }
 
 // 표시용 키 이름 (HUD/설정 화면 공용).
 inline std::wstring KeyName(int key) {
+    if (key == kKeyUnbound) return L"—";
     key = NormalizeBindKey(key);
     if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'))
         return std::wstring(1, (wchar_t)key);

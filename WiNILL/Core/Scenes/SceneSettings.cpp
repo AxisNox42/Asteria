@@ -68,7 +68,31 @@ static const wchar_t* const kKeyActionLabels[GAME_ACTION_COUNT][3] = {
     { L"스킬 1",        L"SKILL 1",    L"スキル1" },
     { L"스킬 2",        L"SKILL 2",    L"スキル2" },
     { L"스킬 3",        L"SKILL 3",    L"スキル3" },
+    { L"출격 · 카드 확정", L"LAUNCH / CONFIRM", L"出撃・カード確定" },
+    { L"일시정지",      L"PAUSE",      L"一時停止" },
+    { L"카드 1 선택",   L"CARD 1",     L"カード1選択" },
+    { L"카드 2 선택",   L"CARD 2",     L"カード2選択" },
+    { L"카드 3 선택",   L"CARD 3",     L"カード3選択" },
 };
+
+// Settings board capacity: rows per category, and left/right list entries
+// (5 headers + every row).
+constexpr int kSettingsRowMax = 16;
+constexpr int kSettingsListMax = 48;
+static_assert(GAME_ACTION_COUNT + 1 <= kSettingsRowMax, "CONTROLS rows overflow");
+
+// "「A」, 「B」" list of action names for the key messages.
+static std::wstring KeyActionList(const int* actions, int count) {
+    const int li = std::clamp(LangIndex(), 0, 2);
+    std::wstring s;
+    for (int i = 0; i < count; ++i) {
+        if (i > 0) s += L", ";
+        s += li == 1 ? L"'" : L"「";
+        s += kKeyActionLabels[actions[i]][li];
+        s += li == 1 ? L"'" : L"」";
+    }
+    return s;
+}
 
 void Scene_SettingsInline(const SceneCtx& c) {
     const float sw = c.sw, sh = c.sh;
@@ -88,11 +112,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
         float pulse = 0.0f;
         int pulseRow = -1;
         float tabSwitchT = 0.0f;
-        int s_volDrag = -1; // category*8+row of the slider being dragged
-        float listHover[32] = {};
+        int s_volDrag = -1; // category*16+row of the slider being dragged
+        float listHover[kSettingsListMax] = {};
         float catOpen[5] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };   // accordion openness per category
-        float rowHover[5][10] = {};
-        float optHover[5][10][8] = {};
+        float rowHover[5][kSettingsRowMax] = {};
+        float optHover[5][kSettingsRowMax][8] = {};
         float holdT = 0.0f;
         bool resetLatched = false; // reset fired; wait for the button release
         float resetDoneT = 0.0f; // seconds left on the "reset done" label
@@ -113,6 +137,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         SettingsSnapshot savedSettings = {};
         bool savedSettingsValid = false;
         bool confirmBack = false;
+        bool confirmMissing = false;   // back pressed with a required key unbound
         bool showCredits = false;   // CREDITS page open over the settings board
         float creditsT = 0.0f;      // seconds it has been open (ignores the opening click)
         bool settingsDirty = false;
@@ -123,6 +148,16 @@ void Scene_SettingsInline(const SceneCtx& c) {
         float keyFlash[GAME_ACTION_COUNT] = {};
         std::wstring keyMsg;
         float keyMsgT = 0.0f;
+        bool keyMsgWarn = false;     // red status line (missing required key)
+        // Key-conflict confirmation: pressing a key another action uses asks
+        // before that action becomes unbound.
+        bool keyConflict = false;
+        int conflictAction = -1;
+        int conflictKey = -1;
+        int conflictList[GAME_ACTION_COUNT] = {};
+        int conflictCount = 0;
+        // CONTROLS row to scroll to on the next frame (blocked exit).
+        int focusKeyRow = -1;
         bool wasInline = false;
     };
     static SettingsUiState S;
@@ -154,6 +189,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto& savedSettings = S.savedSettings;
     auto& savedSettingsValid = S.savedSettingsValid;
     auto& confirmBack = S.confirmBack;
+    auto& confirmMissing = S.confirmMissing;
     auto& showCredits = S.showCredits;
     auto& creditsT = S.creditsT;
     auto& settingsDirty = S.settingsDirty;
@@ -162,6 +198,13 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto& keyFlash = S.keyFlash;
     auto& keyMsg = S.keyMsg;
     auto& keyMsgT = S.keyMsgT;
+    auto& keyMsgWarn = S.keyMsgWarn;
+    auto& keyConflict = S.keyConflict;
+    auto& conflictAction = S.conflictAction;
+    auto& conflictKey = S.conflictKey;
+    auto& conflictList = S.conflictList;
+    auto& conflictCount = S.conflictCount;
+    auto& focusKeyRow = S.focusKeyRow;
     auto& wasInline = S.wasInline;
     if (!wasInline || s_SettingsInlineNeedsReset) {
         entry = g_SettingsEntryT;
@@ -188,11 +231,18 @@ void Scene_SettingsInline(const SceneCtx& c) {
         savedSettings = CaptureSettingsSnapshot();
         savedSettingsValid = true;
         confirmBack = false;
+        confirmMissing = false;
         settingsDirty = false;
         captureAction = -1;
         captureBlend = 0.0f;
         for (auto& f : keyFlash) f = 0.0f;
         keyMsgT = 0.0f;
+        keyMsgWarn = false;
+        keyConflict = false;
+        conflictAction = -1;
+        conflictKey = -1;
+        conflictCount = 0;
+        focusKeyRow = -1;
         g_KeyCaptureActive = false;
         g_CapturedKey = -1;
         for (auto& h : listHover) h = 0.0f;
@@ -225,14 +275,67 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // instead of leaving the screen (decided from the frame-start state).
     const bool keyCapturing = captureAction >= 0;
     const bool escEdge = EscPressedEdge(c, prevEsc);
-    const bool backRaw = !keyCapturing && (escEdge || (rmb && !g_RmbPrev));
+    const bool rmbEdge = rmb && !g_RmbPrev;
+    // The key-conflict dialog takes ESC / right-click as its CANCEL.
+    const bool conflictCancelInput = keyConflict && (escEdge || rmbEdge);
+    // The missing-key dialog takes them as STAY IN SETTINGS.
+    const bool missingStayInput = confirmMissing && (escEdge || rmbEdge);
+    const bool backRaw = !keyCapturing && !keyConflict && !confirmMissing
+                      && (escEdge || rmbEdge);
     // While the credits page is up, back closes it instead of leaving settings.
     const bool backInput = backRaw && !showCredits;
     if (backRaw && showCredits) showCredits = false;
     const float entryOldOut = SceneTransitionEase(entry / kOutgameTransitionDuration);
     const float entryTreeIn = SceneTransitionEase(
         (entry - 0.08f) / (kOutgameTransitionDuration - 0.08f));
-    if (backInput && !exiting && entry >= 0.55f) {
+    // Leaving (or saving) needs every required action bound: otherwise say
+    // which, flash those rows and scroll to the first one.
+    auto blockMissingKeys = [&]() {
+        int missing[GAME_ACTION_COUNT];
+        const int n = MissingRequiredKeys(g_KeyBinds, missing);
+        if (n == 0) return false;
+        const std::wstring names = KeyActionList(missing, n);
+        const int li = std::clamp(LangIndex(), 0, 2);
+        keyMsg = li == 0 ? L"지정되지 않은 필수 키: " + names + L" — 키를 지정해야 나갈 수 있습니다"
+               : li == 2 ? L"未設定の必須キー: " + names + L" — 設定するまで戻れません"
+                         : L"REQUIRED KEY UNBOUND: " + names + L" — BIND IT BEFORE LEAVING";
+        keyMsgT = 3.2f;
+        keyMsgWarn = true;
+        for (int i = 0; i < n; ++i) keyFlash[missing[i]] = 1.0f;
+        focusKeyRow = missing[0];
+        Audio::Play(Audio::Cue::UiDeny);
+        return true;
+    };
+    // Back with a required action unbound: ask whether to discard the
+    // unsaved changes and leave, or stay and bind the key (dialog below).
+    auto openMissingKeysDialog = [&]() {
+        int missing[GAME_ACTION_COUNT];
+        const int n = MissingRequiredKeys(g_KeyBinds, missing);
+        if (n == 0) return false;
+        for (int i = 0; i < n; ++i) keyFlash[missing[i]] = 1.0f;
+        keyMsgT = 0.0f;
+        confirmMissing = true;
+        Audio::Play(Audio::Cue::UiDialogOpen);
+        return true;
+    };
+    // STAY IN SETTINGS: point at the first unbound required key.
+    auto stayForMissingKeys = [&]() {
+        confirmMissing = false;
+        Audio::Play(Audio::Cue::UiBack);
+        int missing[GAME_ACTION_COUNT];
+        const int n = MissingRequiredKeys(g_KeyBinds, missing);
+        if (n == 0) return;
+        const int li = std::clamp(LangIndex(), 0, 2);
+        const std::wstring names = KeyActionList(missing, n);
+        keyMsg = li == 0 ? names + L" 키를 지정하세요"
+               : li == 2 ? names + L"のキーを設定してください"
+                         : L"BIND " + names;
+        keyMsgT = 3.2f;
+        keyMsgWarn = true;
+        focusKeyRow = missing[0];
+    };
+    if (missingStayInput) stayForMissingKeys();
+    if (backInput && !exiting && entry >= 0.55f && !openMissingKeysDialog()) {
         Audio::Play(Audio::Cue::UiBack);
         if (settingsDirty) Audio::Play(Audio::Cue::UiDialogOpen);
         if (settingsDirty) confirmBack = true;
@@ -244,7 +347,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float treeA = entryTreeIn * (1.0f - outP);
     const float oldA = exiting ? outP : (1.0f - entryOldOut);
     const bool ready = !exiting && entry >= 0.55f;
-    const bool inputReady = ready && !confirmBack && !showCredits;
+    const bool inputReady = ready && !confirmBack && !showCredits && !keyConflict
+                          && !confirmMissing;
 
     // ── Key capture (CONTROLS): the Input key callback stores the next press
     // in g_CapturedKey while g_KeyCaptureActive is set.
@@ -253,10 +357,37 @@ void Scene_SettingsInline(const SceneCtx& c) {
         g_KeyCaptureActive = false;
         g_CapturedKey = -1;
     };
+    auto setKeyMsg = [&](const std::wstring& text, bool warn, float sec = 2.6f) {
+        keyMsg = text;
+        keyMsgWarn = warn;
+        keyMsgT = sec;
+    };
+    // After a change: name any required action that is now unbound.
+    auto reportUnboundAfterChange = [&](const int* unbound, int count) {
+        int required[GAME_ACTION_COUNT];
+        int nReq = 0;
+        for (int i = 0; i < count; ++i)
+            if (ActionRequired((GameAction)unbound[i])) required[nReq++] = unbound[i];
+        const int li = std::clamp(LangIndex(), 0, 2);
+        if (nReq > 0) {
+            const std::wstring names = KeyActionList(required, nReq);
+            setKeyMsg(li == 0 ? names + L" 키를 다시 지정해야 설정을 나갈 수 있습니다"
+                    : li == 2 ? names + L"のキーを設定し直すまで設定画面を出られません"
+                              : L"BIND " + names + L" AGAIN BEFORE LEAVING SETTINGS",
+                      true, 3.2f);
+            focusKeyRow = required[0];
+        } else if (count > 0) {
+            const std::wstring names = KeyActionList(unbound, count);
+            setKeyMsg(li == 0 ? names + L" 키는 '지정 안 됨'으로 바뀌었습니다"
+                    : li == 2 ? names + L"のキーは「未設定」になりました"
+                              : names + L" IS NOW UNBOUND",
+                      false);
+        }
+    };
     keyMsgT = std::max(0.0f, keyMsgT - dt);
     for (auto& f : keyFlash) f = std::max(0.0f, f - dt * 2.5f);
     if (captureAction >= 0) {
-        if (c.inputFocusChanged || (rmb && !g_RmbPrev) || !inputReady) {
+        if (c.inputFocusChanged || rmbEdge || !inputReady) {
             endKeyCapture();
         } else {
             g_KeyCaptureActive = true;
@@ -266,37 +397,42 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 if (pressed == kBindKeyEscape) {
                     Audio::Play(Audio::Cue::UiBack);   // 캡처 취소
                     endKeyCapture();
+                } else if (!KeyBindable(pressed)) {
+                    // Stay in capture so another key can be tried.
+                    setKeyMsg(SettingsText(L"이 키는 지정할 수 없습니다",
+                                           L"THIS KEY CANNOT BE BOUND",
+                                           L"このキーは設定できません"), false, 2.2f);
+                    Audio::Play(Audio::Cue::UiDeny);
                 } else {
-                    int other = -1;
                     const int norm = NormalizeBindKey(pressed);
-                    for (int i = 0; i < GAME_ACTION_COUNT; ++i)
-                        if (i != captureAction && g_KeyBinds.key[i] == norm) other = i;
-                    const BindResult result = AssignKeyBinding(
-                        g_KeyBinds, (GameAction)captureAction, pressed);
-                    if (result == BindResult::Rejected) {
-                        // Stay in capture so another key can be tried.
-                        keyMsg = SettingsText(L"고정 키입니다 (ESC · SPACE · 1~5 · F8 · F9 · F12)",
-                                              L"RESERVED KEY (ESC, SPACE, 1-5, F8, F9, F12)",
-                                              L"固定キーです (ESC・SPACE・1~5・F8・F9・F12)");
-                        keyMsgT = 2.2f;
-                        Audio::Play(Audio::Cue::UiDeny);   // 예약 키
-                    } else {
+                    const GameAction target = (GameAction)captureAction;
+                    int conflicts[GAME_ACTION_COUNT];
+                    const int n = g_KeyBinds.key[captureAction] == norm ? 0
+                        : KeyBindingConflicts(g_KeyBinds, target, norm, conflicts);
+                    if (n == 0) {
+                        ApplyKeyBinding(g_KeyBinds, target, norm);
                         keyFlash[captureAction] = 1.0f;
-                        Audio::Play(Audio::Cue::SetKeyOk);   // 키 수락·맞바꿈
-                        if (result == BindResult::Swapped && other >= 0) {
-                            keyFlash[other] = 1.0f;
-                            const std::wstring a = kKeyActionLabels[captureAction][LangIndex()];
-                            const std::wstring b = kKeyActionLabels[other][LangIndex()];
-                            keyMsg = LangIndex() == 0 ? a + L" · " + b + L" 키를 서로 바꿨습니다"
-                                   : LangIndex() == 2 ? a + L" と " + b + L" のキーを入れ替えました"
-                                   : L"SWAPPED KEYS: " + a + L" / " + b;
-                            keyMsgT = 2.2f;
-                        }
-                        endKeyCapture();
+                        keyMsgT = 0.0f;
+                        Audio::Play(Audio::Cue::SetKeyOk);   // 키 수락
+                    } else {
+                        // Another action uses this key: ask first (see the
+                        // KEY ALREADY IN USE dialog below).
+                        keyConflict = true;
+                        conflictAction = captureAction;
+                        conflictKey = norm;
+                        conflictCount = n;
+                        for (int i = 0; i < n; ++i) conflictList[i] = conflicts[i];
+                        keyMsgT = 0.0f;
+                        Audio::Play(Audio::Cue::UiDialogOpen);
                     }
+                    endKeyCapture();
                 }
             }
         }
+    }
+    if (keyConflict && conflictCancelInput) {
+        Audio::Play(Audio::Cue::UiBack);
+        keyConflict = false;
     }
     captureBlend += ((captureAction >= 0 ? 1.0f : 0.0f) - captureBlend)
                   * std::min(1.0f, dt * 10.0f);
@@ -464,7 +600,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // While the unsaved-changes dialog is open, the rows fade back so their
     // labels do not show through behind the dialog copy (QA #45).
     const float dA   = treeA * (0.78f + 0.22f * (1.0f - pulse))
-                     * (confirmBack ? 0.18f : 1.0f);
+                     * (confirmBack || keyConflict || confirmMissing ? 0.18f : 1.0f);
     // The settings body owns the full area to the right of the category
     // rail, split into a readable list column and a dedicated readout column.
     const float rpX  = depthX;
@@ -509,7 +645,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         int  keyAction = -1;                // CONTROLS: GameAction this row rebinds
         bool isKeyReset = false;            // CONTROLS: restore-defaults row
     };
-    SRow settingsRows[5][10] = {};
+    SRow settingsRows[5][kSettingsRowMax] = {};
     const int rowCounts[5] = { 4, 5, kDebugSettingsVisible ? 4 : 3,
                                GAME_ACTION_COUNT + 1, 3 };
 
@@ -625,7 +761,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // The left catalogue keeps every category visible and expands only the
     // selected one. The right panel uses that same selection.
     struct SettingsListEntry { int category; int row; bool header; const wchar_t* label; };
-    SettingsListEntry list[32] = {};
+    SettingsListEntry list[kSettingsListMax] = {};
     int listCount = 0;
     auto addHeader = [&](int cat, const wchar_t* label) {
         list[listCount++] = { cat, -1, true, label };
@@ -672,7 +808,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     addHeader(4, SettingsText(L"기타", L"OTHER", L"その他"));
     for (int i = 0; i < 3; ++i) addItem(4, i, archiveLabels[i]);
 
-    SettingsListEntry rightList[32] = {};
+    SettingsListEntry rightList[kSettingsListMax] = {};
     int rightListCount = 0;
     auto addRightHeader = [&](int cat, const wchar_t* label) {
         rightList[rightListCount++] = { cat, -1, true, label };
@@ -699,6 +835,20 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // the category header at the top instead of centering the row.
     if (accordionFocusPending) scrollToCategory = tab;
     accordionFocusPending = false;
+    // A blocked exit (or a change that unbound a required key) brings that
+    // CONTROLS row into view, centred rather than header-at-top.
+    if (focusKeyRow >= 0) {
+        for (int i = 0; i < listCount; ++i) {
+            if (list[i].header || list[i].category != 3 || list[i].row != focusKeyRow)
+                continue;
+            activateSettingsCategory(3, focusKeyRow);
+            listCursor = i;
+            scrollToCategory = -1;
+            focusChanged = true;
+            break;
+        }
+        focusKeyRow = -1;
+    }
 
     auto isListItem = [&](int index) {
         return index >= 0 && index < listCount && !list[index].header
@@ -736,8 +886,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // Accordion: every category's rows exist, but a category's rows only take
     // height as far as it is open. The openness eases toward the selected
     // category, so changing tab folds one group away while the next unfolds.
-    float listRowOff[32] = {};
-    float listRowHt[32] = {};
+    float listRowOff[kSettingsListMax] = {};
+    float listRowHt[kSettingsListMax] = {};
     float leftTotalH = 0.0f;
     {
         const float openStep = 1.0f - std::exp(-dt * 12.0f);
@@ -1182,7 +1332,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     float commonOptionCellW[8] = {};
     int commonOptionCount = 0;
     for (int category = 0; category < 5; ++category) {
-        for (int row = 0; row < 10; ++row) {
+        for (int row = 0; row < kSettingsRowMax; ++row) {
             if (category == 0 && row == 0) continue;
             const SRow& setting = settingsRows[category][row];
             if (setting.optCount <= 0) continue;
@@ -1214,7 +1364,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         commonOptionScale *= std::max(0.55f, rightControlW / commonOptionTotalW);
         std::fill(std::begin(commonOptionCellW), std::end(commonOptionCellW), 0.0f);
         for (int category = 0; category < 5; ++category) {
-            for (int row = 0; row < 10; ++row) {
+            for (int row = 0; row < kSettingsRowMax; ++row) {
                 if (category == 0 && row == 0) continue;
                 const SRow& setting = settingsRows[category][row];
                 for (int j = 0; j < setting.optCount; ++j) {
@@ -1245,7 +1395,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         auto measureGrid = [&](float scale) {
             float widest = 0.0f;
             for (int category = 0; category < 5; ++category) {
-                for (int row = 0; row < 10; ++row) {
+                for (int row = 0; row < kSettingsRowMax; ++row) {
                     const SRow& setting = settingsRows[category][row];
                     for (int k = 0; k < setting.optCount; ++k)
                         widest = std::max(widest, localizedOptionWidth(
@@ -1559,8 +1709,15 @@ void Scene_SettingsInline(const SceneCtx& c) {
                          chipX + chipW - inset, chipY + chipH - inset,
                          0.8f * uiS, edgeR, edgeG, edgeB, innerA);
             }
+            static const wchar_t* unboundVariants[] = {
+                L"지정 안 됨", L"UNBOUND", L"未設定" };
+            const bool unbound = !isReset
+                && g_KeyBinds.key[setting.keyAction] == kKeyUnbound;
+            const bool missingRequired = unbound
+                && ActionRequired((GameAction)setting.keyAction);
             const std::wstring keyText = isReset ? std::wstring()
-                : KeyName(g_KeyBinds.key[setting.keyAction]);
+                : unbound ? std::wstring(unboundVariants[std::clamp(LangIndex(), 0, 2)])
+                          : KeyName(g_KeyBinds.key[setting.keyAction]);
             const wchar_t* chipText = isReset
                 ? resetVariants[std::clamp(LangIndex(), 0, 2)]
                 : capturingThis ? promptVariants[std::clamp(LangIndex(), 0, 2)]
@@ -1571,14 +1728,69 @@ void Scene_SettingsInline(const SceneCtx& c) {
             if (textW0 > textMaxW && textW0 > 0.0f) textScale *= textMaxW / textW0;
             const float textW = g_TextL.Width(chipText, textScale);
             const float textH = g_TextL.Height(chipText, textScale);
-            const float textA = capturingThis ? 0.55f + 0.45f * wave : 1.0f;
+            // Unbound: a required action reads red (must be set before
+            // leaving), an optional one recedes.
+            const float textA = capturingThis ? 0.55f + 0.45f * wave
+                              : (unbound && !missingRequired) ? 0.46f : 1.0f;
+            const float textR = missingRequired ? 1.0f : 0.82f + 0.18f * flash;
+            const float textG = missingRequired ? 0.42f + 0.40f * flash : 0.90f + 0.10f * flash;
+            const float textB = missingRequired ? 0.40f + 0.40f * flash : 1.0f;
             DrawShadowedText(g_TextL, chipText,
                              chipX + (chipW - textW) * 0.5f,
                              controlY - textH * 0.5f, textScale,
-                             0.82f + 0.18f * flash, 0.90f + 0.10f * flash,
-                             1.0f, textA * rowA, 0.58f);
+                             textR, textG, textB, textA * rowA, 0.58f);
 
-            if (chipHover && lmb && !g_LmbPrev) {
+            // Optional actions: a small tag after the row label, and a CLEAR
+            // chip beside the key that leaves the action unbound.
+            bool clearHover = false;
+            if (!isReset && !ActionRequired((GameAction)setting.keyAction)) {
+                static const wchar_t* optionalVariants[] = {
+                    L"선택 사항", L"OPTIONAL", L"任意" };
+                const wchar_t* tag = optionalVariants[std::clamp(LangIndex(), 0, 2)];
+                const float tagScale = settingsScale(g_TextL, 1.0f, UiTextLevel::Description);
+                const float labelW = g_TextL.Width(setting.label, settingLabelScale);
+                const float tagH = g_TextL.Height(tag, tagScale);
+                DrawShadowedText(g_TextL, tag,
+                                 rightRowX + 20.0f * uiS + labelW + 16.0f * uiS,
+                                 controlY - tagH * 0.5f, tagScale,
+                                 0.62f, 0.78f, 0.92f, 0.84f * rowA, 0.60f);
+                if (!unbound && !capturingThis) {
+                    static const wchar_t* clearVariants[] = { L"해제", L"CLEAR", L"解除" };
+                    const wchar_t* clearText = clearVariants[std::clamp(LangIndex(), 0, 2)];
+                    const float clearScale = settingsScale(g_TextL, 1.0f, UiTextLevel::Subtitle);
+                    const float clearW = MaxLocalizedTextWidth(
+                        g_TextL, clearVariants, 3, clearScale) + chipPad * 1.5f;
+                    const float clearH = chipH * 0.78f;
+                    const float clearX = chipX + chipW + 14.0f * uiS;
+                    const float clearY = controlY - clearH * 0.5f;
+                    clearHover = overRightList
+                        && mx >= clearX && mx < clearX + clearW
+                        && my >= clearY && my < clearY + clearH;
+                    const float ca = (clearHover ? 0.80f : 0.34f) * rowA;
+                    const float cw = 1.0f * uiS;
+                    LogoLine(clearX, clearY, clearX + clearW, clearY, cw, catR, catG, catB, ca);
+                    LogoLine(clearX, clearY + clearH, clearX + clearW, clearY + clearH, cw, catR, catG, catB, ca);
+                    LogoLine(clearX, clearY, clearX, clearY + clearH, cw, catR, catG, catB, ca);
+                    LogoLine(clearX + clearW, clearY, clearX + clearW, clearY + clearH, cw, catR, catG, catB, ca);
+                    const float cTextW = g_TextL.Width(clearText, clearScale);
+                    const float cTextH = g_TextL.Height(clearText, clearScale);
+                    DrawShadowedText(g_TextL, clearText,
+                                     clearX + (clearW - cTextW) * 0.5f,
+                                     controlY - cTextH * 0.5f, clearScale,
+                                     0.82f, 0.90f, 1.0f,
+                                     (clearHover ? 1.0f : 0.70f) * rowA, 0.55f);
+                    if (clearHover && lmb && !g_LmbPrev) {
+                        keyChipClicked = true;
+                        endKeyCapture();
+                        g_KeyBinds.key[setting.keyAction] = kKeyUnbound;
+                        keyFlash[setting.keyAction] = 1.0f;
+                        keyMsgT = 0.0f;
+                        Audio::Play(Audio::Cue::UiToggle);
+                    }
+                }
+            }
+
+            if (chipHover && !clearHover && lmb && !g_LmbPrev) {
                 keyChipClicked = true;
                 if (isReset) {
                     ResetKeyBindings();
@@ -1680,14 +1892,15 @@ void Scene_SettingsInline(const SceneCtx& c) {
     }
 
     // Status line under the board: the cancel hint while waiting for a key,
-    // or the result of the last bind (swap / reserved key).
+    // or the result of the last bind (unbound action / missing required key).
     {
         const wchar_t* statusLine = nullptr;
         float sr = 1.0f, sg = 0.45f, sb = 0.62f, sa = 0.0f;
         const float statusWave = 0.5f + 0.5f * std::sin(now * 5.0f);
         if (keyMsgT > 0.0f) {
             statusLine = keyMsg.c_str();
-            sr = 1.0f; sg = 0.78f; sb = 0.40f;
+            if (keyMsgWarn) { sr = 1.0f; sg = 0.42f; sb = 0.40f; }
+            else            { sr = 1.0f; sg = 0.78f; sb = 0.40f; }
             sa = std::min(1.0f, keyMsgT * 2.0f);
         } else if (captureAction >= 0) {
             statusLine = SettingsText(
@@ -1718,10 +1931,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float saveX = detailX + detailW - saveW - 24.0f * uiS;
     const float saveY = backY;
     const float saveH = 64.0f * uiS;
-    const bool backHit = ready && !confirmBack
+    const bool backHit = ready && !confirmBack && !keyConflict && !confirmMissing
                        && mx >= backX && mx < backX + backW
                        && my >= backY && my < backY + backH;
-    const bool saveHit = ready && !confirmBack
+    const bool saveHit = ready && !confirmBack && !keyConflict && !confirmMissing
                        && mx >= saveX && mx < saveX + saveW
                        && my >= saveY && my < saveY + saveH;
 
@@ -1744,13 +1957,14 @@ void Scene_SettingsInline(const SceneCtx& c) {
                            uiS, true, true, true,
                            settingsSaveVariants, 3);
 
-    if (ready && !confirmBack && lmb && !g_LmbPrev && backHit) {
+    if (ready && !confirmBack && lmb && !g_LmbPrev && backHit && !openMissingKeysDialog()) {
         Audio::Play(Audio::Cue::UiConfirm);
         if (settingsDirty) Audio::Play(Audio::Cue::UiDialogOpen);
         if (settingsDirty) confirmBack = true;
         else exiting = true;
     }
-    if (ready && !confirmBack && lmb && !g_LmbPrev && saveHit && settingsDirty) {
+    if (ready && !confirmBack && lmb && !g_LmbPrev && saveHit && settingsDirty
+        && !blockMissingKeys()) {
         SaveGame();
         savedSettings = CaptureSettingsSnapshot();
         savedSettingsValid = true;
@@ -1824,6 +2038,181 @@ void Scene_SettingsInline(const SceneCtx& c) {
             settingsDirty = false;
             confirmBack = false;
             exiting = true;
+        }
+    }
+
+    // REQUIRED KEY UNBOUND (back pressed): discard the unsaved changes and
+    // leave with the last saved keys, or stay and bind the key.
+    // ESC / right-click = stay (handled with the back input above).
+    if (confirmMissing) {
+        int missing[GAME_ACTION_COUNT];
+        const int nMissing = MissingRequiredKeys(g_KeyBinds, missing);
+        const float cx = sw * 0.50f;
+        const float cy = sh * 0.50f;
+        drawRect(0.0f, 0.0f, sw, sh, 0.01f, 0.02f, 0.04f, 0.56f * treeA);
+        const int li = std::clamp(LangIndex(), 0, 2);
+        const std::wstring names = KeyActionList(missing, nMissing);
+        const std::wstring title = li == 0 ? L"지정되지 않은 필수 키"
+                                 : li == 2 ? L"未設定の必須キー" : L"REQUIRED KEY UNBOUND";
+        const std::wstring line1 = li == 0 ? names + L" 키가 지정되지 않아 이대로는 나갈 수 없습니다."
+                                 : li == 2 ? names + L"のキーが未設定のため、このままでは戻れません。"
+                                           : names + L" HAS NO KEY, SO SETTINGS CANNOT BE LEFT AS IS.";
+        const std::wstring line2 = li == 0 ? L"취소하고 나가면 저장하지 않은 변경 사항을 모두 버리고 마지막으로 저장한 설정으로 돌아갑니다."
+                                 : li == 2 ? L"取り消して戻ると、未保存の変更をすべて破棄し、最後に保存した設定に戻ります。"
+                                           : L"CANCEL & LEAVE DISCARDS EVERY UNSAVED CHANGE AND RESTORES THE LAST SAVED SETTINGS.";
+        const std::wstring question = li == 0 ? L"변경을 취소하고 나갈까요, 설정에 남을까요?"
+                                    : li == 2 ? L"変更を取り消して戻りますか、設定に残りますか？"
+                                              : L"CANCEL THE CHANGES AND LEAVE, OR STAY IN SETTINGS?";
+        const float maxW = std::min(sw * 0.86f, 1400.0f * uiS);
+        auto centeredLine = [&](const std::wstring& text, float y, UiTextLevel level,
+                                float r, float g, float b, float a) {
+            const float base = settingsScale(g_TextL, 1.0f, level);
+            const float w = g_TextL.Width(text.c_str(), base);
+            const float fit = (w > maxW && w > 0.0f) ? maxW / w : 1.0f;
+            drawSettingsTextAtLevel(g_TextL, text.c_str(),
+                                    cx - w * fit * 0.5f, y, fit,
+                                    r, g, b, a * treeA, level, 0.66f);
+            return g_TextL.Height(text.c_str(), base * fit);
+        };
+        float y = cy - 130.0f * uiS;
+        y += centeredLine(title, y, UiTextLevel::Title, 1.0f, 1.0f, 1.0f, 0.98f) + 22.0f * uiS;
+        y += centeredLine(line1, y, UiTextLevel::Subtitle, 1.0f, 0.50f, 0.46f, 1.0f) + 12.0f * uiS;
+        y += centeredLine(line2, y, UiTextLevel::Subtitle, 0.90f, 0.95f, 1.0f, 1.0f) + 28.0f * uiS;
+        y += centeredLine(question, y, UiTextLevel::Title, 1.0f, 0.86f, 0.52f, 1.0f) + 28.0f * uiS;
+
+        static const wchar_t* leaveVariants[] = {
+            L"취소하고 나가기", L"CANCEL & LEAVE", L"取り消して戻る" };
+        static const wchar_t* stayVariants[] = {
+            L"설정에 남기", L"STAY IN SETTINGS", L"設定に残る" };
+        const float btnScale = settingsScale(g_TextL, 1.0f, UiTextLevel::Title);
+        const float dialogW = std::max(260.0f * uiS, 40.0f * uiS + std::max(
+            MaxLocalizedTextWidth(g_TextL, leaveVariants, 3, btnScale),
+            MaxLocalizedTextWidth(g_TextL, stayVariants, 3, btnScale)));
+        const float dialogH = 48.0f * uiS;
+        const float dialogY = y;
+        const bool leaveHit = mx >= cx - dialogW - 12.0f * uiS
+                           && mx < cx - 12.0f * uiS
+                           && my >= dialogY && my < dialogY + dialogH;
+        const bool stayHit = mx >= cx + 12.0f * uiS
+                          && mx < cx + dialogW + 12.0f * uiS
+                          && my >= dialogY && my < dialogY + dialogH;
+        DrawUnifiedMenuCommand(leaveVariants[settingsLanguage],
+                               cx - dialogW - 12.0f * uiS, dialogY,
+                               dialogW, dialogH, 1.0f, 0.32f, 0.28f,
+                               treeA, 0.0f, leaveHit, 0.0f, now,
+                               uiS, true, true, true,
+                               leaveVariants, 3);
+        DrawUnifiedMenuCommand(stayVariants[settingsLanguage],
+                               cx + 12.0f * uiS, dialogY,
+                               dialogW, dialogH, 0.34f, 0.82f, 1.0f,
+                               treeA, 0.0f, stayHit, 0.0f, now + 0.2f,
+                               uiS, true, true, true,
+                               stayVariants, 3);
+        if (lmb && !g_LmbPrev && leaveHit) {
+            Audio::Play(Audio::Cue::UiBack);
+            restoreSettings();
+            // The saved set is always complete (SAVE is refused while a key
+            // is missing); defaults are only a guard.
+            if (MissingRequiredKeys(g_KeyBinds) > 0) ResetKeyBindings();
+            glfwSwapInterval(g_FpsCap == 0 ? 1 : 0);
+            settingsDirty = false;
+            confirmMissing = false;
+            exiting = true;
+        } else if (lmb && !g_LmbPrev && stayHit) {
+            stayForMissingKeys();
+        } else if (nMissing == 0) {
+            confirmMissing = false;   // nothing missing any more (should not happen)
+        }
+    }
+
+    // KEY ALREADY IN USE: says which actions use the key, that they become
+    // unbound, whether that blocks leaving, and asks before changing anything.
+    // ESC / right-click cancel (handled with the back input above).
+    if (keyConflict && conflictAction >= 0 && conflictCount > 0) {
+        const float cx = sw * 0.50f;
+        const float cy = sh * 0.50f;
+        drawRect(0.0f, 0.0f, sw, sh, 0.01f, 0.02f, 0.04f, 0.56f * treeA);
+        const int li = std::clamp(LangIndex(), 0, 2);
+        const std::wstring keyName = KeyName(conflictKey);
+        const std::wstring targetName = KeyActionList(&conflictAction, 1);
+        const std::wstring usedBy = KeyActionList(conflictList, conflictCount);
+        int required[GAME_ACTION_COUNT];
+        int nReq = 0;
+        for (int i = 0; i < conflictCount; ++i)
+            if (ActionRequired((GameAction)conflictList[i])) required[nReq++] = conflictList[i];
+        const std::wstring requiredNames = KeyActionList(required, nReq);
+
+        const std::wstring title = li == 0 ? L"이미 사용 중인 키"
+                                 : li == 2 ? L"使用中のキー" : L"KEY ALREADY IN USE";
+        const std::wstring line1 = li == 0 ? keyName + L" 키는 이미 " + usedBy + L"에 쓰이고 있습니다."
+                                 : li == 2 ? keyName + L"キーはすでに" + usedBy + L"に使われています。"
+                                           : keyName + L" IS ALREADY USED BY " + usedBy + L".";
+        const std::wstring line2 = li == 0 ? targetName + L"에 지정하면 " + usedBy + L"은(는) '지정 안 됨'이 됩니다."
+                                 : li == 2 ? targetName + L"に設定すると" + usedBy + L"は「未設定」になります。"
+                                           : L"BINDING IT TO " + targetName + L" LEAVES " + usedBy + L" UNBOUND.";
+        const std::wstring line3 = nReq == 0 ? std::wstring()
+                                 : li == 0 ? requiredNames + L"은(는) 필수 키라서 다시 지정해야 설정을 나갈 수 있습니다."
+                                 : li == 2 ? requiredNames + L"は必須キーのため、設定し直すまで設定画面を出られません。"
+                                           : requiredNames + L" IS REQUIRED: BIND IT AGAIN BEFORE LEAVING SETTINGS.";
+        const std::wstring question = li == 0 ? targetName + L" 키를 " + keyName + L"(으)로 변경할까요?"
+                                    : li == 2 ? targetName + L"を" + keyName + L"に変更しますか？"
+                                              : L"CHANGE " + targetName + L" TO " + keyName + L"?";
+
+        const float maxW = std::min(sw * 0.86f, 1400.0f * uiS);
+        // Centered line, shrunk to fit the dialog width; returns its height.
+        auto centeredLine = [&](const std::wstring& text, float y, UiTextLevel level,
+                                float r, float g, float b, float a) {
+            if (text.empty()) return 0.0f;
+            const float base = settingsScale(g_TextL, 1.0f, level);
+            const float w = g_TextL.Width(text.c_str(), base);
+            const float fit = (w > maxW && w > 0.0f) ? maxW / w : 1.0f;
+            drawSettingsTextAtLevel(g_TextL, text.c_str(),
+                                    cx - w * fit * 0.5f, y, fit,
+                                    r, g, b, a * treeA, level, 0.66f);
+            return g_TextL.Height(text.c_str(), base * fit);
+        };
+        float y = cy - 150.0f * uiS;
+        y += centeredLine(title, y, UiTextLevel::Title, 1.0f, 1.0f, 1.0f, 0.98f) + 22.0f * uiS;
+        y += centeredLine(line1, y, UiTextLevel::Subtitle, 0.90f, 0.95f, 1.0f, 1.0f) + 12.0f * uiS;
+        y += centeredLine(line2, y, UiTextLevel::Subtitle, 0.90f, 0.95f, 1.0f, 1.0f) + 12.0f * uiS;
+        if (!line3.empty())
+            y += centeredLine(line3, y, UiTextLevel::Subtitle, 1.0f, 0.50f, 0.46f, 1.0f) + 12.0f * uiS;
+        y += 16.0f * uiS;
+        y += centeredLine(question, y, UiTextLevel::Title, 1.0f, 0.86f, 0.52f, 1.0f) + 28.0f * uiS;
+
+        const float dialogY = y;
+        const float dialogW = 210.0f * uiS;
+        const float dialogH = 48.0f * uiS;
+        const bool changeHit = mx >= cx - dialogW - 12.0f * uiS
+                            && mx < cx - 12.0f * uiS
+                            && my >= dialogY && my < dialogY + dialogH;
+        const bool cancelHit = mx >= cx + 12.0f * uiS
+                            && mx < cx + dialogW + 12.0f * uiS
+                            && my >= dialogY && my < dialogY + dialogH;
+        static const wchar_t* changeVariants[] = { L"변경", L"CHANGE", L"変更する" };
+        static const wchar_t* cancelVariants[] = { L"취소", L"CANCEL", L"キャンセル" };
+        DrawUnifiedMenuCommand(changeVariants[settingsLanguage],
+                               cx - dialogW - 12.0f * uiS, dialogY,
+                               dialogW, dialogH, 1.0f, 0.62f, 0.30f,
+                               treeA, 0.0f, changeHit, 0.0f, now,
+                               uiS, true, true, true,
+                               changeVariants, 3);
+        DrawUnifiedMenuCommand(cancelVariants[settingsLanguage],
+                               cx + 12.0f * uiS, dialogY,
+                               dialogW, dialogH, 0.34f, 0.82f, 1.0f,
+                               treeA, 0.0f, cancelHit, 0.0f, now + 0.2f,
+                               uiS, true, true, true,
+                               cancelVariants, 3);
+        if (lmb && !g_LmbPrev && changeHit) {
+            ApplyKeyBinding(g_KeyBinds, (GameAction)conflictAction, conflictKey);
+            keyFlash[conflictAction] = 1.0f;
+            for (int i = 0; i < conflictCount; ++i) keyFlash[conflictList[i]] = 1.0f;
+            Audio::Play(Audio::Cue::SetKeyOk);
+            reportUnboundAfterChange(conflictList, conflictCount);
+            keyConflict = false;
+        } else if (lmb && !g_LmbPrev && cancelHit) {
+            Audio::Play(Audio::Cue::UiBack);
+            keyConflict = false;
         }
     }
 

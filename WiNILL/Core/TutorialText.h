@@ -15,7 +15,7 @@ inline int LangIndexTutorial() {
 
 // Key tokens in the texts below follow the current key bindings:
 //   {MOVE} = movement keys ("WASD"), {DASH} = dash key, {SKILLS} = skill keys ("Q/E/R")
-//   {START} / {QUIT} = the fixed READY keys (Space / Esc, not bindable)
+//   {START} = the Confirm key (launch), {QUIT} = Esc (fixed)
 inline const wchar_t* ExpandKeyTokens(const wchar_t* src, std::wstring& out) {
     const std::wstring move = MoveKeysLabel();
     const std::wstring dash = KeyName(ActionKey(GameAction::Dash));
@@ -25,7 +25,7 @@ inline const wchar_t* ExpandKeyTokens(const wchar_t* src, std::wstring& out) {
         if (!std::wcsncmp(p, L"{MOVE}", 6)) { out += move; p += 6; }
         else if (!std::wcsncmp(p, L"{DASH}", 6)) { out += dash; p += 6; }
         else if (!std::wcsncmp(p, L"{SKILLS}", 8)) { out += skills; p += 8; }
-        else if (!std::wcsncmp(p, L"{START}", 7)) { out += KeyName(kBindKeySpace); p += 7; }
+        else if (!std::wcsncmp(p, L"{START}", 7)) { out += KeyName(ActionKey(GameAction::Confirm)); p += 7; }
         else if (!std::wcsncmp(p, L"{QUIT}", 6)) { out += KeyName(kBindKeyEscape); p += 6; }
         else out += *p++;
     }
