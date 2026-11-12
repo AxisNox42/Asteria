@@ -1976,6 +1976,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
         const float cx = sw * 0.50f;
         const float cy = sh * 0.52f;
         drawRect(0.0f, 0.0f, sw, sh, 0.01f, 0.02f, 0.04f, 0.56f * treeA);
+        // Text draws immediately but rects are batched: flush the veil now so
+        // it stays under the dialog copy instead of dimming it.
+        BatchFlush();
         const float dialogTitleScale = settingsScale(
             g_TextL, 1.0f, UiTextLevel::Title);
         const wchar_t* dialogTitle = SettingsText(
@@ -2050,6 +2053,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
         const float cx = sw * 0.50f;
         const float cy = sh * 0.50f;
         drawRect(0.0f, 0.0f, sw, sh, 0.01f, 0.02f, 0.04f, 0.56f * treeA);
+        // Text draws immediately but rects are batched: flush the veil now so
+        // it stays under the dialog copy instead of dimming it.
+        BatchFlush();
         const int li = std::clamp(LangIndex(), 0, 2);
         const std::wstring names = KeyActionList(missing, nMissing);
         const std::wstring title = li == 0 ? L"지정되지 않은 필수 키"
@@ -2132,6 +2138,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
         const float cx = sw * 0.50f;
         const float cy = sh * 0.50f;
         drawRect(0.0f, 0.0f, sw, sh, 0.01f, 0.02f, 0.04f, 0.56f * treeA);
+        // Text draws immediately but rects are batched: flush the veil now so
+        // it stays under the dialog copy instead of dimming it.
+        BatchFlush();
         const int li = std::clamp(LangIndex(), 0, 2);
         const std::wstring keyName = KeyName(conflictKey);
         const std::wstring targetName = KeyActionList(&conflictAction, 1);
