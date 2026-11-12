@@ -14,6 +14,8 @@ class Bullet;
 namespace syn {
 
 void Reset();                          // a new run
+void DrawWorld();                      // zones, mines, marks, burns and ring pulses (world space)
+void ForgetEnemy(const void* enemy);   // removed without dying (a debug dummy): no kill event
 void PickupFx(int augIdx);             // a ring, sparks and the name when any card is taken
 bool CanOffer(int augIdx);             // may this synergy card appear in a pick?
 void Acquire(int augIdx);              // a synergy card was taken

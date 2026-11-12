@@ -77,14 +77,28 @@ inline void SpawnDamageNumber(float x, float y, float amount, bool crit) {
     if (crit) Audio::Play(Audio::Cue::SfxCrit);   // 치명타 숫자
 }
 
-// ── 플레이어 이동 잔상(afterimage) — 이동 시 과거 위치에 옅게 남았다 사라짐 ──
-struct Trail { float x, y, life, maxLife, size, r, g, b; };
+// ── 플레이어 이동 잔상 — 움직이는 동안 기체 뒤로 작은 입자가 흩어지며 흘러가 사라짐 ──
+struct Trail { float x, y, vx, vy, life, maxLife, size, r, g, b; };
 inline std::vector<Trail> g_Trail;
-inline void SpawnTrail(float x, float y, float size, float r, float g, float b) {
-    if ((int)g_Trail.size() > JuiceTrailCap()) return;
-    Trail t; t.x = x; t.y = y; t.maxLife = t.life = 0.30f;
-    t.size = size; t.r = r; t.g = g; t.b = b;
-    g_Trail.push_back(t);
+// (x, y): ship centre, (dirX, dirY): unit move direction. A few particles leave
+// from just behind the ship and drift backward, spreading a little sideways.
+inline void SpawnTrail(float x, float y, float dirX, float dirY, float r, float g, float b) {
+    const float nx = -dirY, ny = dirX;
+    for (int i = 0; i < 2; ++i) {
+        if ((int)g_Trail.size() >= JuiceTrailCap()) return;
+        const float side = ((float)(rand() % 200) - 100.0f) * 0.01f;   // -1..1
+        const float back = 10.0f + (float)(rand() % 60) * 0.1f;
+        const float speed = 70.0f + (float)(rand() % 70);
+        Trail t;
+        t.x = x - dirX * back + nx * side * 7.0f;
+        t.y = y - dirY * back + ny * side * 7.0f;
+        t.vx = -dirX * speed + nx * side * 45.0f;
+        t.vy = -dirY * speed + ny * side * 45.0f;
+        t.maxLife = t.life = 0.30f + (float)(rand() % 20) * 0.01f;
+        t.size = 2.0f + (float)(rand() % 15) * 0.1f;
+        t.r = r; t.g = g; t.b = b;
+        g_Trail.push_back(t);
+    }
 }
 
 // ── 히트스톱 (큰 이벤트 때 잠깐 정지) ──

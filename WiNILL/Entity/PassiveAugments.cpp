@@ -123,10 +123,6 @@ bool OnScreen(float x, float y) {
     return x >= s.in.viewL && x <= s.in.viewR && y >= s.in.viewT && y <= s.in.viewB;
 }
 
-void Ring(float x, float y, float radius, float r, float g, float b) {
-    if (g_Fx.shockwave) g_Fx.shockwave(x, y, radius, 0.35f, r, g, b);
-}
-
 float RollCrit(bool& crit) {
     crit = g_Stats.critChance > 0 && (std::rand() % 100) < g_Stats.critChance;
     return crit ? g_Stats.critMult : 1.0f;
@@ -166,12 +162,11 @@ void DamageRadius(float x, float y, float radius, float pct,
     for (auto* m : g_MonsterManager.monsters) hit(*m);
     for (auto* rm : g_MonsterManager.rangedMobs) hit(*rm);
     SpawnEnemyExplosion(x, y, r, g, b, true);
-    Ring(x, y, radius, r, g, b);
     Audio::Play(radius >= 250.0f ? Audio::Cue::ExplodeL
               : radius >= 170.0f ? Audio::Cue::ExplodeM : Audio::Cue::ExplodeS);
 }
 
-// Quiet burst for a gun verb: damage only, one small ring (it fires per hit).
+// Quiet burst for a gun verb: damage only (it fires per hit).
 void BurstDamage(float x, float y, float radius, float pct) {
     const float dmg = AttackPower() * pct / 100.0f * AllDamageMult();
     auto hit = [&](auto& target) {
@@ -183,7 +178,6 @@ void BurstDamage(float x, float y, float radius, float pct) {
     };
     for (auto* m : g_MonsterManager.monsters) hit(*m);
     for (auto* rm : g_MonsterManager.rangedMobs) hit(*rm);
-    Ring(x, y, radius, 1.0f, 0.70f, 0.30f);
 }
 
 // Clears enemy bullets within radius of (x, y); radius < 0 clears them all.
@@ -199,7 +193,6 @@ int ClearEnemyBullets(float x, float y, float radius) {
         ++cleared;
         SpawnSparks(b.x, b.y, 2, 0.75f, 0.95f, 1.0f, 140.0f);
     }
-    if (radius > 0.0f) Ring(x, y, radius, 0.75f, 0.95f, 1.0f);
     if (cleared > 0) Audio::Play(Audio::Cue::SfxBulletErase);
     return cleared;
 }
@@ -727,7 +720,6 @@ bool TryPhoenix() {
     Audio::Play(Audio::Cue::SfxRevive);
     g_GameManager.playerHP = g_Stats.maxHP;
     DamageAll(1000.0f, 1.0f, 0.55f, 0.20f);
-    Ring(s.in.px, s.in.py, 520.0f, 1.0f, 0.55f, 0.20f);
     return true;
 }
 

@@ -9,7 +9,7 @@
 
 MonsterManager g_MonsterManager;
 int g_CurrentWeapon = 0;
-float g_MuzzleTimer = 0.0f;
+float g_ShotKickTimer = 0.0f;
 
 static constexpr size_t kStride = 6;   // x, y, r, g, b, a
 

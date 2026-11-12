@@ -363,6 +363,7 @@ public:
     }
 
     void Clear() {
+        dummy::Clear();
         regulusBeams.clear();
         mira::Reset();
         for (auto m : monsters) delete m;
@@ -779,11 +780,11 @@ private:
         constexpr float kSummonedGap = 32.0f;
         for (size_t i = 0; i < monsters.size(); ++i) {
             // Thrown Swarms in flight pass through other enemies.
-            if (!monsters[i]->alive || monsters[i]->thrownPhase == 1 || monsters[i]->genesisRotorPhase > 0) continue;
+            if (!monsters[i]->alive || monsters[i]->trainingDummy || monsters[i]->thrownPhase == 1 || monsters[i]->genesisRotorPhase > 0) continue;
             const int tierI = CollisionTier(monsters[i]);
             const float radiusI = monsters[i]->summoned ? kSummonedGap : kNormalGap;
             for (size_t j = i + 1; j < monsters.size(); ++j) {
-                if (!monsters[j]->alive || monsters[j]->thrownPhase == 1 || monsters[j]->genesisRotorPhase > 0) continue;
+                if (!monsters[j]->alive || monsters[j]->trainingDummy || monsters[j]->thrownPhase == 1 || monsters[j]->genesisRotorPhase > 0) continue;
                 float dx = monsters[j]->worldX - monsters[i]->worldX;
                 float dy = monsters[j]->worldY - monsters[i]->worldY;
                 const float distanceSq = dx * dx + dy * dy;

@@ -40,6 +40,11 @@ struct DebugToolkitContext {
     std::function<bool()> openTestPane;
     // Augment tab: takes the card as if it were picked (returns false when refused).
     std::function<bool(int augIdx)> grantAugment;
+    // Stats tab: the player dies at once (ignores godmode and revives).
+    std::function<void()> killPlayer;
+    // Spawn > 테스트: damage dummies in front of the player / remove them all.
+    std::function<int(int count)> spawnDummy;
+    std::function<int()> clearDummies;
 };
 
 class DebugToolkit {

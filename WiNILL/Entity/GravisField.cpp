@@ -19,7 +19,7 @@ void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
         if (!gravis || !gravis->alive || gravis->kind != MobKind::GRAVIS) continue;
         // The field stops at window borders like every other effect.
         if (!space::SameSpace(gravis->worldX, gravis->worldY, playerX, playerY)) continue;
-        field.Add(gravis->worldX - playerX, gravis->worldY - playerY);
+        field.Add(gravis->worldX - playerX, gravis->worldY - playerY, gravis->GravisFieldRadius());
     }
     g_playerInfluence = playerControl ? field.maxInfluence : 0.0f;
     // 플레이어가 어느 중력장 안에든 있으면 웅웅 루프 (Start/Stop 은 중복 호출 무시)
@@ -37,9 +37,11 @@ void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
     }
 
     // The field also curves every live bullet toward its Gravis.
-    constexpr float fieldRadiusSq = RADIUS * RADIUS;
     for (const Monster* gravis : monsters.monsters) {
         if (!gravis || !gravis->alive || gravis->kind != MobKind::GRAVIS) continue;
+        const float radius = gravis->GravisFieldRadius();
+        if (radius <= 1.0f) continue;
+        const float fieldRadiusSq = radius * radius;
         for (Bullet& bullet : bullets) {
             if (!bullet.active) continue;
             if (!space::SameSpace(gravis->worldX, gravis->worldY, bullet.x, bullet.y)) continue;
@@ -49,7 +51,7 @@ void Apply(const MonsterManager& monsters, std::vector<Bullet>& bullets,
             if (distanceSq <= 64.0f || distanceSq >= fieldRadiusSq) continue;
 
             const float distance = std::sqrt(distanceSq);
-            const float influence = 1.0f - distance / RADIUS;
+            const float influence = 1.0f - distance / radius;
             const float curve = (0.50f + 1.80f * influence) * dt;
             bullet.dirX += bx / distance * curve;
             bullet.dirY += by / distance * curve;

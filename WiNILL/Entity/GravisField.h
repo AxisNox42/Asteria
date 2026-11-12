@@ -23,10 +23,23 @@ inline constexpr float DASH_RECOVER_SLOW = 0.50f;   // -50% dash cooldown regen
 inline constexpr float PULL_RESPONSE     = 1.6f;    // 1/s: drift settles on the local pull in ~0.6 s
 inline constexpr float PULL_COAST_DRAG   = 2.4f;    // 1/s: drift bleeds off outside every field
 
+// Entrance: a new Gravis glides in from its spawn edge with no field; once it
+// is on screen the field grows out of the body from 0 px to RADIUS.
+inline constexpr float ENTRY_SPEED       = 220.0f;  // px/s from the spawn edge into the view
+inline constexpr float GROW_TIME         = 1.4f;    // s for the field to reach RADIUS
+
+// Field radius scale for a Gravis this far (0..1) into its growth; eases out
+// so the ring opens quickly and settles onto the rim.
+inline float GrowScale(float progress) {
+    const float t = std::clamp(progress, 0.0f, 1.0f);
+    const float u = 1.0f - t;
+    return 1.0f - u * u * u;
+}
+
 // 0 at the rim (and beyond), 1 on the core.
-inline float Influence(float distSq) {
-    if (distSq >= RADIUS * RADIUS) return 0.0f;
-    return 1.0f - std::sqrt(distSq) / RADIUS;
+inline float Influence(float distSq, float radius = RADIUS) {
+    if (radius <= 1.0f || distSq >= radius * radius) return 0.0f;
+    return 1.0f - std::sqrt(distSq) / radius;
 }
 
 inline float PullSpeed(float influence) {
@@ -45,10 +58,11 @@ struct FieldAccum {
     float pullVY = 0.0f;
     float maxInfluence = 0.0f;
 
-    // (gx, gy) = vector from the player to a Gravis.
-    void Add(float gx, float gy) {
+    // (gx, gy) = vector from the player to a Gravis; radius = its field
+    // radius right now (smaller while the field is still growing).
+    void Add(float gx, float gy, float radius = RADIUS) {
         const float distSq = gx * gx + gy * gy;
-        const float influence = Influence(distSq);
+        const float influence = Influence(distSq, radius);
         if (influence <= 0.0f) return;
         maxInfluence = std::max(maxInfluence, influence);
         if (distSq <= CORE_DEAD_ZONE_SQ) return;

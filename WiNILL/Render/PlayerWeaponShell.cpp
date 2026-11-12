@@ -11,7 +11,7 @@
 
 extern MonsterManager g_MonsterManager;
 extern int g_CurrentWeapon;
-extern float g_MuzzleTimer;
+extern float g_ShotKickTimer;
 enum class PlayerShellKind { Rifle, StaticField };
 
 static PlayerShellKind CurrentPlayerShellKind() {
@@ -205,7 +205,7 @@ void DrawPlayerWeaponShell(float cx, float cy, float sz, float aimAng, float vis
     const float wr = 0.92f, wg = 1.0f, wb = 1.0f;
     const float ar = 1.0f, ag = 0.62f, ab = 0.16f;
     const float t = visualTime;
-    float kick = (g_MuzzleTimer > 0.0f) ? (g_MuzzleTimer / 0.05f) : 0.0f;
+    float kick = (g_ShotKickTimer > 0.0f) ? (g_ShotKickTimer / 0.05f) : 0.0f;
     float pulse = 0.5f + 0.5f * sinf(t * 4.0f);
     auto rotX = [&](float lx, float ly, float ang) {
         return cx + lx * cosf(ang) - ly * sinf(ang);

@@ -198,6 +198,12 @@
     <ClInclude Include="Render\Juice.h">
       <Filter>Render</Filter>
     </ClInclude>
+    <ClInclude Include="Render\NormaFx.h">
+      <Filter>Render</Filter>
+    </ClInclude>
+    <ClInclude Include="Render\CaelumFx.h">
+      <Filter>Render</Filter>
+    </ClInclude>
     <ClInclude Include="Render\EnemyParticles.h">
       <Filter>Render</Filter>
     </ClInclude>

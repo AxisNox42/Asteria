@@ -44,12 +44,12 @@ foreach ($line in Get-Content $stateFile) {
 
 # The filled run (REG04 fill): every field non-default.
 $filled = @{ dashCd='1.50'; shield='25.0'; dashHeld='1'; grace='0.40'
-    bullets='5'; monsters='4'; ranged='1'; stardust='6'; shocks='2'; debris='3'
+    bullets='5'; monsters='4'; ranged='1'; stardust='6'; debris='3'
     score='4321'; xp='55.000'; level='3'; hp='42.0'
     kills='777'; weapon='0'; time='99.0' }
 # A fresh run (ResetForNewGame + ResetRunProgress).
 $fresh = @{ dashCd='0.00'; shield='0.0'; dashHeld='0'; grace='0.00'
-    bullets='0'; monsters='0'; ranged='0'; stardust='0'; shocks='0'; debris='0'
+    bullets='0'; monsters='0'; ranged='0'; stardust='0'; debris='0'
     score='0'; xp='0.000'; level='1'; hp='100.0'
     kills='0'; weapon='-1'; time='0.0' }
 function With($base, $over) { $t = $base.Clone(); foreach ($k in $over.Keys) { $t[$k] = $over[$k] }; $t }
@@ -62,7 +62,7 @@ $expected = [ordered]@{
     # Abandon ends the run for the report: the arena is cleared, the weapon
     # and score stay; GAMEOVER -> READY resets the rest.
     ABANDON = With $filled @{ state=$GAMEOVER
-        bullets='0'; monsters='0'; ranged='0'; stardust='0'; shocks='0'; hp='0.0' }
+        bullets='0'; monsters='0'; ranged='0'; stardust='0'; hp='0.0' }
     READY1  = With $fresh @{ state=$READY }
     READY2  = With $filled @{ state=$READY }             # second entry: no second reset
 }

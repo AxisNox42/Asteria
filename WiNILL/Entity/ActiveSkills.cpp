@@ -12,6 +12,7 @@
 #include "Bullet.h"
 #include "GameManager.h"
 #include "HudLines.h"
+#include "LineFx.h"
 #include "Juice.h"
 #include "MonsterManager.h"
 #include "PlayerRuntime.h"
@@ -36,6 +37,8 @@ enum Tag { TAG_NONE, TAG_ARROW, TAG_KNIFE, TAG_FIREBALL, TAG_SHARD, TAG_SNIPE,
 // Field objects a skill leaves behind.
 enum class ObjKind { Wall, Meteor, Dynamite, Prism, Gate, Trap, Turret, Cloud,
                      Clone, Hoop, Line, Strike };
+// How a Line object is drawn.
+enum class LineStyle { Bolt, Execute, Gust, Warp, Rush, Rewind, Beam };
 struct Obj {
     ObjKind kind;
     float x = 0, y = 0;          // position (wall: centre)
@@ -47,6 +50,9 @@ struct Obj {
     Rgb   col{ 1, 1, 1 };
     std::vector<const void*> hits;   // hoop: hit on this leg
     std::vector<float> pts;          // line: polyline (x, y pairs)
+    LineStyle style = LineStyle::Bolt;
+    bool fromSource = false;         // strike: starts at (x2, y2) instead of the sky
+    uint32_t seed = 0;               // shape and flicker of bolts and rocks
 };
 
 struct State {
@@ -136,22 +142,28 @@ Bullet SkillShot(float fromX, float fromY, float dirX, float dirY, float pct,
     return b;
 }
 
-void AddLine(std::vector<float> pts, Rgb col, float life) {
+void AddLine(std::vector<float> pts, Rgb col, float life, LineStyle style) {
     Obj o;
     o.kind = ObjKind::Line;
     o.pts = std::move(pts);
     o.col = col;
     o.life = life;
+    o.style = style;
+    o.seed = line_fx::Hash((uint32_t)std::rand());
     s.objs.push_back(std::move(o));
 }
 
-void AddStrike(float x, float y, Rgb col) {   // a lightning bolt from above
+// A lightning bolt onto (x, y): from the sky, or from (sx, sy) when fromSource.
+void AddStrike(float x, float y, Rgb col, bool fromSource = false, float sx = 0, float sy = 0) {
     Audio::Play(Audio::Cue::Lightning);
     Obj o;
     o.kind = ObjKind::Strike;
     o.x = x; o.y = y;
+    o.x2 = sx; o.y2 = sy;
+    o.fromSource = fromSource;
     o.col = col;
-    o.life = 0.25f;
+    o.life = 0.30f;
+    o.seed = line_fx::Hash((uint32_t)std::rand());
     s.objs.push_back(o);
 }
 
@@ -208,7 +220,7 @@ void CastChainLightning() {
         fromX = tx; fromY = ty;
         reach = 320.0f;
     }
-    AddLine(pts, { 0.70f, 0.85f, 1.0f }, 0.30f);
+    AddLine(pts, { 0.70f, 0.85f, 1.0f }, 0.50f, LineStyle::Bolt);   // hops land one after another
 }
 
 void CastExecute(int aug) {
@@ -231,7 +243,7 @@ void CastExecute(int aug) {
     bool killed;
     if (ranged) { RangedMob& r = *(RangedMob*)target; HitOne(r, 1000.0f); killed = !r.alive; }
     else        { Monster& m = *(Monster*)target; HitOne(m, 1000.0f); killed = !m.alive; }
-    AddLine({ s.in.px, s.in.py, tx, ty }, { 1.0f, 0.35f, 0.35f }, 0.25f);
+    AddLine({ s.in.px, s.in.py, tx, ty }, { 1.0f, 0.35f, 0.35f }, 0.35f, LineStyle::Execute);
     Audio::Play(Audio::Cue::SkillExecute);
     const int slot = SlotOf(aug);
     if (killed && slot >= 0) { s.slots[slot].cd = 0.0f; Audio::Play(Audio::Cue::SkillCooldownCut); }
@@ -260,7 +272,7 @@ void CastGust() {
     for (auto* r : g_MonsterManager.rangedMobs)
         if (r->alive) push(*r, r->worldX, r->worldY, true);
     AddLine({ s.in.px, s.in.py, s.in.px + dx * kRange, s.in.py + dy * kRange },
-            { 0.70f, 1.0f, 0.85f }, 0.25f);
+            { 0.70f, 1.0f, 0.85f }, 0.40f, LineStyle::Gust);
 }
 
 void CastBlink() {
@@ -270,7 +282,7 @@ void CastBlink() {
     ClampToView(tx, ty);
     passive::ClearEnemyBullets(s.in.px, s.in.py, 140.0f);
     passive::ClearEnemyBullets(tx, ty, 140.0f);
-    AddLine({ s.in.px, s.in.py, tx, ty }, { 0.70f, 0.90f, 1.0f }, 0.20f);
+    AddLine({ s.in.px, s.in.py, tx, ty }, { 0.70f, 0.90f, 1.0f }, 0.35f, LineStyle::Warp);
     Audio::Play(Audio::Cue::SkillTeleport);
     s.teleport = true; s.teleX = tx; s.teleY = ty;
 }
@@ -283,7 +295,7 @@ void CastCometRush() {
     ForEachEnemy([&](auto& e, float x, float y) {
         if (SegDist2(x, y, s.in.px, s.in.py, tx, ty) < 50.0f * 50.0f) HitOne(e, 800.0f);
     });
-    AddLine({ s.in.px, s.in.py, tx, ty }, { 1.0f, 0.85f, 0.45f }, 0.35f);
+    AddLine({ s.in.px, s.in.py, tx, ty }, { 1.0f, 0.85f, 0.45f }, 0.40f, LineStyle::Rush);
     Audio::Play(Audio::Cue::SkillRush);
     g_PlayerRuntime.dashInvulnerability = std::max(g_PlayerRuntime.dashInvulnerability, 0.25f);
     s.teleport = true; s.teleX = tx; s.teleY = ty;
@@ -295,7 +307,7 @@ void CastRewind() {
     float lost = 0.0f;
     for (const auto& d : s.damage) lost += d.second;
     g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + lost * 0.5f);
-    AddLine({ s.in.px, s.in.py, p.x, p.y }, { 0.85f, 0.75f, 1.0f }, 0.35f);
+    AddLine({ s.in.px, s.in.py, p.x, p.y }, { 0.85f, 0.75f, 1.0f }, 0.45f, LineStyle::Rewind);
     Audio::Play(Audio::Cue::SkillTeleport);
     if (lost > 0.0f) Audio::Play(Audio::Cue::SfxHealBig);
     s.teleport = true; s.teleX = p.x; s.teleY = p.y;
@@ -310,7 +322,7 @@ void CastDayAndNight() {
         ForEachEnemy([&](auto& e, float x, float y) {
             if (SegDist2(x, y, s.in.px, s.in.py, ex, ey) < 40.0f * 40.0f) HitOne(e, 500.0f);
         });
-        AddLine({ s.in.px, s.in.py, ex, ey }, { 1.0f, 0.92f, 0.60f }, 0.30f);
+        AddLine({ s.in.px, s.in.py, ex, ey }, { 1.0f, 0.92f, 0.60f }, 0.35f, LineStyle::Beam);
         Audio::Play(Audio::Cue::SkillBeam);
     } else {
         passive::DamageRadius(s.in.px, s.in.py, 260.0f, 400.0f, 0.45f, 0.30f, 0.85f, DamageMult());
@@ -341,7 +353,6 @@ void CastBookOfCheats() {
     case 6: passive::DamageRadius(s.in.px, s.in.py, 260.0f, 800.0f, 1.0f, 0.55f, 0.25f, DamageMult()); break;
     default: break;   // nothing happens
     }
-    passive::Ring(s.in.px, s.in.py, 120.0f, 1.0f, 0.85f, 0.40f);
 }
 
 void Cast(int aug) {
@@ -368,7 +379,6 @@ void Cast(int aug) {
     case AugType::A_CHRONO_RESONANT_SYNC:
         for (Slot& o : s.slots)
             if (o.aug >= 0 && o.aug != aug) o.cd *= 0.5f;
-        passive::Ring(px, py, 90.0f, 0.85f, 0.75f, 1.0f);
         Audio::Play(Audio::Cue::SkillCooldownCut);
         break;
     case AugType::A_GALE_STELLAR_GALE: CastGust(); break;
@@ -675,7 +685,7 @@ void StepObjects(float dt) {
                 }
             };
             ForEachEnemy(step);
-            if (sprung) { o.life = 0.0f; passive::Ring(o.x, o.y, 60.0f, 1.0f, 0.55f, 0.45f); Audio::Play(Audio::Cue::ExplodeS); }
+            if (sprung) { o.life = 0.0f; Audio::Play(Audio::Cue::ExplodeS); }
             break;
         }
         case ObjKind::Turret:
@@ -687,6 +697,7 @@ void StepObjects(float dt) {
                     o.timer = 0.0f;
                     float ex = tx - o.x, ey = ty - o.y;
                     const float d = std::max(0.001f, std::sqrt(ex * ex + ey * ey));
+                    o.dirX = ex / d; o.dirY = ey / d;
                     g_Bullets.push_back(SkillShot(o.x, o.y, ex / d, ey / d, 100.0f, TAG_TURRET,
                                                   1100.0f, { 0.60f, 0.95f, 0.80f }));
                     Audio::Play(Audio::Cue::SkillTurretShot);
@@ -706,8 +717,8 @@ void StepObjects(float dt) {
                     if (r->alive && passive::OnScreen(r->worldX, r->worldY)) targets.push_back({ r, true });
                 if (!targets.empty()) {
                     const auto& t = targets[std::rand() % targets.size()];
-                    if (t.second) { RangedMob& r = *(RangedMob*)t.first; HitOne(r, 300.0f); AddStrike(r.worldX, r.worldY, o.col); }
-                    else          { Monster& m = *(Monster*)t.first; HitOne(m, 300.0f); AddStrike(m.worldX, m.worldY, o.col); }
+                    if (t.second) { RangedMob& r = *(RangedMob*)t.first; HitOne(r, 300.0f); AddStrike(r.worldX, r.worldY, o.col, true, o.x, o.y + 10.0f); }
+                    else          { Monster& m = *(Monster*)t.first; HitOne(m, 300.0f); AddStrike(m.worldX, m.worldY, o.col, true, o.x, o.y + 10.0f); }
                 }
             }
             break;
@@ -950,77 +961,311 @@ bool TakeTeleport(float& x, float& y) {
     return true;
 }
 
+// ── drawing the field objects (lines only: no fills, no dashes) ──
+namespace lf = line_fx;
+
+static float Smooth01(float x) {
+    x = std::clamp(x, 0.0f, 1.0f);
+    return x * x * (3.0f - 2.0f * x);
+}
+
+// A Line object, by its style. k = age / life (0..1).
+static void DrawLineObj(const Obj& o, float k, float time) {
+    if (o.pts.size() < 4) return;
+    const float x0 = o.pts[0], y0 = o.pts[1];
+    const float x1 = o.pts[o.pts.size() - 2], y1 = o.pts[o.pts.size() - 1];
+    const float dx = x1 - x0, dy = y1 - y0;
+    const float len = std::max(0.001f, std::sqrt(dx * dx + dy * dy));
+    const float ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+    const float fade = 1.0f - k;
+    switch (o.style) {
+    case LineStyle::Bolt: {
+        // Chain lightning: each hop lands a moment after the last and fades on its own.
+        const float hopDelay = 0.035f;
+        for (size_t i = 2; i + 1 < o.pts.size(); i += 2) {
+            const int hop = (int)(i / 2) - 1;
+            const float age = o.t - hopDelay * (float)hop;
+            if (age < 0.0f) break;
+            const float a = 1.0f - age / (o.life * 0.6f);
+            if (a <= 0.0f) continue;
+            const uint32_t seed = o.seed + 977u * (uint32_t)hop + (uint32_t)(age * 24.0f);
+            lf::Bolt(o.pts[i - 2], o.pts[i - 1], o.pts[i], o.pts[i + 1], seed, 2.2f, o.col, a);
+            const float ik = std::clamp(age / 0.18f, 0.0f, 1.0f);
+            lf::Diamond(o.pts[i], o.pts[i + 1], 8.0f + 14.0f * ik, 1.5f, o.col, a * (1.0f - ik));
+        }
+        break;
+    }
+    case LineStyle::Execute: {
+        // A sniper's line, then a reticle that snaps shut on the target.
+        const float a = fade * fade;
+        lf::Line(x0, y0, x1, y1, 5.0f, o.col, 0.18f * a);
+        lf::Line(x0, y0, x1, y1, 1.5f, lf::Lift(o.col, 0.5f), a);
+        const float shut = Smooth01(k / 0.5f);
+        const float r = 30.0f - 18.0f * shut;
+        lf::Polygon(x1, y1, r, 4, 0.0f, 2.0f, o.col, fade);
+        lf::Diamond(x1, y1, r * 0.45f, 1.5f, lf::Lift(o.col, 0.5f), fade);
+        break;
+    }
+    case LineStyle::Gust: {
+        // Wind fronts sweeping out across the cone, with the cone's edges.
+        const float half = 0.795f;   // acos(0.70): the push cone
+        const float ang = std::atan2(uy, ux);
+        lf::Line(x0, y0, x0 + std::cos(ang - half) * len, y0 + std::sin(ang - half) * len, 1.0f, o.col, 0.25f * fade);
+        lf::Line(x0, y0, x0 + std::cos(ang + half) * len, y0 + std::sin(ang + half) * len, 1.0f, o.col, 0.25f * fade);
+        for (int i = 0; i < 3; ++i) {
+            const float p = k * 1.25f - 0.16f * (float)i;
+            if (p <= 0.05f || p > 1.0f) continue;
+            const float r = len * Smooth01(p);
+            lf::ArcLine(x0, y0, r, ang - half, half * 2.0f, 2.5f - 0.6f * (float)i, o.col,
+                        (1.0f - p) * (1.0f - 0.25f * (float)i));
+        }
+        break;
+    }
+    case LineStyle::Warp: {
+        // Out of one diamond, into another, a thin thread between.
+        lf::Line(x0, y0, x1, y1, 1.0f, o.col, 0.45f * fade);
+        const float shrink = 1.0f - Smooth01(k / 0.6f);
+        lf::Diamond(x0, y0, 22.0f * shrink, 2.0f, o.col, fade);
+        const float grow = Smooth01(k / 0.5f);
+        lf::Diamond(x1, y1, 8.0f + 20.0f * grow, 2.0f, o.col, fade);
+        lf::Diamond(x1, y1, 4.0f + 8.0f * grow, 1.2f, lf::Lift(o.col, 0.5f), fade);
+        break;
+    }
+    case LineStyle::Rush: {
+        // Speed lines left along the path, shortening toward the arrival.
+        const float tail = std::max(0.0f, 1.0f - k * 1.4f);
+        for (int i = -1; i <= 1; ++i) {
+            const float off = 16.0f * (float)i;
+            const float from = (i == 0 ? 0.0f : 0.25f) + (1.0f - tail) * 0.75f;
+            const float sx = x0 + dx * from + nx * off, sy = y0 + dy * from + ny * off;
+            lf::Line(sx, sy, x1 + nx * off * 0.4f, y1 + ny * off * 0.4f, i == 0 ? 2.5f : 1.2f, o.col,
+                     (i == 0 ? 0.9f : 0.5f) * fade);
+        }
+        const float c = 14.0f;
+        lf::Line(x1 - ux * c + nx * c, y1 - uy * c + ny * c, x1 + ux * 4.0f, y1 + uy * 4.0f, 2.0f, o.col, fade);
+        lf::Line(x1 - ux * c - nx * c, y1 - uy * c - ny * c, x1 + ux * 4.0f, y1 + uy * 4.0f, 2.0f, o.col, fade);
+        break;
+    }
+    case LineStyle::Rewind: {
+        // A thread back to where you were, chevrons running along it.
+        lf::Line(x0, y0, x1, y1, 1.0f, o.col, 0.4f * fade);
+        const float step = 36.0f, c = 7.0f;
+        const float shift = std::fmod(o.t * 140.0f, step);
+        for (float d = shift; d < len; d += step) {
+            const float cx = x0 + ux * d, cy = y0 + uy * d;
+            lf::Line(cx - ux * c + nx * c, cy - uy * c + ny * c, cx, cy, 1.6f, o.col, fade);
+            lf::Line(cx - ux * c - nx * c, cy - uy * c - ny * c, cx, cy, 1.6f, o.col, fade);
+        }
+        lf::Circle(x1, y1, 10.0f + 14.0f * Smooth01(k / 0.5f), 1.5f, o.col, fade);
+        break;
+    }
+    case LineStyle::Beam: {
+        // A band of light as wide as it hits: a bright core and two edges.
+        const float w = 40.0f * (0.55f + 0.45f * fade);
+        lf::Line(x0, y0, x1, y1, 3.0f, lf::Lift(o.col, 0.5f), fade);
+        lf::Line(x0 + nx * w, y0 + ny * w, x1 + nx * w, y1 + ny * w, 1.2f, o.col, 0.6f * fade);
+        lf::Line(x0 - nx * w, y0 - ny * w, x1 - nx * w, y1 - ny * w, 1.2f, o.col, 0.6f * fade);
+        lf::Line(x1 + nx * w, y1 + ny * w, x1 - nx * w, y1 - ny * w, 1.2f, o.col, 0.6f * fade);
+        break;
+    }
+    }
+    (void)time;
+}
+
+// Cloud outline: the top edge of three overlapping bumps over a flat base.
+static void DrawCloudShape(float x, float y, float scale, float time, Rgb c, float thick, float a) {
+    const float bx[3] = { -22.0f, 0.0f, 22.0f }, by[3] = { 0.0f, -8.0f, 1.0f };
+    const float br[3] = { 16.0f, 20.0f, 15.0f };
+    constexpr int kN = 28;
+    float px[kN + 2], py[kN + 2];
+    const float left = -38.0f, right = 37.0f, base = 8.0f;
+    for (int i = 0; i < kN; ++i) {
+        const float u = left + (right - left) * (float)i / (float)(kN - 1);
+        float top = base;
+        for (int b = 0; b < 3; ++b) {
+            const float r = br[b] * (1.0f + 0.05f * std::sin(time * 2.0f + (float)b * 2.1f));
+            const float d = u - bx[b];
+            if (std::fabs(d) < r) top = std::min(top, by[b] - std::sqrt(r * r - d * d));
+        }
+        px[i] = x + u * scale; py[i] = y + top * scale;
+    }
+    px[kN] = x + right * scale; py[kN] = y + base * scale;
+    px[kN + 1] = x + left * scale; py[kN + 1] = y + base * scale;
+    miter::Loop(px, py, kN + 2, thick, c.r, c.g, c.b, a);
+}
+
 void DrawWorld(float time) {
     using namespace hud_lines;
     BindMainShader();
     for (const Obj& o : s.objs) {
         const float fade = o.life > 0.0f && o.life < 1e8f
             ? std::clamp((o.life - o.t) / 0.3f, 0.0f, 1.0f) : 1.0f;
+        const float born = Smooth01(o.t / 0.15f);   // pop-in
+        const float k = o.life > 0.0f ? std::clamp(o.t / o.life, 0.0f, 1.0f) : 0.0f;
+        const Rgb hi = lf::Lift(o.col, 0.5f);
         switch (o.kind) {
-        case ObjKind::Wall: {   // outline of the wall's slab, lines only
+        case ObjKind::Wall: {
+            // A row of asteroid chunks along the wall, each with an inner contour.
             const float len = std::sqrt(o.x2 * o.x2 + o.y2 * o.y2);
-            const float nx = -o.y2 / len * 8.0f, ny = o.x2 / len * 8.0f;
-            const float px[4] = { o.x - o.x2 + nx, o.x + o.x2 + nx, o.x + o.x2 - nx, o.x - o.x2 - nx };
-            const float py[4] = { o.y - o.y2 + ny, o.y + o.y2 + ny, o.y + o.y2 - ny, o.y - o.y2 - ny };
-            ClosedOutline(px, py, 4, 2.0f, o.col, 0.9f * fade, 0.0f);
-            Segment(o.x - o.x2, o.y - o.y2, o.x + o.x2, o.y + o.y2, 1.0f, o.col, 0.5f * fade);
+            const float ux = o.x2 / len, uy = o.y2 / len;
+            uint32_t seed = lf::SeedAt(o.x, o.y);
+            for (int i = 0; i < 5; ++i) {
+                const float u = -0.8f + 0.4f * (float)i;
+                const float r = (19.0f + 7.0f * lf::Rnd(seed)) * born;
+                const float rot = lf::Rnd(seed) * lf::kTwoPi + time * (i % 2 ? 0.25f : -0.25f);
+                const uint32_t shape = lf::Hash(seed + (uint32_t)i);
+                const float cx = o.x + ux * len * u, cy = o.y + uy * len * u;
+                lf::Rock(cx, cy, r, 7, rot, shape, 2.0f, o.col, 0.9f * fade);
+                lf::Rock(cx, cy, r * 0.55f, 7, rot + 0.4f, shape, 1.0f, o.col, 0.4f * fade);
+            }
             break;
         }
         case ObjKind::Meteor: {
-            const float k = std::clamp(o.t / o.life, 0.0f, 1.0f);
-            Ring(o.x, o.y, 300.0f, 2.0f, o.col, 0.6f, 0.0f);
-            Ring(o.x, o.y, 300.0f * (1.0f - k), 2.0f, o.col, 0.9f, 0.0f);
+            // Target reticle, a ring closing in, and the rock coming down on it.
+            lf::Circle(o.x, o.y, 300.0f, 1.5f, o.col, 0.5f);
+            lf::Circle(o.x, o.y, 300.0f * (1.0f - k), 2.0f, o.col, 0.9f);
+            for (int i = 0; i < 4; ++i) {
+                const float a = lf::kPi * 0.5f * (float)i;
+                const float c = std::cos(a), sn = std::sin(a);
+                lf::Line(o.x + c * 300.0f, o.y + sn * 300.0f, o.x + c * 270.0f, o.y + sn * 270.0f, 2.0f, o.col, 0.8f);
+            }
+            const float fall = 1.0f - k;
+            const float mx = o.x - 420.0f * fall, my = o.y - 720.0f * fall;
+            const float ddx = 420.0f, ddy = 720.0f, dl = std::sqrt(ddx * ddx + ddy * ddy);
+            const uint32_t seed = lf::SeedAt(o.x, o.y);
+            lf::Rock(mx, my, 20.0f, 7, time * 2.0f, seed, 2.0f, o.col, 0.95f);
+            lf::Rock(mx, my, 11.0f, 7, time * 2.0f + 0.5f, seed, 1.0f, hi, 0.6f);
+            for (int i = -1; i <= 1; ++i) {
+                const float off = 9.0f * (float)i;
+                const float sx = mx - ddx / dl * 18.0f + (-ddy / dl) * off, sy = my - ddy / dl * 18.0f + (ddx / dl) * off;
+                lf::Line(sx, sy, sx - ddx / dl * (70.0f - 20.0f * std::fabs((float)i)),
+                         sy - ddy / dl * (70.0f - 20.0f * std::fabs((float)i)), 1.5f, o.col, 0.6f);
+            }
             break;
         }
         case ObjKind::Dynamite: {
-            const float k = std::clamp(o.t / 0.35f, 0.0f, 1.0f);
-            const float x = o.x + (o.x2 - o.x) * k, y = o.y + (o.y2 - o.y) * k;
-            Ring(x, y, 10.0f, 2.0f, o.col, 1.0f, 0.0f);
-            Ring(o.x2, o.y2, 200.0f, 1.5f, o.col, 0.35f, 0.0f);
+            // The bomb flies in an arc; the blast area counts down round its edge.
+            const float fly = std::clamp(o.t / 0.35f, 0.0f, 1.0f);
+            const float bx = o.x + (o.x2 - o.x) * fly;
+            const float by = o.y + (o.y2 - o.y) * fly - 60.0f * 4.0f * fly * (1.0f - fly);
+            lf::Polygon(bx, by, 10.0f, 8, time * 3.0f, 2.0f, o.col, 1.0f);
+            lf::Circle(bx, by, 4.0f, 1.2f, hi, 0.5f + 0.5f * (std::sin(time * 30.0f) > 0.0f ? 1.0f : 0.0f));
+            lf::Circle(o.x2, o.y2, 200.0f, 1.2f, o.col, 0.35f);
+            lf::ArcLine(o.x2, o.y2, 200.0f, -lf::kPi * 0.5f, lf::kTwoPi * (1.0f - k), 2.5f, o.col, 0.85f);
             break;
         }
         case ObjKind::Prism: {
-            const float r = 70.0f;
-            const float px[4] = { o.x, o.x + r, o.x, o.x - r };
-            const float py[4] = { o.y - r, o.y, o.y + r, o.y };
-            ClosedOutline(px, py, 4, 2.0f, o.col, 0.9f * fade, 0.0f);
+            // A standing crystal; its core fills in with every bullet it eats.
+            const float bob = std::sin(time * 3.0f) * 3.0f;
+            const float sc = born;
+            const float cx = o.x, cy = o.y + bob;
+            const float px[6] = { cx, cx + 16 * sc, cx + 16 * sc, cx, cx - 16 * sc, cx - 16 * sc };
+            const float py[6] = { cy - 36 * sc, cy - 16 * sc, cy + 18 * sc, cy + 36 * sc, cy + 18 * sc, cy - 16 * sc };
+            miter::Loop(px, py, 6, 2.0f, o.col.r, o.col.g, o.col.b, 0.95f * fade);
+            lf::Line(cx, cy - 36 * sc, cx, cy + 36 * sc, 1.0f, o.col, 0.4f * fade);
+            lf::Line(cx - 16 * sc, cy - 16 * sc, cx + 16 * sc, cy - 16 * sc, 1.0f, o.col, 0.4f * fade);
+            lf::Line(cx - 16 * sc, cy + 18 * sc, cx + 16 * sc, cy + 18 * sc, 1.0f, o.col, 0.4f * fade);
+            const float charge = std::min(1.0f, (float)o.count / 10.0f);
+            if (charge > 0.0f) {
+                const float qx[4] = { cx, cx + 8 * sc, cx, cx - 8 * sc };
+                const float qy[4] = { cy - 18 * sc, cy, cy + 18 * sc, cy };
+                miter::Loop(qx, qy, 4, 1.5f, hi.r, hi.g, hi.b, (0.3f + 0.7f * charge) * fade);
+            }
+            lf::Circle(o.x, o.y, 70.0f, 1.0f, o.col, 0.3f * fade);   // where bullets are caught
             break;
         }
-        case ObjKind::Gate:
-            for (int i = 0; i < 3; ++i)
-                Arc(o.x, o.y, 40.0f + 30.0f * i, 2.0f, time * (3.0f - i) + i, 4.0f, o.col, 0.8f * fade);
+        case ObjKind::Gate: {
+            // Black hole: spiral arms winding in to a small horizon, the pull's
+            // reach as a faint circle with rings drawn in toward the centre.
+            const float closing = 1.0f - Smooth01((o.t - (o.life - 0.3f)) / 0.3f);
+            const float sc = born * closing;
+            lf::Circle(o.x, o.y, 420.0f, 1.0f, o.col, 0.2f * sc);
+            for (int i = 0; i < 2; ++i) {
+                const float p = std::fmod(o.t * 0.8f + 0.5f * (float)i, 1.0f);
+                lf::Circle(o.x, o.y, 420.0f * (1.0f - p) + 30.0f * p, 1.0f, o.col, 0.35f * p * sc);
+            }
+            for (int arm = 0; arm < 3; ++arm) {
+                float px[14], py[14];
+                for (int j = 0; j < 14; ++j) {
+                    const float u = (float)j / 13.0f;
+                    const float r = (26.0f + 120.0f * u) * sc;
+                    const float a = lf::kTwoPi * (float)arm / 3.0f + u * 2.6f - o.t * 3.0f;
+                    px[j] = o.x + std::cos(a) * r; py[j] = o.y + std::sin(a) * r;
+                }
+                miter::Path(px, py, 14, 1.8f, o.col.r, o.col.g, o.col.b, 0.85f * sc);
+            }
+            const float glow = std::min(1.0f, 0.4f + 0.06f * (float)o.count);
+            lf::Circle(o.x, o.y, 24.0f * sc, 3.0f, o.col, sc);
+            lf::Circle(o.x, o.y, 13.0f * sc, 1.2f, hi, glow * sc);
             break;
-        case ObjKind::Trap:
-            Segment(o.x - 14, o.y - 14, o.x + 14, o.y + 14, 2.0f, o.col, 0.9f);
-            Segment(o.x - 14, o.y + 14, o.x + 14, o.y - 14, 2.0f, o.col, 0.9f);
-            Ring(o.x, o.y, 22.0f, 1.5f, o.col, 0.5f, 0.0f);
+        }
+        case ObjKind::Trap: {
+            // A small mine: a diamond in a diamond, the core blinking, the
+            // trigger radius as a faint circle.
+            const bool on = std::fmod(o.t, 0.8f) < 0.4f;
+            lf::Diamond(o.x, o.y, 11.0f * born, 2.0f, o.col, 1.0f);
+            lf::Diamond(o.x, o.y, 5.0f * born, 1.2f, hi, on ? 1.0f : 0.3f);
+            lf::Circle(o.x, o.y, 40.0f, 1.0f, o.col, 0.25f);
             break;
+        }
         case ObjKind::Turret: {
-            const float px[4] = { o.x - 14, o.x + 14, o.x + 14, o.x - 14 };
-            const float py[4] = { o.y - 14, o.y - 14, o.y + 14, o.y + 14 };
-            ClosedOutline(px, py, 4, 2.0f, o.col, 0.9f * fade, 0.0f);
+            // Hexagonal base, a barrel that turns to its target and kicks back
+            // on each shot, the time left as an arc round it.
+            float ax = o.dirX, ay = o.dirY;
+            if (ax == 0.0f && ay == 0.0f) { ax = 0.0f; ay = -1.0f; }
+            const float kick = std::max(0.0f, 1.0f - o.timer / 0.12f) * 5.0f;
+            const float sc = born;
+            lf::Polygon(o.x, o.y, 16.0f * sc, 6, 0.0f, 2.0f, o.col, 0.95f * fade);
+            lf::Circle(o.x, o.y, 7.0f * sc, 1.5f, hi, 0.9f * fade);
+            const float bnx = -ay, bny = ax;
+            const float b0 = 6.0f - kick, b1 = 24.0f - kick;
+            for (int sd = -1; sd <= 1; sd += 2) {
+                const float ox = bnx * 2.8f * (float)sd, oy = bny * 2.8f * (float)sd;
+                lf::Line(o.x + ax * b0 + ox, o.y + ay * b0 + oy, o.x + ax * b1 + ox, o.y + ay * b1 + oy,
+                         1.5f, o.col, 0.95f * fade);
+            }
+            lf::Line(o.x + ax * b1 + bnx * 4.0f, o.y + ay * b1 + bny * 4.0f,
+                     o.x + ax * b1 - bnx * 4.0f, o.y + ay * b1 - bny * 4.0f, 1.5f, o.col, 0.95f * fade);
+            lf::ArcLine(o.x, o.y, 22.0f, -lf::kPi * 0.5f, lf::kTwoPi * (1.0f - k), 1.2f, o.col, 0.45f * fade);
             break;
         }
         case ObjKind::Cloud:
-            Arc(o.x, o.y, 34.0f, 2.0f, 3.4f, 2.6f, o.col, 0.8f * fade);
-            Segment(o.x - 40, o.y + 6, o.x + 40, o.y + 6, 2.0f, o.col, 0.8f * fade);
+            DrawCloudShape(o.x, o.y, born, time, o.col, 2.0f, 0.9f * fade);
+            DrawCloudShape(o.x, o.y + 2.0f, 0.6f * born, time + 1.3f, o.col, 1.0f, 0.4f * fade);
             break;
-        case ObjKind::Clone:
-            Ring(o.x, o.y, 14.0f, 2.0f, o.col, 0.8f * fade, 0.0f);
-            Ring(o.x, o.y, 24.0f + 3.0f * std::sin(time * 6.0f), 1.0f, o.col, 0.4f * fade, 0.0f);
+        case ObjKind::Clone: {
+            // A twin star: the ship's four-point outline, slowly turning, tied
+            // to the ship by a thin line.
+            const float sc = born;
+            lf::Line(o.x, o.y, s.in.px, s.in.py, 1.0f, o.col, 0.15f * fade);
+            lf::Star4(o.x, o.y, 16.0f * sc, 5.0f * sc, time * 0.8f, 2.0f, o.col, 0.95f * fade);
+            lf::Star4(o.x, o.y, 8.0f * sc, 2.5f * sc, time * 0.8f, 1.0f, hi, 0.6f * fade);
+            lf::Circle(o.x, o.y, (24.0f + 2.5f * std::sin(time * 4.0f)) * sc, 1.0f, o.col, 0.35f * fade);
             break;
-        case ObjKind::Hoop:
-            Ring(o.x2, o.y2, 22.0f, 3.0f, o.col, 0.9f, 0.0f);
+        }
+        case ObjKind::Hoop: {
+            // A spinning ring: a thin circle with three bright segments running round it.
+            lf::Circle(o.x2, o.y2, 22.0f, 1.2f, o.col, 0.6f);
+            lf::Circle(o.x2, o.y2, 13.0f, 1.0f, o.col, 0.35f);
+            for (int i = 0; i < 3; ++i)
+                lf::ArcLine(o.x2, o.y2, 22.0f, time * 9.0f + lf::kTwoPi * (float)i / 3.0f, 0.7f, 3.0f, hi, 1.0f);
             break;
+        }
         case ObjKind::Line:
-            for (size_t i = 2; i + 1 < o.pts.size(); i += 2)
-                Segment(o.pts[i - 2], o.pts[i - 1], o.pts[i], o.pts[i + 1], 3.0f, o.col, 0.9f * fade);
+            DrawLineObj(o, k, time);
             break;
-        case ObjKind::Strike:
-            Segment(o.x, o.y - 260.0f, o.x - 10.0f, o.y - 120.0f, 3.0f, o.col, fade);
-            Segment(o.x - 10.0f, o.y - 120.0f, o.x + 8.0f, o.y - 60.0f, 3.0f, o.col, fade);
-            Segment(o.x + 8.0f, o.y - 60.0f, o.x, o.y, 3.0f, o.col, fade);
+        case ObjKind::Strike: {
+            // A forked bolt from the sky (or the storm cloud), then a diamond
+            // spreading from where it lands.
+            const float sx = o.fromSource ? o.x2 : o.x - 60.0f + 120.0f * (float)(o.seed % 101u) / 100.0f;
+            const float sy = o.fromSource ? o.y2 : o.y - 340.0f;
+            const float a = (1.0f - k) * (1.0f - k);
+            lf::Bolt(sx, sy, o.x, o.y, o.seed + (uint32_t)(o.t * 24.0f), 2.4f, o.col, a);
+            const float ik = Smooth01(k / 0.6f);
+            lf::Diamond(o.x, o.y, 6.0f + 22.0f * ik, 2.0f, o.col, 1.0f - ik);
+            lf::Diamond(o.x, o.y, 4.0f + 8.0f * ik, 1.2f, hi, 1.0f - ik);
             break;
+        }
         }
     }
     // Precision Snipe aim line and Condensed Blast charge.

@@ -13,7 +13,6 @@ bool  Chance(float p);                // luck-adjusted
 float AttackPower();
 float AllDamageMult();
 bool  OnScreen(float x, float y);
-void  Ring(float x, float y, float radius, float r, float g, float b);
 void  DamageAll(float pct, float r, float g, float b, bool canCrit = false,
                 float extra = 1.0f);
 void  DamageRadius(float x, float y, float radius, float pct,

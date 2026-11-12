@@ -10,13 +10,6 @@ class Bullet;
 
 namespace passive {
 
-// Visual effects owned by main.cpp.
-struct Fx {
-    void (*shockwave)(float x, float y, float radius, float life,
-                      float r, float g, float b) = nullptr;
-};
-inline Fx g_Fx;
-
 void InstallHooks();
 void Reset();                         // a new run
 

@@ -60,10 +60,10 @@ constexpr float FOOTER_BUTTON_H = 32.0f;
 constexpr float FOOTER_BUTTON_GAP = 12.0f;
 // Stats 탭 푸터 버튼 폭. 입력과 그리기가 같은 표로 위치를 계산한다.
 enum FooterButton { FOOTER_SYNC, FOOTER_BALANCE, FOOTER_HITSTOP, FOOTER_NEXT_WAVE,
-                    FOOTER_ORBIT, FOOTER_COUNT };
-constexpr float FOOTER_BUTTON_W[FOOTER_COUNT] = { 140.0f, 130.0f, 140.0f, 140.0f, 128.0f };
-// Buttons from FOOTER_ROW2_FIRST on sit in a second row above the first (none now).
-constexpr int FOOTER_ROW2_FIRST = FOOTER_COUNT;
+                    FOOTER_ORBIT, FOOTER_KILL, FOOTER_COUNT };
+constexpr float FOOTER_BUTTON_W[FOOTER_COUNT] = { 140.0f, 130.0f, 140.0f, 140.0f, 128.0f, 120.0f };
+// Buttons from FOOTER_ROW2_FIRST on sit in a second row above the first.
+constexpr int FOOTER_ROW2_FIRST = FOOTER_KILL;
 constexpr float FOOTER_ROW2_LIFT = FOOTER_BUTTON_H + 8.0f;
 inline float FooterButtonX(float panelX, int index) {
     float x = panelX + 16.0f;
@@ -98,7 +98,9 @@ int SpawnEntries(int category, const int*& ids) {
     static const int kRegular[] = { 0, 2, 3, 5, 6, 9, 13, 14, 15 };
     static const int kElite[] = { 1, 4, 7, 8 };
     static const int kBoss[] = { 10, 12, 11 };
+    static const int kTest[] = { 16, 17 };
     switch (category) {
+    case 3: ids = kTest; return (int)(sizeof(kTest) / sizeof(kTest[0]));
     case 1: ids = kElite; return (int)(sizeof(kElite) / sizeof(kElite[0]));
     case 2: ids = kBoss;  return (int)(sizeof(kBoss) / sizeof(kBoss[0]));
     default: ids = kRegular; return (int)(sizeof(kRegular) / sizeof(kRegular[0]));
@@ -353,7 +355,8 @@ const wchar_t* DebugToolkit::MobLabel(int index) {
     static const wchar_t* labels[] = {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
         L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR",
-        L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS", L"LYNX", L"MIRA", L"TRIGON"
+        L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS", L"LYNX", L"MIRA", L"TRIGON",
+        L"허수아비", L"허수아비 모두 제거"
     };
     if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
         return L"알 수 없음";
@@ -726,6 +729,12 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 : L"다음 웨이브로 이동했습니다");
             if (context_.game->waveVictory) SetVisible(false);
         }
+        if (click && footerHit(FOOTER_KILL) && context_.killPlayer && context_.game &&
+            context_.game->currentState == GameState::RUNNING) {
+            context_.killPlayer();
+            SetMessage(L"즉사 처리했습니다");
+            SetVisible(false);   // close so the death plays out
+        }
         if (click && footerHit(FOOTER_ORBIT) && context_.constellationOrbits) {
             *context_.constellationOrbits = !*context_.constellationOrbits;
             SetMessage(*context_.constellationOrbits
@@ -744,8 +753,8 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         const float buttonW = (p.w - 48.0f) * 0.5f;
         const float gap = 16.0f;
         {
-            const float catW = (p.w - 32.0f - 2.0f * 8.0f) / 3.0f;
-            for (int c = 0; c < 3; ++c) {
+            const float catW = (p.w - 32.0f - 3.0f * 8.0f) / 4.0f;
+            for (int c = 0; c < 4; ++c) {
                 if (!Hit(p.x + 16.0f + c * (catW + 8.0f), p.y + SPAWN_CATEGORY_Y,
                          catW, 32.0f, mx, my) || spawnCategory_ == c)
                     continue;
@@ -845,6 +854,15 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 case 12:
                     if (context_.spawnBoss) spawned = context_.spawnBoss(1);
                     break;
+                case 16:
+                    if (context_.spawnDummy) spawned = context_.spawnDummy(spawnCount_);
+                    break;
+                case 17: {
+                    const int removed = context_.clearDummies ? context_.clearDummies() : 0;
+                    SetMessage(removed > 0 ? L"허수아비를 모두 제거했습니다 x" + FormatInt(removed)
+                                           : L"제거할 허수아비가 없습니다");
+                    return true;
+                }
                 case 11:
                     if (context_.openTestPane && context_.openTestPane()) {
                         SetMessage(L"테스트 창을 열었습니다");
@@ -854,7 +872,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                     return true;
                 }
                 if (spawned <= 0) {
-                    SetMessage(selectedMob_ >= 10 && selectedMob_ != 13 && selectedMob_ != 14 && selectedMob_ != 15
+                    SetMessage(selectedMob_ >= 10 && selectedMob_ <= 12
                         ? L"소환 실패: 보스가 이미 필드에 있거나 런이 진행 중이 아닙니다"
                         : L"소환 실패: 몬스터 수용 한도에 도달했습니다");
                     return true;
@@ -1048,6 +1066,8 @@ void DebugToolkit::RenderStatsTab(float x, float y, float w, float h,
                hitStopActive, context_.eliteKillHitStop != nullptr);
     drawFooter(FOOTER_NEXT_WAVE, L"다음 웨이브", false,
                context_.advanceWave && context_.game->currentState == GameState::RUNNING);
+    drawFooter(FOOTER_KILL, L"즉사", false,
+               context_.killPlayer && context_.game->currentState == GameState::RUNNING);
     drawFooter(FOOTER_ORBIT, orbitActive ? L"궤도: 켜짐" : L"궤도: 꺼짐",
                orbitActive, context_.constellationOrbits != nullptr);
     wchar_t page[64] = {};
@@ -1088,9 +1108,9 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
     const float buttonW = (w - 48.0f) * 0.5f;
     const float gap = 16.0f;
     {
-        static const wchar_t* const kCategory[3] = { L"일반", L"엘리트", L"보스" };
-        const float catW = (w - 32.0f - 2.0f * 8.0f) / 3.0f;
-        for (int c = 0; c < 3; ++c)
+        static const wchar_t* const kCategory[4] = { L"일반", L"엘리트", L"보스", L"테스트" };
+        const float catW = (w - 32.0f - 3.0f * 8.0f) / 4.0f;
+        for (int c = 0; c < 4; ++c)
             DrawButton(x + 16.0f + c * (catW + 8.0f), y + SPAWN_CATEGORY_Y, catW, 32.0f,
                        kCategory[c], spawnCategory_ == c, true);
     }
@@ -1104,9 +1124,10 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
         DrawButton(bx, by, buttonW, buttonH, MobLabel(ids[slot]),
                    selectedMob_ == ids[slot], true);
     }
-    const bool bossPick = selectedMob_ >= 10 && selectedMob_ != 13 && selectedMob_ != 14 && selectedMob_ != 15;
+    const bool bossPick = selectedMob_ >= 10 && selectedMob_ <= 12;
     const std::wstring summonLabel = selectedMob_ >= 0
         ? (selectedMob_ == 11 ? std::wstring(L"열기 ") + MobLabel(selectedMob_)
+           : selectedMob_ == 17 ? std::wstring(MobLabel(selectedMob_))
            : bossPick ? std::wstring(L"소환 ") + MobLabel(selectedMob_)
            : std::wstring(L"소환 ") + MobLabel(selectedMob_) + L"  x" + FormatInt(spawnCount_))
         : L"소환할 대상을 선택하세요";

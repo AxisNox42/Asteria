@@ -8,7 +8,7 @@
 
 MonsterManager g_MonsterManager;
 int g_CurrentWeapon = (int)StartWeapon::SMG;
-float g_MuzzleTimer = 0.0f;
+float g_ShotKickTimer = 0.0f;
 
 static std::vector<float> Geometry(float gameTime) {
     g_Batch.clear();

@@ -14,6 +14,7 @@
 #include "EnemyParticles.h"
 #include "GameManager.h"
 #include "Juice.h"
+#include "LineFx.h"
 #include "MonsterManager.h"
 #include "PassiveHooks.h"
 #include "PlayerRuntime.h"
@@ -41,6 +42,7 @@ static_assert(sizeof(Flags) == kCards * sizeof(bool), "Flags must be a plain boo
 struct Zone  { float x, y, r, life, pct, tick, blastAtEnd, cr, cg, cb; };   // pct: % of attack per second
 struct Mine  { float x, y, life, pct, pulse; };
 struct Burn  { float t, tick; };
+struct RingFx { float x, y, r, age, life, cr, cg, cb; };   // a brief line ring (Pulse)
 struct Echo  { float t; std::vector<Bullet> shots; };
 
 // The chance cards: a chance of one kind that holds while a condition does (SynergyChance.inc).
@@ -80,7 +82,7 @@ struct State {
     int   lastWave = -1, shots = 0, rhythm = 0, combo = 0, kills = 0, grazes = 0, orbitShots = 0;
     int   quietWaves = 0, cakeArmed = 0, cakeUsed = 0, mineShots = 0;
     float waveDamage = 0, revengeAcc = 0, cakeAcc = 0, stored = 0, absorbed = 0, dashBoostT = 0, swapCd = 0;
-    float markPulse = 0, shieldPulse = 0;
+    float shieldPulse = 0;
     std::unordered_map<const void*, glm::vec2> seen;        // enemies alive last step, to notice deaths
     std::unordered_set<const void*> counted;                // kills already handled this step
     bool  stillCharged = false, prevDash = false, revived = false, lastWallGiven = false;
@@ -91,6 +93,7 @@ struct State {
     std::vector<Bullet> pending;                          // spawned during a collision pass
     std::unordered_map<const void*, float> marks;
     std::unordered_map<const void*, Burn>  burns;
+    std::vector<RingFx> rings;
     passive::StepInput in;
 };
 State s;
@@ -106,7 +109,7 @@ template <class F> void ForEachEnemy(F&& f) {
     for (auto* r : g_MonsterManager.rangedMobs) if (r->alive) f(*r, r->worldX, r->worldY);
 }
 
-// Damage as a share of attack, with the "all damage" multipliers; no sound, one small ring.
+// Damage as a share of attack, with the "all damage" multipliers; no sound.
 void Burst(float x, float y, float radius, float pct) {
     const float dmg = passive::AttackPower() * pct / 100.0f * passive::AllDamageMult();
     ForEachEnemy([&](auto& e, float ex, float ey) {
@@ -115,7 +118,6 @@ void Burst(float x, float y, float radius, float pct) {
         const float dealt = g_MonsterManager.ApplyDamage(e, dmg);
         if (dealt > 0.0f) SpawnDamageNumber(ex, ey, dealt, false);
     });
-    passive::Ring(x, y, radius, 1.0f, 0.70f, 0.30f);
 }
 
 Bullet MakeShot(float x, float y, float ang, float dmgMult, float range) {
@@ -132,39 +134,10 @@ void AddShield(float amount) {
     g_PlayerShieldTimer = 1.0e9f;
 }
 
-// A ring of particles: still (a zone, a mine) or flying outward (a pickup). It uses the enemy
-// particle pool, the one the renderer draws (the hit-spark list is not drawn), and that pool has a cap
-// of its own, so a persistent effect cannot crowd out the game's 16 shockwave slots.
-void SparkRing(float x, float y, float radius, float life, float r, float g, float b, bool expand, int maxDots) {
-    const int n = std::clamp((int)(radius / 4.0f), 10, maxDots);
-    int slot = 0;
-    for (int i = 0; i < n; ++i) {
-        while (slot < EnemyParticleCap() && g_EnemyParts[slot].active) ++slot;
-        if (slot >= EnemyParticleCap()) return;
-        const float a = 2.0f * kPi * (float)i / (float)n;
-        EnemyParticle& p = g_EnemyParts[slot++];
-        p = EnemyParticle{};
-        p.active = true;
-        p.life = p.maxLife = life;
-        p.r = r; p.g = g; p.b = b;
-        p.shape = EnemyParticleShape::CIRCLE;
-        if (expand) {
-            const float v = 2.5f * radius;                       // drag 2.5/s: it coasts about `radius` out
-            p.x = x + std::cos(a) * 12.0f; p.y = y + std::sin(a) * 12.0f;
-            p.vx = std::cos(a) * v; p.vy = std::sin(a) * v;
-            p.size = 7.0f;
-        } else {
-            p.x = x + std::cos(a) * radius; p.y = y + std::sin(a) * radius;
-            p.size = 5.0f;
-        }
-    }
-}
-// The persistent effects pulse through here: a few rings per step at most.
-int g_pulseBudget = 5;
+// A brief line ring (a zone opening, a mine's reach, a swap, the shield).
 void Pulse(float x, float y, float radius, float life, float r, float g, float b) {
-    if (g_pulseBudget <= 0) return;
-    --g_pulseBudget;
-    SparkRing(x, y, radius, life, r, g, b, false, 22);
+    if (s.rings.size() >= 400) return;
+    s.rings.push_back({ x, y, radius, 0.0f, life, r, g, b });
 }
 
 void AddZone(float x, float y, float r, float life, float pct, float blastAtEnd = 0.0f,
@@ -206,7 +179,6 @@ void Chain(float x, float y, const void* skip, int count, float range, float pct
             if (m == best) { const float d = g_MonsterManager.ApplyDamage(*m, dmg); if (d > 0) SpawnDamageNumber(bx, by, d, false); }
         for (auto* r : g_MonsterManager.rangedMobs)
             if (r == best) { const float d = g_MonsterManager.ApplyDamage(*r, dmg); if (d > 0) SpawnDamageNumber(bx, by, d, false); }
-        passive::Ring(bx, by, 26.0f, 0.65f, 0.85f, 1.0f);
         cx = bx; cy = by; p *= 1.0f + growth;
     }
 }
@@ -463,6 +435,57 @@ void Explode(float x, float y, float radius, float pct, bool pull) {
 
 void Reset() { s = State{}; }
 
+void ForgetEnemy(const void* enemy) {
+    s.seen.erase(enemy);
+    s.marks.erase(enemy);
+    s.burns.erase(enemy);
+}
+
+void DrawWorld() {
+    namespace lf = line_fx;
+    // Ring pulses: a line that widens a little as it fades.
+    for (const RingFx& r : s.rings) {
+        const float k = std::clamp(r.age / r.life, 0.0f, 1.0f);
+        const float grow = 0.88f + 0.12f * (1.0f - (1.0f - k) * (1.0f - k));
+        lf::Circle(r.x, r.y, r.r * grow, 1.5f, { r.cr, r.cg, r.cb }, 0.8f * (1.0f - k));
+    }
+    if (!s.any) return;
+    // Zones: a steady circle for as long as the zone lasts, fading out at the end.
+    for (const Zone& z : s.zones)
+        lf::Circle(z.x, z.y, z.r, 1.2f, { z.cr, z.cg, z.cb }, 0.45f * std::min(1.0f, z.life / 0.3f));
+    // Mines: a small diamond in a diamond.
+    for (const Mine& m : s.mines) {
+        lf::Diamond(m.x, m.y, 9.0f, 1.5f, { 1.0f, 0.45f, 0.35f }, 0.95f);
+        lf::Diamond(m.x, m.y, 4.0f, 1.0f, { 1.0f, 0.80f, 0.70f }, 0.8f);
+    }
+    if (s.marks.empty() && s.burns.empty()) return;
+    const float t = s.clock;
+    ForEachEnemy([&](auto& e, float ex, float ey) {
+        // Marked: four corner brackets locked on the enemy.
+        if (s.marks.count(&e)) {
+            const float h = 20.0f, c = 7.0f;
+            const lf::Rgb col{ 1.0f, 0.9f, 0.3f };
+            for (int i = 0; i < 4; ++i) {
+                const float sx = (i & 1) ? 1.0f : -1.0f, sy = (i & 2) ? 1.0f : -1.0f;
+                const float cx = ex + sx * h, cy = ey + sy * h;
+                lf::Line(cx, cy, cx - sx * c, cy, 1.5f, col, 0.9f);
+                lf::Line(cx, cy, cx, cy - sy * c, 1.5f, col, 0.9f);
+            }
+        }
+        // Burning: two small flame chevrons over the enemy, flickering.
+        if (s.burns.count(&e)) {
+            const lf::Rgb col{ 1.0f, 0.55f, 0.15f };
+            for (int i = 0; i < 2; ++i) {
+                const float fy = ey - 24.0f - 7.0f * (float)i - 3.0f * std::sin(t * 9.0f + (float)i);
+                const float w = 6.0f - 1.5f * (float)i;
+                const float a = 0.6f + 0.4f * std::sin(t * 13.0f + 1.7f * (float)i);
+                lf::Line(ex - w, fy + w, ex, fy, 1.5f, col, a);
+                lf::Line(ex + w, fy + w, ex, fy, 1.5f, col, a);
+            }
+        }
+    });
+}
+
 void PickupFx(int augIdx) {
     if (augIdx < 0 || augIdx >= AUG_TOTAL) return;
     const AugDef& d = ALL_AUGS[augIdx];
@@ -471,9 +494,9 @@ void PickupFx(int augIdx) {
     r = r * 0.55f + 0.45f; g = g * 0.55f + 0.45f; b = b * 0.55f + 0.45f;   // lifted so thin lines read
     const int tier = (int)d.rarity;                                          // 0 common .. 4 mythic
     const float x = s.in.px, y = s.in.py;
-    SparkRing(x, y, 70.0f + 28.0f * tier, 0.55f, r, g, b, true, 30);
-    if (tier >= 2) SparkRing(x, y, 130.0f + 40.0f * tier, 0.75f, r, g, b, true, 36);
-    if (tier >= 3) SparkRing(x, y, 240.0f + 40.0f * tier, 0.95f, 1.0f, 1.0f, 1.0f, true, 40);
+    Pulse(x, y, 70.0f + 28.0f * tier, 0.55f, r, g, b);
+    if (tier >= 2) Pulse(x, y, 130.0f + 40.0f * tier, 0.75f, r, g, b);
+    if (tier >= 3) Pulse(x, y, 240.0f + 40.0f * tier, 0.95f, 1.0f, 1.0f, 1.0f);
     SpawnEnemyExplosion(x, y, r, g, b, tier >= 2);
     SpawnWorldText(x, y - 34.0f, AugName(d), r, g, b, 1.5f + 0.15f * tier);
     if (tier >= 2) TriggerFlash(r, g, b, 0.08f + 0.05f * tier);
@@ -835,7 +858,6 @@ bool TryRevive() {
     s.revived = true;
     Audio::Play(Audio::Cue::SfxRevive);
     g_GameManager.playerHP = std::min(g_Stats.maxHP, 20.0f);
-    passive::Ring(s.in.px, s.in.py, 260.0f, 0.6f, 1.0f, 0.7f);
     return true;
 }
 
@@ -843,10 +865,13 @@ bool TryRevive() {
 
 void Step(const passive::StepInput& in) {
     s.in = in;
+    // Ring pulses age even without synergy cards (a pickup of any card shows one).
+    for (RingFx& r : s.rings) r.age += in.dt;
+    s.rings.erase(std::remove_if(s.rings.begin(), s.rings.end(),
+        [](const RingFx& r) { return r.age >= r.life; }), s.rings.end());
     if (!s.any) return;
     const Flags& o = s.on;
     const float dt = in.dt;
-    g_pulseBudget = 5;
     s.clock += dt;
     s.swapCd = std::max(0.0f, s.swapCd - dt);
     s.stillGuardCd = std::max(0.0f, s.stillGuardCd - dt);
@@ -914,13 +939,6 @@ void Step(const passive::StepInput& in) {
 
     // Marks and burns.
     for (auto it = s.marks.begin(); it != s.marks.end();) { it->second -= dt; it = it->second <= 0.0f ? s.marks.erase(it) : std::next(it); }
-    s.markPulse -= dt;
-    if (s.markPulse <= 0.0f && !s.marks.empty()) {
-        s.markPulse = 0.7f;
-        ForEachEnemy([&](auto& e, float ex, float ey) {
-            if (s.marks.count(&e)) Pulse(ex, ey, 22.0f, 0.45f, 1.0f, 0.9f, 0.3f);
-        });
-    }
     // The shield shows as a ring round the ship while it holds.
     s.shieldPulse -= dt;
     if (s.shieldPulse <= 0.0f && g_PlayerShield > 0.0f) { s.shieldPulse = 0.9f; Pulse(in.px, in.py, 36.0f, 0.4f, 0.45f, 0.85f, 1.0f); }
@@ -934,7 +952,7 @@ void Step(const passive::StepInput& in) {
                 it->second.tick += 0.5f;
                 const float dealt = g_MonsterManager.ApplyDamage(e, dmg);
                 if (dealt > 0.0f) SpawnDamageNumber(ex, ey, dealt, false);
-                SparkRing(ex, ey, 18.0f, 0.3f, 1.0f, 0.55f, 0.15f, false, 10);
+                Pulse(ex, ey, 16.0f, 0.3f, 1.0f, 0.55f, 0.15f);
             }
         });
         for (auto it = s.burns.begin(); it != s.burns.end();) it = it->second.t <= 0.0f ? s.burns.erase(it) : std::next(it);
@@ -945,7 +963,6 @@ void Step(const passive::StepInput& in) {
         z.life -= dt; z.tick -= dt;
         if (z.tick <= 0.0f) {
             z.tick += 0.3f;
-            Pulse(z.x, z.y, z.r, 0.32f, z.cr, z.cg, z.cb);
             const float dmg = passive::AttackPower() * z.pct * 0.3f / 100.0f * passive::AllDamageMult();
             ForEachEnemy([&](auto& e, float ex, float ey) {
                 if ((ex - z.x) * (ex - z.x) + (ey - z.y) * (ey - z.y) > z.r * z.r) return;
@@ -961,7 +978,7 @@ void Step(const passive::StepInput& in) {
     for (size_t i = 0; i < s.mines.size(); ++i) {
         Mine& m = s.mines[i];
         m.life -= dt; m.pulse -= dt;
-        if (m.pulse <= 0.0f) { m.pulse = 0.6f; Pulse(m.x, m.y, 24.0f, 0.4f, 1.0f, 0.45f, 0.35f); Pulse(m.x, m.y, 80.0f, 0.5f, 1.0f, 0.45f, 0.35f); }
+        if (m.pulse <= 0.0f) { m.pulse = 1.2f; Pulse(m.x, m.y, 80.0f, 0.6f, 1.0f, 0.45f, 0.35f); }
         bool trip = false;
         ForEachEnemy([&](auto&, float ex, float ey) {
             if ((ex - m.x) * (ex - m.x) + (ey - m.y) * (ey - m.y) < 80.0f * 80.0f) trip = true;
@@ -1066,7 +1083,7 @@ void Step(const passive::StepInput& in) {
                 const float over = b.traveled - b.synLandDist;
                 b.synTx = b.x - b.dirX * over; b.synTy = b.y - b.dirY * over;
                 const float r = 110.0f;
-                SparkRing(b.synTx, b.synTy, r, 0.45f, 1.0f, 0.55f, 0.25f, true, 28);
+                Pulse(b.synTx, b.synTy, r, 0.45f, 1.0f, 0.55f, 0.25f);
                 Burst(b.synTx, b.synTy, r, 90.0f * b.dmgMult * s.dmg * (1.0f + s.dmgAdd));
                 Landed(b, r);
             }

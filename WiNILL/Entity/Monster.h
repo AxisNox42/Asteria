@@ -5,6 +5,7 @@
 #include "LynxMob.h"
 #include "MiraMob.h"
 #include "TriangulumMob.h"
+#include "TrainingDummy.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -620,6 +621,9 @@ public:
     // Thrown Swarm: 1 flight, 2 landing stun, 0 ordinary chase. The Antares
     // trail buffer doubles as this Swarm's afterimage history.
     bool genesisThrown = false;       // summoned Swarm/Rotor; owner cap and no-farm rewards
+    // Damage-test dummy (TrainingDummy.h): takes every hit, never dies or moves.
+    bool trainingDummy = false;
+    float dummyHomeX = 0.0f, dummyHomeY = 0.0f;
     int thrownOwnerId = 0;            // genesisId of the Genesis that threw it
     bool genesisControlled = false;   // still driven by its Genesis (smart AI, controlled colour)
     // Nightmare: this Genesis' thrown units are capsules that open into a random non-elite,
@@ -703,6 +707,8 @@ public:
     float gravisDriftAngle = 0.0f;
     float gravisDriftTimer = 0.0f;
     float gravisOrbitPhase = 0.0f;      // decorative orbiting node
+    bool gravisInArena = false;         // glided in from its spawn edge (main.cpp clamp)
+    float gravisGrow = 1.0f;            // 0..1 field growth once on screen (MakeKind starts it at 0)
     // Gimbal mirrors Scope's accelerating two-rotation charge for one shot.
     float gimbalAttackTimer = 0.0f;
     float gimbalChargeAngle = 0.0f;
@@ -766,6 +772,12 @@ public:
     }
 
     float ApplyDamage(float damage) {
+        if (trainingDummy) {
+            if (!alive || !(damage > 0.0f)) return 0.0f;
+            hitFlashTimer = MOB_HIT_FLASH_TIME;
+            dummy::Hit(this, damage);
+            return damage;   // the whole hit counts; HP never drops
+        }
         if (kind == MobKind::NORMA && (normaHidden || normaInvuln > 0.0f)) return 0.0f;
         if (kind == MobKind::NORMA && normaExposed > 0.0f) damage *= norma::kExposeDamage;
         // Phase 1 is its own bar for NORMA too: no hit takes it past the line.
@@ -877,6 +889,8 @@ public:
             gravisDriftAngle = (float)(rand() % 628) * 0.01f;
             gravisDriftTimer = 1.0f + (float)(rand() % 120) * 0.01f;
             gravisOrbitPhase = (float)(rand() % 628) * 0.01f;
+            gravisInArena = false;
+            gravisGrow = 0.0f;
         } else if (kind == MobKind::QUASAR) {
             color = glm::vec3(0.42f, 0.56f, 1.0f);
             hp *= QUASAR_BASE_HP / 90.0f;
@@ -1942,7 +1956,16 @@ public:
     // ---- Gravis ------------------------------------------------------------
     // No pattern of its own: the body drifts and the standing field
     // (GravisField) does the work.
+    // Field radius right now: grows from the body to RADIUS after spawn. The
+    // drawn ring, the pull and the bullet bend all use this one value.
+    float GravisFieldRadius() const {
+        return GravisField::RADIUS * GravisField::GrowScale(gravisGrow);
+    }
     void UpdateGravis(float deltaTime, float speedMult) {
+        // The field stays shut while the body glides in and only opens once
+        // the Gravis is on screen.
+        if (gravisInArena)
+            gravisGrow = std::min(1.0f, gravisGrow + deltaTime / GravisField::GROW_TIME);
         gravisVisualAngle += deltaTime * 0.72f;
         gravisOrbitPhase += deltaTime * 1.35f;
         gravisDriftTimer -= deltaTime;
@@ -2986,6 +3009,11 @@ public:
                 const glm::vec4& attackBounds = glm::vec4(0.0f)) {
         if (!alive) return;
         hitFlashTimer = std::max(0.0f, hitFlashTimer - deltaTime);
+        if (trainingDummy) {   // stays on its spot, never attacks or touches the player
+            worldX = dummyHomeX; worldY = dummyHomeY;
+            dummy::Tick(this, deltaTime);
+            return;
+        }
         hitStunCooldown = std::max(0.0f, hitStunCooldown - deltaTime);
         eliteHitPulse = std::max(0.0f, eliteHitPulse - deltaTime / ELITE_HIT_PULSE_TIME);
         eliteHitSwell = std::min(eliteHitPulse,

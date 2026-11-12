@@ -67,6 +67,8 @@
 #include "MainShader.h"
 #include "EntityDraw.h"
 #include "CaelumDraw.h"
+#include "NormaFx.h"         // OCTANS's own seals and pane frames
+#include "CaelumFx.h"        // ERIDANUS's own torn crop-mark rings
 #include "WaveHud.h"
 #include "SkillHud.h"
 #include "AugCardModel.h"
@@ -1091,29 +1093,12 @@ static void GrantExperience(XpAmount amount) {
 // 게임 ?�작 ??경과 ?�간 (?�폭�?보스 ?�장 ?�?�밍)
 float g_GameTime         = 0.0f;
 
-// ??�� 충격??(?�폭�??�폭 / 보스 ?�폰)
-struct ShockWave {
-    float x, y;
-    float life, maxLife;
-    float maxRadius;
-    float r, g, b;
-    bool  active  = false;
-};
-static const int MAX_SHOCKS = 16;
-ShockWave g_ShockWaves[MAX_SHOCKS] = {};
-
-static void SpawnShockWave(float x, float y, float maxR, float life,
-                           float r, float g, float b) {
-    for (int i = 0; i < MAX_SHOCKS; i++) {
-        if (!g_ShockWaves[i].active) {
-            g_ShockWaves[i] = { x, y, life, life, maxR, r, g, b, true };
-            return;
-        }
-    }
-}
-
 // 검�?근접 ?�윙 ?�상 (조�? 방향 ??
-float g_MuzzleX = 0.0f, g_MuzzleY = 0.0f, g_MuzzleAng = 0.0f, g_MuzzleTimer = 0.0f;
+float g_ShotKickTimer = 0.0f;
+// Smoke step WALK=L|R|U|D|0: hold that move direction (0 releases). Smoke runs only.
+static char g_SmokeWalk = 0;
+// F1 debug console > Stats > 즉사: the next frame kills the player outright.
+static bool g_DebugKillPlayer = false;   // weapon shell recoil after a shot (PlayerWeaponShell)
 
 // NORMA window spaces (SpaceRules.h): open panes become world regions each
 // frame, front-most first, and the player's space is resolved from its centre.
@@ -1859,8 +1844,10 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                     SpawnSparks(ScreenToWorldX(frame.x), ScreenToWorldY(frame.y + frame.h * t), 3, 0.92f, 0.99f, 1.0f, 520.0f);
                     SpawnSparks(ScreenToWorldX(frame.x + frame.w), ScreenToWorldY(frame.y + frame.h * t), 3, 0.92f, 0.99f, 1.0f, 520.0f);
                 }
-                SpawnShockWave(cx, cy, 380.0f, 0.5f, 0.92f, 0.99f, 1.0f);
-                SpawnShockWave(cx, cy, 220.0f, 0.35f, 1.0f, 1.0f, 1.0f);
+                norma_fx::Frame(ScreenToWorldX(frame.x), ScreenToWorldY(frame.y),
+                                ScreenToWorldX(frame.x + frame.w), ScreenToWorldY(frame.y + frame.h),
+                                40.0f, 0.40f, norma_fx::kWhite);
+                norma_fx::Seal(cx, cy, 220.0f, 0.35f, norma_fx::kWhite);
                 SpawnEnemyExplosion(cx, cy, 0.72f, 0.94f, 1.0f, true);
                 Shake(0.55f, 26.0f);
                 TriggerHitStop(0.08f);
@@ -2028,24 +2015,24 @@ static void PlayCaelumEvents() {
             TriggerFlash(1.0f, 0.9f, 0.7f, 0.18f);
             break;
         case caelum::Fx::Plug:       // the cursor presses the core: the drinking starts
-            SpawnShockWave(e.x, e.y, 160.0f, 0.30f, 1.0f, 0.95f, 0.82f);
+            caelum_fx::Close(e.x, e.y, 160.0f, 0.30f, caelum_fx::kHot, 0.5f);
             Shake(0.10f, 4.0f);
             break;
         case caelum::Fx::Swallow:    // the last stream is in: a gulp, then it is wide open
-            SpawnShockWave(e.x, e.y, 300.0f, 0.45f, ar, ag, ab);
             SpawnSparks(e.x, e.y, 12 + 2 * (int)e.a, 1.0f, 0.95f, 0.82f, 380.0f);
+            caelum_fx::Close(e.x, e.y, 300.0f, 0.40f, caelum_fx::kAmber, 1.0f);   // the gulp
             Shake(0.25f, 9.0f);
             TriggerHitStop(0.04f);
             break;
         case caelum::Fx::Spout:      // phase 2: what it drank bursts back out
-            SpawnShockWave(e.x, e.y, 240.0f, 0.35f, 1.0f, 0.95f, 0.82f);
             SpawnSparks(e.x, e.y, 10 + 2 * (int)e.a, ar, ag, ab, 420.0f);
+            caelum_fx::Open(e.x, e.y, 240.0f, 0.35f, caelum_fx::kHot, 0.8f);
             Shake(0.20f, 8.0f);
             break;
         case caelum::Fx::PhaseShift:
-            SpawnShockWave(e.x, e.y, 520.0f, 0.70f, ar, ag, ab);
-            SpawnShockWave(e.x, e.y, 260.0f, 0.45f, 1.0f, 1.0f, 1.0f);
             SpawnSparks(e.x, e.y, 36, ar, ag, ab, 480.0f);
+            caelum_fx::Open(e.x, e.y, 260.0f, 0.35f, caelum_fx::kHot, 1.0f);
+            caelum_fx::Open(e.x, e.y, 520.0f, 0.70f, caelum_fx::kAmber, 1.0f, 0.08f);
             Shake(0.6f, 22.0f);
             TriggerHitStop(0.10f);
             TriggerFlash(1.0f, 0.88f, 0.6f, 0.22f);
@@ -2059,9 +2046,10 @@ static void PlayCaelumEvents() {
 // CAELUM's fall: called from the death pass (a dead mob is gone by the next frame).
 static void PlayCaelumFall(float x, float y) {
     const float ar = 1.0f, ag = 0.82f, ab = 0.50f;
-    for (int i = 0; i < 3; ++i)
-        SpawnShockWave(x, y, 280.0f + 240.0f * (float)i, 0.5f + 0.25f * (float)i, ar, ag, ab);
     SpawnEnemyExplosion(x, y, ar, ag, ab, true);
+    for (int i = 0; i < 3; ++i)
+        caelum_fx::Open(x, y, 280.0f + 240.0f * (float)i, 0.5f + 0.25f * (float)i,
+                        i == 1 ? caelum_fx::kHot : caelum_fx::kAmber, 1.0f, 0.10f * (float)i);
     SpawnSparks(x, y, 50, 1.0f, 0.95f, 0.82f, 600.0f);
     Audio::Play(Audio::Cue::BossDeath);
     Shake(0.7f, 26.0f);
@@ -2089,38 +2077,41 @@ static void PlayNormaEvents() {
             break;
         case norma::Fx::Burst:
             Audio::Play(Audio::Cue::BossOctansAlert);
-            SpawnShockWave(e.x, e.y, 180.0f + 160.0f * e.a, 0.45f, ir, ig, ib);
             SpawnSparks(e.x, e.y, (int)(10.0f + 12.0f * e.a), 0.92f, 0.99f, 1.0f, 380.0f);
+            norma_fx::Seal(e.x, e.y, 180.0f + 160.0f * e.a, 0.45f, norma_fx::kIce);
             Shake(0.18f + 0.10f * e.a, 6.0f + 6.0f * e.a);
             break;
         case norma::Fx::StarOut:
             // A health star went dark: a short flare and a beat of hit stop.
             Audio::Play(Audio::Cue::BossOctansStarout);
             SpawnSparks(e.x, e.y, 16, ir, ig, ib, 420.0f);
-            SpawnShockWave(e.x, e.y, 150.0f, 0.3f, ir, ig, ib);
+            norma_fx::Seal(e.x, e.y, 150.0f, 0.30f, norma_fx::kWhite);
             Shake(0.16f, 7.0f);
             TriggerHitStop(0.05f);
             break;
         case norma::Fx::Wave:
             Audio::Play(Audio::Cue::BossOctansWave);
-            SpawnShockWave(e.x, e.y, e.a * 1.6f, 1.6f, 0.76f, 0.80f, 1.0f);
             SpawnSparks(e.x, e.y, 6, ir, ig, ib, 260.0f);
+            norma_fx::Wave(e.x, e.y, e.a, 1.6f);   // e.a: the wave's shot speed
             Shake(0.10f, 5.0f);
             break;
         case norma::Fx::EnterPane:
         case norma::Fx::LeavePane:
             Audio::Play(e.fx == norma::Fx::EnterPane ? Audio::Cue::BossOctansEnterPane
                                                      : Audio::Cue::BossOctansLeavePane);
-            SpawnShockWave(e.x, e.y, 150.0f, 0.35f, 0.92f, 0.99f, 1.0f);
+            // Into a pane the seal folds shut; out of one it opens.
+            if (e.fx == norma::Fx::EnterPane) norma_fx::Implode(e.x, e.y, 150.0f, 0.35f, norma_fx::kIce);
+            else norma_fx::Seal(e.x, e.y, 150.0f, 0.35f, norma_fx::kIce);
             SpawnEnemyExplosion(e.x, e.y, ir, ig, ib, false);
             Shake(0.20f, 9.0f);
             break;
         case norma::Fx::PhaseShift:
-            SpawnShockWave(e.x, e.y, 520.0f, 0.70f, 0.92f, 0.99f, 1.0f);
-            SpawnShockWave(e.x, e.y, 320.0f, 0.50f, 0.76f, 0.70f, 1.0f);
-            SpawnShockWave(e.x, e.y, 160.0f, 0.35f, 1.0f, 1.0f, 1.0f);
             SpawnEnemyExplosion(e.x, e.y, ir, ig, ib, true);
             SpawnSparks(e.x, e.y, 40, 0.92f, 0.99f, 1.0f, 520.0f);
+            // Three seals open one after another, small to large.
+            norma_fx::Seal(e.x, e.y, 160.0f, 0.35f, norma_fx::kWhite);
+            norma_fx::Seal(e.x, e.y, 320.0f, 0.50f, norma_fx::kIce, 0.06f);
+            norma_fx::Seal(e.x, e.y, 520.0f, 0.70f, norma_fx::kWhite, 0.12f);
             Shake(0.6f, 24.0f);
             TriggerHitStop(0.12f);
             TriggerFlash(0.72f, 0.94f, 1.0f, 0.22f);
@@ -2138,8 +2129,8 @@ static void PlayNormaEvents() {
     } else if (g_NormaWasAlive) {
         g_NormaWasAlive = false;
         for (int i = 0; i < 3; ++i)
-            SpawnShockWave(g_NormaLastX, g_NormaLastY, 300.0f + 260.0f * (float)i,
-                           0.5f + 0.25f * (float)i, 0.92f, 0.99f, 1.0f);
+            norma_fx::Seal(g_NormaLastX, g_NormaLastY, 300.0f + 260.0f * (float)i, 0.5f + 0.25f * (float)i,
+                           i == 1 ? norma_fx::kIce : norma_fx::kWhite, 0.10f * (float)i);
         SpawnEnemyExplosion(g_NormaLastX, g_NormaLastY, 0.72f, 0.94f, 1.0f, true);
         SpawnSparks(g_NormaLastX, g_NormaLastY, 60, 0.92f, 0.99f, 1.0f, 640.0f);
         Audio::Play(Audio::Cue::BossDeath);
@@ -2224,9 +2215,9 @@ static void TickThrowBox(float dt) {
     for (int i = 0; i < norma::kThrowInner; ++i)
         SpawnNormaShot(cx, cy, spin + 6.2831853f * ((float)i + 0.5f) / norma::kThrowInner,
                        norma::kThrowInnerSpeed);
-    SpawnShockWave(cx, cy, 360.0f, 0.5f, 0.92f, 0.99f, 1.0f);
     SpawnEnemyExplosion(cx, cy, 0.72f, 0.94f, 1.0f, true);
     SpawnSparks(cx, cy, 30, 0.92f, 0.99f, 1.0f, 460.0f);
+    norma_fx::Seal(cx, cy, 360.0f, 0.50f, norma_fx::kIce);
     Shake(0.35f, 16.0f);
 }
 
@@ -2319,8 +2310,8 @@ static void TickOneRam(PaneRam& ram, float dt) {
             const float ex = ram.x + ram.w * 0.5f + ram.dirX * ram.w * 0.5f;
             const float ey = ram.y + ram.h * 0.5f + ram.dirY * ram.h * 0.5f;
             const float wx = ScreenToWorldX(ex), wy = ScreenToWorldY(ey);
-            SpawnShockWave(wx, wy, 220.0f, 0.35f, 1.0f, 0.36f, 0.30f);
             SpawnSparks(wx, wy, 22, 1.0f, 0.45f, 0.38f, 460.0f);
+            norma_fx::Seal(wx, wy, 220.0f, 0.35f, norma_fx::kRed);
             if (hitEdge) {
                 // The wall cracks the box open: a thrown box's load sprays all the way round
                 // (evenly, not just back off the wall).
@@ -2415,8 +2406,8 @@ static void TickPaneWarp(float dt) {
         g_Warp.recoilT = 0.0f;
         const float cx = ScreenToWorldX(src->frame.x + src->frame.w * 0.5f);
         const float cy = ScreenToWorldY(src->frame.y + src->frame.h * 0.5f);
-        SpawnShockWave(cx, cy, 200.0f, 0.35f, 0.92f, 0.99f, 1.0f);
         SpawnSparks(cx, cy, 16, 0.92f, 0.99f, 1.0f, 420.0f);
+        norma_fx::Seal(cx, cy, 200.0f, 0.35f, norma_fx::kWhite);
         Shake(0.22f, 10.0f);
     }
     if (src && !src->flying) {
@@ -2545,8 +2536,9 @@ static void TickPaneWall(float dt) {
                 Audio::Play(Audio::Cue::BossOctansPaneOpen);   // 벽 창이 하나씩 열림
                 const float cx = ScreenToWorldX(p.x + p.w * 0.5f), cy = ScreenToWorldY(p.y + p.h * 0.5f);
                 SpawnSparks(cx, cy, 8, 1.0f, 0.45f, 0.38f, 300.0f);
-                // The pane bursts open with a shockwave.
-                SpawnShockWave(cx, cy, std::max(p.w, p.h) * 0.7f, 0.4f, 1.0f, 0.36f, 0.30f);
+                // The pane bursts open: its frame pushes out a little past the footprint.
+                norma_fx::Frame(ScreenToWorldX(p.x), ScreenToWorldY(p.y), ScreenToWorldX(p.x + p.w),
+                                ScreenToWorldY(p.y + p.h), 26.0f, 0.40f, norma_fx::kRed);
                 Shake(0.1f, 6.0f);
                 // Caught in the footprint as it pops open: hurt, and thrown
                 // out through the nearest edge.
@@ -2612,10 +2604,11 @@ static void TickNormaCountdown(float dt) {
             g_MonsterManager.ApplyDamage(*r, norma::kCloseMobDamage, id);
     const float cx = ScreenToWorldX(pane->shown.x + pane->shown.w * 0.5f);
     const float cy = ScreenToWorldY(pane->shown.y + pane->shown.h * 0.5f);
-    SpawnShockWave(cx, cy, std::max(pane->shown.w, pane->shown.h) * 0.55f / g_ViewZoom, 0.45f,
-                   0.86f, 0.80f, 1.0f);
     SpawnEnemyExplosion(cx, cy, 0.86f, 0.80f, 1.0f, true);
     SpawnSparks(cx, cy, 30, 0.92f, 0.99f, 1.0f, 480.0f);
+    norma_fx::Frame(ScreenToWorldX(pane->shown.x), ScreenToWorldY(pane->shown.y),
+                    ScreenToWorldX(pane->shown.x + pane->shown.w), ScreenToWorldY(pane->shown.y + pane->shown.h),
+                    34.0f, 0.45f, norma_fx::kLilac);
     Shake(0.35f, 18.0f);
     TriggerHitStop(0.08f);
     g_PaneCollapses.push_back({ pane->shown, 0.0f });
@@ -3157,9 +3150,7 @@ static bool FuseFor(int id, float& share) {
 // visual.  Keeping its timer outside the render path makes the area weapon
 // behave consistently at every frame rate and during fixed-step simulation.
 float g_StaticFieldPulseTimer = 0.0f;
-inline void TriggerMuzzle(float x, float y, float ang) {
-    g_MuzzleX = x; g_MuzzleY = y; g_MuzzleAng = ang; g_MuzzleTimer = 0.05f;
-}
+inline void TriggerShotKick() { g_ShotKickTimer = 0.05f; }
 
 // ?�면 ?�들�?(보스 ?�폰, 충격??
 float g_ShakeTime = 0.0f;
@@ -3171,7 +3162,6 @@ float g_ShakeMag  = 0.0f;
 
 
 // ?�?�?백신 ?�캔 (증강) ??주기?�으�??�레?�어 주�????�화 ?�스(범위 ?�소) ?�?�?
-//   ?�각 링�? 기존 SpawnShockWave(?�창 �? ?�사??
 
 // ?�?�?보스 ?�장 ?�조(증상) ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?
 //   보스 ?�폰??"결정 ??2.5�??�조(?�마 증상 + 경고 배너) ???�제 ?�성" ?�로 분리.
@@ -3351,6 +3341,32 @@ float g_DeathCX = 0, g_DeathCY = 0;
 float g_DeathFlash = 0.0f; // ??�� ?�광 (1.0 ??0.0)
 wchar_t g_DeathReason[96] = {0};   // ?�망 ?�인 ("?�○ ???�해 종료??)
 
+// Short-lived combat effects that live in the world: hit sparks and the
+// player's death debris. Drawn over the enemies and bullets.
+static void DrawCombatFx() {
+    const float debrisFade = std::clamp(g_DyingTimer / DYING_DUR, 0.0f, 1.0f);
+    for (int i = 0; i < MAX_DEBRIS && debrisFade > 0.0f; ++i) {
+        const DeathParticle& d = g_Debris[i];
+        if (!d.active) continue;
+        const float hs = d.size * 0.5f;
+        drawRect(d.x - hs, d.y - hs, d.size, d.size, d.r, d.g, d.b, debrisFade);
+    }
+    // Plain alpha blending, not additive: the game sits over the desktop, and
+    // added light vanishes on a bright wallpaper.
+    for (const auto& sp : g_Sparks) {
+        const float k = std::clamp(sp.life / sp.maxLife, 0.0f, 1.0f);
+        drawCircle(sp.x, sp.y, sp.size * (0.5f + 0.5f * k), sp.r, sp.g, sp.b, k);
+    }
+}
+
+// Movement trail: small particles drifting back from the ship, shrinking as they fade.
+static void DrawPlayerTrail() {
+    for (const auto& tr : g_Trail) {
+        const float f = std::clamp(tr.life / tr.maxLife, 0.0f, 1.0f);
+        drawCircle(tr.x, tr.y, tr.size * (0.4f + 0.6f * f), tr.r, tr.g, tr.b, 0.75f * f);
+    }
+}
+
 static SpatialBounds* s_PlayerBoundsRef = nullptr;
 
 // Ends the run as a win. reason holds the KR/EN/JP line shown with the
@@ -3376,7 +3392,8 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
     g_MonsterManager.Clear();
     g_Bullets.clear();
     g_StardustPickups.clear();
-    for (int i = 0; i < MAX_SHOCKS; i++) g_ShockWaves[i].active = false;
+    norma_fx::Clear();
+    caelum_fx::Clear();
     g_GameManager.currentState = GameState::GAMEOVER;
 }
 
@@ -3873,8 +3890,34 @@ static void DrawModeLabels(GameState st, float sw, float sh) {
 #endif
 }
 
+// Over each damage dummy: its name, DPS over the last 5 s, total and last hit.
+static void DrawDummyReadouts(float sw, float sh) {
+    for (const Monster* m : g_MonsterManager.monsters) {
+        if (!m->alive || !m->trainingDummy) continue;
+        const dummy::Log* log = dummy::Find(m);
+        wchar_t dps[32] = L"0", total[32] = L"0", last[32] = L"0";
+        if (log) {
+            FormatGrouped(std::llround(dummy::Dps(*log)), dps, 32);
+            FormatGrouped(std::llround(log->total), total, 32);
+            FormatGrouped(std::llround(log->last), last, 32);
+        }
+        wchar_t line1[64], line2[96];
+        swprintf(line1, 64, L"허수아비  DPS %ls", dps);
+        swprintf(line2, 96, L"누적 %ls  ·  마지막 %ls", total, last);
+        const float sc1 = UiTextScale(g_TextS, UiTextLevel::Description, 0.62f * UiScale(sw, sh));
+        const float sc2 = UiTextScale(g_TextS, UiTextLevel::Supporting, 0.85f);
+        // Under the dummy: the damage numbers float up from it and would cover text above.
+        const float sx = W2SX(m->worldX), sy = W2SY(m->worldY) + 26.0f * g_ViewZoom;
+        const float w1 = g_TextS.Width(line1, sc1), w2 = g_TextS.Width(line2, sc2);
+        const float h1 = g_TextS.Height(line1, sc1);
+        g_TextS.Draw(line1, sx - w1 * 0.5f, sy, sc1, 1.0f, 0.86f, 0.40f, 0.95f);
+        g_TextS.Draw(line2, sx - w2 * 0.5f, sy + h1 + 4.0f, sc2, 0.80f, 0.88f, 0.96f, 0.85f);
+    }
+}
+
 static void DrawFloatingCombatText(GameState st, float sw, float sh) {
     if (st == GameState::RUNNING || st == GameState::DYING) {
+        DrawDummyReadouts(sw, sh);
         // ?��?지 ?�자 (?�드 ???�크�?변?????�스?? ???�정 ?��?
         for (auto& d : g_DmgNumbers) {
             float t  = d.life / d.maxLife;                   // 1 ??0
@@ -4095,10 +4138,6 @@ int main() {
     InitIconGL();
     LoadIcons();   // ?�환 ?��? 로켓 ?�프?�이???�배�??�거+?�트 가??
     passive::InstallHooks();
-    passive::g_Fx.shockwave = [](float x, float y, float radius, float life,
-                                 float r, float g, float b) {
-        SpawnShockWave(x, y, radius, life, r, g, b);
-    };
 
     EnableWindowTransparency(window);
     os_pane::Init(window);
@@ -4300,6 +4339,46 @@ int main() {
             if (augIdx < 0 || augIdx >= AUG_TOTAL) return false;
             passive::Acquire(augIdx);
             return true;
+        },
+        // F1 > Stats > 즉사: dies at once, past godmode and revive cards.
+        [&]() { g_DebugKillPlayer = true; },
+        // F1 > Spawn > 테스트 > 허수아비: dummies in a column to the right of the ship.
+        [&](int count) {
+            if (g_GameManager.currentState != GameState::RUNNING) return 0;
+            const float pX = playerWin.x + playerWin.width * 0.5f;
+            const float pY = playerWin.y + playerWin.height * 0.5f;
+            int existing = 0;
+            for (const Monster* m : g_MonsterManager.monsters) existing += m->trainingDummy;
+            int spawned = 0;
+            for (int i = 0; i < count && existing < 12; ++i, ++existing) {
+                const size_t before = g_MonsterManager.monsters.size();
+                g_MonsterManager.SpawnMob(screenWidth, screenHeight, 400, 1.0f);
+                if (g_MonsterManager.monsters.size() <= before) break;
+                Monster* mob = g_MonsterManager.monsters.back();
+                mob->MakeKind(MobKind::SWARM);
+                mob->trainingDummy = true;
+                const int col = existing / 4, row = existing % 4;
+                mob->dummyHomeX = pX + 260.0f + 200.0f * (float)col;
+                mob->dummyHomeY = pY + 160.0f * ((float)row - 1.5f);   // room for the readout under each
+                mob->worldX = mob->dummyHomeX; mob->worldY = mob->dummyHomeY;
+                dummy::Forget(mob);   // a fresh log, even if the address was used before
+                ++spawned;
+            }
+            return spawned;
+        },
+        // F1 > Spawn > 테스트 > 허수아비 모두 제거: gone without dying (no kill, no rewards).
+        [&]() {
+            int removed = 0;
+            auto& mobs = g_MonsterManager.monsters;
+            for (auto it = mobs.begin(); it != mobs.end();) {
+                if (!(*it)->trainingDummy) { ++it; continue; }
+                syn::ForgetEnemy(*it);
+                dummy::Forget(*it);
+                delete *it;
+                it = mobs.erase(it);
+                ++removed;
+            }
+            return removed;
         }
     });
 
@@ -4591,8 +4670,7 @@ int main() {
             g_CurrentWeapon    = -1;
             g_GameTime         = 0.0f;
             g_GameManager.ClearAugmentRewardQueue();
-            for (int i = 0; i < MAX_SHOCKS; i++) g_ShockWaves[i].active = false;
-            g_MuzzleTimer = 0.0f;
+            g_ShotKickTimer = 0.0f;
             g_StaticFieldPulseTimer = 0.0f;
             g_ShakeTime = 0.0f; g_ShakeMag = 0.0f;
             ResetTrials();
@@ -4600,6 +4678,8 @@ int main() {
             g_StardustPickups.clear(); g_StardustHudPulse = 0.0f; g_StardustCollectAll = false;
 
             ResetJuice();
+            norma_fx::Clear();
+            caelum_fx::Clear();
             ResetPlayerSkills();   // dash and shield runtime
             passive::Reset();
             g_SkillHudPulse.Reset();
@@ -4694,11 +4774,12 @@ int main() {
             g_MonsterManager.Clear();
             g_Bullets.clear();
             g_StardustPickups.clear(); g_StardustCollectAll = false;
-            g_MuzzleTimer = 0.0f;
+            g_ShotKickTimer = 0.0f;
             g_ShakeTime = 0.0f;
             g_ShakeMag = 0.0f;
-            for (int i = 0; i < MAX_SHOCKS; ++i) g_ShockWaves[i].active = false;
             ResetJuice();
+            norma_fx::Clear();
+            caelum_fx::Clear();
 
             g_GameManager.playerHP = 0.0f;
             g_GameManager.pauseResumeState = GameState::RUNNING;
@@ -4773,6 +4854,8 @@ int main() {
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
                         gm.currentState = GameState::READY;
                         Ready_SmokeCompleteSteps(std::atoi(step.c_str() + 10));
+                    } else if (step == "DEBUG=0") {
+                        g_DebugToolkit.SetVisible(false);
                     } else if (step == "DEBUG") {
                         if (gm.currentState != GameState::RUNNING &&
                             gm.currentState != GameState::READY &&
@@ -4886,7 +4969,6 @@ int main() {
                             g_MonsterManager.rangedMobs.push_back(
                                 new RangedMob(-5000.0f, -5000.0f, screenWidth, screenHeight));
                             for (int i = 0; i < 6; ++i) g_StardustPickups.push_back(StardustPickup{});
-                            for (int i = 0; i < 2; ++i) g_ShockWaves[i].active = true;
                             for (int i = 0; i < 3; ++i) g_Debris[i].active = true;
                             gm.score = 4321; gm.scoreAccum = 4321.0f; gm.xp = XpFromWhole(55); gm.playerLevel = 3;
                             gm.playerHP = 42.0f;
@@ -4898,8 +4980,7 @@ int main() {
                             gm.waveKillStart = g_Stats.killCount;
                         };
                         auto dump = [&](const std::string& label) {
-                            int shocks = 0, debris = 0, tier3 = 0, tier4 = 0;
-                            for (const auto& s : g_ShockWaves) shocks += s.active;
+                            int debris = 0, tier3 = 0, tier4 = 0;
                             for (const auto& p : g_Debris) debris += p.active;
                             for (const Monster* mob : g_MonsterManager.monsters) {
                                 if (!mob->alive) continue;
@@ -4920,7 +5001,7 @@ int main() {
                             std::fprintf(f,
                                 "%s state=%d "
                                 "dashCd=%.2f shield=%.1f dashHeld=%d grace=%.2f "
-                                "bullets=%d monsters=%d ranged=%d stardust=%d shocks=%d debris=%d "
+                                "bullets=%d monsters=%d ranged=%d stardust=%d debris=%d "
                                 "score=%lld xp=%.3f level=%d hp=%.1f "
                                 "kills=%lld weapon=%d time=%.1f rewards=%d levelup=%d "
                                 "wave=%d waveVictory=%d tier3=%d tier4=%d "
@@ -4931,7 +5012,7 @@ int main() {
                                 g_PlayerRuntime.postPickGrace, (int)g_Bullets.size(),
                                 (int)g_MonsterManager.monsters.size(),
                                 (int)g_MonsterManager.rangedMobs.size(),
-                                (int)g_StardustPickups.size(), shocks, debris,
+                                (int)g_StardustPickups.size(), debris,
                                 gm.score, XpToDouble(gm.xp), gm.playerLevel, gm.playerHP,
                                 g_Stats.killCount, g_CurrentWeapon, g_GameTime,
                                 gm.PendingRewards(),
@@ -4991,6 +5072,8 @@ int main() {
                     } else if (step.rfind("NOQUOTA=", 0) == 0) {
                         // NOQUOTA=1: mass kills do not end the wave (no card screen mid-test).
                         g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
+                    } else if (step.rfind("WALK=", 0) == 0) {
+                        g_SmokeWalk = step.size() > 5 && step[5] != '0' ? step[5] : 0;
                     } else if (step.rfind("FIRE=", 0) == 0) {
                         g_SmokeFire = step.size() > 5 && step[5] == '1';
                     } else if (step.rfind("GIVE=", 0) == 0) {
@@ -5580,9 +5663,12 @@ int main() {
 
         // HP 0 ??MK2 부??OR DYING (1�??�로??모션 ??GAMEOVER)
         // Phoenix Charm revives (full HP) instead of dying, once per run.
-        if (g_GameManager.playerHP <= 0.0f &&
-            g_GameManager.currentState == GameState::RUNNING &&
-            !passive::TryPhoenix()) {
+        const bool debugKill = g_DebugKillPlayer && g_GameManager.currentState == GameState::RUNNING;
+        g_DebugKillPlayer = false;
+        if (debugKill ||
+            (g_GameManager.playerHP <= 0.0f &&
+             g_GameManager.currentState == GameState::RUNNING &&
+             !passive::TryPhoenix())) {
             // MK2: 1??부????공격??비�? ??�� + ?�?HP (?�널???�음)
             // ?�반 ?�망 ???�레?�어 기점 ?�??��(모든 ???�짐) ??메뉴 ?�이?�인
             g_GameManager.currentState = GameState::DYING;
@@ -5636,18 +5722,18 @@ int main() {
                 // ?�캔 ?�이?�?�??�리
                    // 배드 ?�터 감속 구역/출혈 ?�리
                 // ?�레?�어 중심 ?�??�� + 충격??+ ?�광 + ?�들�?+ 방사???�편
-                for (int k = 0; k < 4; k++)
-                    SpawnEnemyExplosion(pCX, pCY, 1.0f, 0.85f - (k%2)*0.4f, 0.3f, true);
-                SpawnShockWave(pCX, pCY, 900.0f, 0.7f, 0.4f, 0.9f, 1.0f);
-                SpawnShockWave(pCX, pCY, 560.0f, 0.55f, 1.0f, 0.9f, 0.4f);
+                // Kept tight round the ship: two small bursts, not four big ones.
+                for (int k = 0; k < 2; k++)
+                    SpawnEnemyExplosion(pCX, pCY, 1.0f, 0.85f - (k%2)*0.4f, 0.3f, false);
                 g_DeathFlash = 1.0f;
                 g_ShakeTime = 0.5f; g_ShakeMag = 30.0f;
                 TriggerFlash(0.6f, 0.85f, 1.0f, 0.8f);
                 for (int i = 0; i < MAX_DEBRIS; i++) {
                     float angle = (float)i / (float)MAX_DEBRIS * 2.0f * (float)M_PI
                                 + ((float)(rand() % 100) - 50.0f) * 0.01f;
-                    float spd = 450.0f + (float)(rand() % 650);
-                    float sz  = 8.0f + (float)(rand() % 24);
+                    // ~70-160 px of travel with the drag below; 3-8 px pieces.
+                    float spd = 180.0f + (float)(rand() % 200);
+                    float sz  = 3.0f + (float)(rand() % 6);
                     int   tint = rand() % 10;
                     float cr, cg, cb;
                     if      (tint < 5) { cr = 0.10f; cg = 0.85f; cb = 1.00f; }
@@ -5662,8 +5748,8 @@ int main() {
                 if (!g_Debris[i].active) continue;
                 g_Debris[i].x  += g_Debris[i].vx * sd;
                 g_Debris[i].y  += g_Debris[i].vy * sd;
-                g_Debris[i].vx *= (1.0f - 1.6f * sd);
-                g_Debris[i].vy *= (1.0f - 1.6f * sd);
+                g_Debris[i].vx *= std::max(0.0f, 1.0f - 2.4f * sd);
+                g_Debris[i].vy *= std::max(0.0f, 1.0f - 2.4f * sd);
             }
             if (g_DyingTimer <= 0.0f) {
                 g_GameplayTelemetry.EndRun(g_GameTime,
@@ -5695,7 +5781,6 @@ int main() {
             GameState gvs = g_GameManager.currentState;
             if (gvs == GameState::DYING || gvs == GameState::GAMEOVER) {
                 UpdateEnemyParticles(delta);
-                for (auto& sw : g_ShockWaves) { if (!sw.active) continue; sw.life -= delta; if (sw.life <= 0.0f) sw.active = false; }
                                 for (auto& sp : g_Sparks) {
                     sp.x += sp.vx * delta; sp.y += sp.vy * delta;
                     float drag = std::max(0.0f, 1.0f - 6.0f * delta);
@@ -5703,10 +5788,12 @@ int main() {
                 }
                 g_Sparks.erase(std::remove_if(g_Sparks.begin(), g_Sparks.end(),
                     [](const Spark& s){ return s.life <= 0.0f; }), g_Sparks.end());
+                norma_fx::Tick(delta);
+                caelum_fx::Tick(delta);
                 if (gvs == GameState::GAMEOVER) {
                     for (int i = 0; i < MAX_DEBRIS; i++) { if (!g_Debris[i].active) continue;
                         g_Debris[i].x += g_Debris[i].vx * delta; g_Debris[i].y += g_Debris[i].vy * delta;
-                        g_Debris[i].vx *= (1.0f - 1.6f * delta); g_Debris[i].vy *= (1.0f - 1.6f * delta);
+                        g_Debris[i].vx *= std::max(0.0f, 1.0f - 2.4f * delta); g_Debris[i].vy *= std::max(0.0f, 1.0f - 2.4f * delta);
                     }
                 }
             }
@@ -5859,7 +5946,8 @@ int main() {
                 }
                 const float zoomNow = (g_ViewZoom < 0.01f) ? 0.01f : g_ViewZoom;
                 float mvX = 0.0f, mvY = 0.0f;
-                const MoveInput mv = ResolvedMoveHeld();
+                MoveInput mv = ResolvedMoveHeld();
+                if (g_SmokeWalk) mv = { g_SmokeWalk == 'U', g_SmokeWalk == 'D', g_SmokeWalk == 'L', g_SmokeWalk == 'R' };
                 const float mlen = UpdatePlayerMovement(
                     playerWin.x, playerWin.y,
                     mv.up, mv.down, mv.left, mv.right,
@@ -5877,7 +5965,7 @@ int main() {
                         s_trailAcc = 0.0f;
                         SpawnTrail(playerWin.x + playerWin.width  * 0.5f,
                                    playerWin.y + playerWin.height * 0.5f,
-                                   24.0f, 0.35f, 0.85f, 1.0f);
+                                   mvX, mvY, 0.35f, 0.85f, 1.0f);
                     }
                 }
 
@@ -5926,7 +6014,6 @@ int main() {
                     passive::OnDashStarted();
                     Audio::Play(Audio::Cue::Dash);
                     TriggerFlash(0.35f, 0.85f, 1.0f, 0.12f);
-                    SpawnShockWave(g_PlayerRuntime.dashFromX, g_PlayerRuntime.dashFromY, 70.0f, 0.25f, 0.4f, 1.0f, 1.0f);
                 }
                 g_PlayerRuntime.dashInputHeld = cDash;
 
@@ -6039,6 +6126,19 @@ int main() {
                         const float maxX = std::max(minX, (float)screenWidth - margin);
                         const float minY = margin;
                         const float maxY = std::max(minY, (float)screenHeight - margin);
+                        if (m->kind == MobKind::GRAVIS && !m->gravisInArena) {
+                            // A new Gravis glides in from its spawn edge instead
+                            // of snapping onto the screen with its field.
+                            const float gapX = std::clamp(m->worldX, minX, maxX) - m->worldX;
+                            const float gapY = std::clamp(m->worldY, minY, maxY) - m->worldY;
+                            const float gap = std::sqrt(gapX * gapX + gapY * gapY);
+                            const float step = GravisField::ENTRY_SPEED * FIXED_DT;
+                            m->gravisInArena = gap <= step;
+                            const float t = m->gravisInArena ? 1.0f : step / gap;
+                            m->worldX += gapX * t;
+                            m->worldY += gapY * t;
+                            continue;
+                        }
                         const bool hitX = m->worldX < minX || m->worldX > maxX;
                         const bool hitY = m->worldY < minY || m->worldY > maxY;
                         m->worldX = std::max(minX, std::min(maxX, m->worldX));
@@ -6318,12 +6418,6 @@ CollisionSystem::Update(pCX, pCY,
             // Death animations advance inside MonsterManager::UpdateAll, on the
             // gameplay clock; advancing them here too ran them twice as fast.
 
-            // 충격???�데?�트
-            for (auto& sw : g_ShockWaves) {
-                if (!sw.active) continue;
-                sw.life -= delta;
-                if (sw.life <= 0.0f) sw.active = false;
-            }
 
             // 검�??�윙 ?�상 ?�데?�트
 
@@ -6406,11 +6500,19 @@ CollisionSystem::Update(pCX, pCY,
             }
             g_Sparks.erase(std::remove_if(g_Sparks.begin(), g_Sparks.end(),
                 [](const Spark& s){ return s.life <= 0.0f; }), g_Sparks.end());
+            norma_fx::Tick(delta);
+            caelum_fx::Tick(delta);
             // ?�동 ?�상 ?�명 갱신
-            for (auto& tr : g_Trail) tr.life -= delta;
+            for (auto& tr : g_Trail) {
+                tr.x += tr.vx * delta;
+                tr.y += tr.vy * delta;
+                const float drag = std::max(0.0f, 1.0f - 3.0f * delta);
+                tr.vx *= drag; tr.vy *= drag;
+                tr.life -= delta;
+            }
             g_Trail.erase(std::remove_if(g_Trail.begin(), g_Trail.end(),
                 [](const Trail& t){ return t.life <= 0.0f; }), g_Trail.end());
-            if (g_MuzzleTimer > 0.0f) g_MuzzleTimer -= delta;
+            if (g_ShotKickTimer > 0.0f) g_ShotKickTimer -= delta;
 
             if (g_ShakeTime > 0.0f) g_ShakeTime -= delta;
 
@@ -6454,7 +6556,7 @@ CollisionSystem::Update(pCX, pCY,
             };
 
             auto spawnAimed = [&](float tx, float ty) {
-                TriggerMuzzle(pCX, pCY, atan2f(ty - pCY, tx - pCX));
+                TriggerShotKick();
                 Audio::Play(Audio::Cue::Shoot);
                 spawnOne(tx, ty);
                 passive::OnShot();
@@ -6713,8 +6815,12 @@ CollisionSystem::Update(pCX, pCY,
                 break;
             }
         }
+        DrawCombatFx();
+        norma_fx::Draw();
+        caelum_fx::Draw();
         DrawStardustPickups();
         active::DrawWorld(g_GameTime);
+        syn::DrawWorld();
         BatchFlush();
 
         // READY draws its own ship inside the practice field (SceneReady.cpp).
@@ -6726,6 +6832,7 @@ CollisionSystem::Update(pCX, pCY,
             const float pCY = playerWin.y + playerWin.height * 0.5f;
             const float playerSize = PLAYER_SIZE * g_Stats.playerSizeMult;
             BindMainShader();
+            DrawPlayerTrail();
             const GameState healthState = g_GameManager.currentState;
             if (healthState == GameState::RUNNING ||
                 (healthState == GameState::PAUSED && !TutorialPaused()) ||

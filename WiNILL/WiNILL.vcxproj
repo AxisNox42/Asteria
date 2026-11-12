@@ -272,6 +272,8 @@
     <ClInclude Include="Render\IconSystem.h" />
     <ClInclude Include="Render\StatIcons.h" />
     <ClInclude Include="Render\Juice.h" />
+    <ClInclude Include="Render\NormaFx.h" />
+    <ClInclude Include="Render\CaelumFx.h" />
     <ClInclude Include="Render\EnemyParticles.h" />
     <ClInclude Include="Render\UiColors.h" />
     <ClInclude Include="Render\Easing.h" />

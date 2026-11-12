@@ -9,6 +9,8 @@
 //   ASTERIA_SMOKE_ORBITS  = 0              (선택, PLAY 무기 별자리 궤도 링 끄기)
 // STEP 형식: NAME[@fx,fy][!|*][~sec]
 //   QUASARFALL=<초> / QUASARBEAM=<초> : 퀘이사 준비 시작부터 지정 시점 재현 (ASTERIA_QREFLECT=<n> 로 빔 반사 횟수)
+//   DEBUG / DEBUG=0 : F1 디버그 콘솔 열기 / 닫기
+//   WALK=L|R|U|D|0 : 그 방향 이동 키를 누른 것처럼 (0 이면 뗌)
 //   READY : 새 런을 READY 화면(연습장 + 키보드 패널)에 세워 둠 (이미 READY면 연습 상태 유지)
 //   READYSTEP=<n> : READY 에서 연습 목표 앞의 n개를 완료 처리 (단계별 키 밝기 확인용)
 //   TUTSTEP=<n>   : READYSTEP 과 같되 로비 튜토리얼 모드로 (튜토리얼 어둡기·출격 잠금 확인용)
