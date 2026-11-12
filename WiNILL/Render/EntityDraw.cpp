@@ -1,5 +1,6 @@
 ﻿#include "EntityDraw.h"
 #include "MiterStroke.h"
+#include "LineFx.h"
 #include "../Entity/MonsterManager.h"
 #include "../Entity/GravisField.h"
 #include "Camera.h"
@@ -692,6 +693,73 @@ static void DrawThrownBlastZone(float x, float y, float alpha, float timer,
     drawCircle(x, y, 2.5f, 1.0f, 0.40f, 0.34f, 0.80f * alpha);
 }
 
+// GENESIS landing (a thrown Swarm, a launcher shot, a Rotor): the landed
+// unit's own outline (3 sides Swarm, 4 Rotor) stamps out from the ground point
+// with its corners stopping on R, the damage radius, and a smaller echo turned
+// between them; the rim stays marked thinly until it fades. Lighter than the
+// bosses' blasts: one stamp, no layers. Lines only. u: 0..1 over the effect.
+static void DrawGenesisLanding(float x, float y, float R, float u, float rot, int sides,
+                               float cr, float cg, float cb) {
+    if (u >= 1.0f) return;
+    u = std::max(0.0f, u);
+    const float e = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
+    const float a = 1.0f - u;
+    const line_fx::Rgb c{ cr, cg, cb };
+    const line_fx::Rgb lit = line_fx::Lift(c, 0.6f * a);   // white-hot at the hit, cooling
+    line_fx::Circle(x, y, R, 1.2f, c, 0.50f * a);
+    line_fx::Polygon(x, y, R * (0.30f + 0.70f * e), sides, rot, 2.4f - 1.2f * u, lit, 0.95f * a);
+    line_fx::Polygon(x, y, R * (0.15f + 0.40f * e), sides, rot + line_fx::kPi / (float)sides,
+                     1.2f, c, 0.60f * a);
+}
+
+// GENESIS arrival rings (entrance clock entryT, seconds): it drops into the
+// fight from nowhere, so the spot is marked before and as it lands.
+//   0.00-0.28  a wide ring and a triangle (its own motif) fall in from 3.2R
+//              onto the body, turning as they come
+//   0.24-0.80  on touchdown a ring bursts out to 2.6R with three bright marks
+//              at the shell gaps, white-hot first and cooling
+//   1.30-1.50  when the orbit frame locks, one thin ring pulses off it
+// One ring at a time, no layered seals: lighter than the bosses. Lines only.
+static void DrawGenesisArrival(float x, float y, float R, float entryT, float ring,
+                               line_fx::Rgb c) {
+    const line_fx::Rgb under{ 0.05f, 0.03f, 0.06f };
+    const line_fx::Rgb lit = line_fx::Lift(c, 0.45f);
+    // Fall-in.
+    if (entryT < 0.28f) {
+        const float u = entryT / 0.28f;
+        const float e = u * u;                                  // speeds up as it lands
+        const float r = R * (3.2f - 2.2f * e);
+        const float a = std::min(1.0f, u * 5.0f) * 0.85f;
+        const float rot = ring - 1.2f * (1.0f - u);
+        line_fx::Circle(x, y, r, 4.0f, under, a * 0.30f);
+        line_fx::Circle(x, y, r, 2.0f, c, a * 0.90f);
+        line_fx::Polygon(x, y, r * 0.92f, 3, rot, 4.4f, under, a * 0.30f);
+        line_fx::Polygon(x, y, r * 0.92f, 3, rot, 2.4f, lit, a);
+    }
+    // Touchdown burst.
+    if (entryT >= 0.24f && entryT < 0.80f) {
+        const float u = (entryT - 0.24f) / 0.56f;
+        const float e = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
+        const float r = R * (1.0f + 1.6f * e);
+        const float a = std::pow(1.0f - u, 1.2f);
+        const float w = 4.2f - 2.8f * u;
+        const line_fx::Rgb hot = line_fx::Lift(c, 0.75f * (1.0f - u));
+        line_fx::Circle(x, y, r, w + 2.0f, under, a * 0.30f);
+        line_fx::Circle(x, y, r, w, hot, a);
+        for (int k = 0; k < 3; ++k) {
+            const float g = ring + 2.0943951f * (float)k;     // the shell gaps
+            line_fx::ArcLine(x, y, r + w + 3.0f, g - 0.24f, 0.48f, w + 4.0f, under, a * 0.30f);
+            line_fx::ArcLine(x, y, r + w + 3.0f, g - 0.24f, 0.48f, w + 2.0f, lit, a);
+        }
+    }
+    // Frame lock pulse.
+    if (entryT >= 1.30f && entryT < 1.50f) {
+        const float u = (entryT - 1.30f) / 0.20f;
+        const float e = 1.0f - (1.0f - u) * (1.0f - u);
+        line_fx::Circle(x, y, R * (1.27f + 0.35f * e), 2.0f, lit, 0.70f * (1.0f - u));
+    }
+}
+
 // Genesis (shell core): a small core inside three broad shells, one stack
 // each. A shell is a faceted cradle holding a seated Swarm that points out
 // of the ring, so it reads as ammunition rather than a shield.
@@ -703,6 +771,9 @@ static void DrawThrownBlastZone(float x, float y, float alpha, float timer,
 //   throw   - each Swarm rides its spoke into the core, the core flashes and
 //             the Swarm leaves through the gap; only that shell kicks out.
 //   regroup - emptied shells cool in the order they were emptied.
+//   entry   - it assembles where it appears: the core flickers on, the three
+//             shells fly in one by one and snap shut with a seam sweep, the
+//             orbit frame comes up and the spinning ring settles.
 static void DrawGenesisLauncher(const Monster* m, float base, float t) {
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
     ApplyMobStyleTint(cr, cg, cb);
@@ -723,6 +794,14 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
     const bool aimLocked = phase == 1 || phase == 2;
     const float aim = aimLocked ? m->genesisAimAngle : m->hiveOrbitAngle;
     float ring = m->hiveOrbitAngle + (rotorMode ? 0.0f : m->genesisShellSpin);
+    // Entrance clock (seconds, -1 once assembled).
+    const float entryT = m->genesisEntry < Monster::GENESIS_ENTRY_TIME ? m->genesisEntry : -1.0f;
+    if (entryT >= 0.0f) {   // the ring spins down into its place
+        const float u = entryT / Monster::GENESIS_ENTRY_TIME;
+        ring += 2.6f * (1.0f - u) * (1.0f - u);
+    }
+    if (!rotorMode && entryT >= 0.0f)
+        DrawGenesisArrival(x, y, R, entryT, ring, { pR, pG, pB });
     if (phase == 1) {                                          // settle wobble
         const float u = m->spawnTimer;
         ring += 0.08f * sinf(u * 26.0f) * expf(-u * 9.0f);
@@ -806,6 +885,21 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
                                (Monster::GENESIS_STACKS-1-shot)*Monster::GENESIS_THROW_GAP;
             push=(0.10f+0.12f*expf(-lastAge*5.0f))*
                  (1.0f-Monster::GenesisSmooth(m->spawnTimer/0.25f));
+        }
+        if (entryT >= 0.0f) {
+            // Entrance: each shell flies in from far out along its spoke (rear
+            // shell first), lands on its loose rest with a snap and a seam sweep.
+            const float a = entryT - (0.25f + 0.20f * (float)slot);
+            if (a < 0.0f) continue;
+            constexpr float kFly = 0.35f;
+            if (a < kFly) {
+                const float u = a / kFly;
+                push = 0.10f + 1.4f * (1.0f - u) * (1.0f - u) * (1.0f - u);
+            } else {
+                const float s = a - kFly;
+                push = 0.10f - (s < 0.18f ? 0.05f * sinf(3.14159265f * s / 0.18f) : 0.0f);
+                if (s < 0.25f) sweep = s / 0.25f;
+            }
         }
         push *= R;
         const float sx = x + cosf(mid) * push, sy = y + sinf(mid) * push;
@@ -940,9 +1034,11 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
 
     // Orbit frame: thin arcs behind the shells, capped by a star-node pair
     // at every gap.
-    for (int k = 0; k < (rotorMode ? 0 : 3); ++k) {
+    // The frame comes up last on the entrance, each arc growing out from its middle.
+    const float frameUp = entryT >= 0.0f ? std::clamp((entryT - 1.05f) / 0.30f, 0.0f, 1.0f) : 1.0f;
+    for (int k = 0; k < (rotorMode || frameUp <= 0.0f ? 0 : 3); ++k) {
         const float mid = ring + 1.0471976f + 2.0943951f * (float)k;
-        DrawEnemyArc(x, y, R * 1.27f, mid - 0.9425f, 1.885f, 18,
+        DrawEnemyArc(x, y, R * 1.27f, mid - 0.9425f * frameUp, 1.885f * frameUp, 18,
                      cr, cg, cb, 0.40f + 0.14f * charge, 1.0f * lw);
         const float ga = ring + 2.0943951f * (float)k;
         for (int e = -1; e <= 1; e += 2)
@@ -956,12 +1052,20 @@ static void DrawGenesisLauncher(const Monster* m, float base, float t) {
     const float ccy = y - sinf(aim) * R * 0.08f * recoil;
     const float hr = cr + (pR - cr) * charge, hg = cg + (pG - cg) * charge,
                 hb = cb + (pB - cb) * charge;
-    drawCircle(ccx, ccy, R * (0.34f + 0.06f * recoil), pR, pG, pB,
-               0.05f + 0.16f * charge + 0.30f * recoil);
-    DrawEnemyArc(ccx, ccy, R * 0.40f, 0.0f, 6.2831853f, 28,
+    // Entrance: the core flickers on and swells to size over the first 0.3 s.
+    float coreOn = 1.0f, coreR = 1.0f;
+    if (entryT >= 0.0f && entryT < 0.30f) {
+        const float u = entryT / 0.30f;
+        coreR = 0.3f + 0.7f * (1.0f - (1.0f - u) * (1.0f - u));
+        coreOn = u * (0.55f + 0.45f * (sinf(entryT * 70.0f) > 0.0f ? 1.0f : 0.0f));
+    }
+    drawCircle(ccx, ccy, R * (0.34f + 0.06f * recoil) * coreR, pR, pG, pB,
+               (0.05f + 0.16f * charge + 0.30f * recoil) * coreOn);
+    DrawEnemyArc(ccx, ccy, R * 0.40f * coreR, 0.0f, 6.2831853f, 28,
                  liteR + (1.0f - liteR) * recoil, liteG + (1.0f - liteG) * recoil,
-                 liteB + (1.0f - liteB) * recoil, 0.90f, (1.5f + 0.8f * recoil) * lw);
-    DrawEnemyArc(ccx, ccy, R * 0.32f, 0.0f, 6.2831853f, 24, hr, hg, hb, 0.40f + 0.30f * charge, 0.85f);
+                 liteB + (1.0f - liteB) * recoil, 0.90f * coreOn, (1.5f + 0.8f * recoil) * lw);
+    DrawEnemyArc(ccx, ccy, R * 0.32f * coreR, 0.0f, 6.2831853f, 24, hr, hg, hb,
+                 (0.40f + 0.30f * charge) * coreOn, 0.85f);
     if(rotorMode) {
         DrawGenesisCore(x,y,base*0.34f,0.95f,0.36f,0.30f,0.96f,false);
         const glm::vec2 axis(cosf(ring),sinf(ring)), side(-axis.y,axis.x);
@@ -2988,12 +3092,8 @@ static void DrawGenesisLauncherShot(const Monster* m, float x, float y, float cr
         DrawThrownBlastZone(m->thrownTargetX, m->thrownTargetY, 1.0f,
             std::clamp(m->thrownTimer / m->thrownDuration, 0.0f, 1.0f), Monster::GENESIS_ROTOR_BLAST_RADIUS);
     if (m->genesisRotorPhase == 3 && m->genesisRotorDetonated) {
-        const float u = std::clamp(m->thrownTimer / 0.25f, 0.0f, 1.0f);
-        const float radius = Monster::GENESIS_ROTOR_BLAST_RADIUS;
-        drawCircle(x, y, radius, cr, cg, cb, 0.07f * (1.0f - u));
-        DrawEnemyArc(x, y, radius, 0, 6.2831853f, 48, cr, cg, cb, 0.9f * (1.0f - u), 1.8f);
-        DrawEnemyArc(x, y, radius * (0.25f + 0.75f * u), 0, 6.2831853f, 48,
-                     1.0f, 0.70f, 0.30f, 1.0f - u, 2.0f);
+        DrawGenesisLanding(x, y, Monster::GENESIS_ROTOR_BLAST_RADIUS, m->thrownTimer / 0.25f,
+                           m->thrownSpin, m->kind == MobKind::SWARM ? 3 : 4, cr, cg, cb);
     }
 }
 
@@ -3443,13 +3543,9 @@ void drawMob(const Monster* m, float visualTime) {
             if (m->thrownPhase == 1) {
                 radius *= 1.15f;
             } else {
-                // Landing shockwave: one ring out to the damage radius.
-                if (m->thrownTimer < 0.22f) {
-                    const float k = m->thrownTimer / 0.22f;
-                    DrawEnemyArc(x, y, Monster::THROWN_SWARM_BLAST_RADIUS * (0.25f + 0.75f * k),
-                                 0.0f, 6.2831853f, 28, 1.0f, 0.30f, 0.24f,
-                                 0.75f * (1.0f - k), 2.0f);
-                }
+                // Landing: the Swarm's triangle stamps out to the damage radius.
+                DrawGenesisLanding(x, y, Monster::THROWN_SWARM_BLAST_RADIUS, m->thrownTimer / 0.30f,
+                                   m->thrownSpin, 3, cr, cg, cb);
                 const float left = 1.0f - std::min(1.0f,
                     m->thrownTimer / Monster::THROWN_SWARM_STUN);
                 x += sinf(m->thrownTimer * 71.0f) * 3.0f * left;
@@ -3509,12 +3605,8 @@ void drawMob(const Monster* m, float visualTime) {
                 DrawThrownBlastZone(m->thrownTargetX,m->thrownTargetY,1.0f,
                     std::clamp(m->thrownTimer/m->thrownDuration,0.0f,1.0f),Monster::GENESIS_ROTOR_BLAST_RADIUS);
             if(m->genesisRotorPhase==3 && m->genesisRotorDetonated) {
-                const float u=std::clamp(m->thrownTimer/0.25f,0.0f,1.0f);
-                const float radius=Monster::GENESIS_ROTOR_BLAST_RADIUS;
-                drawCircle(x,y,radius,cr,cg,cb,0.07f*(1.0f-u));
-                DrawEnemyArc(x,y,radius,0,6.2831853f,48,cr,cg,cb,0.9f*(1.0f-u),1.8f);
-                DrawEnemyArc(x,y,radius*(0.25f+0.75f*u),0,6.2831853f,48,
-                             1.0f,0.70f,0.30f,1.0f-u,2.0f);
+                DrawGenesisLanding(x,y,Monster::GENESIS_ROTOR_BLAST_RADIUS,m->thrownTimer/0.25f,
+                                   m->thrownSpin,4,cr,cg,cb);
             }
         }
         const float build=m->genesisRotorPhase==1 ?

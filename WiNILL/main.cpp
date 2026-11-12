@@ -5128,6 +5128,7 @@ int main() {
                         auto* g = new Monster(screenWidth*0.30f,screenHeight*0.35f);
                         g->MakeKind(MobKind::GENESIS);
                         g->hp = 1000000.0f; g->speed = 0.0f;
+                        g->genesisEntry = Monster::GENESIS_ENTRY_TIME;   // replay the cycle, not the entrance
                         g->genesisNextRotor = !fullCycle;
                         g->hiveOrbitAngle=atan2f(py-g->worldY,px-g->worldX);
                         g->spawnTimer = Monster::GENESIS_TRACK_TIME;

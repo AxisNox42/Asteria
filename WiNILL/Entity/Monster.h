@@ -364,6 +364,9 @@ public:
     // regroups 0.2s with the shells empty. About 6s per volley. Thrown
     // Swarms fly, then stun like Antares.
     static constexpr float GENESIS_TRACK_TIME = 4.6f;
+    // Entrance: the Genesis assembles where it appears (core, then the three
+    // shells flying in, then the orbit frame) before its first charge starts.
+    static constexpr float GENESIS_ENTRY_TIME = 1.5f;
     static constexpr int GENESIS_STACKS = 3;              // shells = Swarms per volley
     static constexpr float GENESIS_STACK_TIME = GENESIS_TRACK_TIME / GENESIS_STACKS;
     static constexpr float GENESIS_AIM_TIME = 0.8f;
@@ -589,6 +592,7 @@ public:
     int hiveSpawnCount = 0;
     float hiveOrbitAngle = 0.0f;
     float hivePulseTimer = 0.0f;
+    float genesisEntry = GENESIS_ENTRY_TIME;   // 0..ENTRY_TIME while assembling (MakeKind starts it at 0)
     bool genesisEgress = false;
     float genesisEgressX = 0.0f;
     float genesisEgressY = 0.0f;
@@ -869,6 +873,7 @@ public:
             hiveOpenFactor = 0.0f;
             hiveSpawned = false;
             hiveSpawnCount = 0;
+            genesisEntry = 0.0f;
             genesisShellSpin = 0.0f;
             genesisSpinBase = 0.0f;
             hiveOrbitAngle = (float)(rand() % 628) * 0.01f;

@@ -644,6 +644,10 @@ private:
             }
             m->hivePulseTimer=std::max(0.0f,m->hivePulseTimer-dt);
             m->genesisRecoil=std::max(0.0f,m->genesisRecoil-dt*4.0f);
+            if(m->genesisEntry<Monster::GENESIS_ENTRY_TIME) {   // still assembling: no tracking or charge yet
+                m->genesisEntry+=dt;
+                continue;
+            }
             m->spawnTimer+=dt;
             if(m->hivePhase>=4) {
                 UpdateGenesisRotorLauncher(*m,dt,playerCX,playerCY,born);
