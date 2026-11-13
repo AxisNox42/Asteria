@@ -267,7 +267,16 @@ static bool DrawSkillShot(const Bullet& b) {
 }
 
 void drawBullet(const Bullet& b) {
-    float r = 4.8f * b.sizeScale;
+    // A range-limited shot dwindles and fades over the end of its range
+    // instead of vanishing at full (possibly grown) size.
+    const float fade = BulletRangeFade(b);
+    if (fade <= 0.0f) return;
+    float r = 4.8f * BulletDrawScale(b) * (0.45f + 0.55f * fade);
+    struct AlphaScope {
+        float saved;
+        explicit AlphaScope(float k) : saved(g_BatchAlpha) { g_BatchAlpha *= k; }
+        ~AlphaScope() { g_BatchAlpha = saved; }
+    } alphaScope(fade);
     if (DrawSkillShot(b)) return;
     if (b.normaShot) {
         // NORMA's shot: a turned square outline with a short tail.

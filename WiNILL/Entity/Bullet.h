@@ -172,6 +172,24 @@ inline void ClampPlayerBulletSize(Bullet& bullet) {
     if (bullet.sizeScale > kPlayerBulletMaxSizeScale) bullet.sizeScale = kPlayerBulletMaxSizeScale;
 }
 
+// The size a shot is drawn at: capped even if it is drawn before any step clamped it
+// (a shot pushed after the projectile step would otherwise flash huge for one frame).
+inline float BulletDrawScale(const Bullet& bullet) {
+    if (bullet.isEnemy || bullet.skillShot) return bullet.sizeScale;
+    return std::min(bullet.sizeScale, kPlayerBulletMaxSizeScale);
+}
+
+// 1 for most of a range-limited shot's flight, falling to 0 over its last stretch.
+// A shot that grew on the way (거리 성장탄 + 산탄/레이저/근접 탄두) used to pop
+// out at full size the frame it reached maxRange; drawn with this it dwindles out.
+inline float BulletRangeFade(const Bullet& bullet) {
+    if (bullet.maxRange <= 0.0f) return 1.0f;
+    const float window = std::min(160.0f, bullet.maxRange * 0.25f);
+    if (window <= 0.0f) return 1.0f;
+    const float left = bullet.maxRange - bullet.traveled;
+    return std::max(0.0f, std::min(1.0f, left / window));
+}
+
 struct BulletHaloStyle {
     float innerRadius;
     float innerAlpha;
@@ -180,9 +198,10 @@ struct BulletHaloStyle {
 };
 
 inline BulletHaloStyle GetBulletHaloStyle(const Bullet& bullet) {
-    const float r = 4.8f * bullet.sizeScale;
+    const float fade = BulletRangeFade(bullet);
+    const float r = 4.8f * BulletDrawScale(bullet) * (0.45f + 0.55f * fade);
     float innerRadius = r * 3.1f;
-    float innerAlpha = 0.20f;
+    float innerAlpha = 0.20f * fade;
     if (bullet.crescentBlade) {
         const float grow = std::min(3.8f, 1.0f + bullet.traveled / 160.0f);
         innerRadius = r * 4.0f * grow + 20.0f;

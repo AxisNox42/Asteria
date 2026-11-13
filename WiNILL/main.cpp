@@ -6556,7 +6556,10 @@ CollisionSystem::Update(pCX, pCY,
                 passive::ModifyShot(nb);
                 static std::vector<Bullet> volley;
                 syn::Shape(nb, pCX, pCY, tx, ty, volley);
-                for (const Bullet& vb : volley) {
+                for (Bullet& vb : volley) {
+                    // Fired after this frame's projectile step: cap the size now, or the
+                    // shot is drawn once at its uncapped size (warhead x wave x anchor...).
+                    ClampPlayerBulletSize(vb);
                     g_Bullets.push_back(vb);
                     active::OnPlayerBullet(vb);   // Twin Star Clone copies the shot
                 }

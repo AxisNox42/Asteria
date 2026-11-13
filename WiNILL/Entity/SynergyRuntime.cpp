@@ -1053,7 +1053,7 @@ void Step(const passive::StepInput& in) {
     s.counted.clear();
 
     // Bullets spawned by events during the collision pass.
-    for (const Bullet& b : s.pending) if (g_Bullets.size() < 800) g_Bullets.push_back(b);
+    for (Bullet& b : s.pending) if (g_Bullets.size() < 800) { ClampPlayerBulletSize(b); g_Bullets.push_back(b); }
     s.pending.clear();
 
     // The shots themselves.
