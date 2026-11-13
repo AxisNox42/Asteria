@@ -3609,8 +3609,9 @@ static void FinishAugmentEffects() {
 }
 
 
+// The play log is always on: it needs no debug switch, so a normal Release run
+// leaves asteria_gameplay_telemetry.txt beside the exe.
 static void BeginGameplayTelemetryIfNeeded() {
-    if (!g_DebugMode || !g_BalanceTestMode) return;
     if (g_GameplayTelemetry.IsActive()) return;
 
     const GameState state = g_GameManager.currentState;
@@ -3633,17 +3634,6 @@ static void BeginGameplayTelemetryIfNeeded() {
 }
 
 static void SyncGameplayTelemetry() {
-    if (!g_DebugMode || !g_BalanceTestMode) {
-        if (g_GameplayTelemetry.IsActive()) {
-            g_GameplayTelemetry.EndRun(
-                g_GameTime,
-                g_GameManager.playerLevel,
-                g_GameManager.xp,
-                g_Stats,
-                g_DebugMode ? "balance_test_disabled" : "debug_mode_disabled");
-        }
-        return;
-    }
     BeginGameplayTelemetryIfNeeded();
 }
 
@@ -3994,12 +3984,6 @@ int main() {
         g_BestWave[1] = 12;
         g_BestWave[2] = 20;
     }
-#if !defined(_DEBUG)
-    // DEBUG MODE is intentionally available in Release packages for QA.
-    // Keep balance telemetry opt-in to debug builds so the QA toggle does not
-    // enable release telemetry by itself.
-    g_BalanceTestMode = false;
-#endif
 #if defined(__APPLE__)
     // ���� �� ���� 1ȸ: CRT OFF + VFX �淮 (�������� �ٽ� �� �� ����)
     if (!g_MacOptV1) {

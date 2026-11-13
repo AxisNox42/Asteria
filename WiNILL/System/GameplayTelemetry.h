@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -78,6 +79,7 @@ public:
 
         // Use an absolute path so this stays beside the executable even when
         // the resource loader changes the process working directory.
+        RotateIfLarge(OutputFilePath());
         m_file.open(OutputFilePath(), std::ios::out | std::ios::app);
         if (!m_file.is_open()) {
             m_active = false;
@@ -203,6 +205,19 @@ private:
         const std::string exeDir = PlatformExeDirectory();
         if (exeDir.empty()) return "asteria_gameplay_telemetry.txt";
         return exeDir + "/asteria_gameplay_telemetry.txt";
+    }
+
+    // The log is always on and appends across runs, so past 16 MB the old file
+    // moves to ".old" (replacing the previous one) and a fresh file starts.
+    static void RotateIfLarge(const std::string& path) {
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec || size < 16u * 1024u * 1024u) return;
+        std::filesystem::rename(path, path + ".old", ec);
+        if (ec) {   // rename over an existing .old fails on some systems
+            std::filesystem::remove(path + ".old", ec);
+            std::filesystem::rename(path, path + ".old", ec);
+        }
     }
 
     static const char* BuildName() {
