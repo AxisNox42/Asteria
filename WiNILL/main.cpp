@@ -5030,6 +5030,15 @@ int main() {
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
                         g_SmokeAugFocus = 0;
+                    } else if (step.rfind("AUGGLOSS=", 0) == 0) {
+                        // AUGGLOSS=<levels>: AUGSEL, then hover the first card's
+                        // first glossary word (and its related words, per level).
+                        if (gm.currentState != GameState::RUNNING)
+                            RestartCurrentRun();
+                        gm.QueueAugmentReward();
+                        gm.ActivateNextAugmentReward();
+                        g_SmokeAugFocus = 0;
+                        g_SmokeGlossDepth = std::max(1, std::atoi(step.c_str() + 9));
                     } else if (step == "AUGDEAL") {
                         // AUGDEAL: opens the reward pick and lets the deal play (dim fade-in).
                         if (gm.currentState != GameState::RUNNING)

@@ -20,6 +20,9 @@ inline bool g_SmokeCapture = false;
 // Smoke-only: augment slot to keyboard-focus once the selector accepts input
 // (the selector resets focus on entry, so AUGSEL queues it here).
 inline int g_SmokeAugFocus = -1;
+// Smoke-only (AUGGLOSS=<n> step): act as if the pointer rests on the focused
+// card's first glossary word and then n-1 levels of its related words.
+inline int g_SmokeGlossDepth = 0;
 // Smoke-only game-time scale (SLOW=x step), for frame-by-frame captures.
 inline float g_SmokeTimeScale = 1.0f;
 // Smoke-only: hold fire at the nearest enemy (FIRE=1), as if the button were held.

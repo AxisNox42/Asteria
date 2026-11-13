@@ -17,11 +17,22 @@
 #include "../../Render/AugCardModel.h"
 #include "../../Render/Juice.h"
 #include "../../Render/StatIcons.h"
+#include "Glossary.h"
 #include <algorithm>
 #include <vector>
 #include <string>
 #include <cmath>
 #include <cwchar>
+
+// A glossary phrase keeps its words on one line: its spaces become no-break
+// spaces (U+00A0) while wrapping, measured as spaces, and turn back afterwards.
+static constexpr wchar_t kNbsp = L'\x00A0';
+static float WrapWidth(const std::wstring& s, float scale) {
+    if (s.find(kNbsp) == std::wstring::npos) return g_TextS.Width(s.c_str(), scale);
+    std::wstring t = s;
+    for (wchar_t& ch : t) if (ch == kNbsp) ch = L' ';
+    return g_TextS.Width(t.c_str(), scale);
+}
 
 // One description segment wrapped to maxWidth, appended to lines.
 static void WrapSegment(std::wstring segment, float scale, float maxWidth,
@@ -39,7 +50,7 @@ static void WrapSegment(std::wstring segment, float scale, float maxWidth,
             continue;
         }
         const std::wstring candidate = line.empty() ? word : line + L" " + word;
-        if (g_TextS.Width(word.c_str(), scale) > maxWidth) {
+        if (WrapWidth(word, scale) > maxWidth) {
             if (!line.empty()) {
                 lines.push_back(line);
                 line.clear();
@@ -48,7 +59,7 @@ static void WrapSegment(std::wstring segment, float scale, float maxWidth,
             for (wchar_t ch : word) {
                 const std::wstring next = part + ch;
                 if (!part.empty() &&
-                    g_TextS.Width(next.c_str(), scale) > maxWidth) {
+                    WrapWidth(next, scale) > maxWidth) {
                     lines.push_back(part);
                     part.clear();
                 }
@@ -56,7 +67,7 @@ static void WrapSegment(std::wstring segment, float scale, float maxWidth,
             }
             line = std::move(part);
         } else if (!line.empty() &&
-                   g_TextS.Width(candidate.c_str(), scale) > maxWidth) {
+                   WrapWidth(candidate, scale) > maxWidth) {
             lines.push_back(line);
             line = word;
         } else {
@@ -100,13 +111,23 @@ IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui
     out.iconSize = g_TextS.Height(L"가Ag", scale) * 1.15f;
     out.iconIndent = out.iconSize + 8.0f * ui;
     std::vector<std::wstring> wrapped;
+    const int lang = CurLangIdx();
+    uint64_t used = 0;   // each glossary term links once per card
     for (std::wstring& segment : DescSegments(desc)) {
         stat_icon::Stat stat;
         const bool icon = stat_icon::FromText(segment, stat);
+        for (const glossary::Span& sp : glossary::FindAll(segment, lang))
+            for (int k = sp.matchStart; k < sp.matchStart + sp.matchLen; ++k)
+                if (segment[(size_t)k] == L' ') segment[(size_t)k] = kNbsp;
         wrapped.clear();
         WrapSegment(std::move(segment), scale, icon ? maxWidth - out.iconIndent : maxWidth, wrapped);
-        for (size_t j = 0; j < wrapped.size(); ++j)
-            out.lines.push_back({ std::move(wrapped[j]), icon && j == 0 ? (int)stat : -1, icon });
+        for (size_t j = 0; j < wrapped.size(); ++j) {
+            DescLine line{ std::move(wrapped[j]), icon && j == 0 ? (int)stat : -1, icon, {} };
+            for (wchar_t& ch : line.text) if (ch == kNbsp) ch = L' ';
+            for (const glossary::Span& sp : glossary::Link(line.text, lang, used))
+                line.links.push_back({ sp.start, sp.len, (int)sp.term });
+            out.lines.push_back(std::move(line));
+        }
     }
     return out;
 }
@@ -355,6 +376,190 @@ CardText LayoutCardText(const AugDef& def, float ui) {
 
 struct Shard { float x, y, vx, vy, life; Rgb c; };
 
+// A glossary word on screen: the card it sits on (or the definition level it
+// sits in, for related words), the term and its box.
+struct LinkBox { int owner, term; float x0, y0, x1, y1; Rgb col; float a; };
+
+// Definitions under the cards, opened by hovering a glossary word (Glossary.h).
+// Level 0 hangs under the card; a related word in a definition opens the next
+// level below it, like following wiki links. Nothing shows without a hover.
+struct TipLevel {
+    int term = -1, card = -1;
+    float ax0 = 0, ax1 = 0, ay = 0;   // the word that opened it (underline y)
+    float x = 0, y = 0, w = 0, h = 0;
+    bool side = false;                // placed beside the level above, not under it
+};
+constexpr int kTipLevels = 3;
+// How open the definitions are (0..1): the deck fades out while they show.
+float g_GlossaryOpenA = 0.0f;
+
+void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX, const float* cardY,
+                      const Rgb* cardCol, int count, bool active, float mx, float my, float delta,
+                      float sw, float sh, float ui) {
+    static TipLevel tips[kTipLevels];
+    static int open = 0;
+    static float grace = 0.0f, shrink = 0.0f;
+    static std::vector<LinkBox> relLinks;   // related words drawn last frame (owner = level)
+    if (!active) { open = 0; relLinks.clear(); g_GlossaryOpenA = 0.0f; return; }
+    if (g_SmokeCapture && g_SmokeGlossDepth > 0) {
+        // Smoke capture: rest the pointer on the first word, then on the
+        // first related word of each open level, down to the asked depth.
+        const LinkBox* aim = nullptr;
+        const int want = std::min(open, g_SmokeGlossDepth - 1);
+        for (const LinkBox& b : (want == 0 ? cardLinks : relLinks))
+            if (want == 0 || b.owner == want - 1) { aim = &b; break; }
+        if (!aim && !cardLinks.empty()) aim = &cardLinks.front();
+        if (aim) { mx = (aim->x0 + aim->x1) * 0.5f; my = (aim->y0 + aim->y1) * 0.5f; }
+    }
+
+    auto inBox = [&](const LinkBox& b) {
+        return mx >= b.x0 - 2.0f * ui && mx <= b.x1 + 2.0f * ui && my >= b.y0 - 2.0f * ui && my <= b.y1 + 4.0f * ui;
+    };
+    const float tipW = (ac::kCardW + 40.0f) * ui;
+    // What the pointer is on: a card word opens level 0, a related word opens
+    // the level after its own; inside an open level keeps it.
+    int keep = -1;
+    for (const LinkBox& b : cardLinks) {
+        if (!inBox(b)) continue;
+        if (open == 0 || tips[0].term != b.term || tips[0].card != b.owner) {
+            tips[0] = TipLevel{ b.term, b.owner, b.x0, b.x1, b.y1 + 1.0f * ui };
+            open = 1;
+        }
+        keep = 0;
+        break;
+    }
+    if (keep < 0)
+        for (const LinkBox& b : relLinks) {
+            if (b.owner >= open || !inBox(b)) continue;
+            const int next = b.owner + 1;
+            if (next < kTipLevels) {
+                if (open <= next || tips[next].term != b.term) {
+                    tips[next] = TipLevel{ b.term, tips[b.owner].card, b.x0, b.x1, b.y1 + 2.0f * ui };
+                    open = next + 1;
+                }
+                keep = next;
+            } else {
+                keep = b.owner;
+            }
+            break;
+        }
+    if (keep < 0)
+        for (int k = open - 1; k >= 0; --k) {
+            const TipLevel& tl = tips[k];
+            if (mx >= tl.x - 12.0f * ui && mx <= tl.x + tl.w + 12.0f * ui &&
+                my >= tl.y - 24.0f * ui && my <= tl.y + tl.h + 12.0f * ui) { keep = k; break; }
+        }
+    // Leaving everything closes after a short grace, so the pointer can travel
+    // from a word down to its definition; leaving only a deeper level folds it.
+    if (keep >= 0) {
+        grace = 0.35f;
+        if (keep + 1 < open) {
+            shrink += delta;
+            if (shrink > 0.35f) { open = keep + 1; shrink = 0.0f; }
+        } else {
+            shrink = 0.0f;
+        }
+    } else if (open > 0) {
+        grace -= delta;
+        if (grace <= 0.0f) open = 0;
+    }
+    relLinks.clear();
+    g_GlossaryOpenA += ((open > 0 ? 1.0f : 0.0f) - g_GlossaryOpenA) * (1.0f - std::exp(-14.0f * std::max(0.0f, delta)));
+    if (open == 0) return;
+
+    const int lang = CurLangIdx();
+    const float titleScale = UiTextScale(g_TextS, UiTextLevel::Description, ui);
+    const float bodyScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
+    const float pad = 8.0f * ui;
+    static const wchar_t* kRelated[3] = { L"관련", L"See also", L"関連" };
+    struct TextCmd { std::wstring s; float x, y, scale; Rgb c; float a; };
+    std::vector<TextCmd> texts;
+    BindMainShader();
+    for (int k = 0; k < open; ++k) {
+        TipLevel& tl = tips[k];
+        if (tl.term < 0 || tl.term >= glossary::kTermCount || tl.card < 0 || tl.card >= count) { open = k; break; }
+        const glossary::Entry& e = glossary::Get((glossary::Term)tl.term);
+        const Rgb col = cardCol[tl.card];
+        // Place: level 0 under its card, deeper levels stepped down and right;
+        // past the screen bottom a level sits beside the one above instead.
+        tl.w = std::min(tipW, sw - 48.0f * ui);
+        std::vector<std::wstring> body;
+        WrapSegment(e.def[lang], bodyScale, tl.w - 2.0f * pad, body);
+        const float titleH = g_TextS.Height(L"가Ag", titleScale), bodyH = g_TextS.Height(L"가Ag", bodyScale);
+        tl.h = titleH + 10.0f * ui + (float)body.size() * (bodyH + 3.0f * ui) +
+               (e.relCount > 0 ? bodyH + 10.0f * ui : 0.0f);
+        if (k == 0) {
+            tl.x = cardX[tl.card] - ac::kCardW * 0.5f * ui;
+            tl.y = cardY[tl.card] + (ac::kCardH * 0.5f + 52.0f) * ui;
+        } else {
+            const TipLevel& up = tips[k - 1];
+            tl.x = up.x + 26.0f * ui;
+            tl.y = up.y + up.h + 26.0f * ui;
+            tl.side = tl.y + tl.h > sh - 24.0f * ui;
+            if (tl.side) { tl.x = up.x + up.w + 24.0f * ui; tl.y = up.y; }
+        }
+        if (tl.x + tl.w > sw - 24.0f * ui) tl.x = (k > 0 ? tips[k - 1].x - tl.w - 24.0f * ui : sw - 24.0f * ui - tl.w);
+        tl.x = std::max(24.0f * ui, tl.x);
+        tl.y = std::min(tl.y, sh - 24.0f * ui - tl.h);
+
+        // The word that opened it gets a bold underline. The leader leaves a
+        // card from its bottom edge (a line through the card would cross the
+        // lines under the word), a related word from its own underline.
+        const float ax = (tl.ax0 + tl.ax1) * 0.5f;
+        SLine(tl.ax0, tl.ay, tl.ax1, tl.ay, 2.2f * ui, col, 1.0f, 0.0f);
+        const float ly = tl.y - 6.0f * ui;
+        if (k == 0) {
+            const float y0 = cardY[tl.card] + (ac::kCardH * 0.5f + 4.0f) * ui;
+            SLine(ax, y0, ax, ly, 1.0f * ui, col, 0.70f, 0.0f);
+            SLine(ax, ly, tl.x + pad, ly, 1.0f * ui, col, 0.70f, 0.0f);
+            drawCircle(ax, y0, 2.0f * ui, col.r, col.g, col.b, 0.9f);
+        } else if (!tl.side) {
+            SLine(ax, tl.ay, ax, ly, 1.0f * ui, col, 0.70f, 0.0f);
+            SLine(ax, ly, tl.x + pad, ly, 1.0f * ui, col, 0.70f, 0.0f);
+        } else {
+            // Beside: under the word's row, across, then up to the title.
+            const float ry = tl.ay + 8.0f * ui, gx = tl.x - 10.0f * ui;
+            const float titleMid = tl.y + 2.0f * ui + g_TextS.Height(L"가Ag", titleScale) * 0.5f;
+            SLine(ax, tl.ay, ax, ry, 1.0f * ui, col, 0.70f, 0.0f);
+            SLine(ax, ry, gx, ry, 1.0f * ui, col, 0.70f, 0.0f);
+            SLine(gx, ry, gx, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
+            SLine(gx, titleMid, tl.x + pad - 4.0f * ui, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
+        }
+        // Title, underlined; then the definition; then related words.
+        const wchar_t* title = e.name[lang];
+        const float tw = g_TextS.Width(title, titleScale);
+        float ty = tl.y + 2.0f * ui;
+        texts.push_back({ title, tl.x + pad, ty, titleScale, Mix(col, kText, 0.45f), 1.0f });
+        SLine(tl.x + pad, ty + titleH + 3.0f * ui, tl.x + pad + tw + 6.0f * ui, ty + titleH + 3.0f * ui,
+              1.0f * ui, col, 0.65f, 0.0f);
+        ty += titleH + 10.0f * ui;
+        for (const std::wstring& line : body) {
+            texts.push_back({ line, tl.x + pad, ty, bodyScale, kText, 0.95f });
+            ty += bodyH + 3.0f * ui;
+        }
+        if (e.relCount > 0) {
+            ty += 7.0f * ui;
+            float rx = tl.x + pad;
+            texts.push_back({ kRelated[lang], rx, ty, bodyScale, kTextSub, 0.70f });
+            rx += g_TextS.Width(kRelated[lang], bodyScale) + 12.0f * ui;
+            for (int r = 0; r < e.relCount; ++r) {
+                const int rt = (int)e.rel[r];
+                const wchar_t* rn = glossary::Get(e.rel[r]).name[lang];
+                const float rw = g_TextS.Width(rn, bodyScale);
+                const bool hot = k + 1 < open && tips[k + 1].term == rt;
+                texts.push_back({ rn, rx, ty, bodyScale, Mix(col, kText, hot ? 0.55f : 0.35f), 1.0f });
+                SLine(rx, ty + bodyH + 2.0f * ui, rx + rw, ty + bodyH + 2.0f * ui,
+                      (hot ? 1.4f : 1.0f) * ui, col, hot ? 0.9f : 0.6f, 0.0f);
+                relLinks.push_back({ k, rt, rx, ty, rx + rw, ty + bodyH, col, 1.0f });
+                rx += rw + 14.0f * ui;
+            }
+        }
+    }
+    BatchFlush();
+    for (const TextCmd& tc : texts)
+        DrawShadowedText(g_TextS, tc.s.c_str(), tc.x, tc.y, tc.scale, tc.c.r, tc.c.g, tc.c.b, tc.a, 0.85f);
+}
+
 }  // namespace
 
 static void Scene_AugSelectCards(const SceneCtx& c) {
@@ -518,7 +723,9 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
 
     // ── deck ──
     BindMainShader();
-    if (!inExit) {
+    const float frameA0 = frameA;
+    if (!inExit && g_GlossaryOpenA < 0.99f) {
+        const float frameA = frameA0 * (1.0f - g_GlossaryOpenA);   // the deck steps back for a definition
         for (int k = 3; k >= 0; --k) {
             const Xf X = MakeXf(L.deckX + k * 2.5f * ui, L.deckY - k * 2.5f * ui, L.deckS * ui, L.deckS * ui, 0.0f);
             LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, kUiBlue,
@@ -618,6 +825,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     BatchFlush();
 
     // ── cards: text ──
+    std::vector<LinkBox> linkBoxes;   // glossary words drawn this frame
     for (int i = 0; i < count; ++i) {
         const CardDraw& d = cd[i];
         if (!defs[i] || d.P.move <= 0.0f || d.P.flip < 1.0f || d.textA <= 0.004f) continue;
@@ -640,8 +848,25 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             const float lineA = d.textA * 0.90f * ac::LineAlpha(d.P, (int)j + 1, t);
             const float lh = g_TextS.Height(l.text.c_str(), tx.descScale);
             DrawIconDescIcon(tx.desc, l, left, y, lh, lineA / 0.90f);
-            DrawShadowedText(g_TextS, l.text.c_str(), tx.desc.TextX(l, left), y,
-                             tx.descScale, kTextSub.r, kTextSub.g, kTextSub.b, lineA, 0.70f);
+            // Glossary words: drawn in the card colour, underlined below.
+            float px = tx.desc.TextX(l, left);
+            const Rgb linkCol = Mix(d.col, kText, 0.30f);
+            auto piece = [&](int a, int b, int term) {
+                if (b <= a) return;
+                const std::wstring s = l.text.substr((size_t)a, (size_t)(b - a));
+                const float w = g_TextS.Width(s.c_str(), tx.descScale);
+                const Rgb pc = term >= 0 ? linkCol : kTextSub;
+                DrawShadowedText(g_TextS, s.c_str(), px, y, tx.descScale, pc.r, pc.g, pc.b, lineA, 0.70f);
+                if (term >= 0) linkBoxes.push_back({ i, term, px, y, px + w, y + lh, d.col, lineA });
+                px += w;
+            };
+            int pos = 0;
+            for (const DescLink& k : l.links) {
+                piece(pos, k.start, -1);
+                piece(k.start, k.start + k.len, k.term);
+                pos = k.start + k.len;
+            }
+            piece(pos, (int)l.text.size(), -1);
             y += lh + 4.0f * ui;
         }
         wchar_t keyLabel[8];
@@ -651,6 +876,19 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         const Rgb keyCol = Mix(kUiBlue, kText, 0.4f);
         DrawShadowedText(g_TextS, keyLabel, d.x - kw * 0.5f, d.y + 182.0f * ui - kh * 0.5f, keyScale,
                          keyCol.r, keyCol.g, keyCol.b, titleA * 0.75f, 0.70f);
+    }
+
+    // Glossary underlines, then the hovered word's definition under its card.
+    {
+        BindMainShader();
+        for (const LinkBox& b : linkBoxes)
+            SLine(b.x0, b.y1 + 1.0f * ui, b.x1, b.y1 + 1.0f * ui, 1.0f * ui, b.col, b.a * 0.70f, 0.0f);
+        BatchFlush();
+        float cardX[ac::kMaxCards] = {}, cardY[ac::kMaxCards] = {};
+        Rgb cardCol[ac::kMaxCards] = {};
+        for (int i = 0; i < count; ++i) { cardX[i] = cd[i].x; cardY[i] = cd[i].y; cardCol[i] = cd[i].col; }
+        DrawGlossaryTips(linkBoxes, cardX, cardY, cardCol, count, inputReady && !inExit,
+                         (float)c.mx, (float)c.my, delta, sw, sh, ui);
     }
 
     // Guide line, only once the cards can be picked.

@@ -29,7 +29,9 @@ std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
 // Augment description wrapped like TarotWrap, with a stat icon in front of
 // each segment that starts with a stat name ("최대 체력 +12"); the rest of
 // that segment hangs at iconIndent.
-struct DescLine { std::wstring text; int stat = -1; bool indented = false; };
+// links: glossary terms in this line (Glossary.h), as character ranges of text.
+struct DescLink { int start = 0, len = 0, term = -1; };
+struct DescLine { std::wstring text; int stat = -1; bool indented = false; std::vector<DescLink> links; };
 struct IconDesc {
     std::vector<DescLine> lines;
     float iconSize = 0.0f, iconIndent = 0.0f;
