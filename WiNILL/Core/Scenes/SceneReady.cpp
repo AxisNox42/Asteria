@@ -37,6 +37,8 @@
 #include "../../Render/HudLines.h"
 #include "../../Render/KeyboardPanelModel.h"
 #include "../../Render/PlayerWeaponShell.h"
+#include "../../Render/VitalsHud.h"
+#include "RangeUnit.h"
 #include "../../System/Audio.h"
 #include <algorithm>
 #include <array>
@@ -485,6 +487,40 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         const float shipRunSize = PLAYER_SIZE_PX * g_Stats.playerSizeMult;
         DrawPlayerWeaponShell(toX(v.field.playerX), toY(v.field.playerY),
                               shipRunSize * ws, v.field.aim, now);
+
+        // The health ring, full as in a fresh run, and what it measures: one
+        // ring is the range unit augment cards count in ("4○", Entity/RangeUnit.h).
+        {
+            const float px = toX(v.field.playerX), py = toY(v.field.playerY);
+            const float R = kRangeUnit * ws, thick = vitals_hud::HpArcThick(0.0f) * ws;
+            const Rgb hp{ vitals_hud::kHpCol.r, vitals_hud::kHpCol.g, vitals_hud::kHpCol.b };
+            hud_lines::Arc(px, py, R, thick + cv.S(3.0f), vitals_hud::kArcStart, vitals_hud::kArcSweep,
+                           hud_lines::KeyCol(hp), hud_lines::kKeyA * 0.85f);
+            hud_lines::Arc(px, py, R, thick, vitals_hud::kArcStart, vitals_hud::kArcSweep, hp, 0.85f);
+
+            const float notePx = cv.S(18.0f);
+            const float scale = notePx / std::max(1.0f, body.LineHeightPixels());
+            const wchar_t* note = ReadyRingNote();
+            const float oneW = body.Width(L"1", scale), glyph = notePx * 0.80f, gap = cv.S(6.0f);
+            const float labelW = oneW + glyph + gap + body.Width(note, scale);
+            // Spoke from the ship to the ring along its open side, then the label;
+            // it swaps to the left near the field's right edge.
+            const bool left = px + R + cv.S(12.0f) + labelW > fx + fw - cv.S(8.0f);
+            const float dir = left ? -1.0f : 1.0f;
+            const float a = 0.85f;
+            Line(px + dir * cv.S(16.0f), py, px + dir * R, py, cv.S(1.3f), hp, 0.75f, key);
+            Line(px + dir * R, py - cv.S(5.0f), px + dir * R, py + cv.S(5.0f), cv.S(1.3f), hp, 0.75f, key);
+            float tx = left ? px - R - cv.S(12.0f) - labelW : px + R + cv.S(12.0f);
+            const Rgb noteCol = Lighten(hp, 0.35f);
+            Text(body, L"1", tx, py, notePx, noteCol, a);
+            tx += oneW;
+            const float gx = tx + glyph * 0.5f, gr = notePx * 0.30f;
+            hud_lines::Arc(gx, py, gr, cv.S(1.3f), 0.0f, 6.2831853f, noteCol, a);
+            drawCircle(gx, py, std::max(1.0f, gr * 0.26f), noteCol.r, noteCol.g, noteCol.b, a);
+            tx += glyph + gap;
+            Text(body, note, tx, py, notePx, kText, 0.80f);
+            g_BatchAlpha = batchAlpha;
+        }
     }
 
     // The current step's instruction, inside the field.

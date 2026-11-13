@@ -59,6 +59,12 @@ inline const wchar_t* kReadyFieldNote[LANG_COUNT] = {
     L"練習モード · ダメージなし",
 };
 inline const wchar_t* kReadyKills[LANG_COUNT] = { L"처치", L"Kills", L"撃破" };
+// After "1○" next to the ship's health ring: the ring is the range unit.
+inline const wchar_t* kReadyRingNote[LANG_COUNT] = {
+    L"= 체력 링 반경 (증강 범위의 단위)",
+    L"= health ring radius (the unit for augment ranges)",
+    L"= 体力リングの半径 (強化の範囲の単位)",
+};
 inline constexpr int READY_OBJECTIVE_COUNT = 4;   // ready_practice::Objective order
 inline const wchar_t* kReadyObjective[LANG_COUNT][READY_OBJECTIVE_COUNT] = {
     { L"이동하기", L"사격하기", L"대시하기", L"스웜 처치" },
@@ -172,6 +178,7 @@ inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
 
 inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }
 inline const wchar_t* ReadyKills()     { return kReadyKills[LangIndexTutorial()]; }
+inline const wchar_t* ReadyRingNote()  { return kReadyRingNote[LangIndexTutorial()]; }
 inline const wchar_t* ReadyAim()       { return kReadyAim[LangIndexTutorial()]; }
 inline const wchar_t* ReadyLaunchLocked() { return kReadyLaunchLocked[LangIndexTutorial()]; }
 inline const wchar_t* ReadyObjective(int i) {
