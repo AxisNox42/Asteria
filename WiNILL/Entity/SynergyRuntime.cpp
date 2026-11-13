@@ -425,7 +425,7 @@ void Landed(const Bullet& b, float radius) {
 void Explode(float x, float y, float radius, float pct, bool pull) {
     if (pull) {
         const float pr = radius * 1.6f;
-        strike_fx::Implode(x, y, pr, { 0.62f, 0.45f, 1.0f }, 0.0f, 0.30f);   // the pull's reach, closing in
+        strike_fx::Vortex(x, y, pr, { 0.62f, 0.45f, 1.0f });   // a small black hole pulling from its reach
         ForEachEnemy([&](auto& e, float ex, float ey) {
             if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) {
                 if (IsBoss(e)) return;

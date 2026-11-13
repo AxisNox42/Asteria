@@ -1147,8 +1147,8 @@ static void RebuildPaneSpaces(const SpatialBounds& player) {
 }
 
 // Pane durability: every shot a border stops wears that pane down; a worn
-// out pane self-destructs. What the blast does is still undecided, so for
-// now it only closes the pane with a shockwave.
+// out pane self-destructs: a fuse burns, then the pane blows up (an octagon
+// blast, NormaFx Blast) and throws its load of shots.
 struct PaneWear { int id = 0; float hits = 0.0f; };
 static std::vector<PaneWear> g_PaneWear;
 
@@ -3120,7 +3120,11 @@ static void TickPaneFuses(float dt) {
         const float cx = ScreenToWorldX(pane->shown.x + pane->shown.w * 0.5f);
         const float cy = ScreenToWorldY(pane->shown.y + pane->shown.h * 0.5f);
         SpawnSparks(cx, cy, 18, 0.92f, 0.99f, 1.0f, 320.0f);
-        g_PaneCollapses.push_back({ pane->shown, 0.0f });
+        // Self-destruct: the pane blows up, the blast reaching past its corners.
+        const float hw = (ScreenToWorldX(pane->shown.x + pane->shown.w) - ScreenToWorldX(pane->shown.x)) * 0.5f;
+        const float hh = (ScreenToWorldY(pane->shown.y + pane->shown.h) - ScreenToWorldY(pane->shown.y)) * 0.5f;
+        const float reach = std::clamp(std::sqrt(hw * hw + hh * hh) * 1.35f, 180.0f, 560.0f);
+        norma_fx::Blast(cx, cy, reach, 0.65f, norma_fx::kLilac);
         Audio::Play(Audio::Cue::BossOctansPaneBurst);   // 퓨즈가 다 타 창이 터짐 (벽·폭파·페이즈)
         os_pane::Close(fuse.id);
         fuse.timer = -1.0f;
@@ -5458,6 +5462,14 @@ int main() {
                             } else if (arg == "PICK") {
                                 // PICK: only take the open card (above), so a long capture
                                 // is not stalled by a level-up.
+                            } else if (arg == "BURN") {
+                                // BURN: wear the first open pane right out, so its fuse
+                                // lights and it self-destructs (the pane blast).
+                                for (const os_pane::Pane& pane : os_pane::Panes())
+                                    if (pane.open && !pane.minimized && !pane.decor) {
+                                        WearOf(pane.id).hits = PaneMaxDurability(pane);
+                                        break;
+                                    }
                             } else if (arg == "WEAR") {
                                 // WEAR: wear the open panes 15%, 45%, 75%... so the seal
                                 // ticks show several states at once.

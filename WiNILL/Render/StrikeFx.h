@@ -11,6 +11,8 @@
 //   Nova      a ring sweeping out from a point across the whole screen
 //   Sweep     a radar line turning once round the ship, a fan of fading lines behind it
 //   Implode   a ring closing in on a point, shards drawn inward with it
+//   Vortex    a small black hole: the pull's reach, spiral arms winding into
+//             a tilted accretion disk and a dark event horizon (gravity shots)
 //             (pulls, charges, cooldowns, the gather before a revive)
 //
 // Damage is applied by the caller at once; these only show it.
@@ -28,7 +30,7 @@ using line_fx::Rgb;
 
 inline constexpr Rgb kUnder{ 0.04f, 0.06f, 0.10f };
 
-enum class Kind { Blast, Bolt, Star, Nova, Implode, Sweep };
+enum class Kind { Blast, Bolt, Star, Nova, Implode, Sweep, Vortex };
 
 struct Fx {
     Kind kind = Kind::Blast;
@@ -111,6 +113,13 @@ inline void StarAt(const Fx& f, float u, float& px, float& py) {
     const float side = f.width * std::sin(line_fx::kPi * u);
     px = f.x0 + dx * u - dy / d * side;
     py = f.y0 + dy * u + dx / d * side;
+}
+
+// A small black hole at (x, y) pulling from `reach`, over `life` seconds.
+inline void Vortex(float x, float y, float reach, Rgb c, float life = 0.42f) {
+    Fx f; f.kind = Kind::Vortex; f.x = x; f.y = y; f.r = reach; f.c = c;
+    f.life = life; f.width = 1.6f; f.seed = NextSeed();
+    Push(f);
 }
 
 // One clockwise turn from straight up, `life` seconds long, out to `reach`.
@@ -317,6 +326,55 @@ inline void DrawStar(const Fx& f, float t) {
     line_fx::Star4(hx, hy, 13.0f, 5.0f, f.age * 9.0f, 1.8f, lit, 1.0f);
 }
 
+inline void DrawVortex(const Fx& f, float t) {
+    const float e = 1.0f - (1.0f - t) * (1.0f - t);
+    const float in = std::min(1.0f, t * 6.0f);              // a quick fade in
+    const float fade = in * (t < 0.7f ? 1.0f : (1.0f - t) / 0.3f);
+    const Rgb lit = line_fx::Lift(f.c, 0.45f);
+    const float R = f.r;
+    const float spin = (float)(f.seed % 628u) * 0.01f + e * 2.4f;   // turning the way the arms wind
+    const float core = R * 0.11f;
+    // The pull's reach: a thin ring tightening a little.
+    line_fx::Circle(f.x, f.y, R * (1.0f - 0.18f * e), 1.1f, f.c, 0.45f * fade);
+    // Spiral arms: from the reach down into the disk, brighter toward the centre.
+    constexpr int kArms = 4, kPts = 16;
+    for (int arm = 0; arm < kArms; ++arm) {
+        const float a0 = spin + line_fx::kTwoPi * (float)arm / (float)kArms;
+        float px[kPts], py[kPts];
+        for (int k = 0; k < kPts; ++k) {
+            const float s = (float)k / (float)(kPts - 1);
+            const float rr = core * 1.6f + (R * (1.0f - 0.25f * e) - core * 1.6f) * (1.0f - s) * (1.0f - s * 0.15f);
+            const float a = a0 + s * 2.6f;   // about 150 degrees of wind from the reach inward
+            px[k] = f.x + std::cos(a) * rr; py[k] = f.y + std::sin(a) * rr;
+        }
+        for (int k = 0; k + 1 < kPts; ++k) {
+            const float s = (float)k / (float)(kPts - 1);
+            line_fx::Line(px[k], py[k], px[k + 1], py[k + 1], 1.0f + 1.2f * s, lit, (0.20f + 0.75f * s) * fade);
+        }
+    }
+    // Accretion disk: a tilted ellipse, bright on the side turning toward us.
+    const float tilt = (float)((f.seed >> 10) % 314u) * 0.01f;
+    const float dr = R * 0.30f, flat = 0.36f;
+    constexpr int kDisk = 40;
+    float dx[kDisk + 1], dy[kDisk + 1];
+    for (int k = 0; k <= kDisk; ++k) {
+        const float a = line_fx::kTwoPi * (float)k / (float)kDisk;
+        const float ex = std::cos(a) * dr, ey = std::sin(a) * dr * flat;
+        dx[k] = f.x + ex * std::cos(tilt) - ey * std::sin(tilt);
+        dy[k] = f.y + ex * std::sin(tilt) + ey * std::cos(tilt);
+    }
+    for (int k = 0; k < kDisk; ++k) {
+        const float a = line_fx::kTwoPi * ((float)k + 0.5f) / (float)kDisk;
+        const float beam = 0.35f + 0.65f * (0.5f + 0.5f * std::cos(a - spin * 1.5f));
+        line_fx::Line(dx[k], dy[k], dx[k + 1], dy[k + 1], 2.4f, kUnder, 0.35f * fade);
+        line_fx::Line(dx[k], dy[k], dx[k + 1], dy[k + 1], 1.6f, beam > 0.8f ? line_fx::Lift(f.c, 0.75f) : lit,
+                      beam * fade);
+    }
+    // Event horizon: a dark thick ring under a thin bright rim.
+    line_fx::Circle(f.x, f.y, core, 4.0f, kUnder, 0.85f * fade);
+    line_fx::Circle(f.x, f.y, core + 2.0f, 1.2f, line_fx::Lift(f.c, 0.6f), 0.9f * fade);
+}
+
 inline void DrawSweep(const Fx& f, float t) {
     const float a0 = -line_fx::kPi * 0.5f + line_fx::kTwoPi * t;
     const float fade = t < 0.9f ? 1.0f : (1.0f - t) / 0.1f;
@@ -388,6 +446,7 @@ inline void Draw() {
         case Kind::Nova:    DrawNova(f, t); break;
         case Kind::Implode: DrawImplode(f, t); break;
         case Kind::Sweep:   DrawSweep(f, t); break;
+        case Kind::Vortex:  DrawVortex(f, t); break;
         }
     }
 }

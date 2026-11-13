@@ -10,6 +10,8 @@
 //   Wave     a thin ring riding with a flood wave of shots, eight bright marks
 //   Frame    a pane's rectangle pushing out from its border, corner brackets
 //            flying off (a pane bursting open or blowing shut)
+//   Blast    a worn-out pane blowing up: octagon blast rings racing out,
+//            rays thrown ahead of them, a hot core that burns down
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -26,7 +28,7 @@ inline constexpr Rgb kRed{ 1.0f, 0.36f, 0.30f };     // pane control (wall, ram)
 inline constexpr Rgb kLilac{ 0.86f, 0.80f, 1.0f };   // a pane closing on whatever is inside
 inline constexpr Rgb kUnder{ 0.04f, 0.07f, 0.11f };  // dark under-stroke (bright wallpapers)
 
-enum class Kind { Seal, Implode, Wave, Frame };
+enum class Kind { Seal, Implode, Wave, Frame, Blast };
 
 struct Fx {
     Kind kind = Kind::Seal;
@@ -72,6 +74,13 @@ inline void Frame(float x0, float y0, float x1, float y1, float grow, float life
     f.x = std::min(x0, x1); f.y = std::min(y0, y1);
     f.x1 = std::max(x0, x1); f.y1 = std::max(y0, y1);
     f.size = grow; f.life = life; f.c = c;
+    Push(f);
+}
+
+// An explosion at (x, y) out to R (a worn-out pane self-destructing).
+inline void Blast(float x, float y, float R, float life, Rgb c) {
+    Fx f; f.kind = Kind::Blast; f.x = x; f.y = y; f.size = R; f.life = life; f.c = c;
+    f.rot = kSealTurn + line_fx::kPi / 8.0f;   // a flat top, like the seal's frames
     Push(f);
 }
 
@@ -168,6 +177,39 @@ inline void Draw() {
             for (int k = 0; k < 4; ++k) {
                 line_fx::Line(cx[k], cy[k], cx[k] + sx[k] * arm, cy[k], w + 1.0f, lit, a);
                 line_fx::Line(cx[k], cy[k], cx[k], cy[k] + sy[k] * arm, w + 1.0f, lit, a);
+            }
+            break;
+        }
+        case Kind::Blast: {
+            // Two octagon rings race out (the second a beat behind), sixteen
+            // rays run ahead of the first, and a hot octagon core burns down.
+            const float R = f.size;
+            const float a = std::pow(1.0f - t, 1.1f);
+            const Rgb lit = line_fx::Lift(f.c, 0.5f);
+            const float e1 = 1.0f - std::pow(1.0f - std::min(1.0f, t / 0.55f), 3.0f);
+            const float t2 = std::clamp((t - 0.10f) / 0.75f, 0.0f, 1.0f);
+            const float e2 = 1.0f - std::pow(1.0f - t2, 3.0f);
+            const float r1 = R * (0.12f + 0.88f * e1), r2 = R * 0.78f * (0.10f + 0.90f * e2);
+            const float w1 = 5.0f - 3.6f * t;
+            line_fx::Polygon(f.x, f.y, r1, 8, f.rot, w1 + 2.5f, kUnder, a * 0.30f);
+            line_fx::Polygon(f.x, f.y, r1, 8, f.rot, w1, kWhite, a);
+            if (t2 > 0.0f) {
+                line_fx::Polygon(f.x, f.y, r2, 8, f.rot + line_fx::kPi / 8.0f, 2.6f + 2.0f, kUnder, a * 0.25f);
+                line_fx::Polygon(f.x, f.y, r2, 8, f.rot + line_fx::kPi / 8.0f, 2.6f, lit, a * (1.0f - t2 * 0.5f));
+            }
+            for (int k = 0; k < 16; ++k) {
+                const float ang = f.rot + line_fx::kPi * 2.0f * (float)k / 16.0f;
+                const float ca = std::cos(ang), sa = std::sin(ang);
+                const float lenK = (k % 2 == 0) ? 0.34f : 0.20f;
+                const float r0 = r1 * 0.92f + R * 0.04f, r3 = r0 + R * lenK * (1.0f - t);
+                line_fx::Line(f.x + ca * r0, f.y + sa * r0, f.x + ca * r3, f.y + sa * r3, 4.0f, kUnder, a * 0.3f);
+                line_fx::Line(f.x + ca * r0, f.y + sa * r0, f.x + ca * r3, f.y + sa * r3, 2.0f,
+                              (k % 2 == 0) ? lit : f.c, a);
+            }
+            const float core = R * 0.22f * (1.0f - t) * (0.6f + 0.4f * std::min(1.0f, t * 6.0f));
+            if (core > 2.0f) {
+                line_fx::Polygon(f.x, f.y, core, 8, f.rot, 2.4f, kWhite, a);
+                line_fx::Polygon(f.x, f.y, core * 0.55f, 8, f.rot + line_fx::kPi / 8.0f, 1.6f, lit, a);
             }
             break;
         }

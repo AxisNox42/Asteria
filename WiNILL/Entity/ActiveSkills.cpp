@@ -15,6 +15,7 @@
 #include "HudLines.h"
 #include "LineFx.h"
 #include "StrikeFx.h"
+#include "SkillTags.h"
 #include "Juice.h"
 #include "MonsterManager.h"
 #include "PlayerRuntime.h"
@@ -32,9 +33,7 @@ namespace {
 using hud_lines::Rgb;
 constexpr float kTwoPi = 6.2831853f;
 
-// Shots that need follow-up on a hit (Bullet::skillTag).
-enum Tag { TAG_NONE, TAG_ARROW, TAG_KNIFE, TAG_FIREBALL, TAG_SHARD, TAG_SNIPE,
-           TAG_TURRET, TAG_STAR, TAG_STAR_CHILD };
+// Shots that need follow-up on a hit (Bullet::skillTag): SkillTags.h.
 
 // Field objects a skill leaves behind.
 enum class ObjKind { Wall, Meteor, Dynamite, Prism, Gate, Trap, Turret, Cloud,

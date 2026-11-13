@@ -1,6 +1,7 @@
 ﻿#include "EntityDraw.h"
 #include "MiterStroke.h"
 #include "LineFx.h"
+#include "../Entity/SkillTags.h"
 #include "../Entity/MonsterManager.h"
 #include "../Entity/GravisField.h"
 #include "Camera.h"
@@ -160,8 +161,114 @@ static void DrawDiscWithTexture(float x, float y, float radius,
                                 float r, float g, float b, float alpha,
                                 GLuint texture);
 
+// Active-skill shots, each in its own shape (lines only, a dark under-stroke so
+// they hold on bright wallpapers). u: heading, n: its normal.
+static void SkillStroke(float x0, float y0, float x1, float y1, float w, const glm::vec3& c, float a) {
+    line_fx::Line(x0, y0, x1, y1, w + 2.0f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, a * 0.55f);
+    line_fx::Line(x0, y0, x1, y1, w, { c.r, c.g, c.b }, a);
+}
+static void SkillLoop(const float* px, const float* py, int n, float w, const glm::vec3& c, float a) {
+    miter::Loop(px, py, n, w + 2.0f, c.r * 0.18f, c.g * 0.18f, c.b * 0.18f, a * 0.55f);
+    miter::Loop(px, py, n, w, c.r, c.g, c.b, a);
+}
+static bool DrawSkillShot(const Bullet& b) {
+    if (!b.skillShot || b.skillTag == TAG_NONE) return false;
+    const float r = 4.8f * b.sizeScale;
+    const float ux = b.dirX, uy = b.dirY, nx = -uy, ny = ux;
+    const glm::vec3 c = b.color;
+    const glm::vec3 lit = c + (glm::vec3(1.0f) - c) * 0.55f;
+    const float t = (float)glfwGetTime();
+    auto P = [&](float f, float s, float& x, float& y) { x = b.x + ux * f + nx * s; y = b.y + uy * f + ny * s; };
+    switch (b.skillTag) {
+    case TAG_ARROW: {   // 유성 관통창: a long lance head, a spine and two streaming tails
+        float px[4], py[4];
+        P(r * 2.6f, 0.0f, px[0], py[0]); P(0.0f, r * 0.60f, px[1], py[1]);
+        P(-r * 1.4f, 0.0f, px[2], py[2]); P(0.0f, -r * 0.60f, px[3], py[3]);
+        SkillLoop(px, py, 4, 2.2f, c, 1.0f);
+        float ax, ay, bx, by;
+        P(r * 2.2f, 0.0f, ax, ay); P(-r * 1.0f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.4f, lit, 1.0f);
+        for (int k = -1; k <= 1; k += 2) {
+            P(-r * 1.2f, r * 0.30f * (float)k, ax, ay); P(-r * 4.2f, r * 0.45f * (float)k, bx, by);
+            SkillStroke(ax, ay, bx, by, 1.2f, c, 0.55f);
+        }
+        return true;
+    }
+    case TAG_KNIFE: {   // 별조각 단검: a narrow blade with a crossguard
+        float px[4], py[4];
+        P(r * 2.6f, 0.0f, px[0], py[0]); P(r * 0.1f, r * 0.42f, px[1], py[1]);
+        P(-r * 0.7f, 0.0f, px[2], py[2]); P(r * 0.1f, -r * 0.42f, px[3], py[3]);
+        SkillLoop(px, py, 4, 1.6f, c, 1.0f);
+        float ax, ay, bx, by;
+        P(-r * 0.7f, r * 0.85f, ax, ay); P(-r * 0.7f, -r * 0.85f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.6f, lit, 1.0f);
+        P(-r * 0.7f, 0.0f, ax, ay); P(-r * 1.5f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.4f, c, 0.9f);
+        return true;
+    }
+    case TAG_FIREBALL: {   // 홍염탄: a hot ring with flame chevrons licking back from it
+        line_fx::Circle(b.x, b.y, r * 0.95f, 3.4f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.55f);
+        line_fx::Circle(b.x, b.y, r * 0.95f, 2.0f, { lit.r, lit.g, lit.b }, 1.0f);
+        line_fx::Circle(b.x, b.y, r * 0.45f, 1.4f, { 1.0f, 0.95f, 0.8f }, 0.9f);
+        for (int k = 0; k < 3; ++k) {
+            const float flick = 0.7f + 0.3f * std::sin(t * 18.0f + (float)k * 2.1f + b.x * 0.05f);
+            const float back = r * (1.2f + 0.9f * (float)k), w = r * (0.75f - 0.18f * (float)k) * flick;
+            float ax, ay, bx, by, cx, cy;
+            P(-back + r * 0.6f, w, ax, ay); P(-back - r * 0.5f * flick, 0.0f, bx, by); P(-back + r * 0.6f, -w, cx, cy);
+            SkillStroke(ax, ay, bx, by, 1.5f, c, 0.85f - 0.2f * (float)k);
+            SkillStroke(cx, cy, bx, by, 1.5f, c, 0.85f - 0.2f * (float)k);
+        }
+        return true;
+    }
+    case TAG_SHARD: {   // 파편: a small spinning triangle shard
+        const float spin = b.traveled * 0.045f;
+        float px[3], py[3];
+        for (int k = 0; k < 3; ++k) {
+            const float a = spin + 2.0943951f * (float)k;
+            const float rr = r * (k == 0 ? 1.6f : 1.1f);
+            px[k] = b.x + std::cos(a) * rr; py[k] = b.y + std::sin(a) * rr;
+        }
+        SkillLoop(px, py, 3, 1.6f, c, 1.0f);
+        return true;
+    }
+    case TAG_SNIPE: {   // 초정밀 저격: a needle with a bright tip and a long thin wake
+        float ax, ay, bx, by;
+        P(r * 2.8f, 0.0f, ax, ay); P(-r * 6.0f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 2.4f, lit, 1.0f);
+        P(-r * 6.0f, 0.0f, ax, ay); P(-r * 26.0f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.0f, c, 0.45f);
+        line_fx::Diamond(b.x + ux * r * 2.8f, b.y + uy * r * 2.8f, r * 0.8f, 1.6f, { 1.0f, 1.0f, 1.0f }, 1.0f);
+        return true;
+    }
+    case TAG_TURRET: {   // 포탑탄: a small hexagon bolt with a short tail
+        float px[6], py[6];
+        const float rot = std::atan2(uy, ux);
+        for (int k = 0; k < 6; ++k) {
+            const float a = rot + 1.0471976f * (float)k;
+            px[k] = b.x + std::cos(a) * r * 1.05f; py[k] = b.y + std::sin(a) * r * 1.05f;
+        }
+        SkillLoop(px, py, 6, 1.5f, c, 1.0f);
+        float ax, ay, bx, by;
+        P(-r * 1.1f, 0.0f, ax, ay); P(-r * 3.2f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.2f, c, 0.6f);
+        return true;
+    }
+    case TAG_STAR:
+    case TAG_STAR_CHILD: {   // 별빛 산개: a turning four-point star (its children smaller)
+        const float k = b.skillTag == TAG_STAR ? 1.0f : 0.7f;
+        const float spin = b.traveled * 0.02f;
+        line_fx::Star4(b.x, b.y, r * 2.0f * k, r * 0.75f * k, spin, 3.6f,
+                       { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.55f);
+        line_fx::Star4(b.x, b.y, r * 2.0f * k, r * 0.75f * k, spin, 1.8f, { lit.r, lit.g, lit.b }, 1.0f);
+        return true;
+    }
+    default: return false;
+    }
+}
+
 void drawBullet(const Bullet& b) {
     float r = 4.8f * b.sizeScale;
+    if (DrawSkillShot(b)) return;
     if (b.normaShot) {
         // NORMA's shot: a turned square outline with a short tail.
         const float ang = atan2f(b.dirY, b.dirX) + (float)glfwGetTime() * 6.0f;
