@@ -5040,7 +5040,7 @@ int main() {
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
                         g_SmokeAugFocus = 0;
-                    } else if (step.rfind("AUGGLOSS=", 0) == 0) {
+                    } else if (step.rfind("AUGGLOSS=", 0) == 0 || step.rfind("AUGKEY=", 0) == 0) {
                         // AUGGLOSS=<levels>: AUGSEL, then hover the first card's
                         // first glossary word (and its related words, per level).
                         if (gm.currentState != GameState::RUNNING)
@@ -5048,12 +5048,12 @@ int main() {
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
                         g_SmokeAugFocus = 0;
-                        g_SmokeGlossDepth = std::max(1, std::atoi(step.c_str() + 9));
-                    } else if (step == "AUGDEAL") {
-                        // AUGDEAL: opens the reward pick and lets the deal play (dim fade-in).
-                        if (gm.currentState != GameState::RUNNING)
-                            RestartCurrentRun();
+                        const bool viaKey = step.rfind("AUGKEY=", 0) == 0;
+                        if (viaKey) g_SmokeGlossKeyPresses = std::max(1, std::atoi(step.c_str() + 7));
+                        else g_SmokeGlossDepth = std::max(1, std::atoi(step.c_str() + 9));
                         // AUGGLOSS=<levels>+<CODE> puts that augment in the first slot.
+                        // AUGKEY=<n>+<CODE>: the same card, keyboard-focused, with the
+                        // glossary key pressed n times instead of a hover.
                         const size_t colon = step.find('+');
                         if (colon != std::string::npos && gm.augChoiceCount > 0)
                             for (int a = 0; a < AUG_TOTAL; ++a)
@@ -5061,6 +5061,10 @@ int main() {
                                     gm.augChoices[0] = a;
                                     break;
                                 }
+                    } else if (step == "AUGDEAL") {
+                        // AUGDEAL: opens the reward pick and lets the deal play (dim fade-in).
+                        if (gm.currentState != GameState::RUNNING)
+                            RestartCurrentRun();
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
                     } else if (step == "STATDEAL") {

@@ -23,6 +23,8 @@ inline int g_SmokeAugFocus = -1;
 // Smoke-only (AUGGLOSS=<n> step): act as if the pointer rests on the focused
 // card's first glossary word and then n-1 levels of its related words.
 inline int g_SmokeGlossDepth = 0;
+// Smoke-only (AUGKEY=<n>+<CODE> step): glossary-key presses still to replay, one per frame.
+inline int g_SmokeGlossKeyPresses = 0;
 // Smoke-only game-time scale (SLOW=x step), for frame-by-frame captures.
 inline float g_SmokeTimeScale = 1.0f;
 // Smoke-only: hold fire at the nearest enemy (FIRE=1), as if the button were held.

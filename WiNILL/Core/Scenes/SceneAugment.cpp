@@ -8,6 +8,7 @@
 #include "UiLayout.h"
 #include "Settings.h"
 #include "KeyBindings.h"
+#include "Input.h"
 #include "Augment.h"
 #include "SynergyRuntime.h"
 #include "../../System/Audio.h"
@@ -464,12 +465,34 @@ float g_GlossaryOpenA = 0.0f;
 
 void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX, const float* cardY,
                       const Rgb* cardCol, int count, bool active, float mx, float my, float delta,
+                      int keyCard, bool keyPress, bool pointerMoved,
                       float sw, float sh, float ui) {
     static TipLevel tips[kTipLevels];
     static int open = 0;
     static float grace = 0.0f, shrink = 0.0f;
     static std::vector<LinkBox> relLinks;   // related words drawn last frame (owner = level)
-    if (!active) { open = 0; relLinks.clear(); g_GlossaryOpenA = 0.0f; return; }
+    static int keyIndex = -1, keyOwner = -1;   // the glossary key's word on the focused card
+    if (!active) { open = 0; relLinks.clear(); g_GlossaryOpenA = 0.0f; keyIndex = -1; return; }
+    // Glossary key (bindable, Tab by default): each press opens the next word
+    // of the focused card, the press after the last one closes. Moving the
+    // pointer or another card hands back to the mouse.
+    if (pointerMoved || keyCard != keyOwner) keyIndex = -1;
+    if (keyPress && keyCard >= 0) {
+        int words = 0;
+        for (const LinkBox& b : cardLinks) words += b.owner == keyCard ? 1 : 0;
+        keyIndex = keyOwner == keyCard ? keyIndex + 1 : 0;
+        keyOwner = keyCard;
+        if (keyIndex >= words) { keyIndex = -1; open = 0; }
+    }
+    keyOwner = keyCard;
+    if (keyIndex >= 0) {
+        int k = 0;
+        const LinkBox* word = nullptr;
+        for (const LinkBox& b : cardLinks)
+            if (b.owner == keyCard && k++ == keyIndex) { word = &b; break; }
+        if (word) { mx = (word->x0 + word->x1) * 0.5f; my = (word->y0 + word->y1) * 0.5f; }
+        else keyIndex = -1;
+    }
     if (g_SmokeCapture && g_SmokeGlossDepth > 0) {
         // Smoke capture: rest the pointer on the first word, then on the
         // first related word of each open level, down to the asked depth.
@@ -971,10 +994,15 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         BatchFlush();
         DrawRingMarks(ringMarks, ui);
         float cardX[ac::kMaxCards] = {}, cardY[ac::kMaxCards] = {};
+        static bool glossaryHeld = false;
+        const bool held = ActionBound(GameAction::Glossary) && ActionHeld(GameAction::Glossary);
+        bool glossaryPress = held && !glossaryHeld;
+        if (g_SmokeCapture && inputReady && g_SmokeGlossKeyPresses > 0) { --g_SmokeGlossKeyPresses; glossaryPress = true; }
+        glossaryHeld = held;
         Rgb cardCol[ac::kMaxCards] = {};
         for (int i = 0; i < count; ++i) { cardX[i] = cd[i].x; cardY[i] = cd[i].y; cardCol[i] = cd[i].col; }
         DrawGlossaryTips(linkBoxes, cardX, cardY, cardCol, count, inputReady && !inExit,
-                         (float)c.mx, (float)c.my, delta, sw, sh, ui);
+                         (float)c.mx, (float)c.my, delta, focus, glossaryPress, pointerMoved && c.mx >= 0.0, sw, sh, ui);
     }
 
     // Guide line, only once the cards can be picked.
@@ -999,6 +1027,12 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         } else {
             guideText = li == 0 ? L"카드를 클릭하거나 " + cardKeys + L" 키로 고른 뒤 " + confirmKey + L"(으)로 확정"
                       : li == 2 ? L"カードをクリック、または" + cardKeys + L"キーで選んで" + confirmKey + L"で確定"
+        if (ActionBound(GameAction::Glossary)) {
+            const std::wstring termKey = KeyName(ActionKey(GameAction::Glossary));
+            guideText += li == 0 ? L" · " + termKey + L" 용어 설명"
+                       : li == 2 ? L" · " + termKey + L"で用語説明"
+                                 : L" · " + termKey + L" FOR TERMS";
+        }
                                 : L"CLICK A CARD, OR PRESS " + cardKeys + L" AND CONFIRM WITH " + confirmKey;
         }
         const wchar_t* guide = guideText.c_str();

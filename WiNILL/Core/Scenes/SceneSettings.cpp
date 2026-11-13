@@ -73,6 +73,7 @@ static const wchar_t* const kKeyActionLabels[GAME_ACTION_COUNT][3] = {
     { L"카드 1 선택",   L"CARD 1",     L"カード1選択" },
     { L"카드 2 선택",   L"CARD 2",     L"カード2選択" },
     { L"카드 3 선택",   L"CARD 3",     L"カード3選択" },
+    { L"카드 용어 설명", L"CARD TERMS", L"カードの用語説明" },
 };
 
 // Settings board capacity: rows per category, and left/right list entries

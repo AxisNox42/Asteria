@@ -14,6 +14,7 @@ enum class GameAction {
     Confirm,               // READY 출격 · 증강 카드 확정
     Pause,                 // 일시정지 / 재개 (ESC 는 항상 일시정지)
     Card1, Card2, Card3,   // 증강 카드 고르기 (마우스로도 고를 수 있음)
+    Glossary,              // 증강 카드: 고른 카드의 용어 설명을 차례로 열기 (마우스는 올려서 봄)
     Count
 };
 inline constexpr int GAME_ACTION_COUNT = (int)GameAction::Count;
@@ -26,6 +27,7 @@ inline constexpr int kBindKeySpace = 32;
 inline constexpr int kBindKeyEscape = 256;
 inline constexpr int kBindKeyA = 65, kBindKeyD = 68, kBindKeyE = 69, kBindKeyQ = 81;
 inline constexpr int kBindKeyR = 82, kBindKeyS = 83, kBindKeyW = 87;
+inline constexpr int kBindKeyTab = 258;
 inline constexpr int kBindKeyLeftShift = 340, kBindKeyLeftCtrl = 341, kBindKeyLeftAlt = 342;
 inline constexpr int kBindKeyRightShift = 344, kBindKeyRightCtrl = 345, kBindKeyRightAlt = 346;
 inline constexpr int kBindKeyLast = 348;   // GLFW_KEY_MENU
@@ -47,6 +49,7 @@ inline constexpr KeyBindSet kDefaultKeyBinds = {{
     kBindKeySpace,       // Confirm
     kBindKeySpace,       // Pause (Confirm 과 같은 키를 함께 쓸 수 있음)
     '1', '2', '3',
+    kBindKeyTab,         // Glossary
 }};
 
 inline KeyBindSet g_KeyBinds = kDefaultKeyBinds;
@@ -57,11 +60,12 @@ inline bool ActionBound(GameAction a) { return ActionKey(a) != kKeyUnbound; }
 inline void ResetKeyBindings() { g_KeyBinds = kDefaultKeyBinds; }
 
 // 필수 액션: 지정되지 않으면 설정 화면을 나갈 수 없다.
-//   선택 액션: 일시정지 (ESC 로도 됨), 카드 1~3 (마우스로도 고름).
+//   선택 액션: 일시정지 (ESC 로도 됨), 카드 1~3 (마우스로도 고름), 용어 설명 (마우스로도 봄).
 inline bool ActionRequired(GameAction a) {
     switch (a) {
     case GameAction::Pause:
     case GameAction::Card1: case GameAction::Card2: case GameAction::Card3:
+    case GameAction::Glossary:
         return false;
     default:
         return true;
