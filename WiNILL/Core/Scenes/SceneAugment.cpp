@@ -131,10 +131,13 @@ static std::vector<std::wstring> DescSegments(const wchar_t* src) {
     std::vector<std::wstring> segments;
     const wchar_t* text = src ? src : L"";
     std::wstring segment;
+    int depth = 0;   // a '·' inside brackets is a list ("(관통·튕김·분열)"), not a break
     for (const wchar_t* p = text; *p; ++p) {
+        if (*p == L'(' || *p == L'[') ++depth;
+        else if ((*p == L')' || *p == L']') && depth > 0) --depth;
         const bool spacedSlash = *p == L'/' && p > text && p[1] != L'\0'
                               && p[-1] == L' ' && p[1] == L' ';
-        if (*p == L'\xB7' || spacedSlash) {
+        if ((*p == L'\xB7' && depth == 0) || spacedSlash) {
             segments.push_back(std::move(segment));
             segment.clear();
             continue;
@@ -234,7 +237,7 @@ GLuint AugIconTex(const AugDef& def) {
 constexpr const char* kTermIconNames[] = {
     "Verb", "Pierce", "Bounce", "Split", "Homing", "Blast", "Burn", "Mark", "Orbit", "Trail", "Mine", "Hover",
     "Pull", "Return", "Swap", "Erase", "Graze", "Shield", "Still", "Crit", "CritMult", "HitCount", "DmgKinds",
-    "FireRate", "Range", "Distance", "Stardust", "Luck", "LightYear", "Broken", "Stack", "RunWave",
+    "FireRate", "Range", "Distance", "Stardust", "Luck", "Broken", "Stack", "RunWave",
     "ActiveSkill", "Dash", "SkillSlot", "Reaction", "Risky", "ChanceAug", "Enemies" };
 static_assert(sizeof(kTermIconNames) / sizeof(kTermIconNames[0]) == glossary::kTermCount,
               "kTermIconNames follows glossary::Term");
@@ -499,7 +502,7 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         const LinkBox* aim = nullptr;
         const int want = std::min(open, g_SmokeGlossDepth - 1);
         for (const LinkBox& b : (want == 0 ? cardLinks : relLinks))
-            if (want == 0 || b.owner == want - 1) { aim = &b; break; }
+            if (want == 0 ? (keyCard < 0 || b.owner == keyCard) : b.owner == want - 1) { aim = &b; break; }
         if (!aim && !cardLinks.empty()) aim = &cardLinks.front();
         if (aim) { mx = (aim->x0 + aim->x1) * 0.5f; my = (aim->y0 + aim->y1) * 0.5f; }
     }
@@ -524,6 +527,11 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         for (const LinkBox& b : relLinks) {
             if (b.owner >= open || !inBox(b)) continue;
             const int next = b.owner + 1;
+            // A word already open further up (a -> b -> a) stays where it is;
+            // opening it again would stack a copy on top of the first one.
+            bool shown = false;
+            for (int k = 0; k <= b.owner; ++k) shown = shown || tips[k].term == b.term;
+            if (shown) { keep = b.owner; break; }
             if (next < kTipLevels) {
                 if (open <= next || tips[next].term != b.term) {
                     tips[next] = TipLevel{ b.term, tips[b.owner].card, b.x0, b.x1, b.y1 + 2.0f * ui };
@@ -611,13 +619,23 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
             SLine(ax, tl.ay, ax, ly, 1.0f * ui, col, 0.70f, 0.0f);
             SLine(ax, ly, tl.x + pad, ly, 1.0f * ui, col, 0.70f, 0.0f);
         } else {
-            // Beside: under the word's row, across, then up to the title.
-            const float ry = tl.ay + 8.0f * ui, gx = tl.x - 10.0f * ui;
+            // Beside (right or left of the level above): the leader only runs
+            // through empty space. Down from the word to below the level it
+            // sits in, across to the gap between the two levels, up the gap to
+            // the title row, then in to the title's near end (a title on the
+            // left is met at its right end, so the line never crosses text).
+            const TipLevel& up = tips[k - 1];
+            const bool onLeft = tl.x < up.x;
+            const float ry = std::max(tl.ay + 8.0f * ui, up.y + up.h + 6.0f * ui);
+            const float gx = onLeft ? up.x - 12.0f * ui : up.x + up.w + 12.0f * ui;
             const float titleMid = tl.y + 2.0f * ui + g_TextS.Height(L"가Ag", titleScale) * 0.5f;
+            const GLuint tIcon = TermIconTex(tl.term);
+            const float tEnd = tl.x + pad + (tIcon ? titleH * 1.25f + 6.0f * ui : 0.0f) +
+                               g_TextS.Width(e.name[lang], titleScale) + 8.0f * ui;
             SLine(ax, tl.ay, ax, ry, 1.0f * ui, col, 0.70f, 0.0f);
             SLine(ax, ry, gx, ry, 1.0f * ui, col, 0.70f, 0.0f);
             SLine(gx, ry, gx, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
-            SLine(gx, titleMid, tl.x + pad - 4.0f * ui, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
+            SLine(gx, titleMid, onLeft ? tEnd : tl.x + pad - 4.0f * ui, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
         }
         // Title, underlined; then the definition; then related words.
         const wchar_t* title = e.name[lang];
@@ -994,13 +1012,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         BatchFlush();
         DrawRingMarks(ringMarks, ui);
         float cardX[ac::kMaxCards] = {}, cardY[ac::kMaxCards] = {};
+        Rgb cardCol[ac::kMaxCards] = {};
+        for (int i = 0; i < count; ++i) { cardX[i] = cd[i].x; cardY[i] = cd[i].y; cardCol[i] = cd[i].col; }
         static bool glossaryHeld = false;
         const bool held = ActionBound(GameAction::Glossary) && ActionHeld(GameAction::Glossary);
         bool glossaryPress = held && !glossaryHeld;
         if (g_SmokeCapture && inputReady && g_SmokeGlossKeyPresses > 0) { --g_SmokeGlossKeyPresses; glossaryPress = true; }
         glossaryHeld = held;
-        Rgb cardCol[ac::kMaxCards] = {};
-        for (int i = 0; i < count; ++i) { cardX[i] = cd[i].x; cardY[i] = cd[i].y; cardCol[i] = cd[i].col; }
         DrawGlossaryTips(linkBoxes, cardX, cardY, cardCol, count, inputReady && !inExit,
                          (float)c.mx, (float)c.my, delta, focus, glossaryPress, pointerMoved && c.mx >= 0.0, sw, sh, ui);
     }
@@ -1027,13 +1045,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         } else {
             guideText = li == 0 ? L"카드를 클릭하거나 " + cardKeys + L" 키로 고른 뒤 " + confirmKey + L"(으)로 확정"
                       : li == 2 ? L"カードをクリック、または" + cardKeys + L"キーで選んで" + confirmKey + L"で確定"
+                                : L"CLICK A CARD, OR PRESS " + cardKeys + L" AND CONFIRM WITH " + confirmKey;
+        }
         if (ActionBound(GameAction::Glossary)) {
             const std::wstring termKey = KeyName(ActionKey(GameAction::Glossary));
             guideText += li == 0 ? L" · " + termKey + L" 용어 설명"
                        : li == 2 ? L" · " + termKey + L"で用語説明"
                                  : L" · " + termKey + L" FOR TERMS";
-        }
-                                : L"CLICK A CARD, OR PRESS " + cardKeys + L" AND CONFIRM WITH " + confirmKey;
         }
         const wchar_t* guide = guideText.c_str();
         const float gs = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);

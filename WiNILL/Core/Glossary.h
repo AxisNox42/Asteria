@@ -18,7 +18,7 @@ namespace glossary {
 enum class Term : int {
     Verb, Pierce, Bounce, Split, Homing, Blast, Burn, Mark, Orbit, Trail, Mine, Hover,
     Pull, Return, Swap, Erase, Graze, Shield, Still, Crit, CritMult, HitCount, DmgKinds,
-    FireRate, Range, Distance, Stardust, Luck, LightYear, Broken, Stack, RunWave,
+    FireRate, Range, Distance, Stardust, Luck, Broken, Stack, RunWave,
     ActiveSkill, Dash, SkillSlot, Reaction, Risky, ChanceAug, Enemies, Count
 };
 inline constexpr int kTermCount = (int)Term::Count;
@@ -193,7 +193,7 @@ inline const Entry kEntries[kTermCount] = {
         L"The distance unit. 1○ is the radius of the blue health ring around your ship; 4○ reaches four of those rings out from the ship's centre.",
         L"距離の単位です。1○は自機を囲む青い体力リングの半径です。4○なら自機の中心から体力リング4つ分離れた距離です。" },
       { L"#○", L"#○", L"#○" },
-      { Term::LightYear }, 1 },
+      { }, 0 },
     { { L"별가루", L"Stardust", L"星屑" },
       { L"적이 떨어뜨리는 재화입니다. 주우면 모이고, 메인 메뉴 상점에서 영구 강화에 씁니다.",
         L"Currency that enemies drop. Pick it up to collect it, then spend it on permanent upgrades in the main menu shop.",
@@ -206,12 +206,6 @@ inline const Entry kEntries[kTermCount] = {
         L"幸運1につき、確率で発動するパッシブ(三重打撃・コロナ弾頭など)の発動率と高レア強化の出現率が5%ずつ上がります。クリティカル率には影響しません。" },
       { L"행운", L"luck", L"幸運" },
       { Term::Stardust }, 1 },
-    { { L"광년", L"Light-year", L"光年" },
-      { L"이동 거리 단위입니다. 1광년 = 6○. 대시·순간이동한 거리도 셉니다.",
-        L"A travel distance unit. 1 light-year = 6○. Dashes and teleports count.",
-        L"移動距離の単位です。1光年 = 6○。ダッシュ・瞬間移動した距離も数えます。" },
-      { L"광년", L"light-years|light-year", L"光年" },
-      { Term::Distance }, 1 },
     { { L"효과 꺼짐", L"Stops working", L"効果が消える" },
       { L"이번 런에서 받은 피해를 모두 더해 기준을 넘으면, 그 증강의 효과가 런이 끝날 때까지 꺼집니다. 카드는 그대로 남습니다.",
         L"Once the damage you have taken this run adds up past the limit, the augment's effect is off for the rest of the run. You keep the card.",

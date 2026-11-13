@@ -5054,13 +5054,23 @@ int main() {
                         // AUGGLOSS=<levels>+<CODE> puts that augment in the first slot.
                         // AUGKEY=<n>+<CODE>: the same card, keyboard-focused, with the
                         // glossary key pressed n times instead of a hover.
+                        // A trailing #<slot> (1..3) puts it there instead, focused ('@' is the step's mouse mark).
                         const size_t colon = step.find('+');
-                        if (colon != std::string::npos && gm.augChoiceCount > 0)
+                        if (colon != std::string::npos && gm.augChoiceCount > 0) {
+                            std::string code = step.substr(colon + 1);
+                            int slot = 0;
+                            const size_t at = code.find('#');
+                            if (at != std::string::npos) {
+                                slot = std::clamp(std::atoi(code.c_str() + at + 1) - 1, 0, gm.augChoiceCount - 1);
+                                code.resize(at);
+                            }
                             for (int a = 0; a < AUG_TOTAL; ++a)
-                                if (step.compare(colon + 1, std::string::npos, ALL_AUGS[a].name) == 0) {
-                                    gm.augChoices[0] = a;
+                                if (code == ALL_AUGS[a].name) {
+                                    gm.augChoices[slot] = a;
+                                    g_SmokeAugFocus = slot;
                                     break;
                                 }
+                        }
                     } else if (step == "AUGDEAL") {
                         // AUGDEAL: opens the reward pick and lets the deal play (dim fade-in).
                         if (gm.currentState != GameState::RUNNING)

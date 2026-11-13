@@ -697,17 +697,17 @@ void Step(const StepInput& in) {
 
     TrackEnemies();
 
-    // Movement: light-years (1 ly = 6○) and the 3s log.
+    // Movement: Route Sweep's distance (60○) and the 3s log.
     float moved = 0.0f;
     if (s.hasLast) moved = std::hypot(in.px - s.lastPX, in.py - s.lastPY);
     s.lastPX = in.px; s.lastPY = in.py; s.hasLast = true;
     s.moveLog.push_back({ s.clock, moved });
     while (!s.moveLog.empty() && s.moveLog.front().first < s.clock - 3.0f) s.moveLog.pop_front();
     if (Has(AugType::P_FLIGHT_ROUTE_SWEEP)) {
-        constexpr float lightYear = Rings(6);   // glossary: 1 light-year = 6○ on every screen
+        constexpr float kSweepEvery = Rings(60);   // card text: every 60○ moved, on every screen
         s.cloudDist += moved;
-        if (s.cloudDist >= 10.0f * lightYear) {
-            s.cloudDist -= 10.0f * lightYear;
+        if (s.cloudDist >= kSweepEvery) {
+            s.cloudDist -= kSweepEvery;
             ClearEnemyBullets(in.px, in.py, kNearRadius);
         }
     }
