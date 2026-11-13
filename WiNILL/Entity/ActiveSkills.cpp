@@ -36,7 +36,7 @@ constexpr float kTwoPi = 6.2831853f;
 // Shots that need follow-up on a hit (Bullet::skillTag): SkillTags.h.
 
 // Field objects a skill leaves behind.
-enum class ObjKind { Wall, Meteor, Dynamite, Prism, Gate, Trap, Turret, Cloud,
+enum class ObjKind { Wall, Meteor, Dynamite, Prism, Gate, Trap, Turret, Storm,
                      Clone, Hoop, Line, Strike };
 // How a Line object is drawn.
 enum class LineStyle { Bolt, Execute, Gust, Warp, Rush, Rewind, Beam };
@@ -472,7 +472,8 @@ void Cast(int aug) {
     }
     case AugType::A_STORM_TRIPLE_BOLT: CastLightningStrike(); break;
     case AugType::A_STORM_STORM_NEBULA: {
-        Obj o; o.kind = ObjKind::Cloud; o.life = 6.0f; o.col = { 0.65f, 0.80f, 1.0f };
+        // No cloud: for 6s the ship itself throws a bolt every 0.5s.
+        Obj o; o.kind = ObjKind::Storm; o.life = 6.0f; o.col = { 0.65f, 0.80f, 1.0f };
         s.objs.push_back(o);
         Audio::Play(Audio::Cue::SkillSummon);
         break;
@@ -738,8 +739,7 @@ void StepObjects(float dt) {
                 }
             }
             break;
-        case ObjKind::Cloud:
-            o.x = s.in.px; o.y = s.in.py - 90.0f;
+        case ObjKind::Storm:
             if (o.t >= o.life) Audio::Play(Audio::Cue::SkillSummonEnd);
             o.timer += dt;
             if (o.timer >= 0.5f) {
@@ -751,8 +751,8 @@ void StepObjects(float dt) {
                     if (r->alive && passive::OnScreen(r->worldX, r->worldY)) targets.push_back({ r, true });
                 if (!targets.empty()) {
                     const auto& t = targets[std::rand() % targets.size()];
-                    if (t.second) { RangedMob& r = *(RangedMob*)t.first; HitOne(r, 300.0f); AddStrike(r.worldX, r.worldY, o.col, true, o.x, o.y + 10.0f); }
-                    else          { Monster& m = *(Monster*)t.first; HitOne(m, 300.0f); AddStrike(m.worldX, m.worldY, o.col, true, o.x, o.y + 10.0f); }
+                    if (t.second) { RangedMob& r = *(RangedMob*)t.first; HitOne(r, 300.0f); AddStrike(r.worldX, r.worldY, o.col, true, s.in.px, s.in.py); }
+                    else          { Monster& m = *(Monster*)t.first; HitOne(m, 300.0f); AddStrike(m.worldX, m.worldY, o.col, true, s.in.px, s.in.py); }
                 }
             }
             break;
@@ -1109,28 +1109,6 @@ static void DrawLineObj(const Obj& o, float k, float time) {
     (void)time;
 }
 
-// Cloud outline: the top edge of three overlapping bumps over a flat base.
-static void DrawCloudShape(float x, float y, float scale, float time, Rgb c, float thick, float a) {
-    const float bx[3] = { -22.0f, 0.0f, 22.0f }, by[3] = { 0.0f, -8.0f, 1.0f };
-    const float br[3] = { 16.0f, 20.0f, 15.0f };
-    constexpr int kN = 28;
-    float px[kN + 2], py[kN + 2];
-    const float left = -38.0f, right = 37.0f, base = 8.0f;
-    for (int i = 0; i < kN; ++i) {
-        const float u = left + (right - left) * (float)i / (float)(kN - 1);
-        float top = base;
-        for (int b = 0; b < 3; ++b) {
-            const float r = br[b] * (1.0f + 0.05f * std::sin(time * 2.0f + (float)b * 2.1f));
-            const float d = u - bx[b];
-            if (std::fabs(d) < r) top = std::min(top, by[b] - std::sqrt(r * r - d * d));
-        }
-        px[i] = x + u * scale; py[i] = y + top * scale;
-    }
-    px[kN] = x + right * scale; py[kN] = y + base * scale;
-    px[kN + 1] = x + left * scale; py[kN + 1] = y + base * scale;
-    miter::Loop(px, py, kN + 2, thick, c.r, c.g, c.b, a);
-}
-
 void DrawWorld(float time) {
     using namespace hud_lines;
     BindMainShader();
@@ -1273,10 +1251,6 @@ void DrawWorld(float time) {
             lf::ArcLine(o.x, o.y, 22.0f, -lf::kPi * 0.5f, lf::kTwoPi * (1.0f - k), 1.2f, o.col, 0.45f * fade);
             break;
         }
-        case ObjKind::Cloud:
-            DrawCloudShape(o.x, o.y, born, time, o.col, 2.0f, 0.9f * fade);
-            DrawCloudShape(o.x, o.y + 2.0f, 0.6f * born, time + 1.3f, o.col, 1.0f, 0.4f * fade);
-            break;
         case ObjKind::Clone: {
             // A twin star: the ship's four-point outline, slowly turning, tied
             // to the ship by a thin line.
