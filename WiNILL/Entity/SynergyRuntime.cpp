@@ -15,6 +15,7 @@
 #include "GameManager.h"
 #include "Juice.h"
 #include "LineFx.h"
+#include "StrikeFx.h"
 #include "MonsterManager.h"
 #include "PassiveHooks.h"
 #include "PlayerRuntime.h"
@@ -110,7 +111,10 @@ template <class F> void ForEachEnemy(F&& f) {
 }
 
 // Damage as a share of attack, with the "all damage" multipliers; no sound.
-void Burst(float x, float y, float radius, float pct) {
+void Burst(float x, float y, float radius, float pct, line_fx::Rgb col = { 1.0f, 0.58f, 0.25f },
+           strike_fx::BlastStyle style = strike_fx::BlastStyle::Impact) {
+    if (!(pct > 0.0f)) return;   // nothing to deal, nothing to show
+    strike_fx::Blast(x, y, radius, col, 0.0f, style);
     const float dmg = passive::AttackPower() * pct / 100.0f * passive::AllDamageMult();
     ForEachEnemy([&](auto& e, float ex, float ey) {
         const float dx = ex - x, dy = ey - y;
@@ -174,6 +178,9 @@ void Chain(float x, float y, const void* skip, int count, float range, float pct
         if (!best) break;
         hit.insert(best);
         Audio::Play(Audio::Cue::SfxChainZap);
+        if (i == 0) strike_fx::Zap(s.in.px, s.in.py, bx, by, { 0.62f, 0.84f, 1.0f }, 2.2f, 0.0f, 0.0f);
+        else        strike_fx::Bolt(cx, cy, bx, by, { 0.62f, 0.84f, 1.0f }, 2.2f, 0.05f * (float)i);
+        strike_fx::Blast(bx, by, 34.0f, { 0.62f, 0.84f, 1.0f }, 0.05f * (float)i, strike_fx::BlastStyle::Discharge);
         const float dmg = passive::AttackPower() * p / 100.0f * passive::AllDamageMult();
         for (auto* m : g_MonsterManager.monsters)
             if (m == best) { const float d = g_MonsterManager.ApplyDamage(*m, dmg); if (d > 0) SpawnDamageNumber(bx, by, d, false); }
@@ -416,6 +423,7 @@ void Landed(const Bullet& b, float radius) {
 void Explode(float x, float y, float radius, float pct, bool pull) {
     if (pull) {
         const float pr = radius * 1.6f;
+        strike_fx::Implode(x, y, pr, { 0.62f, 0.45f, 1.0f }, 0.0f, 0.30f);   // the pull's reach, closing in
         ForEachEnemy([&](auto& e, float ex, float ey) {
             if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) {
                 if (IsBoss(e)) return;
@@ -426,7 +434,8 @@ void Explode(float x, float y, float radius, float pct, bool pull) {
             }
         });
     }
-    Burst(x, y, radius, pct);
+    if (pull) Burst(x, y, radius, pct, { 0.62f, 0.45f, 1.0f }, strike_fx::BlastStyle::Gravity);
+    else      Burst(x, y, radius, pct);
 }
 
 }  // namespace
@@ -450,6 +459,21 @@ void DrawWorld() {
         lf::Circle(r.x, r.y, r.r * grow, 1.5f, { r.cr, r.cg, r.cb }, 0.8f * (1.0f - k));
     }
     if (!s.any) return;
+    // Force field: its reach round the ship (six marks turning slowly on it),
+    // and a small ring on every enemy shot it has slowed.
+    if (s.on.G_FORCEFIELD) {
+        const lf::Rgb fc{ 0.55f, 0.85f, 1.0f };
+        lf::Circle(s.in.px, s.in.py, 160.0f, 1.2f, fc, 0.35f);
+        for (int i = 0; i < 6; ++i) {
+            const float a = s.clock * 0.5f + lf::kTwoPi * (float)i / 6.0f;
+            const float ca = std::cos(a), sa = std::sin(a);
+            lf::Line(s.in.px + ca * 152.0f, s.in.py + sa * 152.0f,
+                     s.in.px + ca * 168.0f, s.in.py + sa * 168.0f, 1.8f, fc, 0.7f);
+        }
+        for (const Bullet& b : g_Bullets)
+            if (b.active && b.isEnemy && (b.synFlags & synf::Slowed))
+                lf::Circle(b.x, b.y, 9.0f, 1.0f, fc, 0.6f);
+    }
     // Zones: a steady circle for as long as the zone lasts, fading out at the end.
     for (const Zone& z : s.zones)
         lf::Circle(z.x, z.y, z.r, 1.2f, { z.cr, z.cg, z.cb }, 0.45f * std::min(1.0f, z.life / 0.3f));
@@ -612,7 +636,9 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
     if (s.dashBoostT > 0.0f) boost *= 1.3f;
     if (o.T_GRUDGE && s.stored > 0.0f) {
         const float pct = std::min(600.0f, s.stored * 10.0f);
-        Burst(tx, ty, 120.0f, pct);
+        // The grudge leaves the ship as a red bolt and bursts where it is aimed.
+        strike_fx::Zap(s.in.px, s.in.py, tx, ty, { 1.0f, 0.30f, 0.30f }, 3.0f, 0.0f, 0.0f);
+        Burst(tx, ty, 120.0f, pct, { 1.0f, 0.30f, 0.30f }, strike_fx::BlastStyle::Discharge);
         s.stored = 0.0f;
     }
 
@@ -819,6 +845,7 @@ void OnHurt(float dmg) {
         s.revengeAcc += dmg;
         if (s.revengeAcc >= 20.0f) {
             s.revengeAcc = 0.0f;
+            strike_fx::Implode(s.in.px, s.in.py, 120.0f, { 1.0f, 0.40f, 0.30f }, 0.0f, 0.16f);
             passive::ClearEnemyBullets(s.in.px, s.in.py, 320.0f);
             passive::DamageRadius(s.in.px, s.in.py, 300.0f, 300.0f, 1.0f, 0.4f, 0.3f);
         }
@@ -857,6 +884,7 @@ bool TryRevive() {
     if (!s.on.C_REVIVE || s.revived) return false;
     s.revived = true;
     Audio::Play(Audio::Cue::SfxRevive);
+    strike_fx::Revive(s.in.px, s.in.py, { 0.55f, 1.0f, 0.75f });
     g_GameManager.playerHP = std::min(g_Stats.maxHP, 20.0f);
     return true;
 }
@@ -986,7 +1014,7 @@ void Step(const passive::StepInput& in) {
         if (trip) {
             const float bx = m.x, by = m.y, bp = m.pct;
             m.life = 0.0f;
-            Burst(bx, by, 95.0f, bp);
+            Burst(bx, by, 95.0f, bp, { 1.0f, 0.45f, 0.35f }, strike_fx::BlastStyle::Crystal);
         }
     }
     s.mines.erase(std::remove_if(s.mines.begin(), s.mines.end(), [](const Mine& m) { return m.life <= 0.0f; }), s.mines.end());
@@ -1054,10 +1082,10 @@ void Step(const passive::StepInput& in) {
             b.x = b.prevX = in.px + std::cos(b.synOrbitAngle) * 90.0f; b.y = b.prevY = in.py + std::sin(b.synOrbitAngle) * 90.0f;
             if (std::fmod(b.synOrbitLeft, 0.4f) < dt) b.ClearHits();
             if (b.synOrbitLeft <= 0.0f) b.active = false;
-            if (o.Y_HALO) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 30.0f);
+            if (o.Y_HALO) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 30.0f, false);
         }
-        if (f & synf::Erase) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 38.0f * b.sizeScale);
-        if (f & synf::Absorb) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 22.0f);
+        if (f & synf::Erase) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 38.0f * b.sizeScale, false);
+        if (f & synf::Absorb) absorbedNow += (float)passive::ClearEnemyBullets(b.x, b.y, 22.0f, false);
         if ((f & synf::Seek) && !(f & synf::Lob)) {   // a shell flies a set course; steering it would miss its landing
             float tx = 0, ty = 0; bool found = false;
             float bd = 600.0f * 600.0f;
@@ -1083,7 +1111,6 @@ void Step(const passive::StepInput& in) {
                 const float over = b.traveled - b.synLandDist;
                 b.synTx = b.x - b.dirX * over; b.synTy = b.y - b.dirY * over;
                 const float r = 110.0f;
-                Pulse(b.synTx, b.synTy, r, 0.45f, 1.0f, 0.55f, 0.25f);
                 Burst(b.synTx, b.synTy, r, 90.0f * b.dmgMult * s.dmg * (1.0f + s.dmgAdd));
                 Landed(b, r);
             }

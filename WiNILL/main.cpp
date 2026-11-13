@@ -67,6 +67,7 @@
 #include "MainShader.h"
 #include "EntityDraw.h"
 #include "CaelumDraw.h"
+#include "StrikeFx.h"        // shared hit effects: blasts, bolts, falling stars, novas
 #include "NormaFx.h"         // OCTANS's own seals and pane frames
 #include "CaelumFx.h"        // ERIDANUS's own torn crop-mark rings
 #include "WaveHud.h"
@@ -1096,6 +1097,8 @@ float g_GameTime         = 0.0f;
 float g_ShotKickTimer = 0.0f;
 // Smoke step WALK=L|R|U|D|0: hold that move direction (0 releases). Smoke runs only.
 static char g_SmokeWalk = 0;
+// ASTERIA_SMOKE step DASH: one dash next frame, as if the dash key were tapped.
+static bool g_SmokeDash = false;
 // F1 debug console > Stats > 즉사: the next frame kills the player outright.
 static bool g_DebugKillPlayer = false;   // weapon shell recoil after a shot (PlayerWeaponShell)
 
@@ -3393,6 +3396,7 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
     g_StardustPickups.clear();
     norma_fx::Clear();
     caelum_fx::Clear();
+    strike_fx::Clear();
     g_GameManager.currentState = GameState::GAMEOVER;
 }
 
@@ -4659,6 +4663,7 @@ int main() {
 
             ResetJuice();
             norma_fx::Clear();
+            strike_fx::Clear();
             caelum_fx::Clear();
             ResetPlayerSkills();   // dash and shield runtime
             passive::Reset();
@@ -4759,6 +4764,7 @@ int main() {
             g_ShakeMag = 0.0f;
             ResetJuice();
             norma_fx::Clear();
+            strike_fx::Clear();
             caelum_fx::Clear();
 
             g_GameManager.playerHP = 0.0f;
@@ -5064,6 +5070,8 @@ int main() {
                     } else if (step.rfind("NOQUOTA=", 0) == 0) {
                         // NOQUOTA=1: mass kills do not end the wave (no card screen mid-test).
                         g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
+                    } else if (step == "DASH") {
+                        g_SmokeDash = true;
                     } else if (step.rfind("WALK=", 0) == 0) {
                         g_SmokeWalk = step.size() > 5 && step[5] != '0' ? step[5] : 0;
                     } else if (step.rfind("FIRE=", 0) == 0) {
@@ -5977,7 +5985,7 @@ int main() {
                     playerWin.x = pCX - playerWin.width * 0.5f;
                     playerWin.y = pCY - playerWin.height * 0.5f;
                 }
-                bool cDash = ActionHeld(GameAction::Dash);
+                bool cDash = ActionHeld(GameAction::Dash) || std::exchange(g_SmokeDash, false);
                 if (playerControl && cDash && !g_PlayerRuntime.dashInputHeld && g_PlayerRuntime.dashCooldown <= 0.0f && !g_PlayerRuntime.dashActive &&
                     !passive::DashSealed()) {
                     float ddx = mvX, ddy = mvY;
@@ -6480,6 +6488,7 @@ CollisionSystem::Update(pCX, pCY,
                 [](const Spark& s){ return s.life <= 0.0f; }), g_Sparks.end());
             norma_fx::Tick(delta);
             caelum_fx::Tick(delta);
+            strike_fx::Tick(delta, playerWin.x + playerWin.width * 0.5f, playerWin.y + playerWin.height * 0.5f);
             // ?�동 ?�상 ?�명 갱신
             for (auto& tr : g_Trail) {
                 tr.x += tr.vx * delta;
@@ -6799,6 +6808,7 @@ CollisionSystem::Update(pCX, pCY,
         DrawStardustPickups();
         active::DrawWorld(g_GameTime);
         syn::DrawWorld();
+        strike_fx::Draw();
         BatchFlush();
 
         // READY draws its own ship inside the practice field (SceneReady.cpp).

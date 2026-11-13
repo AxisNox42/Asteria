@@ -19,6 +19,7 @@
 #include "PlayerStats.h"
 #include "SpaceRules.h"
 #include "Juice.h"
+#include "StrikeFx.h"
 #include "SaveSystem.h"
 
 extern GameManager         g_GameManager;
@@ -77,6 +78,17 @@ struct State {
     // Children of split shots, added to g_Bullets next step (the hit hook runs
     // while the collision pass is walking that vector).
     std::vector<Bullet> pendingSplits;
+    // Hits carried by something still in flight (성단 폭격's stars): each lands
+    // on its enemy when the star reaches it, not at the cast.
+    struct LandingHit {
+        const void* target = nullptr;   // compared only; looked up again before use
+        bool ranged = false;
+        float dmg = 0.0f;
+        bool crit = false;
+        float t = 0.0f;                 // seconds until it lands
+        float r = 1.0f, g = 1.0f, b = 1.0f;
+    };
+    std::vector<LandingHit> landing;
 };
 State s;
 
@@ -128,9 +140,137 @@ float RollCrit(bool& crit) {
     return crit ? g_Stats.critMult : 1.0f;
 }
 
+// What each enemy hit by a screen-wide blow sees (fx), in hit order.
+void ShowScreenHits(ScreenFx fx, const std::vector<std::pair<float, float>>& at, line_fx::Rgb c) {
+    if (fx == ScreenFx::Sparks || at.empty()) return;
+    const float px = s.in.px, py = s.in.py;
+    const float vw = s.in.viewR - s.in.viewL, vh = s.in.viewB - s.in.viewT;
+    const float reach = std::sqrt(vw * vw + vh * vh);
+    auto stagger = [](int i, float step) { return std::min(0.35f, (float)i * step); };
+    switch (fx) {
+    case ScreenFx::Zap: {   // lightning out of the ship; only the nearest few get a bolt
+        constexpr int kBolts = 8;   // more would bury the ship (and incoming shots) in lines
+        std::vector<std::pair<float, int>> order;
+        for (int i = 0; i < (int)at.size(); ++i) {
+            const float dx = at[i].first - px, dy = at[i].second - py;
+            order.push_back({ dx * dx + dy * dy, i });
+        }
+        std::sort(order.begin(), order.end());
+        for (int k = 0; k < (int)order.size(); ++k) {
+            const auto& p = at[order[k].second];
+            if (k < kBolts) strike_fx::Zap(px, py, p.first, p.second, c, 2.2f, stagger(k, 0.012f), 40.0f);
+            else            strike_fx::Blast(p.first, p.second, 40.0f, c, stagger(k, 0.012f), strike_fx::BlastStyle::Discharge);
+        }
+        break;
+    }
+    case ScreenFx::BlackBolt:   // 임계 대폭발: thick dark-violet bolts out of the ship, a wide blast under each
+        for (int i = 0; i < (int)at.size(); ++i)
+            strike_fx::Zap(px, py, at[i].first, at[i].second, c, 4.2f, stagger(i, 0.015f), 90.0f);
+        strike_fx::Nova(px, py, reach * 0.5f, c);
+        break;
+    case ScreenFx::CritChain: {   // 치명 연쇄 폭발: one bolt hopping enemy to enemy from the ship
+        std::vector<std::pair<float, float>> left = at, path;
+        float cx = px, cy = py;
+        while (!left.empty()) {
+            size_t best = 0; float bd = 1e18f;
+            for (size_t k = 0; k < left.size(); ++k) {
+                const float dx = left[k].first - cx, dy = left[k].second - cy, d = dx * dx + dy * dy;
+                if (d < bd) { bd = d; best = k; }
+            }
+            path.push_back(left[best]);
+            cx = left[best].first; cy = left[best].second;
+            left.erase(left.begin() + (std::ptrdiff_t)best);
+        }
+        cx = px; cy = py;
+        for (int i = 0; i < (int)path.size(); ++i) {
+            const float d = stagger(i, 0.035f);
+            strike_fx::Bolt(cx, cy, path[i].first, path[i].second, c, 2.6f, d, 0.34f);
+            strike_fx::Blast(path[i].first, path[i].second, 60.0f, c, d, strike_fx::BlastStyle::Discharge);
+            cx = path[i].first; cy = path[i].second;
+        }
+        break;
+    }
+    case ScreenFx::StarFall:   // 성단 폭격: DamageAllStarFall launches the stars itself
+        break;
+    case ScreenFx::Scan: {   // 스캔 펄스: a radar line turns once; each enemy pings as it passes
+        constexpr float kTurn = 0.45f;
+        strike_fx::Sweep(px, py, reach * 0.55f, c, kTurn);
+        for (const auto& p : at) {
+            float a = std::atan2(p.second - py, p.first - px) + line_fx::kPi * 0.5f;   // 0 = straight up, clockwise
+            while (a < 0.0f) a += line_fx::kTwoPi;
+            strike_fx::Blast(p.first, p.second, 26.0f, c, kTurn * a / line_fx::kTwoPi, strike_fx::BlastStyle::Stellar);
+        }
+        break;
+    }
+    case ScreenFx::Nova: {   // a ring sweeps out from the ship; each enemy bursts as it passes
+        strike_fx::Nova(px, py, reach, c);
+        for (const auto& p : at) {
+            const float dx = p.first - px, dy = p.second - py;
+            const float k = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / reach);
+            strike_fx::Blast(p.first, p.second, 70.0f, c, 0.70f * (1.0f - std::sqrt(1.0f - k)), strike_fx::BlastStyle::Stellar);
+        }
+        break;
+    }
+    default: break;
+    }
+}
+
 // pct of attack to every enemy on screen. canCrit: the hit may crit.
-void DamageAll(float pct, float r, float g, float b, bool canCrit, float extra) {
+// 성단 폭격: the ship launches a star at every enemy on screen, fanning out on
+// curves; each enemy takes its hit when its star lands (StepLandingHits).
+void DamageAllStarFall(float base, float r, float g, float b, bool canCrit) {
+    const float px = s.in.px, py = s.in.py;
+    int i = 0;
+    auto launch = [&](auto& target, bool ranged) {
+        if (!target.alive || !OnScreen(target.worldX, target.worldY)) return;
+        const float dx = target.worldX - px, dy = target.worldY - py;
+        const float bend = ((i & 1) ? 1.0f : -1.0f) * std::min(110.0f, 0.28f * std::sqrt(dx * dx + dy * dy));
+        const float delay = std::min(0.35f, (float)i * 0.025f);
+        State::LandingHit h;
+        h.target = &target; h.ranged = ranged;
+        const float mult = canCrit ? RollCrit(h.crit) : 1.0f;
+        h.dmg = base * mult;
+        h.t = strike_fx::Star(px, py, target.worldX, target.worldY, { r, g, b }, delay, bend, 80.0f);
+        h.r = r; h.g = g; h.b = b;
+        s.landing.push_back(h);
+        ++i;
+    };
+    for (auto* m : g_MonsterManager.monsters) launch(*m, false);
+    for (auto* rm : g_MonsterManager.rangedMobs) launch(*rm, true);
+}
+
+// Lands the hits whose stars arrived this step. The target is looked up in the
+// live lists first: it may have died (and been freed) while the star flew.
+void StepLandingHits(float dt) {
+    if (s.landing.empty()) return;
+    for (auto& h : s.landing) {
+        h.t -= dt;
+        if (h.t > 0.0f) continue;
+        auto land = [&](auto& target) {
+            if (!target.alive) return;
+            const float dealt = g_MonsterManager.ApplyDamage(target, h.dmg);
+            if (dealt <= 0.0f) return;
+            SpawnDamageNumber(target.worldX, target.worldY, dealt, h.crit);
+            SpawnSparks(target.worldX, target.worldY, 4, h.r, h.g, h.b, 260.0f);
+        };
+        if (h.ranged) {
+            for (auto* rm : g_MonsterManager.rangedMobs) if (rm == h.target) { land(*rm); break; }
+        } else {
+            for (auto* m : g_MonsterManager.monsters) if (m == h.target) { land(*m); break; }
+        }
+    }
+    s.landing.erase(std::remove_if(s.landing.begin(), s.landing.end(),
+        [](const State::LandingHit& h) { return h.t <= 0.0f; }), s.landing.end());
+}
+
+void DamageAll(float pct, float r, float g, float b, bool canCrit, float extra, ScreenFx fx) {
     const float base = AttackPower() * pct / 100.0f * AllDamageMult() * extra;
+    if (fx == ScreenFx::StarFall) {
+        DamageAllStarFall(base, r, g, b, canCrit);
+        Audio::Play(Audio::Cue::ExplodeL);
+        return;
+    }
+    std::vector<std::pair<float, float>> at;
     auto hit = [&](auto& target) {
         if (!target.alive || !OnScreen(target.worldX, target.worldY)) return;
         bool crit = false;
@@ -139,10 +279,12 @@ void DamageAll(float pct, float r, float g, float b, bool canCrit, float extra) 
         if (dealt <= 0.0f) return;
         SpawnDamageNumber(target.worldX, target.worldY, dealt, crit);
         SpawnSparks(target.worldX, target.worldY, 4, r, g, b, 260.0f);
+        at.push_back({ target.worldX, target.worldY });
     };
     for (auto* m : g_MonsterManager.monsters) hit(*m);
     for (auto* rm : g_MonsterManager.rangedMobs) hit(*rm);
-    TriggerFlash(r, g, b, 0.10f);
+    ShowScreenHits(fx, at, { r, g, b });
+    // No full-screen tint: every style draws its own lines (no veils over the desktop).
     // Small, frequent procs crackle; big ones land as a blast.
     Audio::Play(pct >= 500.0f ? Audio::Cue::ExplodeL
               : pct >= 150.0f ? Audio::Cue::Lightning : Audio::Cue::FieldPulse);
@@ -150,7 +292,7 @@ void DamageAll(float pct, float r, float g, float b, bool canCrit, float extra) 
 
 // pct of attack to every enemy within radius of (x, y).
 void DamageRadius(float x, float y, float radius, float pct,
-                  float r, float g, float b, float extra) {
+                  float r, float g, float b, float extra, strike_fx::BlastStyle style) {
     const float dmg = AttackPower() * pct / 100.0f * AllDamageMult() * extra;
     auto hit = [&](auto& target) {
         if (!target.alive) return;
@@ -162,6 +304,7 @@ void DamageRadius(float x, float y, float radius, float pct,
     for (auto* m : g_MonsterManager.monsters) hit(*m);
     for (auto* rm : g_MonsterManager.rangedMobs) hit(*rm);
     SpawnEnemyExplosion(x, y, r, g, b, true);
+    strike_fx::Blast(x, y, radius, { r, g, b }, 0.0f, style);
     Audio::Play(radius >= 250.0f ? Audio::Cue::ExplodeL
               : radius >= 170.0f ? Audio::Cue::ExplodeM : Audio::Cue::ExplodeS);
 }
@@ -181,7 +324,10 @@ void BurstDamage(float x, float y, float radius, float pct) {
 }
 
 // Clears enemy bullets within radius of (x, y); radius < 0 clears them all.
-int ClearEnemyBullets(float x, float y, float radius) {
+int ClearEnemyBullets(float x, float y, float radius, bool show) {
+    constexpr line_fx::Rgb kErase{ 0.70f, 0.95f, 1.0f };
+    if (show && radius < 0.0f) strike_fx::Nova(s.in.px, s.in.py, 1400.0f, kErase);
+    else if (show && radius >= 100.0f) strike_fx::Nova(x, y, radius - 40.0f, kErase);
     int cleared = 0;
     for (Bullet& b : g_Bullets) {
         if (!b.active || !b.isEnemy) continue;
@@ -212,7 +358,7 @@ void ResetDash() {
 void ChanceTriggered() {
     if (!Has(AugType::P_STORM_CASCADE_COLLISION) || s.procBusy) return;
     s.procBusy = true;
-    DamageAll(100.0f, 0.65f, 0.80f, 1.0f);
+    DamageAll(100.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
     s.procBusy = false;
 }
 
@@ -221,7 +367,7 @@ void CountHit() {
     if (Has(AugType::P_SPARK_STATIC_BUILDUP) && ++s.staticHits >= 10) {
         s.staticHits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
-        DamageAll(25.0f, 0.55f, 0.85f, 1.0f);
+        DamageAll(25.0f, 0.55f, 0.85f, 1.0f, false, 1.0f, ScreenFx::Zap);
     }
     if (Has(AugType::P_SPARK_STELLAR_DYNAMO) && ++s.batteryHits >= 30) {
         s.batteryHits = 0;
@@ -231,7 +377,7 @@ void CountHit() {
     if (Has(AugType::P_SPARK_CRITICAL_BURST) && ++s.blackboltHits >= 50) {
         s.blackboltHits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
-        DamageAll(600.0f, 0.45f, 0.30f, 0.85f);
+        DamageAll(600.0f, 0.45f, 0.30f, 0.85f, false, 1.0f, ScreenFx::BlackBolt);
     }
 }
 
@@ -308,14 +454,14 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
     if (crit && Has(AugType::P_EDGE_CRITICAL_CHAIN_BURST) && ++s.crits >= 6) {
         s.crits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
-        DamageAll(500.0f, 1.0f, 0.85f, 0.45f, true);
+        DamageAll(500.0f, 1.0f, 0.85f, 0.45f, true, 1.0f, ScreenFx::CritChain);
     }
     if (Has(AugType::P_SHADOW_TRIPLE_STRIKE) && Chance(0.10f)) {
         ExtraStrikes(x, y);
         ChanceTriggered();
     }
     if (Has(AugType::P_STORM_CORONA_ROUND) && Chance(0.03f)) {
-        DamageAll(100.0f, 0.65f, 0.80f, 1.0f);
+        DamageAll(100.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
         ChanceTriggered();
     }
     if (Has(AugType::P_VEIN_CRATER_ROUND) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
@@ -346,7 +492,7 @@ void HookKill() {
     }
     if (Has(AugType::P_NOVA_STELLAR_CORE_RUPTURE) && s.kills % 20 == 0) {
         Audio::Play(Audio::Cue::ProcCounterFull);
-        DamageAll(700.0f, 1.0f, 0.95f, 0.75f);
+        DamageAll(700.0f, 1.0f, 0.95f, 0.75f, false, 1.0f, ScreenFx::Nova);
         ClearEnemyBullets(0.0f, 0.0f, -1.0f);
     }
 }
@@ -419,6 +565,7 @@ void InstallHooks() {
 
 void Reset() {
     s = State{};
+    strike_fx::Clear();
     syn::Reset();
 
     active::Reset();
@@ -526,6 +673,7 @@ void Acquire(int augIdx) {
 
 void Step(const StepInput& in) {
     s.in = in;
+    StepLandingHits(in.dt);
     if (!s.pendingSplits.empty()) {
         for (const Bullet& c : s.pendingSplits)
             if (g_Bullets.size() < 800) g_Bullets.push_back(c);
@@ -658,7 +806,7 @@ void OnShot() {
     ++s.shots;
     if (Has(AugType::P_GALE_SCAN_PULSE) && s.shots % 10 == 0) {
         Audio::Play(Audio::Cue::ProcCounterFull);
-        DamageAll(15.0f, 0.80f, 0.95f, 0.85f);
+        DamageAll(15.0f, 0.80f, 0.95f, 0.85f, false, 1.0f, ScreenFx::Scan);
     }
     // Shinsoku's chance does not feed Crown of Storms: it would fire on half
     // of all shots.
@@ -691,7 +839,7 @@ void OnDashStarted() {
         ChanceTriggered();
     }
     if (Has(AugType::P_STORM_MAGNETIC_STORM) && Chance(0.20f)) {
-        DamageAll(200.0f, 0.65f, 0.80f, 1.0f);
+        DamageAll(200.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
         Audio::Play(Audio::Cue::SkillScreenwide);
         ChanceTriggered();
     }
@@ -718,6 +866,7 @@ bool TryPhoenix() {
     if (!Has(AugType::P_FLAME_UNDYING_REIGNITION) || s.phoenixUsed) return false;
     s.phoenixUsed = true;
     Audio::Play(Audio::Cue::SfxRevive);
+    strike_fx::Revive(s.in.px, s.in.py, { 1.0f, 0.55f, 0.20f });
     g_GameManager.playerHP = g_Stats.maxHP;
     DamageAll(1000.0f, 1.0f, 0.55f, 0.20f);
     return true;
