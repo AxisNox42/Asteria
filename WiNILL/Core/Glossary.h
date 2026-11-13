@@ -4,9 +4,10 @@
 // card (SceneAugment.cpp). Texts: KR / EN / JP, the card language order.
 //
 // Each term lists the phrases that link to it, '|' separated, per language. A
-// '#' in a phrase stands for a run of digits, and then only the digits become
-// the link (distance numbers: "주변 # 안" links "300"). Only the first phrase of
-// a term in a card links, so a card is not covered in underlines.
+// '#' in a phrase stands for a number (digits, maybe one decimal part), and
+// the number and what follows it link ("#○" links "2.5○"). Only the first phrase of
+// a term in a card links, so a card is not covered in underlines (distances
+// link every time, as each is a different size).
 #include <cstdint>
 #include <cwctype>
 #include <string>
@@ -66,9 +67,9 @@ inline const Entry kEntries[kTermCount] = {
       { L"유도탄|유도|완만히 휨", L"homing|curve gently toward", L"誘導|緩やかに曲がる" },
       { Term::Verb }, 1 },
     { { L"착탄 폭발", L"Impact burst", L"着弾爆発" },
-      { L"탄이 맞은 자리에서 터져 주변 80 안의 적에게 공격력 30% 피해를 줍니다.",
-        L"The bullet bursts where it hits, dealing 30% attack to enemies within 80.",
-        L"弾が当たった場所で弾け、周囲80以内の敵に攻撃力30%のダメージを与えます。" },
+      { L"탄이 맞은 자리에서 터져 주변 1○ 안의 적에게 공격력 30% 피해를 줍니다.",
+        L"The bullet bursts where it hits, dealing 30% attack to enemies within 1○.",
+        L"弾が当たった場所で弾け、周囲1○以内の敵に攻撃力30%のダメージを与えます。" },
       { L"착탄 시 폭발|맞힌 자리에 작은 폭발", L"burst where they land|small burst where they land", L"着弾時に爆発|命中した場所で小爆発" },
       { Term::Verb, Term::Distance }, 2 },
     { { L"화상", L"Burn", L"火傷" },
@@ -84,9 +85,9 @@ inline const Entry kEntries[kTermCount] = {
       { L"표식", L"marks|mark", L"刻印" },
       { Term::Verb }, 1 },
     { { L"공전", L"Orbit", L"周回" },
-      { L"탄이 플레이어 주위 90 거리를 돌며 닿는 적에게 피해를 줍니다. 같은 적은 0.4초마다 다시 맞습니다.",
-        L"The bullet circles you at 90 and hurts enemies it touches. The same enemy can be hit again every 0.4s.",
-        L"弾がプレイヤーの周囲90を回り、触れた敵にダメージを与えます。同じ敵には0.4秒ごとに当たります。" },
+      { L"탄이 플레이어 바로 주위를 돌며 닿는 적에게 피해를 줍니다. 같은 적은 0.4초마다 다시 맞습니다.",
+        L"The bullet circles close around you and hurts enemies it touches. The same enemy can be hit again every 0.4s.",
+        L"弾がプレイヤーのすぐ周りを回り、触れた敵にダメージを与えます。同じ敵には0.4秒ごとに当たります。" },
       { L"주위를 돌며|플레이어를 돌며", L"circles the player", L"周囲を回り|プレイヤーを回って" },
       { Term::Verb, Term::Distance }, 2 },
     { { L"잔상", L"Afterimage", L"残像" },
@@ -130,13 +131,13 @@ inline const Entry kEntries[kTermCount] = {
         L"Removes enemy bullets in the area. Removed bullets deal no damage.",
         L"範囲内の敵の弾を消します。消えた弾はダメージを与えません。" },
       { L"적탄 소거|적탄을 지우고|적탄을 지움|적탄을 지워|적탄 전부 소거",
-        L"clears enemy bullets|clears nearby enemy bullets|clears all enemy bullets|clear all enemy bullets|clears enemy bullets|erases enemy bullets|erases nearby enemy bullets|erase enemy bullets|erases bullets",
+        L"clears enemy bullets|clears nearby enemy bullets|clears all enemy bullets|clear all enemy bullets|clear enemy bullets|erases enemy bullets|erases nearby enemy bullets|erase enemy bullets|erases bullets",
         L"敵弾を消去|敵弾を消す|敵弾を消し|敵弾消去|敵弾全消去" },
       { }, 0 },
     { { L"스침", L"Graze", L"かすり" },
-      { L"적탄이 피격 판정에는 닿지 않고 바로 옆(판정 바깥 18 안)으로 지나가는 것입니다.",
-        L"An enemy bullet passing just outside your hitbox (within 18 of it) without hitting you.",
-        L"敵弾が被弾判定に触れず、すぐ横(判定の外側18以内)を通り過ぎることです。" },
+      { L"적탄이 피격 판정에는 닿지 않고 바로 옆으로 스치듯 지나가는 것입니다.",
+        L"An enemy bullet passing just outside your hitbox without hitting you.",
+        L"敵弾が被弾判定に触れず、すぐ横をかすめて通り過ぎることです。" },
       { L"스칠|스침", L"grazes|graze", L"かすめる|かすると" },
       { }, 0 },
     { { L"보호막", L"Shield", L"シールド" },
@@ -187,11 +188,11 @@ inline const Entry kEntries[kTermCount] = {
         L"弾が消えるまでに飛ぶ距離です。" },
       { L"사거리", L"range", L"射程" },
       { Term::Distance }, 1 },
-    { { L"거리 숫자", L"Distance", L"距離の数値" },
-      { L"거리 단위입니다. 플레이어 기체 크기가 25, 화면 가로가 1920입니다 (기본 확대 기준).",
-        L"The distance unit. Your ship is 25 across and the screen is 1920 wide (at default zoom).",
-        L"距離の単位です。自機の大きさが25、画面の横幅が1920です (基本の拡大率)。" },
-      { L"주변 #|# 날아가|# 이상 멀", L"within #|flying #|#+ away", L"周囲#以内|#飛ぶ|#以上離れ" },
+    { { L"링 (거리 단위)", L"Ring (distance unit)", L"リング (距離の単位)" },
+      { L"거리 단위입니다. 1○은 기체를 감싼 파란 체력 링의 반경입니다. 4○이면 기체 중심에서 체력 링 4개를 이어 놓은 만큼 떨어진 거리입니다.",
+        L"The distance unit. 1○ is the radius of the blue health ring around your ship; 4○ reaches four of those rings out from the ship's centre.",
+        L"距離の単位です。1○は自機を囲む青い体力リングの半径です。4○なら自機の中心から体力リング4つ分離れた距離です。" },
+      { L"#○", L"#○", L"#○" },
       { Term::LightYear }, 1 },
     { { L"별가루", L"Stardust", L"星屑" },
       { L"적이 떨어뜨리는 재화입니다. 주우면 모이고, 메인 메뉴 상점에서 영구 강화에 씁니다.",
@@ -206,9 +207,9 @@ inline const Entry kEntries[kTermCount] = {
       { L"행운", L"luck", L"幸運" },
       { Term::Stardust }, 1 },
     { { L"광년", L"Light-year", L"光年" },
-      { L"이동 거리 단위입니다. 1광년 = 화면 가로의 1/4 (기본 확대에서 480). 대시·순간이동한 거리도 셉니다.",
-        L"A travel distance unit. 1 light-year = 1/4 of the screen width (480 at default zoom). Dashes and teleports count.",
-        L"移動距離の単位です。1光年 = 画面の横幅の1/4 (基本の拡大率で480)。ダッシュ・瞬間移動した距離も数えます。" },
+      { L"이동 거리 단위입니다. 1광년 = 6○. 대시·순간이동한 거리도 셉니다.",
+        L"A travel distance unit. 1 light-year = 6○. Dashes and teleports count.",
+        L"移動距離の単位です。1光年 = 6○。ダッシュ・瞬間移動した距離も数えます。" },
       { L"광년", L"light-years|light-year", L"光年" },
       { Term::Distance }, 1 },
     { { L"효과 꺼짐", L"Stops working", L"効果が消える" },
@@ -297,14 +298,17 @@ inline bool MatchAt(const std::wstring& s, size_t pos, const wchar_t* p, size_t 
     if (english && pos > 0 && IsAsciiAlnum(s[pos - 1])) return false;
     if (n > 0 && p[0] == L'#' && pos > 0 && std::iswdigit(s[pos - 1])) return false;
     size_t i = pos;
-    int digStart = -1, digLen = 0;
+    int digStart = -1;
     for (size_t k = 0; k < n; ++k) {
         if (p[k] == L'#') {
             const size_t d0 = i;
             while (i < s.size() && std::iswdigit(s[i])) ++i;
             if (i == d0) return false;
+            if (i + 1 < s.size() && s[i] == L'.' && std::iswdigit(s[i + 1])) {
+                ++i;
+                while (i < s.size() && std::iswdigit(s[i])) ++i;
+            }
             digStart = (int)d0;
-            digLen = (int)(i - d0);
             continue;
         }
         if (i >= s.size()) return false;
@@ -318,7 +322,7 @@ inline bool MatchAt(const std::wstring& s, size_t pos, const wchar_t* p, size_t 
     out.matchStart = (int)pos;
     out.matchLen = (int)(i - pos);
     out.start = digStart >= 0 ? digStart : (int)pos;
-    out.len = digStart >= 0 ? digLen : (int)(i - pos);
+    out.len = digStart >= 0 ? (int)(i - (size_t)digStart) : (int)(i - pos);
     return true;
 }
 
@@ -363,7 +367,8 @@ inline std::vector<Span> Link(const std::wstring& s, int lang, uint64_t& used) {
     std::vector<Span> out;
     for (const Span& sp : FindAll(s, lang)) {
         const uint64_t bit = 1ull << (int)sp.term;
-        if (used & bit) continue;
+        // Distances link every time: each one is a different size.
+        if ((used & bit) && sp.term != Term::Distance) continue;
         used |= bit;
         out.push_back(sp);
     }

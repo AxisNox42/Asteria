@@ -26,6 +26,7 @@
 #include "TextRenderer.h"
 #include "UiLayout.h"
 #include "VitalsHudModel.h"
+#include "../Entity/RangeUnit.h"
 
 extern TextRenderer g_TextS;
 
@@ -42,7 +43,9 @@ inline constexpr Rgb kXpCol     = { 0.30f, 0.82f, 1.00f };
 inline constexpr Rgb kXpCapCol  = { 1.00f, 0.82f, 0.30f };
 inline constexpr Rgb kShieldCol = { 1.00f, 0.88f, 0.08f };     // bright yellow
 
-inline float HpArcRadius(float playerSize) { return std::max(66.0f, playerSize * 2.72f); }
+// The health ring is the game's distance unit (Entity/RangeUnit.h): always one
+// ring, whatever the ship's size, so "4○" on a card means four of these.
+inline float HpArcRadius(float /*playerSize*/) { return kRangeUnit; }
 // Stroke weight stays fixed: enlarging the player (debug / size augments) must not fatten the bar.
 inline float HpArcThick(float /*playerSize*/) { return 3.6f; }
 

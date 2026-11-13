@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "AugmentCombat.h"
+#include "RangeUnit.h"
 #include "Bullet.h"
 #include "GameManager.h"
 #include "HudLines.h"
@@ -253,7 +254,7 @@ void CastExecute(int aug) {
 void CastGust() {
     float dx, dy;
     AimDir(dx, dy);
-    constexpr float kRange = 380.0f, kCos = 0.70f;   // ~45° either side
+    constexpr float kRange = Rings(5), kCos = 0.70f;   // ~45° either side
     Audio::Play(Audio::Cue::SkillWave);
     for (Bullet& b : g_Bullets) {
         if (!b.active || !b.isEnemy) continue;
@@ -279,10 +280,10 @@ void CastGust() {
 void CastBlink() {
     float dx, dy;
     AimDir(dx, dy);
-    float tx = s.in.px + dx * 260.0f, ty = s.in.py + dy * 260.0f;
+    float tx = s.in.px + dx * Rings(3.5f), ty = s.in.py + dy * Rings(3.5f);
     ClampToView(tx, ty);
-    passive::ClearEnemyBullets(s.in.px, s.in.py, 140.0f);
-    passive::ClearEnemyBullets(tx, ty, 140.0f);
+    passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(2));
+    passive::ClearEnemyBullets(tx, ty, Rings(2));
     AddLine({ s.in.px, s.in.py, tx, ty }, { 0.70f, 0.90f, 1.0f }, 0.35f, LineStyle::Warp);
     Audio::Play(Audio::Cue::SkillTeleport);
     s.teleport = true; s.teleX = tx; s.teleY = ty;
@@ -326,8 +327,8 @@ void CastDayAndNight() {
         AddLine({ s.in.px, s.in.py, ex, ey }, { 1.0f, 0.92f, 0.60f }, 0.35f, LineStyle::Beam);
         Audio::Play(Audio::Cue::SkillBeam);
     } else {
-        passive::DamageRadius(s.in.px, s.in.py, 260.0f, 400.0f, 0.45f, 0.30f, 0.85f, DamageMult(), strike_fx::BlastStyle::Stellar);
-        passive::ClearEnemyBullets(s.in.px, s.in.py, 260.0f);
+        passive::DamageRadius(s.in.px, s.in.py, Rings(3.5f), 400.0f, 0.45f, 0.30f, 0.85f, DamageMult(), strike_fx::BlastStyle::Stellar);
+        passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(3.5f));
     }
     s.dayNightUses = (s.dayNightUses + 1) % 6;
 }
@@ -370,7 +371,7 @@ void CastBookOfCheats() {
             g_Bullets.push_back(b);
         }
         break;
-    case 6: passive::DamageRadius(s.in.px, s.in.py, 260.0f, 800.0f, 1.0f, 0.55f, 0.25f, DamageMult()); break;
+    case 6: passive::DamageRadius(s.in.px, s.in.py, Rings(3.5f), 800.0f, 1.0f, 0.55f, 0.25f, DamageMult()); break;
     default: break;   // nothing happens
     }
 }
@@ -421,8 +422,8 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_STONE_GRAVITY_SLAM:
-        passive::DamageRadius(px, py, 380.0f, 1000.0f, 0.85f, 0.70f, 0.50f, extra, strike_fx::BlastStyle::Gravity);
-        passive::ClearEnemyBullets(px, py, 380.0f);
+        passive::DamageRadius(px, py, Rings(5), 1000.0f, 0.85f, 0.70f, 0.50f, extra, strike_fx::BlastStyle::Gravity);
+        passive::ClearEnemyBullets(px, py, Rings(5));
         Audio::Play(Audio::Cue::SkillSlam);
         break;
     case AugType::A_STONE_ASTEROID_WALL: {
@@ -458,8 +459,8 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_GEM_BARRAGE_RECYCLE: {
-        const int n = std::min(24, passive::ClearEnemyBullets(px, py, 220.0f, false));
-        strike_fx::Implode(px, py, 220.0f, { 1.0f, 0.45f, 0.55f }, 0.0f, 0.30f);   // drawn into the ship
+        const int n = std::min(24, passive::ClearEnemyBullets(px, py, Rings(3), false));
+        strike_fx::Implode(px, py, Rings(3), { 1.0f, 0.45f, 0.55f }, 0.0f, 0.30f);   // drawn into the ship
         Audio::Play(Audio::Cue::SkillAbsorb);
         for (int i = 0; i < n; ++i) {
             const float a = kTwoPi * passive::Rand01();
@@ -480,13 +481,13 @@ void Cast(int aug) {
     case AugType::A_LUCK_DICE_OF_FATE: CastBookOfCheats(); break;
     case AugType::A_LIFE_STARLIGHT_MEND:
         g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 12.0f);
-        passive::ClearEnemyBullets(px, py, 220.0f);
+        passive::ClearEnemyBullets(px, py, Rings(3));
         Audio::Play(Audio::Cue::SfxHealBig);
         // The cleared reach rings out; the heal gathers into the ship.
         strike_fx::Implode(px, py, 90.0f, { 0.70f, 1.0f, 0.75f }, 0.10f, 0.30f);
         break;
     case AugType::A_ABYSS_TIDAL_SURGE:
-        passive::DamageRadius(px, py, 380.0f, 600.0f, 0.30f, 0.60f, 1.0f, extra, strike_fx::BlastStyle::Gravity);
+        passive::DamageRadius(px, py, Rings(5), 600.0f, 0.30f, 0.60f, 1.0f, extra, strike_fx::BlastStyle::Gravity);
         Audio::Play(Audio::Cue::SkillWave);
         break;
     case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
@@ -497,7 +498,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_SPARK_FORCED_DISCHARGE:
-        passive::DamageRadius(px, py, 260.0f, 350.0f, 0.55f, 0.85f, 1.0f, extra, strike_fx::BlastStyle::Discharge);
+        passive::DamageRadius(px, py, Rings(3.5f), 350.0f, 0.55f, 0.85f, 1.0f, extra, strike_fx::BlastStyle::Discharge);
         for (int i = 0; i < 10; ++i) passive::CountHit();
         Audio::Play(Audio::Cue::SkillWave);
         break;
@@ -595,7 +596,7 @@ void AfterUse(int aug, int slot) {
     }
     if (Has(AugType::P_NIGHT_RESONANT_SHOCKWAVE) && s.moonCd[aug] <= 0.0f) {
         s.moonCd[aug] = 12.0f;
-        passive::DamageRadius(s.in.px, s.in.py, 220.0f, 800.0f, 0.85f, 0.85f, 1.0f, 1.0f, strike_fx::BlastStyle::Stellar);
+        passive::DamageRadius(s.in.px, s.in.py, Rings(3), 800.0f, 0.85f, 0.85f, 1.0f, 1.0f, strike_fx::BlastStyle::Stellar);
         Audio::Play(Audio::Cue::ProcShockwave);
     }
     if (Has(AugType::P_ABYSS_SINGULARITY_CASCADE) && cd >= 10.0f) {
@@ -608,7 +609,7 @@ void AfterUse(int aug, int slot) {
     }
     if (Has(AugType::P_PERFORM_ECLIPSE_COMBO) && s.ribbonWindow > 0.0f) {
         s.ribbonWindow = 0.0f;
-        passive::DamageRadius(s.in.px, s.in.py, 380.0f, 250.0f, 1.0f, 0.60f, 0.85f, 1.0f, strike_fx::BlastStyle::Stellar);
+        passive::DamageRadius(s.in.px, s.in.py, Rings(5), 250.0f, 1.0f, 0.60f, 0.85f, 1.0f, strike_fx::BlastStyle::Stellar);
         Audio::Play(Audio::Cue::ProcShockwave);
     }
     if (Has(AugType::P_HERESY_UNSTABLE_DRIVE) && s.lastUsedAug == aug) {
@@ -658,12 +659,12 @@ void StepObjects(float dt) {
         }
         case ObjKind::Meteor:
             if (o.t >= o.life) {
-                passive::DamageRadius(o.x, o.y, 300.0f, 2500.0f, 1.0f, 0.45f, 0.15f, DamageMult());
+                passive::DamageRadius(o.x, o.y, Rings(4), 2500.0f, 1.0f, 0.45f, 0.15f, DamageMult());
             }
             break;
         case ObjKind::Dynamite:
             if (o.t >= o.life)
-                passive::DamageRadius(o.x2, o.y2, 200.0f, 500.0f, 1.0f, 0.55f, 0.25f, DamageMult());
+                passive::DamageRadius(o.x2, o.y2, Rings(2.5f), 500.0f, 1.0f, 0.55f, 0.25f, DamageMult());
             break;
         case ObjKind::Prism:
             for (Bullet& b : g_Bullets) {
@@ -675,11 +676,11 @@ void StepObjects(float dt) {
                 }
             }
             if (o.t >= o.life && o.count > 0)
-                passive::DamageRadius(o.x, o.y, 220.0f, 30.0f * (float)o.count,
+                passive::DamageRadius(o.x, o.y, Rings(3), 30.0f * (float)o.count,
                                       0.75f, 0.95f, 1.0f, DamageMult(), strike_fx::BlastStyle::Crystal);
             break;
         case ObjKind::Gate: {
-            constexpr float kPull = 420.0f;
+            constexpr float kPull = Rings(5);
             auto pull = [&](float& x, float& y, float speed) {
                 const float ex = o.x - x, ey = o.y - y;
                 const float d = std::sqrt(ex * ex + ey * ey);
@@ -700,7 +701,7 @@ void StepObjects(float dt) {
             }
             if (o.t >= o.life) {
                 Audio::StopLoop(Audio::Cue::SkillVortexLoop);
-                passive::DamageRadius(o.x, o.y, 260.0f, 1000.0f + 50.0f * (float)o.count,
+                passive::DamageRadius(o.x, o.y, Rings(3.5f), 1000.0f + 50.0f * (float)o.count,
                                       0.55f, 0.35f, 0.95f, DamageMult(), strike_fx::BlastStyle::Gravity);
             }
             break;
@@ -902,7 +903,7 @@ void OnSkillBulletHit(const Bullet& bullet, float x, float y, bool killed) {
         }
         break;
     case TAG_FIREBALL:
-        passive::DamageRadius(x, y, 140.0f, 200.0f, 1.0f, 0.45f, 0.15f, DamageMult());
+        passive::DamageRadius(x, y, Rings(2), 200.0f, 1.0f, 0.45f, 0.15f, DamageMult());
         break;
     case TAG_STAR:
         if (killed) {
@@ -975,7 +976,7 @@ void Step(const StepInput& in) {
         s.meditateT += dt;
         if (in.moving || s.meditateT >= 2.0f) {
             const float k = std::min(1.0f, s.meditateT / 2.0f);
-            passive::DamageRadius(in.px, in.py, 300.0f, 2000.0f * k, 0.70f, 1.0f, 0.85f, DamageMult(), strike_fx::BlastStyle::Stellar);
+            passive::DamageRadius(in.px, in.py, Rings(4), 2000.0f * k, 0.70f, 1.0f, 0.85f, DamageMult(), strike_fx::BlastStyle::Stellar);
             g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 10.0f * k);
             s.meditateT = -1.0f;
             if (s.snipeT < 0.0f) Audio::StopLoop(Audio::Cue::SkillChargeLoop);   // 저격 조준 중이면 유지
@@ -1159,12 +1160,12 @@ void DrawWorld(float time) {
         }
         case ObjKind::Meteor: {
             // Target reticle, a ring closing in, and the rock thrown from the ship onto it.
-            lf::Circle(o.x, o.y, 300.0f, 1.5f, o.col, 0.5f);
-            lf::Circle(o.x, o.y, 300.0f * (1.0f - k), 2.0f, o.col, 0.9f);
+            lf::Circle(o.x, o.y, Rings(4), 1.5f, o.col, 0.5f);
+            lf::Circle(o.x, o.y, Rings(4) * (1.0f - k), 2.0f, o.col, 0.9f);
             for (int i = 0; i < 4; ++i) {
                 const float a = lf::kPi * 0.5f * (float)i;
                 const float c = std::cos(a), sn = std::sin(a);
-                lf::Line(o.x + c * 300.0f, o.y + sn * 300.0f, o.x + c * 270.0f, o.y + sn * 270.0f, 2.0f, o.col, 0.8f);
+                lf::Line(o.x + c * Rings(4), o.y + sn * Rings(4), o.x + c * (Rings(4) - 30.0f), o.y + sn * (Rings(4) - 30.0f), 2.0f, o.col, 0.8f);
             }
             // A high arc: up out of the ship, over, and down onto the reticle.
             const float tdx = o.x - o.x2, tdy = o.y - o.y2;
@@ -1223,10 +1224,10 @@ void DrawWorld(float time) {
             // reach as a faint circle with rings drawn in toward the centre.
             const float closing = 1.0f - Smooth01((o.t - (o.life - 0.3f)) / 0.3f);
             const float sc = born * closing;
-            lf::Circle(o.x, o.y, 420.0f, 1.0f, o.col, 0.2f * sc);
+            lf::Circle(o.x, o.y, Rings(5), 1.0f, o.col, 0.2f * sc);
             for (int i = 0; i < 2; ++i) {
                 const float p = std::fmod(o.t * 0.8f + 0.5f * (float)i, 1.0f);
-                lf::Circle(o.x, o.y, 420.0f * (1.0f - p) + 30.0f * p, 1.0f, o.col, 0.35f * p * sc);
+                lf::Circle(o.x, o.y, Rings(5) * (1.0f - p) + 30.0f * p, 1.0f, o.col, 0.35f * p * sc);
             }
             for (int arm = 0; arm < 3; ++arm) {
                 float px[14], py[14];
@@ -1320,10 +1321,10 @@ void DrawWorld(float time) {
                 { 1.0f, 0.95f, 0.85f }, 0.6f);
     }
     if (s.meditateT >= 0.0f) {
-        // The blast always reaches 300 (only its damage grows with the charge),
-        // so the ring sits on 300 from the start; the charge fills it as a
+        // The blast always reaches 4 rings (only its damage grows with the charge),
+        // so the ring sits on its edge from the start; the charge fills it as a
         // bright arc running clockwise from the top.
-        constexpr float kReach = 300.0f;
+        constexpr float kReach = Rings(4);
         const float k = std::min(1.0f, s.meditateT / 2.0f);
         const Rgb c{ 0.70f, 1.0f, 0.85f };
         Ring(s.in.px, s.in.py, kReach, 1.2f, c, 0.35f, 0.0f);

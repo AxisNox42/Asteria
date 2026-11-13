@@ -5049,6 +5049,14 @@ int main() {
                         // AUGDEAL: opens the reward pick and lets the deal play (dim fade-in).
                         if (gm.currentState != GameState::RUNNING)
                             RestartCurrentRun();
+                        // AUGGLOSS=<levels>+<CODE> puts that augment in the first slot.
+                        const size_t colon = step.find('+');
+                        if (colon != std::string::npos && gm.augChoiceCount > 0)
+                            for (int a = 0; a < AUG_TOTAL; ++a)
+                                if (step.compare(colon + 1, std::string::npos, ALL_AUGS[a].name) == 0) {
+                                    gm.augChoices[0] = a;
+                                    break;
+                                }
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
                     } else if (step == "STATDEAL") {

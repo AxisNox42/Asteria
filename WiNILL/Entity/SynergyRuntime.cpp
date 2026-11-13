@@ -9,6 +9,7 @@
 
 #include "ActiveSkills.h"
 #include "AugmentCombat.h"
+#include "RangeUnit.h"
 #include "AugmentSynergy.h"
 #include "Bullet.h"
 #include "EnemyParticles.h"
@@ -211,7 +212,7 @@ void DashEnded() {
     if (o.T_FIREWORK)
         for (int i = 0; i < 12; ++i)
             s.pending.push_back(MakeShot(s.in.px, s.in.py, 2.0f * kPi * (float)i / 12.0f, 0.6f, 520.0f));
-    if (o.G_PARRY) passive::ClearEnemyBullets(s.in.px, s.in.py, 220.0f);
+    if (o.G_PARRY) passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(3));
 }
 
 bool Uses(const std::string& code) {
@@ -365,7 +366,7 @@ bool CondHolds(CCond c, const passive::StepInput& in) {
         case CCond::Crowd:   return s.crowd >= 8;
         case CCond::Few:     return s.enemiesLeft >= 1 && s.enemiesLeft <= 3;
         case CCond::Boss:    return s.bossUp;
-        case CCond::Far:     return s.enemiesLeft > 0 && s.nearest > 350.0f;
+        case CCond::Far:     return s.enemiesLeft > 0 && s.nearest > Rings(4.5f);
         case CCond::Barrage: return s.nearBullets >= 3;
         case CCond::Clean:   return s.waveDamage < 0.01f;
         case CCond::Hurt:    return s.sinceHurt < 3.0f;
@@ -384,13 +385,13 @@ void UpdateChances(const passive::StepInput& in) {
             ++s.enemiesLeft;
             const float d = std::hypot(ex - in.px, ey - in.py);
             s.nearest = std::min(s.nearest, d);
-            if (d < 300.0f) ++s.crowd;
+            if (d < Rings(4)) ++s.crowd;
             if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) if (IsBossMob(e.kind)) s.bossUp = true;
         });
         for (const int r : s.chanceRows)
             if (kChance[r].cond == CCond::Barrage) {
                 for (const Bullet& b : g_Bullets)
-                    if (b.active && b.isEnemy && std::hypot(b.x - in.px, b.y - in.py) < 200.0f) ++s.nearBullets;
+                    if (b.active && b.isEnemy && std::hypot(b.x - in.px, b.y - in.py) < Rings(2.5f)) ++s.nearBullets;
                 break;
             }
         for (const int r : s.chanceRows)
@@ -411,7 +412,7 @@ void Landed(const Bullet& b, float radius) {
             if (mark) s.marks[&e] = 5.0f;
             if (burn) s.burns[&e] = { 3.0f, 0.5f };
         });
-    if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? 120.0f : 70.0f, s.on.Y_SINGULAR ? 150.0f : 0.0f, true);
+    if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? 125.0f : 75.0f, s.on.Y_SINGULAR ? 150.0f : 0.0f, true);
     if (b.splitCount > 0 && s.pending.size() < 64) {
         const int n = std::min(b.splitCount, 5);
         for (int i = 0; i < n; ++i) {
@@ -430,7 +431,7 @@ void Explode(float x, float y, float radius, float pct, bool pull) {
                 if (IsBoss(e)) return;
                 const float dx = x - ex, dy = y - ey, d = std::sqrt(dx * dx + dy * dy);
                 if (d < 1.0f || d > pr) return;
-                const float step = std::min(d, 90.0f);
+                const float step = std::min(d, Rings(1));
                 e.worldX += dx / d * step; e.worldY += dy / d * step;
             }
         });
@@ -464,7 +465,7 @@ void DrawWorld() {
     // and a small ring on every enemy shot it has slowed.
     if (s.on.G_FORCEFIELD) {
         const lf::Rgb fc{ 0.55f, 0.85f, 1.0f };
-        lf::Circle(s.in.px, s.in.py, 160.0f, 1.2f, fc, 0.35f);
+        lf::Circle(s.in.px, s.in.py, Rings(2), 1.2f, fc, 0.35f);
         for (int i = 0; i < 6; ++i) {
             const float a = s.clock * 0.5f + lf::kTwoPi * (float)i / 6.0f;
             const float ca = std::cos(a), sa = std::sin(a);
@@ -760,7 +761,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         const float r = 80.0f;
         Burst(x, y, r, b.blastPct * 100.0f);
     }
-    if (b.synFlags & synf::Gravity) Explode(x, y, o.Y_SINGULAR ? 120.0f : 70.0f, o.Y_SINGULAR ? 150.0f : 0.0f, true);
+    if (b.synFlags & synf::Gravity) Explode(x, y, o.Y_SINGULAR ? 125.0f : 75.0f, o.Y_SINGULAR ? 150.0f : 0.0f, true);
     if (b.splitCount > 0 && !b.splitSpent && s.pending.size() < 64) {
         b.splitSpent = true;
         const float fan[5] = { -0.70f, 0.70f, 0.0f, -1.30f, 1.30f };
@@ -845,8 +846,8 @@ void OnHurt(float dmg) {
         if (s.revengeAcc >= 20.0f) {
             s.revengeAcc = 0.0f;
             strike_fx::Implode(s.in.px, s.in.py, 120.0f, { 1.0f, 0.40f, 0.30f }, 0.0f, 0.16f);
-            passive::ClearEnemyBullets(s.in.px, s.in.py, 320.0f);
-            passive::DamageRadius(s.in.px, s.in.py, 300.0f, 300.0f, 1.0f, 0.4f, 0.3f);
+            passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(4));
+            passive::DamageRadius(s.in.px, s.in.py, Rings(4), 300.0f, 1.0f, 0.4f, 0.3f);
         }
     }
     if (o.T_CAKE && s.cakeUsed + s.cakeArmed < 2) {
@@ -947,7 +948,7 @@ void Step(const passive::StepInput& in) {
         if (o.G_MIRROR)
             for (Bullet& b : g_Bullets)
                 if (b.active && b.isEnemy &&
-                    (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < 260.0f * 260.0f) {
+                    (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < Rings(3.5f) * Rings(3.5f)) {
                     b.isEnemy = false; b.dirX = -b.dirX; b.dirY = -b.dirY; b.dmgMult = 1.0f;
                     b.color = glm::vec3(0.7f, 0.9f, 1.0f);
                 }
@@ -970,7 +971,7 @@ void Step(const passive::StepInput& in) {
     if (o.G_FORCEFIELD)
         for (Bullet& b : g_Bullets)
             if (b.active && b.isEnemy && !(b.synFlags & synf::Slowed) &&
-                (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < 160.0f * 160.0f) {
+                (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < Rings(2) * Rings(2)) {
                 b.synFlags |= synf::Slowed; b.speed *= 0.8f;
             }
 
@@ -1069,7 +1070,7 @@ void Step(const passive::StepInput& in) {
             AddZone(b.x, b.y, 26.0f, 1.2f, 40.0f, 0.0f);
         }
         if ((f & synf::Hover) && !(f & synf::Hovered)) {
-            if (!(f & synf::Hovering) && b.traveled >= 300.0f) {
+            if (!(f & synf::Hovering) && b.traveled >= Rings(4)) {
                 b.synFlags |= synf::Hovering; b.synHoverSpeed = b.speed; b.synHoverLeft = 0.8f; b.speed = 0.0f;
             } else if (f & synf::Hovering) {
                 b.synHoverLeft -= dt;
@@ -1078,7 +1079,7 @@ void Step(const passive::StepInput& in) {
                 }
             }
         }
-        if ((f & synf::Return) && !(f & synf::Returning) && b.traveled >= 520.0f) {
+        if ((f & synf::Return) && !(f & synf::Returning) && b.traveled >= Rings(6.5f)) {
             b.synFlags |= synf::Returning; b.ClearHits(); b.homing = false; b.piercing = true;
         }
         if (b.synFlags & synf::Returning) {

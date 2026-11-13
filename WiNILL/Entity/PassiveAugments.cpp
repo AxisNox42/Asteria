@@ -1,5 +1,6 @@
 #include "PassiveAugments.h"
 #include "AugmentCombat.h"
+#include "RangeUnit.h"
 #include "ActiveSkills.h"
 #include "SynergyRuntime.h"
 
@@ -30,8 +31,8 @@ extern PlayerStats         g_Stats;
 namespace passive {
 
 // Radii (world px) for "주변" and "넓은 반경" in the planning sheet.
-constexpr float kNearRadius = 220.0f;
-constexpr float kWideRadius = 380.0f;
+constexpr float kNearRadius = Rings(3);
+constexpr float kWideRadius = Rings(5);
 // Hit effects count damage, not hits: a tick of 0.1 must not use up a charge.
 constexpr float kPlateAbsorb = 30.0f;   // Buffer Plating: damage it blocks in total
 constexpr float kAmethystLife = 30.0f;  // Unstable Amp / Gift of Stars break after this much damage
@@ -388,7 +389,7 @@ void CountHit() {
 
 // Triple Strike: three strikes on enemies around (x, y).
 void ExtraStrikes(float x, float y) {
-    constexpr float kRadius = 150.0f;
+    constexpr float kRadius = Rings(2);
     std::vector<Monster*> mobs;
     std::vector<RangedMob*> scopes;
     for (auto* m : g_MonsterManager.monsters) {
@@ -471,12 +472,12 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
     }
     if (Has(AugType::P_VEIN_CRATER_ROUND) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
         s.pickaxeCd = 5.0f;
-        DamageRadius(x, y, 110.0f, 200.0f, 1.0f, 0.70f, 0.30f);
+        DamageRadius(x, y, Rings(1.5f), 200.0f, 1.0f, 0.70f, 0.30f);
         ChanceTriggered();
     }
     if (bullet.blastOnHit && s.rushOwed > 0.0f) {   // 대시 후 첫 사격 범위 피해 (첫 명중 한 번만)
         s.rushOwed = 0.0f;
-        DamageRadius(x, y, 120.0f, 200.0f, 1.0f, 0.55f, 0.25f);
+        DamageRadius(x, y, Rings(1.5f), 200.0f, 1.0f, 0.55f, 0.25f);
         Audio::Play(Audio::Cue::ProcShockwave);
     }
 }
@@ -696,14 +697,14 @@ void Step(const StepInput& in) {
 
     TrackEnemies();
 
-    // Movement: light-years (1 ly = a quarter of the screen width) and the 3s log.
+    // Movement: light-years (1 ly = 6○) and the 3s log.
     float moved = 0.0f;
     if (s.hasLast) moved = std::hypot(in.px - s.lastPX, in.py - s.lastPY);
     s.lastPX = in.px; s.lastPY = in.py; s.hasLast = true;
     s.moveLog.push_back({ s.clock, moved });
     while (!s.moveLog.empty() && s.moveLog.front().first < s.clock - 3.0f) s.moveLog.pop_front();
     if (Has(AugType::P_FLIGHT_ROUTE_SWEEP)) {
-        const float lightYear = in.screenW * 0.25f / std::max(0.01f, in.viewZoom);
+        constexpr float lightYear = Rings(6);   // glossary: 1 light-year = 6○ on every screen
         s.cloudDist += moved;
         if (s.cloudDist >= 10.0f * lightYear) {
             s.cloudDist -= 10.0f * lightYear;
@@ -802,7 +803,7 @@ float FireInterval(float base) {
 void ModifyShot(Bullet& bullet) {
     if (Has(AugType::P_STONE_GIANT_WARHEAD)) bullet.sizeScale *= 1.3f;
     if (Has(AugType::P_HUNTER_PROXIMITY_WARHEAD))
-        bullet.maxRange = 0.8f * s.in.screenW / std::max(0.01f, s.in.viewZoom);
+        bullet.maxRange = Rings(19);   // the card says 19○ (was 80% of the screen width)
     if (s.strongmanWindow > 0.0f) {
         bullet.blastOnHit = true;   // the first shot after the dash only
         s.strongmanWindow = 0.0f;

@@ -27,11 +27,57 @@
 // A glossary phrase keeps its words on one line: its spaces become no-break
 // spaces (U+00A0) while wrapping, measured as spaces, and turn back afterwards.
 static constexpr wchar_t kNbsp = L'\x00A0';
+// The range unit "○" (one health-ring radius, Entity/RangeUnit.h) is drawn as
+// a thin ring of its own instead of the font's heavy circle glyph.
+static constexpr wchar_t kRingChar = L'\x25CB';
+struct RingMark { float x, y, r; hud_lines::Rgb c; float a; };
+static float RingAdvance(float scale) { return g_TextS.Height(L"가", scale) * 0.74f; }
+static float RingTextWidth(const std::wstring& s, float scale) {
+    float w = 0.0f;
+    size_t a = 0;
+    for (size_t i = 0; i <= s.size(); ++i) {
+        if (i < s.size() && s[i] != kRingChar) continue;
+        if (i > a) w += g_TextS.Width(s.substr(a, i - a).c_str(), scale);
+        if (i < s.size()) w += RingAdvance(scale);
+        a = i + 1;
+    }
+    return w;
+}
+// Draws s at (x, y) (top-left) with every "○" left for rings; returns the width.
+static float DrawRingText(const std::wstring& s, float x, float y, float scale, hud_lines::Rgb c,
+                          float a, float shadow, std::vector<RingMark>& rings) {
+    const float h = g_TextS.Height(L"가", scale), adv = RingAdvance(scale);
+    float px = x;
+    size_t from = 0;
+    for (size_t i = 0; i <= s.size(); ++i) {
+        if (i < s.size() && s[i] != kRingChar) continue;
+        if (i > from) {
+            const std::wstring part = s.substr(from, i - from);
+            DrawShadowedText(g_TextS, part.c_str(), px, y, scale, c.r, c.g, c.b, a, shadow);
+            px += g_TextS.Width(part.c_str(), scale);
+        }
+        if (i < s.size()) {
+            rings.push_back({ px + adv * 0.5f, y + h * 0.54f, h * 0.30f, c, a });
+            px += adv;
+        }
+        from = i + 1;
+    }
+    return px - x;
+}
 static float WrapWidth(const std::wstring& s, float scale) {
-    if (s.find(kNbsp) == std::wstring::npos) return g_TextS.Width(s.c_str(), scale);
     std::wstring t = s;
     for (wchar_t& ch : t) if (ch == kNbsp) ch = L' ';
-    return g_TextS.Width(t.c_str(), scale);
+    return t.find(kRingChar) == std::wstring::npos ? g_TextS.Width(t.c_str(), scale) : RingTextWidth(t, scale);
+}
+static void DrawRingMarks(const std::vector<RingMark>& rings, float ui) {
+    if (rings.empty()) return;
+    BindMainShader();
+    // A ring with the ship's dot in it, so it does not read as the letter o.
+    for (const RingMark& m : rings) {
+        hud_lines::Ring(m.x, m.y, m.r, 1.3f * ui, m.c, m.a, 0.0f);
+        drawCircle(m.x, m.y, std::max(1.0f, m.r * 0.26f), m.c.r, m.c.g, m.c.b, m.a);
+    }
+    BatchFlush();
 }
 
 // One description segment wrapped to maxWidth, appended to lines.
@@ -556,8 +602,9 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         }
     }
     BatchFlush();
-    for (const TextCmd& tc : texts)
-        DrawShadowedText(g_TextS, tc.s.c_str(), tc.x, tc.y, tc.scale, tc.c.r, tc.c.g, tc.c.b, tc.a, 0.85f);
+    std::vector<RingMark> rings;
+    for (const TextCmd& tc : texts) DrawRingText(tc.s, tc.x, tc.y, tc.scale, tc.c, tc.a, 0.85f, rings);
+    DrawRingMarks(rings, ui);
 }
 
 }  // namespace
@@ -826,6 +873,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
 
     // ── cards: text ──
     std::vector<LinkBox> linkBoxes;   // glossary words drawn this frame
+    std::vector<RingMark> ringMarks;  // range-unit rings in the card texts
     for (int i = 0; i < count; ++i) {
         const CardDraw& d = cd[i];
         if (!defs[i] || d.P.move <= 0.0f || d.P.flip < 1.0f || d.textA <= 0.004f) continue;
@@ -854,9 +902,8 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             auto piece = [&](int a, int b, int term) {
                 if (b <= a) return;
                 const std::wstring s = l.text.substr((size_t)a, (size_t)(b - a));
-                const float w = g_TextS.Width(s.c_str(), tx.descScale);
                 const Rgb pc = term >= 0 ? linkCol : kTextSub;
-                DrawShadowedText(g_TextS, s.c_str(), px, y, tx.descScale, pc.r, pc.g, pc.b, lineA, 0.70f);
+                const float w = DrawRingText(s, px, y, tx.descScale, pc, lineA, 0.70f, ringMarks);
                 if (term >= 0) linkBoxes.push_back({ i, term, px, y, px + w, y + lh, d.col, lineA });
                 px += w;
             };
@@ -884,6 +931,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         for (const LinkBox& b : linkBoxes)
             SLine(b.x0, b.y1 + 1.0f * ui, b.x1, b.y1 + 1.0f * ui, 1.0f * ui, b.col, b.a * 0.70f, 0.0f);
         BatchFlush();
+        DrawRingMarks(ringMarks, ui);
         float cardX[ac::kMaxCards] = {}, cardY[ac::kMaxCards] = {};
         Rgb cardCol[ac::kMaxCards] = {};
         for (int i = 0; i < count; ++i) { cardX[i] = cd[i].x; cardY[i] = cd[i].y; cardCol[i] = cd[i].col; }
