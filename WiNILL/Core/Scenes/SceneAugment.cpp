@@ -594,14 +594,39 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
             tl.x = cardX[tl.card] - ac::kCardW * 0.5f * ui;
             tl.y = cardY[tl.card] + (ac::kCardH * 0.5f + 52.0f) * ui;
         } else {
+            // First free spot, in order: under the level above, beside it
+            // (right, left), then past every open level (right, left). Free
+            // means on screen and clear of every open level, so two
+            // definitions never draw over each other.
             const TipLevel& up = tips[k - 1];
-            tl.x = up.x + 26.0f * ui;
-            tl.y = up.y + up.h + 26.0f * ui;
-            tl.side = tl.y + tl.h > sh - 24.0f * ui;
-            if (tl.side) { tl.x = up.x + up.w + 24.0f * ui; tl.y = up.y; }
+            const float m = 24.0f * ui, gap = 24.0f * ui;
+            float minX = up.x, maxX = up.x + up.w;
+            for (int j = 0; j < k; ++j) { minX = std::min(minX, tips[j].x); maxX = std::max(maxX, tips[j].x + tips[j].w); }
+            const struct { float x, y; bool side; } spots[5] = {
+                { up.x + 26.0f * ui, up.y + up.h + 26.0f * ui, false },
+                { up.x + up.w + gap, up.y, true },
+                { up.x - tl.w - gap, up.y, true },
+                { maxX + gap, up.y, true },
+                { minX - tl.w - gap, up.y, true },
+            };
+            auto clear = [&](float x, float y) {
+                if (x < m || x + tl.w > sw - m || y + tl.h > sh - m) return false;
+                for (int j = 0; j < k; ++j) {
+                    const TipLevel& o = tips[j];
+                    if (x < o.x + o.w + 8.0f * ui && x + tl.w + 8.0f * ui > o.x &&
+                        y < o.y + o.h + 8.0f * ui && y + tl.h + 8.0f * ui > o.y) return false;
+                }
+                return true;
+            };
+            int pick = 0;
+            while (pick < 5 && !clear(spots[pick].x, spots[pick].y)) ++pick;
+            if (pick == 5) pick = 0;   // nothing free: under the level above, kept on screen
+            tl.x = spots[pick].x;
+            tl.y = spots[pick].y;
+            tl.side = spots[pick].side;
         }
-        if (tl.x + tl.w > sw - 24.0f * ui) tl.x = (k > 0 ? tips[k - 1].x - tl.w - 24.0f * ui : sw - 24.0f * ui - tl.w);
-        tl.x = std::max(24.0f * ui, tl.x);
+        if (k == 0 && tl.x + tl.w > sw - 24.0f * ui) tl.x = sw - 24.0f * ui - tl.w;
+        tl.x = std::clamp(tl.x, 24.0f * ui, std::max(24.0f * ui, sw - 24.0f * ui - tl.w));
         tl.y = std::min(tl.y, sh - 24.0f * ui - tl.h);
 
         // The word that opened it gets a bold underline. The leader leaves a
@@ -619,15 +644,17 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
             SLine(ax, tl.ay, ax, ly, 1.0f * ui, col, 0.70f, 0.0f);
             SLine(ax, ly, tl.x + pad, ly, 1.0f * ui, col, 0.70f, 0.0f);
         } else {
-            // Beside (right or left of the level above): the leader only runs
-            // through empty space. Down from the word to below the level it
-            // sits in, across to the gap between the two levels, up the gap to
-            // the title row, then in to the title's near end (a title on the
-            // left is met at its right end, so the line never crosses text).
+            // Beside the others (right or left): the leader only runs through
+            // empty space. Down from the word to below every open level,
+            // across to the gap next to the new level, up the gap to the title
+            // row, then in to the title's near end (a title on the left is met
+            // at its right end, so the line never crosses text).
             const TipLevel& up = tips[k - 1];
             const bool onLeft = tl.x < up.x;
-            const float ry = std::max(tl.ay + 8.0f * ui, up.y + up.h + 6.0f * ui);
-            const float gx = onLeft ? up.x - 12.0f * ui : up.x + up.w + 12.0f * ui;
+            float below = tl.ay + 8.0f * ui;
+            for (int j = 0; j < k; ++j) below = std::max(below, tips[j].y + tips[j].h + 6.0f * ui);
+            const float ry = std::min(below, sh - 6.0f * ui);
+            const float gx = onLeft ? tl.x + tl.w + 12.0f * ui : tl.x - 12.0f * ui;
             const float titleMid = tl.y + 2.0f * ui + g_TextS.Height(L"가Ag", titleScale) * 0.5f;
             const GLuint tIcon = TermIconTex(tl.term);
             const float tEnd = tl.x + pad + (tIcon ? titleH * 1.25f + 6.0f * ui : 0.0f) +
