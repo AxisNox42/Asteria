@@ -228,6 +228,29 @@ GLuint AugIconTex(const AugDef& def) {
     return tex[idx];
 }
 
+// Outlined RPG Awesome icon of a glossary term (Resource/Icons/TERM_<name>.png),
+// loaded on first use. 0 for a term without one.
+constexpr const char* kTermIconNames[] = {
+    "Verb", "Pierce", "Bounce", "Split", "Homing", "Blast", "Burn", "Mark", "Orbit", "Trail", "Mine", "Hover",
+    "Pull", "Return", "Swap", "Erase", "Graze", "Shield", "Still", "Crit", "CritMult", "HitCount", "DmgKinds",
+    "FireRate", "Range", "Distance", "Stardust", "Luck", "LightYear", "Broken", "Stack", "RunWave",
+    "ActiveSkill", "Dash", "SkillSlot", "Reaction", "Risky", "ChanceAug", "Enemies" };
+static_assert(sizeof(kTermIconNames) / sizeof(kTermIconNames[0]) == glossary::kTermCount,
+              "kTermIconNames follows glossary::Term");
+GLuint TermIconTex(int term) {
+    static GLuint tex[glossary::kTermCount] = {};
+    static bool tried[glossary::kTermCount] = {};
+    if (term < 0 || term >= glossary::kTermCount) return 0;
+    if (!tried[term]) {
+        tried[term] = true;
+        char name[64];
+        std::snprintf(name, sizeof(name), "TERM_%s", kTermIconNames[term]);
+        tex[term] = IconLoad(name);
+        IconEnableMipmaps(tex[term]);
+    }
+    return tex[term];
+}
+
 Rgb Mix(Rgb a, Rgb b, float t) {
     return { a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t };
 }
@@ -519,7 +542,9 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
     const float pad = 8.0f * ui;
     static const wchar_t* kRelated[3] = { L"관련", L"See also", L"関連" };
     struct TextCmd { std::wstring s; float x, y, scale; Rgb c; float a; };
+    struct IconCmd { GLuint tex; float x, y, size; Rgb c; };
     std::vector<TextCmd> texts;
+    std::vector<IconCmd> icons;
     BindMainShader();
     for (int k = 0; k < open; ++k) {
         TipLevel& tl = tips[k];
@@ -575,8 +600,13 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         const wchar_t* title = e.name[lang];
         const float tw = g_TextS.Width(title, titleScale);
         float ty = tl.y + 2.0f * ui;
-        texts.push_back({ title, tl.x + pad, ty, titleScale, Mix(col, kText, 0.45f), 1.0f });
-        SLine(tl.x + pad, ty + titleH + 3.0f * ui, tl.x + pad + tw + 6.0f * ui, ty + titleH + 3.0f * ui,
+        const GLuint iconTex = TermIconTex(tl.term);
+        const float iconSize = iconTex ? titleH * 1.25f : 0.0f;
+        const float titleX = tl.x + pad + (iconTex ? iconSize + 6.0f * ui : 0.0f);
+        const Rgb titleCol = Mix(col, kText, 0.45f);
+        if (iconTex) icons.push_back({ iconTex, tl.x + pad, ty + titleH * 0.5f - iconSize * 0.5f, iconSize, titleCol });
+        texts.push_back({ title, titleX, ty, titleScale, titleCol, 1.0f });
+        SLine(tl.x + pad, ty + titleH + 3.0f * ui, titleX + tw + 6.0f * ui, ty + titleH + 3.0f * ui,
               1.0f * ui, col, 0.65f, 0.0f);
         ty += titleH + 10.0f * ui;
         for (const std::wstring& line : body) {
@@ -602,6 +632,7 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         }
     }
     BatchFlush();
+    for (const IconCmd& ic : icons) DrawIcon(ic.tex, ic.x, ic.y, ic.size, ic.size, ic.c.r, ic.c.g, ic.c.b, 1.0f);
     std::vector<RingMark> rings;
     for (const TextCmd& tc : texts) DrawRingText(tc.s, tc.x, tc.y, tc.scale, tc.c, tc.a, 0.85f, rings);
     DrawRingMarks(rings, ui);
@@ -627,6 +658,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         defs[i] = (idx >= 0 && idx < AUG_TOTAL) ? &ALL_AUGS[idx] : nullptr;
         rarity[i] = defs[i] ? (int)defs[i]->rarity : 0;
         hasIcon[i] = defs[i] && AugIconTex(*defs[i]) != 0;   // loads before any batching
+    }
+    {
+        static bool termIconsLoaded = false;   // like the card icons: loaded before any batching
+        if (!termIconsLoaded) {
+            termIconsLoaded = true;
+            for (int k = 0; k < glossary::kTermCount; ++k) TermIconTex(k);
+        }
     }
     const ac::Timeline T = ac::MakeTimeline(rarity, count);
 

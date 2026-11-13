@@ -17,5 +17,7 @@ Icons/AUG_*.png — RPG Awesome (SIL OFL 1.1, https://github.com/nagoshiashumari
   윤곽선만 남긴 흰색 선 마스크 (증강 카드 아이콘, 증강 코드별 1개).
   라이선스: Licenses/RPGAwesome-LICENSE.txt
 
+Icons/TERM_*.png — 같은 RPG Awesome 글리프의 윤곽선 (증강 카드 용어 정의 패널의 제목 아이콘, 용어별 1개).
+
 실행 파일 옆에 Resource/를 배치한다. Windows 빌드의 Resource.rc와
 CMake/Visual Studio의 post-build 복사도 모두 이 폴더를 사용한다.
