@@ -90,7 +90,7 @@ for c, k, strength in PAIRS:
     rows.append('    {"%s", "%s", "%s", Rar::Common, Role::Chance,\n        T_NONE, 0, false, %s},' % (code, name, rule, fx))
     inc.append('CH(%s, %s, %s, %d)' % (code, k, c, pct))
     loc.append((code, '%s %s' % (cc[2], kk[2]), '%s%s' % (cc[3], kk[3]),
-                '%s %s' % (cc[5], kk[5].format(p=pct)), '%s%s' % (cc[6], kk[6].format(p=pct))))
+                '%s, %s' % (cc[5], kk[5].format(p=pct)).replace(' a 8', ' an 8'), '%s、%s' % (cc[6], kk[6].format(p=pct))))
 
 end_marker = '    };' + nl + '    return t;'
 assert h.count(end_marker) == 1
