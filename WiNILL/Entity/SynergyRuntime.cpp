@@ -86,7 +86,8 @@ struct State {
     float shieldPulse = 0;
     std::unordered_map<const void*, glm::vec2> seen;        // enemies alive last step, to notice deaths
     std::unordered_set<const void*> counted;                // kills already handled this step
-    bool  stillCharged = false, prevDash = false, revived = false, lastWallGiven = false;
+    bool  stillCharged = false, prevDash = false, revived = false, lastWallGiven = false,
+          lastWallSaved = false;   // 최후의 방벽: the one lethal hit it blocks this run
     float dashDropped = 0, dashLastX = 0, dashLastY = 0;
     std::vector<Zone>  zones;
     std::vector<Mine>  mines;
@@ -745,8 +746,6 @@ float DamageTakenMult() {
     if (s.on.C_ASCETIC) m *= 1.2f;
     if (s.on.C_RECKLESS) m *= 2.0f;
     if (s.on.C_REVIVE && s.revived) m *= 1.08f;
-    if (s.on.T_LASTSTAND) m *= 1.05f;
-    if (s.on.T_BERSERK) m *= 1.08f;
     return m;
 }
 
@@ -881,6 +880,16 @@ void OnWaveCleared() {
 }
 
 bool TryRevive() {
+    // 최후의 방벽 blocks one lethal hit per run before any revive card is spent:
+    // the hit is cut down to leave 1 HP, with a shield break around the ship.
+    if (s.on.G_LASTWALL && !s.lastWallSaved) {
+        s.lastWallSaved = true;
+        Audio::Play(Audio::Cue::SfxShieldBreak);
+        strike_fx::Implode(s.in.px, s.in.py, 120.0f, { 0.55f, 0.85f, 1.0f }, 0.0f, 0.30f);
+        Pulse(s.in.px, s.in.py, 120.0f, 0.45f, 0.55f, 0.85f, 1.0f);
+        g_GameManager.playerHP = 1.0f;
+        return true;
+    }
     if (!s.on.C_REVIVE || s.revived) return false;
     s.revived = true;
     Audio::Play(Audio::Cue::SfxRevive);

@@ -60,6 +60,11 @@ struct State {
     bool shinobiFired = false, greavesFired = false;
     float shinobiCd = 0.0f, greavesCd = 0.0f, pickaxeCd = 0.0f;
     float strongmanWindow = 0.0f;
+    // Rush Shot's one blast, owed after the first shot of a dash window. Copies of
+    // that shot (pierce, spread pellets, splits, echoes, orbiters) carry its flag,
+    // so the flag alone would blast on every hit; this makes it the first hit only.
+    // Expires so a shot that missed cannot blast seconds later.
+    float rushOwed = 0.0f;
     bool dashWasActive = false;
     // Counters.
     int shots = 0, crits = 0, kills = 0;
@@ -469,7 +474,8 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
         DamageRadius(x, y, 110.0f, 200.0f, 1.0f, 0.70f, 0.30f);
         ChanceTriggered();
     }
-    if (bullet.blastOnHit) {   // 대시 후 첫 사격 범위 피해
+    if (bullet.blastOnHit && s.rushOwed > 0.0f) {   // 대시 후 첫 사격 범위 피해 (첫 명중 한 번만)
+        s.rushOwed = 0.0f;
         DamageRadius(x, y, 120.0f, 200.0f, 1.0f, 0.55f, 0.25f);
         Audio::Play(Audio::Cue::ProcShockwave);
     }
@@ -686,6 +692,7 @@ void Step(const StepInput& in) {
     s.shinobiCd = std::max(0.0f, s.shinobiCd - dt);
     s.greavesCd = std::max(0.0f, s.greavesCd - dt);
     s.strongmanWindow = std::max(0.0f, s.strongmanWindow - dt);
+    s.rushOwed = std::max(0.0f, s.rushOwed - dt);
 
     TrackEnemies();
 
@@ -799,6 +806,7 @@ void ModifyShot(Bullet& bullet) {
     if (s.strongmanWindow > 0.0f) {
         bullet.blastOnHit = true;   // the first shot after the dash only
         s.strongmanWindow = 0.0f;
+        s.rushOwed = 3.0f;          // long enough for any shot to reach the screen edge
     }
 }
 
