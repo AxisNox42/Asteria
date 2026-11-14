@@ -24,6 +24,7 @@
 #include <string>
 #include <cmath>
 #include <cwchar>
+#include <cstdlib>
 
 // A glossary phrase keeps its words on one line: its spaces become no-break
 // spaces (U+00A0) while wrapping, measured as spaces, and turn back afterwards.
@@ -531,8 +532,16 @@ struct TipLevel {
     float ax0 = 0, ax1 = 0, ay = 0;   // the word that opened it (underline y)
     float x = 0, y = 0, w = 0, h = 0;
     bool side = false;                // placed beside the level above, not under it
+    float age = 0.0f;                 // seconds since it opened (the reveal below)
 };
 constexpr int kTipLevels = 3;
+// Opening a definition: the leader draws out from the word, the title fades in
+// and its underline grows, the definition types itself in, then the related
+// words appear. About a third of a second in all; a level that stays open does
+// not replay it.
+constexpr float kTipLeaderSec = 0.14f, kTipTitleAt = 0.08f, kTipTitleSec = 0.14f;
+constexpr float kTipTypeAt = 0.14f, kTipTypeCps = 240.0f, kTipRelSec = 0.15f;
+inline float TipEase(float t) { t = std::clamp(t, 0.0f, 1.0f); return 1.0f - (1.0f - t) * (1.0f - t); }
 // How open the definitions are (0..1): the deck fades out while they show.
 float g_GlossaryOpenA = 0.0f;
 
@@ -643,12 +652,40 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
     const float pad = 8.0f * ui;
     static const wchar_t* kRelated[3] = { L"관련", L"See also", L"関連" };
     struct TextCmd { std::wstring s; float x, y, scale; Rgb c; float a; };
-    struct IconCmd { GLuint tex; float x, y, size; Rgb c; };
+    struct IconCmd { GLuint tex; float x, y, size; Rgb c; float a = 1.0f; };
     std::vector<TextCmd> texts;
     std::vector<IconCmd> icons;
     BindMainShader();
     for (int k = 0; k < open; ++k) {
         TipLevel& tl = tips[k];
+        tl.age += std::max(0.0f, delta);
+        if (g_SmokeCapture) {
+            // Smoke: ASTERIA_SMOKE_TIPAGE=<sec> holds every definition at that
+            // point of its opening, to capture the reveal mid-way.
+            static const float frozen = [] {
+                char* v = nullptr; size_t len = 0;
+                float f = -1.0f;
+                if (_dupenv_s(&v, &len, "ASTERIA_SMOKE_TIPAGE") == 0 && v) f = (float)std::atof(v);
+                std::free(v);
+                return f;
+            }();
+            if (frozen >= 0.0f) tl.age = frozen;
+        }
+        const float leaderT = TipEase(tl.age / kTipLeaderSec);
+        const float titleA = TipEase((tl.age - kTipTitleAt) / kTipTitleSec);
+        // A polyline drawn from its start up to leaderT of its length.
+        auto leader = [&](const float* px, const float* py, int n, Rgb lc) {
+            float total = 0.0f;
+            for (int i = 1; i < n; ++i) total += std::hypot(px[i] - px[i - 1], py[i] - py[i - 1]);
+            float left = total * leaderT;
+            for (int i = 1; i < n && left > 0.0f; ++i) {
+                const float seg = std::hypot(px[i] - px[i - 1], py[i] - py[i - 1]);
+                const float f = seg > 0.0f ? std::min(1.0f, left / seg) : 1.0f;
+                SLine(px[i - 1], py[i - 1], px[i - 1] + (px[i] - px[i - 1]) * f, py[i - 1] + (py[i] - py[i - 1]) * f,
+                      1.0f * ui, lc, 0.70f, 0.0f);
+                left -= seg;
+            }
+        };
         if (tl.term < 0 || tl.term >= glossary::kTermCount || tl.card < 0 || tl.card >= count) { open = k; break; }
         const glossary::Entry& e = glossary::Get((glossary::Term)tl.term);
         const Rgb col = cardCol[tl.card];
@@ -707,12 +744,12 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         const float ly = tl.y - 6.0f * ui;
         if (k == 0) {
             const float y0 = cardY[tl.card] + (ac::kCardH * 0.5f + 4.0f) * ui;
-            SLine(ax, y0, ax, ly, 1.0f * ui, col, 0.70f, 0.0f);
-            SLine(ax, ly, tl.x + pad, ly, 1.0f * ui, col, 0.70f, 0.0f);
+            const float px[3] = { ax, ax, tl.x + pad }, py[3] = { y0, ly, ly };
+            leader(px, py, 3, col);
             drawCircle(ax, y0, 2.0f * ui, col.r, col.g, col.b, 0.9f);
         } else if (!tl.side) {
-            SLine(ax, tl.ay, ax, ly, 1.0f * ui, col, 0.70f, 0.0f);
-            SLine(ax, ly, tl.x + pad, ly, 1.0f * ui, col, 0.70f, 0.0f);
+            const float px[3] = { ax, ax, tl.x + pad }, py[3] = { tl.ay, ly, ly };
+            leader(px, py, 3, col);
         } else {
             // Beside the others (right or left): the leader only runs through
             // empty space. Down from the word to below every open level,
@@ -729,10 +766,9 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
             const GLuint tIcon = TermIconTex(tl.term);
             const float tEnd = tl.x + pad + (tIcon ? titleH * 1.25f + 6.0f * ui : 0.0f) +
                                g_TextS.Width(e.name[lang], titleScale) + 8.0f * ui;
-            SLine(ax, tl.ay, ax, ry, 1.0f * ui, col, 0.70f, 0.0f);
-            SLine(ax, ry, gx, ry, 1.0f * ui, col, 0.70f, 0.0f);
-            SLine(gx, ry, gx, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
-            SLine(gx, titleMid, onLeft ? tEnd : tl.x + pad - 4.0f * ui, titleMid, 1.0f * ui, col, 0.70f, 0.0f);
+            const float px[5] = { ax, ax, gx, gx, onLeft ? tEnd : tl.x + pad - 4.0f * ui };
+            const float py[5] = { tl.ay, ry, ry, titleMid, titleMid };
+            leader(px, py, 5, col);
         }
         // Title, underlined; then the definition; then related words.
         const wchar_t* title = e.name[lang];
@@ -742,35 +778,47 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         const float iconSize = iconTex ? titleH * 1.25f : 0.0f;
         const float titleX = tl.x + pad + (iconTex ? iconSize + 6.0f * ui : 0.0f);
         const Rgb titleCol = Mix(col, kText, 0.45f);
-        if (iconTex) icons.push_back({ iconTex, tl.x + pad, ty + titleH * 0.5f - iconSize * 0.5f, iconSize, titleCol });
-        texts.push_back({ title, titleX, ty, titleScale, titleCol, 1.0f });
-        SLine(tl.x + pad, ty + titleH + 3.0f * ui, titleX + tw + 6.0f * ui, ty + titleH + 3.0f * ui,
-              1.0f * ui, col, 0.65f, 0.0f);
+        if (iconTex) icons.push_back({ iconTex, tl.x + pad, ty + titleH * 0.5f - iconSize * 0.5f, iconSize, titleCol, titleA });
+        if (titleA > 0.0f) {
+            texts.push_back({ title, titleX, ty, titleScale, titleCol, titleA });
+            const float ux0 = tl.x + pad, ux1 = titleX + tw + 6.0f * ui;
+            SLine(ux0, ty + titleH + 3.0f * ui, ux0 + (ux1 - ux0) * titleA, ty + titleH + 3.0f * ui,
+                  1.0f * ui, col, 0.65f, 0.0f);
+        }
         ty += titleH + 10.0f * ui;
+        // The definition types in, line after line.
+        float budget = (tl.age - kTipTypeAt) * kTipTypeCps;
+        size_t bodyChars = 0;
         for (const std::wstring& line : body) {
-            texts.push_back({ line, tl.x + pad, ty, bodyScale, kText, 0.95f });
+            bodyChars += line.size();
+            if (budget > 0.0f) {
+                const size_t n = std::min(line.size(), (size_t)budget);
+                if (n > 0) texts.push_back({ line.substr(0, n), tl.x + pad, ty, bodyScale, kText, 0.95f });
+                budget -= (float)line.size();
+            }
             ty += bodyH + 3.0f * ui;
         }
-        if (e.relCount > 0) {
+        const float relA = TipEase((tl.age - kTipTypeAt - (float)bodyChars / kTipTypeCps) / kTipRelSec);
+        if (e.relCount > 0 && relA > 0.0f) {
             ty += 7.0f * ui;
             float rx = tl.x + pad;
-            texts.push_back({ kRelated[lang], rx, ty, bodyScale, kTextSub, 0.70f });
+            texts.push_back({ kRelated[lang], rx, ty, bodyScale, kTextSub, 0.70f * relA });
             rx += g_TextS.Width(kRelated[lang], bodyScale) + 12.0f * ui;
             for (int r = 0; r < e.relCount; ++r) {
                 const int rt = (int)e.rel[r];
                 const wchar_t* rn = glossary::Get(e.rel[r]).name[lang];
                 const float rw = g_TextS.Width(rn, bodyScale);
                 const bool hot = k + 1 < open && tips[k + 1].term == rt;
-                texts.push_back({ rn, rx, ty, bodyScale, Mix(col, kText, hot ? 0.55f : 0.35f), 1.0f });
+                texts.push_back({ rn, rx, ty, bodyScale, Mix(col, kText, hot ? 0.55f : 0.35f), relA });
                 SLine(rx, ty + bodyH + 2.0f * ui, rx + rw, ty + bodyH + 2.0f * ui,
-                      (hot ? 1.4f : 1.0f) * ui, col, hot ? 0.9f : 0.6f, 0.0f);
+                      (hot ? 1.4f : 1.0f) * ui, col, (hot ? 0.9f : 0.6f) * relA, 0.0f);
                 relLinks.push_back({ k, rt, rx, ty, rx + rw, ty + bodyH, col, 1.0f });
                 rx += rw + 14.0f * ui;
             }
         }
     }
     BatchFlush();
-    for (const IconCmd& ic : icons) DrawIcon(ic.tex, ic.x, ic.y, ic.size, ic.size, ic.c.r, ic.c.g, ic.c.b, 1.0f);
+    for (const IconCmd& ic : icons) DrawIcon(ic.tex, ic.x, ic.y, ic.size, ic.size, ic.c.r, ic.c.g, ic.c.b, ic.a);
     std::vector<RingMark> rings;
     for (const TextCmd& tc : texts) DrawRingText(tc.s, tc.x, tc.y, tc.scale, tc.c, tc.a, 0.85f, rings);
     DrawRingMarks(rings, ui);
