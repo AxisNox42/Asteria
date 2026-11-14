@@ -81,22 +81,36 @@ static void DrawRingMarks(const std::vector<RingMark>& rings, float ui) {
     BatchFlush();
 }
 
-// One description segment wrapped to maxWidth, appended to lines.
+// One description segment wrapped to maxWidth, appended to lines. Lines break
+// at spaces, and also after a '·' or before a '(' inside a run with no spaces
+// ("효과(관통·튕김·분열)"), so a long list keeps filling the line instead of
+// jumping whole to the next one.
 static void WrapSegment(std::wstring segment, float scale, float maxWidth,
                         std::vector<std::wstring>& lines) {
     while (!segment.empty() && segment.front() == L' ') segment.erase(segment.begin());
-    std::wstring line;
-    size_t start = 0;
-    while (start < segment.size()) {
-        const size_t end = segment.find(L' ', start);
-        const std::wstring word = segment.substr(start,
-            end == std::wstring::npos ? std::wstring::npos : end - start);
-        if (word.empty()) {
-            if (end == std::wstring::npos) break;
-            start = end + 1;
-            continue;
+    struct Piece { std::wstring text; bool spaceBefore; };
+    std::vector<Piece> pieces;
+    {
+        std::wstring cur;
+        bool space = false;
+        auto flush = [&](bool nextSpace) {
+            if (!cur.empty()) pieces.push_back({ cur, space });
+            cur.clear();
+            space = nextSpace;
+        };
+        for (size_t i = 0; i < segment.size(); ++i) {
+            const wchar_t ch = segment[i];
+            if (ch == L' ') { flush(true); continue; }
+            if (ch == L'(' && !cur.empty()) flush(false);
+            cur += ch;
+            if (ch == L'\xB7' && i + 1 < segment.size() && segment[i + 1] != L' ') flush(false);
         }
-        const std::wstring candidate = line.empty() ? word : line + L" " + word;
+        flush(false);
+    }
+    std::wstring line;
+    for (const Piece& pc : pieces) {
+        const std::wstring& word = pc.text;
+        const std::wstring candidate = line.empty() ? word : line + (pc.spaceBefore ? L" " : L"") + word;
         if (WrapWidth(word, scale) > maxWidth) {
             if (!line.empty()) {
                 lines.push_back(line);
@@ -120,8 +134,6 @@ static void WrapSegment(std::wstring segment, float scale, float maxWidth,
         } else {
             line = candidate;
         }
-        if (end == std::wstring::npos) break;
-        start = end + 1;
     }
     if (!line.empty()) lines.push_back(line);
 }
