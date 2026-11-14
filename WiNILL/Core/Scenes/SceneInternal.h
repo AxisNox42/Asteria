@@ -30,14 +30,17 @@ std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
 // each segment that starts with a stat name ("최대 체력 +12"); the rest of
 // that segment hangs at iconIndent.
 // links: glossary terms in this line (Glossary.h), as character ranges of text.
-struct DescLink { int start = 0, len = 0, term = -1; };
+// With termIcons, a linked word has room for its term icon in front of it
+// (icon = true): termMarkW wide, the icon termIconSize square.
+struct DescLink { int start = 0, len = 0, term = -1; bool icon = false; };
 struct DescLine { std::wstring text; int stat = -1; bool indented = false; std::vector<DescLink> links; };
 struct IconDesc {
     std::vector<DescLine> lines;
     float iconSize = 0.0f, iconIndent = 0.0f;
+    float termIconSize = 0.0f, termMarkW = 0.0f;
     float TextX(const DescLine& l, float x) const { return l.indented ? x + iconIndent : x; }
 };
-IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui);
+IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui, bool termIcons = false);
 // Draws line's icon (if any) for a text line whose top-left is (x, y) and
 // height lineH; text goes at desc.TextX(line, x).
 void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,

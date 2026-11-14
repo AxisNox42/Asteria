@@ -65,10 +65,22 @@ static float DrawRingText(const std::wstring& s, float x, float y, float scale, 
     }
     return px - x;
 }
+// A glossary word on a card has its term icon in front ("75% 확률로 ↗벽 튕김").
+// While wrapping, a private-use mark stands in for the icon, glued to the word
+// so the two never split across lines; it takes the icon's width.
+static constexpr wchar_t kTermMark = L'\xE000';
+static float TermIconSize(float scale) { return g_TextS.Height(L"가Ag", scale) * 1.05f; }
+static float TermMarkWidth(float scale) { return TermIconSize(scale) * 1.18f; }
 static float WrapWidth(const std::wstring& s, float scale) {
-    std::wstring t = s;
-    for (wchar_t& ch : t) if (ch == kNbsp) ch = L' ';
-    return t.find(kRingChar) == std::wstring::npos ? g_TextS.Width(t.c_str(), scale) : RingTextWidth(t, scale);
+    std::wstring t;
+    t.reserve(s.size());
+    int marks = 0;
+    for (wchar_t ch : s) {
+        if (ch == kTermMark) { ++marks; continue; }
+        t += ch == kNbsp ? L' ' : ch;
+    }
+    const float w = t.find(kRingChar) == std::wstring::npos ? g_TextS.Width(t.c_str(), scale) : RingTextWidth(t, scale);
+    return w + (float)marks * TermMarkWidth(scale);
 }
 static void DrawRingMarks(const std::vector<RingMark>& rings, float ui) {
     if (rings.empty()) return;
@@ -168,26 +180,50 @@ std::vector<std::wstring> TarotWrap(const wchar_t* src, float scale,
     return lines;
 }
 
-IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui) {
+namespace { GLuint TermIconTex(int term); }
+
+// A linked word gets its term icon in front unless it is a number ("2.5○"
+// links every time and already has its ring) or the term has no icon.
+static bool TermGetsIcon(const std::wstring& s, const glossary::Span& sp) {
+    for (int k = sp.start; k < sp.start + sp.len; ++k)
+        if (std::iswdigit(s[(size_t)k])) return false;
+    return TermIconTex((int)sp.term) != 0;
+}
+
+IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui, bool termIcons) {
     IconDesc out;
     out.iconSize = g_TextS.Height(L"가Ag", scale) * 1.15f;
     out.iconIndent = out.iconSize + 8.0f * ui;
+    out.termIconSize = TermIconSize(scale);
+    out.termMarkW = TermMarkWidth(scale);
     std::vector<std::wstring> wrapped;
     const int lang = CurLangIdx();
     uint64_t used = 0;   // each glossary term links once per card
+    uint64_t usedPre = 0;   // the same walk over whole segments, to place the icon marks
     for (std::wstring& segment : DescSegments(desc)) {
         stat_icon::Stat stat;
         const bool icon = stat_icon::FromText(segment, stat);
+        // Links found before the no-break spaces go in ("벽 튕김" only matches with its space).
+        const std::vector<glossary::Span> preLinks =
+            termIcons ? glossary::Link(segment, lang, usedPre) : std::vector<glossary::Span>();
         for (const glossary::Span& sp : glossary::FindAll(segment, lang))
             for (int k = sp.matchStart; k < sp.matchStart + sp.matchLen; ++k)
                 if (segment[(size_t)k] == L' ') segment[(size_t)k] = kNbsp;
+        for (auto it = preLinks.rbegin(); it != preLinks.rend(); ++it)
+            if (TermGetsIcon(segment, *it)) segment.insert((size_t)it->matchStart, 1, kTermMark);
         wrapped.clear();
         WrapSegment(std::move(segment), scale, icon ? maxWidth - out.iconIndent : maxWidth, wrapped);
         for (size_t j = 0; j < wrapped.size(); ++j) {
-            DescLine line{ std::move(wrapped[j]), icon && j == 0 ? (int)stat : -1, icon, {} };
-            for (wchar_t& ch : line.text) if (ch == kNbsp) ch = L' ';
-            for (const glossary::Span& sp : glossary::Link(line.text, lang, used))
-                line.links.push_back({ sp.start, sp.len, (int)sp.term });
+            DescLine line{ std::wstring(), icon && j == 0 ? (int)stat : -1, icon, {} };
+            std::vector<int> marks;   // where an icon mark stood, in the cleaned text
+            for (wchar_t ch : wrapped[j]) {
+                if (ch == kTermMark) { marks.push_back((int)line.text.size()); continue; }
+                line.text += ch == kNbsp ? L' ' : ch;
+            }
+            for (const glossary::Span& sp : glossary::Link(line.text, lang, used)) {
+                const bool hasIcon = std::find(marks.begin(), marks.end(), sp.matchStart) != marks.end();
+                line.links.push_back({ sp.start, sp.len, (int)sp.term, hasIcon });   // icon words: start == matchStart
+            }
             out.lines.push_back(std::move(line));
         }
     }
@@ -450,7 +486,7 @@ CardText LayoutCardText(const AugDef& def, float ui) {
     float d = ui;
     for (;;) {
         t.descScale = UiTextScale(g_TextS, UiTextLevel::Description, d);
-        t.desc = WrapIconDesc(AugDesc(def), t.descScale, inner, ui);
+        t.desc = WrapIconDesc(AugDesc(def), t.descScale, inner, ui, true);
         float h = 0.0f;
         for (const auto& l : t.desc.lines) h += g_TextS.Height(l.text.c_str(), t.descScale) + 4.0f * ui;
         if (h <= room || t.descScale <= floorScale) break;
@@ -1028,6 +1064,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             int pos = 0;
             for (const DescLink& k : l.links) {
                 piece(pos, k.start, -1);
+                if (k.icon) {
+                    // Term icon in front of the word, in the link colour.
+                    const float is = tx.desc.termIconSize;
+                    DrawIcon(TermIconTex(k.term), px, y + lh * 0.5f - is * 0.5f, is, is,
+                             linkCol.r, linkCol.g, linkCol.b, lineA);
+                    px += tx.desc.termMarkW;
+                }
                 piece(k.start, k.start + k.len, k.term);
                 pos = k.start + k.len;
             }
