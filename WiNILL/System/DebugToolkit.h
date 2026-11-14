@@ -66,13 +66,15 @@ public:
     }
     bool IsInputCaptured() const { return visible_ || captureActive_; }
     bool SuppressOverlayForCapture() const {
-        return captureActive_ || captureCurrent_;
+        return (captureActive_ || captureCurrent_) && !captureKeepOverlay_;
     }
+    bool CapturePending() const { return captureActive_ || captureCurrent_; }
 
     void RequestCurrentScreenshot();
     void RequestAllScreenshots();
     // Captures the next frame as Screenshots/<name>.png (smoke sessions).
-    void RequestNamedScreenshot(const std::wstring& name);
+    // keepOverlay: the console panel stays in the shot (smoke steps with F1 open).
+    void RequestNamedScreenshot(const std::wstring& name, bool keepOverlay = false);
 
     bool CaptureInProgress() const { return captureActive_; }
     GameState CaptureRenderState(GameState restoreState) const;
@@ -94,6 +96,7 @@ private:
     int tab_ = 0;
     int fieldOffset_ = 0;
     int augOffset_ = 0;       // first visible row of the augment tab
+    int augFilter_ = 0;       // augment tab category filter (0 = all)
     int selectedField_ = -1;
     int selectedMob_ = -1;
     int spawnCategory_ = 0;   // 0 regular, 1 elite, 2 boss
@@ -105,6 +108,7 @@ private:
     int editingRuntime_ = -1; // 0=HP, 1=level, 2=XP, 3=score
 
     bool captureCurrent_ = false;
+    bool captureKeepOverlay_ = false;   // named shot that keeps the console panel
     bool captureActive_ = false;
     size_t captureIndex_ = 0;
     std::wstring captureName_;

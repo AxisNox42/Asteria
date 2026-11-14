@@ -6033,7 +6033,6 @@ int main() {
                                     topLimit, ccY + halfH);
                     passive::OnDashStarted();
                     Audio::Play(Audio::Cue::Dash);
-                    TriggerFlash(0.35f, 0.85f, 1.0f, 0.12f);
                 }
                 g_PlayerRuntime.dashInputHeld = cDash;
 
@@ -6059,7 +6058,8 @@ int main() {
                     pin.dt = FIXED_DT;
                     pin.px = pCX; pin.py = pCY;
                     pin.aimX = wmx; pin.aimY = wmy;
-                    pin.moving = mv.up || mv.down || mv.left || mv.right;
+                    // A dash counts as moving even without a move key (glossary: dashing ends standing still).
+                    pin.moving = mv.up || mv.down || mv.left || mv.right || g_PlayerRuntime.dashActive;
                     pin.dashActive = g_PlayerRuntime.dashActive;
                     pin.damageProtected = IsPlayerDamageProtected();
                     pin.viewL = ScreenToWorldX(0.0f);
@@ -7232,7 +7232,7 @@ CollisionSystem::Update(pCX, pCY,
         }
 
         BatchFlush();   // ?�레??마�?�????��? ?�형 모두 그림
-        if (g_DebugToolkit.SuppressOverlayForCapture())
+        if (g_DebugToolkit.CapturePending())
             g_DebugToolkit.CaptureFrameAfterRender(
                 g_FramebufferW, g_FramebufferH, g_GameManager.currentState);
         if (tutSelectionRender && g_GameManager.currentState == GameState::READY)

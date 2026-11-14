@@ -107,7 +107,7 @@ public:
                const std::function<void(const std::string&)>& applyStep) {
         if (!Active()) return;
         if (index_ >= steps_.size()) {
-            if (!g_DebugToolkit.SuppressOverlayForCapture())
+            if (!g_DebugToolkit.CapturePending())
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
             mx = my = -10000.0;
             lmb = false;
@@ -136,9 +136,9 @@ public:
             clicked_ = true;
         }
         if (!requested_ && t >= step.hold) {
-            g_DebugToolkit.RequestNamedScreenshot(FileName(step));
+            g_DebugToolkit.RequestNamedScreenshot(FileName(step), g_DebugToolkit.IsVisible());
             requested_ = true;
-        } else if (requested_ && !g_DebugToolkit.SuppressOverlayForCapture()) {
+        } else if (requested_ && !g_DebugToolkit.CapturePending()) {
             ++index_;
             started_ = false;
         }

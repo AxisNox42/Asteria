@@ -794,7 +794,6 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     static bool dealtSfx[ac::kMaxCards] = {};
     static bool flippedSfx[ac::kMaxCards] = {};
     static bool wasExit = false;
-    static bool flashed = false;
     static Shard shards[ac::kMaxCards * 8];
     static double previousMx = -1.0, previousMy = -1.0;
     static std::vector<CardText> texts;
@@ -807,7 +806,6 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         // on screen and deals at once.
         chained = now - lastFrame < 0.3f;
         t = chained ? ac::kDrawStart : 0.0f;
-        flashed = false;
         for (int i = 0; i < ac::kMaxCards; ++i) {
             focusT[i] = 0.0f;
             phase[i] = ac::Hash01((unsigned)(seenSerial * 31 + i)) * 6.2832f;
@@ -1184,10 +1182,6 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                 const float ft = (exitT - arrive) / ac::kAbsorbRing;
                 if (ft < 1.0f)
                     hud_lines::Ring(tx, ty, (24.0f + ft * 50.0f) * ui, 1.6f * ui, d.col, (1.0f - ft) * 0.9f * sceneA, key);
-                if (!flashed) {
-                    flashed = true;
-                    TriggerFlash(d.col.r, d.col.g, d.col.b, 0.30f);
-                }
             }
         }
 

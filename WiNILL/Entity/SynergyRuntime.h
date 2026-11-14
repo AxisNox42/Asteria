@@ -27,7 +27,8 @@ float FireIntervalMult();              // the gun's interval is divided by this
 // Turns the gun's one bullet into this shot's volley (frames, twin, spray, nth-shot ...).
 // `base` is the bullet the gun made, aimed at (tx, ty). Always returns at least one bullet.
 void  Shape(const Bullet& base, float px, float py, float tx, float ty, std::vector<Bullet>& out);
-float DamageMult(const Bullet& b, const void* target);    // on top of the passive multipliers
+float DamageMult(const Bullet& b, const void* target);    // per-bullet part, on top of the passive multipliers
+float CardDamageMult();                // the cards' "모든 피해" part, folded into passive::AllDamageMult
 float DamageTakenMult();               // g_PlayerDmgMult
 
 // Once per fixed step.

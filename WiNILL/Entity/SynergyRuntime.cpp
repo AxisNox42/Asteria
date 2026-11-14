@@ -75,6 +75,7 @@ struct State {
 
     // Aggregated from the cards that change the gun's numbers.
     float dmg = 1, rate = 1, acc = 1, move = 1, bullets = 1, dmgAdd = 0;
+    float cardDmg = 1;   // cost cards' damage factor (all damage); `dmg` is the per-bullet part
     int   pierce = 0, bounce = 0, split = 0;
     float splitDmg = 0, crit = 0, critMul = 0, hpDelta = 0, hpSet = 0;
     float appliedMove = 1, appliedCrit = 0, appliedCritMul = 0, appliedHp = 0;
@@ -246,13 +247,15 @@ void Rebuild() {
         flags[i - 1] = alive;
         s.any = s.any || s.own[i] > 0;
     }
-    s.dmg = s.rate = s.acc = s.move = s.bullets = 1.0f;
+    s.dmg = s.cardDmg = s.rate = s.acc = s.move = s.bullets = 1.0f;
     s.dmgAdd = s.splitDmg = s.crit = s.critMul = s.hpDelta = s.hpSet = 0.0f;
     s.pierce = s.bounce = s.split = 0;
     for (int i = 1; i <= kCards; ++i) {
         if (!flags[i - 1] || !Uses(t[i].code)) continue;
         const synergy::Fx& f = t[i].fx;
-        s.dmg *= f.dmg; s.rate *= f.rate; s.acc *= f.acc; s.move *= f.move; s.bullets *= f.bullets;
+        // Cost cards (Glass Cannon, Ascetic) raise all damage; frames and verbs only the bullet.
+        if (t[i].role == synergy::Role::Cost) s.cardDmg *= f.dmg; else s.dmg *= f.dmg;
+        s.rate *= f.rate; s.acc *= f.acc; s.move *= f.move; s.bullets *= f.bullets;
         s.pierce += f.pierce; s.bounce += f.bounce; s.split += f.split; s.splitDmg += f.splitDmg;
         s.crit += f.crit; s.critMul += f.critMul; s.hpDelta += f.hpDelta;
         if (f.hpSet > 0) s.hpSet = s.hpSet > 0 ? std::min(s.hpSet, f.hpSet) : f.hpSet;
@@ -350,7 +353,7 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
     }
 }
 
-void Explode(float x, float y, float radius, float pct, bool pull);
+void Explode(float x, float y, float radius, float pct, bool pull, float pullRadius = 0.0f);
 
 // Which chances hold right now: the conditions of the owned chance cards, summed per kind.
 bool CondHolds(CCond c, const passive::StepInput& in) {
@@ -412,7 +415,7 @@ void Landed(const Bullet& b, float radius) {
             if (mark) s.marks[&e] = 5.0f;
             if (burn) s.burns[&e] = { 3.0f, 0.5f };
         });
-    if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? 125.0f : 75.0f, s.on.Y_SINGULAR ? 150.0f : 0.0f, true);
+    if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? Rings(1.5f) : 75.0f, s.on.Y_SINGULAR ? 150.0f : 0.0f, true, s.on.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     if (b.splitCount > 0 && s.pending.size() < 64) {
         const int n = std::min(b.splitCount, 5);
         for (int i = 0; i < n; ++i) {
@@ -422,9 +425,9 @@ void Landed(const Bullet& b, float radius) {
     }
 }
 
-void Explode(float x, float y, float radius, float pct, bool pull) {
+void Explode(float x, float y, float radius, float pct, bool pull, float pullRadius) {
     if (pull) {
-        const float pr = radius * 1.6f;
+        const float pr = pullRadius > 0.0f ? pullRadius : radius * 1.6f;
         strike_fx::Vortex(x, y, pr, { 0.62f, 0.45f, 1.0f });   // a small black hole pulling from its reach
         ForEachEnemy([&](auto& e, float ex, float ey) {
             if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) {
@@ -525,7 +528,6 @@ void PickupFx(int augIdx) {
     if (tier >= 3) Pulse(x, y, 240.0f + 40.0f * tier, 0.95f, 1.0f, 1.0f, 1.0f);
     SpawnEnemyExplosion(x, y, r, g, b, tier >= 2);
     SpawnWorldText(x, y - 34.0f, AugName(d), r, g, b, 1.5f + 0.15f * tier);
-    if (tier >= 2) TriggerFlash(r, g, b, 0.08f + 0.05f * tier);
 }
 
 // The mortar's shell flies over walls and lands where it is aimed, so bounce / pierce / return verbs
@@ -730,11 +732,19 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
 float DamageMult(const Bullet& b, const void* target) {
     if (b.skillShot || !s.any) return 1.0f;
     const Flags& o = s.on;
-    float m = s.dmg * (1.0f + s.dmgAdd);
+    float m = s.dmg;
     auto mk = s.marks.find(target);
     if (mk != s.marks.end() && mk->second > 0.0f) m *= 1.25f;
-    if (b.synFlags & synf::Grow) m *= 1.0f + std::min(1.5f, b.traveled / 700.0f);
+    if (b.synFlags & synf::Grow) m *= 1.0f + std::min(1.5f, b.traveled / (Rings(13) / 1.5f));
     if (b.synBounces > 0) m *= 1.0f + (float)b.synBounces * (o.Y_ETERNAL ? 0.22f : 0.0f);
+    return m;
+}
+
+// Every "피해 +X%" / "모든 피해" card: bullets, skills, blasts, burns, zones alike.
+float CardDamageMult() {
+    if (!s.any) return 1.0f;
+    const Flags& o = s.on;
+    float m = s.cardDmg * (1.0f + s.dmgAdd);
     if (o.T_COMBO) m *= 1.0f + std::min(0.40f, 0.02f * (float)s.combo);
     if (o.C_RITUAL) m *= 1.0f + std::min(0.40f, 0.08f * (float)s.quietWaves);
     if (o.T_LASTSTAND && Hp01() <= 0.30f) m *= 1.5f;
@@ -761,7 +771,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         const float r = 80.0f;
         Burst(x, y, r, b.blastPct * 100.0f);
     }
-    if (b.synFlags & synf::Gravity) Explode(x, y, o.Y_SINGULAR ? 125.0f : 75.0f, o.Y_SINGULAR ? 150.0f : 0.0f, true);
+    if (b.synFlags & synf::Gravity) Explode(x, y, o.Y_SINGULAR ? Rings(1.5f) : 75.0f, o.Y_SINGULAR ? 150.0f : 0.0f, true, o.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     if (b.splitCount > 0 && !b.splitSpent && s.pending.size() < 64) {
         b.splitSpent = true;
         const float fan[5] = { -0.70f, 0.70f, 0.0f, -1.30f, 1.30f };
@@ -1024,7 +1034,7 @@ void Step(const passive::StepInput& in) {
         if (trip) {
             const float bx = m.x, by = m.y, bp = m.pct;
             m.life = 0.0f;
-            Burst(bx, by, 95.0f, bp, { 1.0f, 0.45f, 0.35f }, strike_fx::BlastStyle::Crystal);
+            Burst(bx, by, Rings(1), bp, { 1.0f, 0.45f, 0.35f }, strike_fx::BlastStyle::Crystal);
         }
     }
     s.mines.erase(std::remove_if(s.mines.begin(), s.mines.end(), [](const Mine& m) { return m.life <= 0.0f; }), s.mines.end());
@@ -1035,6 +1045,7 @@ void Step(const passive::StepInput& in) {
         if (e.t <= 0.0f) {
             for (Bullet b : e.shots) {
                 if (g_Bullets.size() >= 800) break;
+                if ((b.synFlags & synf::Orbit) && CountOrbiters() >= 2 + (o.Y_HALO ? 2 : 0)) continue;   // the cap holds for echoes too
                 b.x = b.prevX = in.px; b.y = b.prevY = in.py; b.splitSpent = false;
                 g_Bullets.push_back(b);
             }
@@ -1043,7 +1054,8 @@ void Step(const passive::StepInput& in) {
     s.echoes.erase(std::remove_if(s.echoes.begin(), s.echoes.end(), [](const Echo& e) { return e.t <= 0.0f; }), s.echoes.end());
 
     // Kills nobody reported (burn, zones, skills, explosions): an enemy that was alive and now is not.
-    if (o.T_COMBO || o.T_KILLBURST || o.V_CHAIN || o.G_CIRCUIT) {
+    if (o.T_COMBO || o.T_KILLBURST || o.V_CHAIN || o.G_CIRCUIT ||
+        o.P_KILL_CRIT || o.P_KILL_PIERCE || o.P_KILL_SPLIT || o.P_COMBO_BOUNCE || o.P_COMBO_BLAST) {
         std::unordered_map<const void*, glm::vec2> now;
         ForEachEnemy([&](auto& e, float ex, float ey) { now[&e] = glm::vec2(ex, ey); });
         for (const auto& kv : s.seen)
@@ -1120,15 +1132,15 @@ void Step(const passive::StepInput& in) {
                 // Back off the last step's overshoot so it lands exactly on the aimed distance (the cursor).
                 const float over = b.traveled - b.synLandDist;
                 b.synTx = b.x - b.dirX * over; b.synTy = b.y - b.dirY * over;
-                const float r = 110.0f;
-                Burst(b.synTx, b.synTy, r, 90.0f * b.dmgMult * s.dmg * (1.0f + s.dmgAdd));
+                const float r = Rings(1.5f);
+                Burst(b.synTx, b.synTy, r, 90.0f * b.dmgMult * s.dmg);   // Burst adds the card part
                 Landed(b, r);
             }
         }
         if (f & synf::Mine) {
             if (b.traveled >= b.synLandDist - 2.0f) {
                 b.active = false;
-                if (s.mines.size() < 40) s.mines.push_back({ b.x, b.y, 8.0f, 220.0f * b.dmgMult * s.dmg * (1.0f + s.dmgAdd), 0.0f });
+                if (s.mines.size() < 40) s.mines.push_back({ b.x, b.y, 8.0f, 220.0f * b.dmgMult * s.dmg, 0.0f });   // Burst adds the card part
             }
         }
     }

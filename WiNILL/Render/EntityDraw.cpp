@@ -3837,6 +3837,9 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         }
         Monster preview(x, y, 1.0f, 1.0f, false);
         preview.MakeKind(kind);
+        // MakeKind starts a Genesis' entrance; a preview shows it assembled
+        // (else every frame is entry frame 0: core only, shells still far out).
+        preview.genesisEntry = Monster::GENESIS_ENTRY_TIME;
         preview.sizeScale = scale;
         const float t = (float)glfwGetTime();
         preview.hiveOrbitAngle = t * 0.36f;

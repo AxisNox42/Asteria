@@ -341,9 +341,9 @@ void CastBookOfCheats() {
         { L"전체 낙뢰", L"Storm", L"全体落雷" },
         { L"회복", L"Heal", L"回復" },
         { L"탄막 소거", L"Clear", L"弾幕消去" },
-        { L"대시 충전", L"Dash", L"ダッシュ充填" },
+        { L"대시 초기화", L"Dash", L"ダッシュリセット" },
         { L"별가루", L"Stardust", L"星屑" },
-        { L"파편 난사", L"Shards", L"破片乱射" },
+        { L"유도 파편", L"Shards", L"誘導破片" },
         { L"근접 폭발", L"Blast", L"近接爆発" },
         { L"꽝", L"Blank", L"ハズレ" },
     };
@@ -600,7 +600,7 @@ void AfterUse(int aug, int slot) {
         Audio::Play(Audio::Cue::ProcShockwave);
     }
     if (Has(AugType::P_ABYSS_SINGULARITY_CASCADE) && cd >= 10.0f) {
-        const int n = std::min(5, 1 + (int)((cd - 10.0f) / 10.0f));
+        const int n = std::min(4, 1 + (int)((cd - 10.0f) / 10.0f));   // the card says "up to 4"
         passive::DamageAll(200.0f, 0.55f, 0.35f, 0.95f, false, 1.0f, passive::ScreenFx::Nova);
         for (int i = 1; i < n; ++i) {
             passive::DamageAll(200.0f, 0.55f, 0.35f, 0.95f);

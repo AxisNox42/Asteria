@@ -116,6 +116,7 @@ float AllDamageMult() {
         m *= 1.05f + 0.07f * (float)active::EquippedCount();
     if (Has(AugType::P_LIFE_EMERGENCY_MEND_SHARDS)) m *= 1.0f + 0.10f * (float)s.cakeSlices;
     m *= 1.0f + s.canaryBonus;
+    m *= syn::CardDamageMult();   // synergy cards' "모든 피해" bonuses reach skills, blasts and burns too
     return m;
 }
 
@@ -442,7 +443,7 @@ float HookBulletDamageMult(const Bullet& bullet, const void* target,
     float m = AllDamageMult() * BulletOnlyMult();
     if (Has(AugType::P_EDGE_LONG_RANGE_CORRECTION)) {
         const float dx = tx - s.in.px, dy = ty - s.in.py;
-        if (std::sqrt(dx * dx + dy * dy) * s.in.viewZoom >= 0.40f * s.in.screenW) m *= 1.30f;
+        if (dx * dx + dy * dy >= Rings(9.5f) * Rings(9.5f)) m *= 1.30f;   // the card says 9.5○
     }
     m *= 1.0f + CraneBonus();
     m *= syn::DamageMult(bullet, target);
@@ -506,7 +507,6 @@ void HookKill() {
 
 void HookHurt(float& hp, float dmg) {
     if (s.in.damageProtected) { hp -= dmg; return; }   // undone this step anyway
-    active::RecordDamage(dmg);
     if (Has(AugType::P_STILL_STILLNESS_PLATING) && s.stillT >= 2.0f) dmg *= 0.75f;
     if (Has(AugType::P_GEM_BUFFER_PLATING) && s.emeraldLeft > 0.0f) {
         const float blocked = std::min(dmg, s.emeraldLeft);   // the plate takes what it can
@@ -515,6 +515,7 @@ void HookHurt(float& hp, float dmg) {
         Audio::Play(s.emeraldLeft <= 0.0f ? Audio::Cue::SfxShieldBreak : Audio::Cue::SfxShieldBlock);
         if (dmg <= 0.0f) return;
     }
+    active::RecordDamage(dmg);   // Orbital Return heals half of the HP really lost
     hp -= dmg;
     syn::OnHurt(dmg);
     if ((s.amethystLeft > 0.0f && s.amethystLeft <= dmg) || (s.topazLeft > 0.0f && s.topazLeft <= dmg) ||

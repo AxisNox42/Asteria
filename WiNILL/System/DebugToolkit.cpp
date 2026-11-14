@@ -23,6 +23,7 @@
 #include "Settings.h"
 #include "Input.h"
 #include "PassiveAugments.h"
+#include "AugmentSynergy.h"
 
 extern TextRenderer g_TextS;
 extern TextRenderer g_TextL;
@@ -107,19 +108,125 @@ int SpawnEntries(int category, const int*& ids) {
     }
 }
 
-// Augment tab: every card in the build (synergy + level-up stat cards), in catalog order.
-const std::vector<int>& AugmentList() {
-    static const std::vector<int> list = [] {
-        std::vector<int> v;
-        for (int i = 0; i < AUG_TOTAL; ++i)
-            if (AugInBuild(ALL_AUGS[i])) v.push_back(i);
-        return v;
+// Augment tab categories: level-up stat cards, the synergy roles, then the legacy cards
+// (only listed when kLegacyAugments is on). Filter button 0 is "all", button i is category i-1.
+enum AugCat { AC_STAT, AC_FRAME, AC_VERB, AC_TRIGGER, AC_AMP, AC_COST, AC_GUARD, AC_CHANCE,
+              AC_LEGACY_PASSIVE, AC_LEGACY_ACTIVE, AC_COUNT };
+constexpr int AUG_FILTER_COUNT = AC_COUNT + 1;
+constexpr float AUG_FILTER_Y = 138.0f;
+constexpr float AUG_FILTER_H = 28.0f;
+constexpr float AUG_STATUS_Y = 178.0f;
+constexpr float AUG_ROWS_Y = 206.0f;
+constexpr float AUG_ROW_H = 46.0f;
+
+int AugCategory(int aug) {
+    const AugDef& d = ALL_AUGS[aug];
+    if (AugIsStatCard(d)) return AC_STAT;
+    if (AugIsSynergy(d.type)) {
+        const auto& t = synergy::Table();
+        const int si = SynergyIndex(d.type);
+        if (si >= 0 && si < (int)t.size()) {
+            switch (t[(size_t)si].role) {
+            case synergy::Role::Frame:   return AC_FRAME;
+            case synergy::Role::Verb:    return AC_VERB;
+            case synergy::Role::Trigger: return AC_TRIGGER;
+            case synergy::Role::Amp:     return AC_AMP;
+            case synergy::Role::Cost:    return AC_COST;
+            case synergy::Role::Guard:   return AC_GUARD;
+            case synergy::Role::Chance:  return AC_CHANCE;
+            }
+        }
+        return AC_VERB;
+    }
+    return AugIsActive(d) ? AC_LEGACY_ACTIVE : AC_LEGACY_PASSIVE;
+}
+
+const wchar_t* AugCategoryLabel(int cat) {
+    static const wchar_t* const n[AC_COUNT] = {
+        L"스탯", L"프레임", L"동사", L"트리거", L"증폭", L"대가", L"보호", L"확률",
+        L"패시브(구)", L"액티브(구)" };
+    return (cat >= 0 && cat < AC_COUNT) ? n[cat] : L"?";
+}
+
+// What each category means, shown under the filter row.
+const wchar_t* AugCategoryHint(int cat) {
+    static const wchar_t* const n[AC_COUNT] = {
+        L"레벨업 스탯 카드 (중복 가능)",
+        L"무기 형태를 바꾸는 카드 (한 판에 하나)",
+        L"탄의 행동을 바꾸는 카드 (관통·튕김·분열·유도 등)",
+        L"조건이 맞으면 터지는 카드 (처치·치명타·피격·정지 등)",
+        L"가진 태그 수만큼 강해지는 카드",
+        L"대가를 치르고 힘을 얻는 카드 (체력·유리 등)",
+        L"보호막·회피 등 생존 카드",
+        L"확률로 발동하는 카드",
+        L"구버전 패시브 카드",
+        L"구버전 액티브 스킬 카드" };
+    return (cat >= 0 && cat < AC_COUNT) ? n[cat] : L"";
+}
+
+void AugCategoryColor(int cat, float& r, float& g, float& b) {
+    static const float c[AC_COUNT][3] = {
+        { 0.70f, 0.78f, 0.86f },   // stat
+        { 1.00f, 0.80f, 0.40f },   // frame
+        { 0.45f, 0.85f, 1.00f },   // verb
+        { 1.00f, 0.55f, 0.45f },   // trigger
+        { 0.80f, 0.60f, 1.00f },   // amp
+        { 1.00f, 0.40f, 0.60f },   // cost
+        { 0.50f, 1.00f, 0.65f },   // guard
+        { 1.00f, 0.92f, 0.45f },   // chance
+        { 0.60f, 0.62f, 0.66f },
+        { 0.60f, 0.62f, 0.66f } };
+    const int i = (cat >= 0 && cat < AC_COUNT) ? cat : 0;
+    r = c[i][0]; g = c[i][1]; b = c[i][2];
+}
+
+// Augment tab: every card in the build (synergy + level-up stat cards), grouped by category
+// (catalog order inside a group). filter 0 = all, else only category filter-1.
+const std::vector<int>& AugmentList(int filter) {
+    static const std::array<std::vector<int>, AUG_FILTER_COUNT> lists = [] {
+        std::array<std::vector<int>, AUG_FILTER_COUNT> out;
+        for (int cat = 0; cat < AC_COUNT; ++cat)
+            for (int i = 0; i < AUG_TOTAL; ++i) {
+                if (!AugInBuild(ALL_AUGS[i]) || AugCategory(i) != cat) continue;
+                out[0].push_back(i);
+                out[(size_t)cat + 1].push_back(i);
+            }
+        return out;
     }();
-    return list;
+    return lists[(size_t)std::max(0, std::min(AUG_FILTER_COUNT - 1, filter))];
+}
+
+// Filter buttons shown: "all" plus the categories that have cards in this build.
+const std::vector<int>& AugmentFilters() {
+    static const std::vector<int> v = [] {
+        std::vector<int> f{ 0 };
+        for (int i = 1; i < AUG_FILTER_COUNT; ++i)
+            if (!AugmentList(i).empty()) f.push_back(i);
+        return f;
+    }();
+    return v;
+}
+
+float AugmentFilterWidth(float panelWidth) {
+    const int n = (int)AugmentFilters().size();
+    return (panelWidth - 32.0f - (n - 1) * 6.0f) / (float)n;
 }
 
 int AugmentVisibleRows(float panelHeight) {
-    return std::max(1, (int)((panelHeight - STATS_ROWS_Y - 24.0f) / ROW_H));
+    return std::max(1, (int)((panelHeight - AUG_ROWS_Y - 30.0f) / AUG_ROW_H));
+}
+
+// Cuts text to fit maxWidth, ending in "…".
+std::wstring FitText(const wchar_t* text, float scale, float maxWidth) {
+    std::wstring s = text ? text : L"";
+    for (auto& ch : s) if (ch == L'\n') ch = L' ';
+    if (g_TextS.Width(s.c_str(), scale) <= maxWidth) return s;
+    while (!s.empty()) {
+        s.pop_back();
+        const std::wstring t = s + L"...";
+        if (g_TextS.Width(t.c_str(), scale) <= maxWidth) return t;
+    }
+    return s;
 }
 
 float SpawnGridStep(float panelHeight) {
@@ -640,7 +747,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         }
         if (tab_ == 3) {
             augOffset_ -= (int)std::round(g_ScrollAccum * 2.0f);
-            const int maxOffset = std::max(0, (int)AugmentList().size() -
+            const int maxOffset = std::max(0, (int)AugmentList(augFilter_).size() -
                                               AugmentVisibleRows(p.h));
             augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
         }
@@ -905,13 +1012,25 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
             }
         }
     } else if (click && tab_ == 3) {
-        const auto& list = AugmentList();
+        const auto& filters = AugmentFilters();
+        const float fw = AugmentFilterWidth(p.w);
+        bool rowClick = true;
+        for (size_t i = 0; i < filters.size(); ++i) {
+            if (Hit(p.x + 16.0f + i * (fw + 6.0f), p.y + AUG_FILTER_Y,
+                    fw, AUG_FILTER_H, mx, my)) {
+                if (augFilter_ != filters[i]) { augFilter_ = filters[i]; augOffset_ = 0; }
+                lastMessage_.clear();
+                rowClick = false;
+                break;
+            }
+        }
+        const auto& list = AugmentList(augFilter_);
         const int rows = AugmentVisibleRows(p.h);
-        for (int row = 0; row < rows; ++row) {
+        for (int row = 0; rowClick && row < rows; ++row) {
             const int idx = augOffset_ + row;
             if (idx >= (int)list.size()) break;
-            if (!Hit(p.x + 16.0f, p.y + STATS_ROWS_Y + row * ROW_H,
-                     p.w - 32.0f, ROW_H - 2.0f, mx, my)) continue;
+            if (!Hit(p.x + 16.0f, p.y + AUG_ROWS_Y + row * AUG_ROW_H,
+                     p.w - 32.0f, AUG_ROW_H - 3.0f, mx, my)) continue;
             const int aug = list[(size_t)idx];
             const GameState st = context_.game ? context_.game->currentState
                                                : GameState::MAIN_MENU;
@@ -1139,45 +1258,80 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
 }
 
 void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
-    const auto& list = AugmentList();
+    const auto& list = AugmentList(augFilter_);
     const int rows = AugmentVisibleRows(h);
     const int maxOffset = std::max(0, (int)list.size() - rows);
     augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
 
     g_TextS.Draw(L"증강 선택", x + 20.0f, y + CONTENT_Y, 0.55f,
                  0.70f, 0.94f, 1.0f, 0.94f);
-    g_TextS.Draw(L"카드를 클릭하면 즉시 획득합니다  |  휠로 스크롤",
-                 x + 20.0f, y + STATS_RUNTIME_Y, 0.44f,
-                 0.52f, 0.68f, 0.80f, 0.84f);
-    g_TextS.Draw(lastMessage_.empty() ? L"획득할 증강을 선택하세요" : lastMessage_.c_str(),
-                 x + 20.0f, y + STATS_STATUS_Y, 0.48f,
+    g_TextS.Draw(L"클릭 = 즉시 획득  |  휠 = 스크롤", x + 150.0f, y + CONTENT_Y + 3.0f,
+                 0.42f, 0.52f, 0.68f, 0.80f, 0.84f);
+
+    // Category filter row.
+    const auto& filters = AugmentFilters();
+    const float fw = AugmentFilterWidth(w);
+    for (size_t i = 0; i < filters.size(); ++i) {
+        const int f = filters[i];
+        wchar_t label[48] = {};
+        std::swprintf(label, sizeof(label) / sizeof(label[0]), L"%ls %d",
+                      f == 0 ? L"전체" : AugCategoryLabel(f - 1),
+                      (int)AugmentList(f).size());
+        DrawButton(x + 16.0f + i * (fw + 6.0f), y + AUG_FILTER_Y, fw, AUG_FILTER_H,
+                   label, augFilter_ == f, true);
+    }
+
+    std::wstring status;
+    if (!lastMessage_.empty()) status = lastMessage_;
+    else if (augFilter_ > 0) status = AugCategoryHint(augFilter_ - 1);
+    else status = L"분류 버튼으로 걸러 볼 수 있습니다";
+    g_TextS.Draw(status.c_str(), x + 20.0f, y + AUG_STATUS_Y, 0.46f,
                  0.56f, 0.76f, 0.88f, 0.86f);
 
+    const float descMaxW = w - 32.0f - 28.0f;
     for (int row = 0; row < rows; ++row) {
         const int idx = augOffset_ + row;
         if (idx >= (int)list.size()) break;
         const int aug = list[(size_t)idx];
         const AugDef& d = ALL_AUGS[aug];
-        const float ry = y + STATS_ROWS_Y + row * ROW_H;
+        const int cat = AugCategory(aug);
+        const float ry = y + AUG_ROWS_Y + row * AUG_ROW_H;
         const bool offerable = passive::CanOffer(aug);
         float cr = 1, cg = 1, cb = 1;
         GetRarityColor(d.rarity, cr, cg, cb);
+        float kr = 1, kg = 1, kb = 1;
+        AugCategoryColor(cat, kr, kg, kb);
         BindMainShader();
-        drawRect(x + 16.0f, ry, w - 32.0f, ROW_H - 3.0f,
+        drawRect(x + 16.0f, ry, w - 32.0f, AUG_ROW_H - 3.0f,
                  0.018f, 0.032f, 0.055f, 0.72f);
-        drawRect(x + 16.0f, ry, 4.0f, ROW_H - 3.0f, cr, cg, cb, offerable ? 0.95f : 0.35f);
+        drawRect(x + 16.0f, ry, 4.0f, AUG_ROW_H - 3.0f, cr, cg, cb, offerable ? 0.95f : 0.35f);
         const float a = offerable ? 0.95f : 0.45f;
-        g_TextS.Draw(AugName(d), x + 30.0f, ry + 6.0f, 0.50f, 0.86f, 0.92f, 1.0f, a);
-        g_TextS.Draw(GetRarityLabel(d.rarity), x + w - 190.0f, ry + 7.0f, 0.42f,
+
+        // Line 1: [category] name ... rarity, owned count.
+        std::wstring tag = L"[";
+        tag += AugCategoryLabel(cat);
+        tag += L"]";
+        g_TextS.Draw(tag.c_str(), x + 30.0f, ry + 5.0f, 0.44f, kr, kg, kb, a);
+        const float nameX = x + 30.0f + std::max(70.0f, g_TextS.Width(tag.c_str(), 0.44f) + 8.0f);
+        g_TextS.Draw(AugName(d), nameX, ry + 4.0f, 0.50f, 0.86f, 0.92f, 1.0f, a);
+        if (d.stackable && cat != AC_STAT)
+            g_TextS.Draw(L"중복", nameX + g_TextS.Width(AugName(d), 0.50f) + 8.0f,
+                         ry + 6.0f, 0.38f, 0.60f, 0.72f, 0.80f, a);
+        g_TextS.Draw(GetRarityLabel(d.rarity), x + w - 190.0f, ry + 5.0f, 0.42f,
                      std::min(1.0f, cr + 0.25f), std::min(1.0f, cg + 0.25f),
                      std::min(1.0f, cb + 0.25f), a);
         const int owned = passive::AcquiredCount(aug);
         if (owned > 0) {
             wchar_t buf[32] = {};
             std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"보유 x%d", owned);
-            g_TextS.Draw(buf, x + w - 110.0f, ry + 7.0f, 0.42f,
+            g_TextS.Draw(buf, x + w - 110.0f, ry + 5.0f, 0.42f,
                          1.0f, 0.88f, 0.42f, 0.95f);
         }
+
+        // Line 2: card description, cut to the row width.
+        const std::wstring desc = FitText(AugDesc(d), 0.40f, descMaxW);
+        g_TextS.Draw(desc.c_str(), x + 30.0f, ry + 24.0f, 0.40f,
+                     0.62f, 0.72f, 0.82f, a * 0.92f);
     }
     wchar_t page[64] = {};
     std::swprintf(page, sizeof(page) / sizeof(page[0]), L"증강 %d-%d / %d",
@@ -1261,15 +1415,17 @@ void DebugToolkit::RequestCurrentScreenshot() {
     SetMessage(L"스크린샷을 대기열에 추가했습니다");
 }
 
-void DebugToolkit::RequestNamedScreenshot(const std::wstring& name) {
+void DebugToolkit::RequestNamedScreenshot(const std::wstring& name, bool keepOverlay) {
     if (!g_DebugMode || captureActive_) return;
     captureCurrent_ = true;
+    captureKeepOverlay_ = keepOverlay;
     captureName_ = name;
 }
 
 void DebugToolkit::RequestAllScreenshots() {
     if (!g_DebugMode || captureActive_) return;
     captureCurrent_ = false;
+    captureKeepOverlay_ = false;
     captureActive_ = true;
     captureIndex_ = 0;
     SetMessage(L"전체 장면 캡처를 대기열에 추가했습니다");
