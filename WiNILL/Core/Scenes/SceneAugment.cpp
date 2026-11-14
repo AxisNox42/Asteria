@@ -575,15 +575,18 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         if (word) { mx = (word->x0 + word->x1) * 0.5f; my = (word->y0 + word->y1) * 0.5f; }
         else keyIndex = -1;
     }
-    if (g_SmokeCapture && g_SmokeGlossDepth > 0) {
-        // Smoke capture: rest the pointer on the first word, then on the
-        // first related word of each open level, down to the asked depth.
+    if (g_SmokeCapture && g_SmokeGlossDepth > 0 && keyCard >= 0) {
+        // Smoke capture: rest the pointer on the focused card's first word,
+        // then on the first related word of each open level, down to the asked
+        // depth. While the next word is not drawn yet (still typing in), the
+        // pointer stays where it was.
+        static float lastX = -1.0f, lastY = -1.0f;
         const LinkBox* aim = nullptr;
         const int want = std::min(open, g_SmokeGlossDepth - 1);
         for (const LinkBox& b : (want == 0 ? cardLinks : relLinks))
-            if (want == 0 ? (keyCard < 0 || b.owner == keyCard) : b.owner == want - 1) { aim = &b; break; }
-        if (!aim && !cardLinks.empty()) aim = &cardLinks.front();
-        if (aim) { mx = (aim->x0 + aim->x1) * 0.5f; my = (aim->y0 + aim->y1) * 0.5f; }
+            if (want == 0 ? b.owner == keyCard : b.owner == want - 1) { aim = &b; break; }
+        if (aim) { lastX = (aim->x0 + aim->x1) * 0.5f; lastY = (aim->y0 + aim->y1) * 0.5f; }
+        if (lastX >= 0.0f) { mx = lastX; my = lastY; }
     }
 
     auto inBox = [&](const LinkBox& b) {
@@ -697,43 +700,19 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         const float titleH = g_TextS.Height(L"가Ag", titleScale), bodyH = g_TextS.Height(L"가Ag", bodyScale);
         tl.h = titleH + 10.0f * ui + (float)body.size() * (bodyH + 3.0f * ui) +
                (e.relCount > 0 ? bodyH + 10.0f * ui : 0.0f);
-        if (k == 0) {
-            tl.x = cardX[tl.card] - ac::kCardW * 0.5f * ui;
-            tl.y = cardY[tl.card] + (ac::kCardH * 0.5f + 52.0f) * ui;
-        } else {
-            // First free spot, in order: under the level above, beside it
-            // (right, left), then past every open level (right, left). Free
-            // means on screen and clear of every open level, so two
-            // definitions never draw over each other.
-            const TipLevel& up = tips[k - 1];
+        // One row read left to right: level 0 first, each related level to
+        // the right of the one it came from. The row starts under the card
+        // and slides left as a whole when three levels would not fit, so the
+        // order never changes and nothing jumps when a level opens.
+        {
             const float m = 24.0f * ui, gap = 24.0f * ui;
-            float minX = up.x, maxX = up.x + up.w;
-            for (int j = 0; j < k; ++j) { minX = std::min(minX, tips[j].x); maxX = std::max(maxX, tips[j].x + tips[j].w); }
-            const struct { float x, y; bool side; } spots[5] = {
-                { up.x + 26.0f * ui, up.y + up.h + 26.0f * ui, false },
-                { up.x + up.w + gap, up.y, true },
-                { up.x - tl.w - gap, up.y, true },
-                { maxX + gap, up.y, true },
-                { minX - tl.w - gap, up.y, true },
-            };
-            auto clear = [&](float x, float y) {
-                if (x < m || x + tl.w > sw - m || y + tl.h > sh - m) return false;
-                for (int j = 0; j < k; ++j) {
-                    const TipLevel& o = tips[j];
-                    if (x < o.x + o.w + 8.0f * ui && x + tl.w + 8.0f * ui > o.x &&
-                        y < o.y + o.h + 8.0f * ui && y + tl.h + 8.0f * ui > o.y) return false;
-                }
-                return true;
-            };
-            int pick = 0;
-            while (pick < 5 && !clear(spots[pick].x, spots[pick].y)) ++pick;
-            if (pick == 5) pick = 0;   // nothing free: under the level above, kept on screen
-            tl.x = spots[pick].x;
-            tl.y = spots[pick].y;
-            tl.side = spots[pick].side;
+            const float rowW = (float)kTipLevels * tl.w + (float)(kTipLevels - 1) * gap;
+            float startX = cardX[tl.card] - ac::kCardW * 0.5f * ui;
+            startX = std::max(m, std::min(startX, sw - m - rowW));
+            tl.x = startX + (float)k * (tl.w + gap);
+            tl.y = cardY[tl.card] + (ac::kCardH * 0.5f + 52.0f) * ui;
+            tl.side = k > 0;
         }
-        if (k == 0 && tl.x + tl.w > sw - 24.0f * ui) tl.x = sw - 24.0f * ui - tl.w;
-        tl.x = std::clamp(tl.x, 24.0f * ui, std::max(24.0f * ui, sw - 24.0f * ui - tl.w));
         tl.y = std::min(tl.y, sh - 24.0f * ui - tl.h);
 
         // The word that opened it gets a bold underline. The leader leaves a
