@@ -1237,15 +1237,20 @@ static void Scene_CodexInline(const SceneCtx& c) {
     float descriptionEndY = descriptionY;
     if (selectedCategory == 1 && seen) {
         // Augment records: one line per effect, stat icon in front (as on the cards).
-        const IconDesc desc = WrapIconDesc(selectedDesc(), descSc, detailW, uiS);
+        // Glossary words get their term icon in front, as on the cards.
+        const IconDesc desc = WrapIconDesc(selectedDesc(), descSc, detailW, uiS, true);
         const float lineH = std::max(22.0f * uiS, g_TextS.Height(L"Ag", descSc) + 5.0f * uiS);
         for (size_t i = 0; i < desc.lines.size(); ++i) {
             const DescLine& l = desc.lines[i];
             const float ly = descriptionY + (float)i * lineH;
-            DrawIconDescIcon(desc, l, detailX, ly, g_TextS.Height(l.text.c_str(), descSc),
-                             rightWake);
-            drawScanTextS(l.text.c_str(), desc.TextX(l, detailX), ly, descSc,
-                          0.76f, 0.84f, 0.94f, 0.86f * rightWake, selKey + 13 + (int)i);
+            const float lh = g_TextS.Height(l.text.c_str(), descSc);
+            DrawIconDescIcon(desc, l, detailX, ly, lh, rightWake);
+            DrawDescLinePieces(desc, l, desc.TextX(l, detailX), ly, lh, descSc,
+                               0.76f, 0.84f, 0.94f, 0.86f * rightWake,
+                               [&](const wchar_t* s, float x, int piece) {
+                                   drawScanTextS(s, x, ly, descSc, 0.76f, 0.84f, 0.94f, 0.86f * rightWake,
+                                                 selKey + 13 + (int)i + piece * 7);
+                               });
         }
         descriptionEndY += (float)desc.lines.size() * lineH;
     } else {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneContext.h"
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,12 @@ IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui
 // height lineH; text goes at desc.TextX(line, x).
 void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,
                       float x, float y, float lineH, float alpha);
+// Draws a line wrapped with termIcons whose text starts at (x, y): the term
+// icons in colour (r, g, b, a), and each run of text between them through
+// drawText(text, x, piece index), so the caller keeps its own text style.
+void DrawDescLinePieces(const IconDesc& desc, const DescLine& line, float x, float y, float lineH,
+                        float scale, float r, float g, float b, float a,
+                        const std::function<void(const wchar_t*, float, int)>& drawText);
 void DrawArchiveConstellation(float cx, float cy, float radius,
                               int category, int key, float now,
                               float r, float g, float b,

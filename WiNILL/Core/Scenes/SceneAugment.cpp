@@ -237,6 +237,28 @@ void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,
                     desc.iconSize, alpha);
 }
 
+void DrawDescLinePieces(const IconDesc& desc, const DescLine& line, float x, float y, float lineH,
+                        float scale, float r, float g, float b, float a,
+                        const std::function<void(const wchar_t*, float, int)>& drawText) {
+    float px = x;
+    int pos = 0, piece = 0;
+    auto run = [&](int end) {
+        if (end <= pos) return;
+        const std::wstring s = line.text.substr((size_t)pos, (size_t)(end - pos));
+        drawText(s.c_str(), px, piece++);
+        px += g_TextS.Width(s.c_str(), scale);
+        pos = end;
+    };
+    for (const DescLink& k : line.links) {
+        if (!k.icon) continue;
+        run(k.start);
+        const float is = desc.termIconSize;
+        DrawIcon(TermIconTex(k.term), px, y + lineH * 0.5f - is * 0.5f, is, is, r, g, b, a);
+        px += desc.termMarkW;
+    }
+    run((int)line.text.size());
+}
+
 // ─────────────────────────────────────────────────────────────
 // Augment card draw (Docs/Design/Augment_Card_Draw_Design.md). Every
 // level-up deals up to five cards from a deck at the bottom; they flip, the

@@ -5610,6 +5610,11 @@ int main() {
                             g_MobKillCounts[id] = st == "FULL" ? 1000000 : st == "KNOWN" ? 1 : 0;
                             g_RunMobKillCounts[id] = 0;
                         }
+                    } else if (step.rfind("CODEXAUG=", 0) == 0) {
+                        // CODEXAUG=SEEN|UNSEEN: every augment's Astral Log
+                        // discovery, for the description view. Never saved.
+                        const bool seenAll = step.substr(9) == "SEEN";
+                        for (int a = 0; a < AUG_TOTAL; ++a) g_AugSeen[a] = seenAll;
                     }
                     if (step.rfind("SEARCH=", 0) == 0) {
                         // SEARCH=<ascii text>: fill the Codex search field

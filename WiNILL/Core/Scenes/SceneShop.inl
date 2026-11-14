@@ -675,15 +675,20 @@ void Scene_Shop(const SceneCtx& c) {
         if (e.kind == Kind::Aug) {
             const wchar_t* desc = AugDesc(ALL_AUGS[e.id]);
             if (desc && desc[0]) {
-                const IconDesc segs = WrapIconDesc(desc, sBody, panelW, ui);
+                // Glossary words get their term icon in front, as on the cards.
+                const IconDesc segs = WrapIconDesc(desc, sBody, panelW, ui, true);
                 int line = 0;
                 for (const DescLine& seg : segs.lines) {
                     if (line >= 6) break;
                     const float ly = y + line * lineH;
-                    DrawIconDescIcon(segs, seg, px, ly, g_TextS.Height(seg.text.c_str(), sBody), da);
-                    const float lx = segs.TextX(seg, px);
-                    drawText(g_TextS, seg.text.c_str(), lx, ly, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da,
-                             panelW - (lx - px));
+                    const float lh = g_TextS.Height(seg.text.c_str(), sBody);
+                    DrawIconDescIcon(segs, seg, px, ly, lh, da);
+                    DrawDescLinePieces(segs, seg, segs.TextX(seg, px), ly, lh, sBody,
+                                       0.78f, 0.86f, 0.95f, 0.88f * da,
+                                       [&](const wchar_t* s, float x, int) {
+                                           drawText(g_TextS, s, x, ly, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da,
+                                                    panelW - (x - px));
+                                       });
                     ++line;
                 }
                 y += std::max(1, line) * lineH;
