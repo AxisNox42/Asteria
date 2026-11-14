@@ -600,7 +600,9 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
     auto inBox = [&](const LinkBox& b) {
         return mx >= b.x0 - 2.0f * ui && mx <= b.x1 + 2.0f * ui && my >= b.y0 - 2.0f * ui && my <= b.y1 + 4.0f * ui;
     };
-    const float tipW = (ac::kCardW + 40.0f) * ui;
+    // On the augment pick a definition is as wide as a card, so the three
+    // levels line up under the three card slots.
+    const float tipW = (g_TipOffCards ? ac::kCardW + 40.0f : ac::kCardW) * ui;
     // What the pointer is on: a card word opens level 0, a related word opens
     // the level after its own; inside an open level keeps it.
     int keep = -1;
@@ -709,18 +711,28 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         tl.h = titleH + 10.0f * ui + (float)body.size() * (bodyH + 3.0f * ui) +
                (e.relCount > 0 ? bodyH + 10.0f * ui : 0.0f);
         // One row read left to right: level 0 first, each related level to
-        // the right of the one it came from. The row starts under the card
-        // and slides left as a whole when three levels would not fit, so the
-        // order never changes and nothing jumps when a level opens.
+        // the right of the one it came from. On the pick the row has fixed
+        // columns under the card slots; off the cards it starts under the
+        // text and slides left as a whole when it would not fit.
         {
             const float m = 24.0f * ui, gap = 24.0f * ui;
             // Off the cards (codex, shop) the row only makes room for the levels
             // open, so one definition stays right under the text it explains.
             const int rowN = g_TipOffCards ? open : kTipLevels;
             const float rowW = (float)rowN * tl.w + (float)(rowN - 1) * gap;
-            float startX = cardX[tl.card] - ac::kCardW * 0.5f * ui;
-            startX = std::max(m, std::min(startX, sw - m - rowW));
-            tl.x = startX + (float)k * (tl.w + gap);
+            if (g_TipOffCards) {
+                float startX = cardX[tl.card] - ac::kCardW * 0.5f * ui;
+                startX = std::max(m, std::min(startX, sw - m - rowW));
+                tl.x = startX + (float)k * (tl.w + gap);
+            } else {
+                // Fixed columns on the pick, whichever card was hovered: level
+                // 0 under the first card slot, 1 under the second, 2 under the
+                // third (past the last card when fewer are dealt).
+                const float pitch = (ac::kCardW + ac::kGap) * ui;
+                const int last = std::max(0, count - 1);
+                const float cx = k <= last ? cardX[k] : cardX[last] + (float)(k - last) * pitch;
+                tl.x = std::clamp(cx - tl.w * 0.5f, m, std::max(m, sw - m - tl.w));
+            }
             tl.y = cardY[tl.card] + (ac::kCardH * 0.5f + 52.0f) * ui;
             tl.side = k > 0;
         }
