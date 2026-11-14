@@ -9,7 +9,11 @@ namespace synf {
 inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover = 1u << 3,
     Return = 1u << 4, Returning = 1u << 5, Trail = 1u << 6, Gravity = 1u << 7, Swap = 1u << 8,
     Absorb = 1u << 9, Erase = 1u << 10, Lob = 1u << 11, Mine = 1u << 12, Orbit = 1u << 13,
-    Seek = 1u << 14, Slowed = 1u << 15, Hovering = 1u << 16, Hovered = 1u << 17;
+    Seek = 1u << 14, Slowed = 1u << 15, Hovering = 1u << 16, Hovered = 1u << 17,
+    // Look only (EntityDraw.cpp drawBullet): the frame card that shaped the shot,
+    // a mythic echo of an earlier volley, a mythic halo orbiter.
+    FrameSniper = 1u << 18, FrameCrossbow = 1u << 19, FrameWave = 1u << 20,
+    Echo = 1u << 21, Halo = 1u << 22;
 }
 inline constexpr uint32_t kSynNoHit = synf::Lob | synf::Mine;   // a shell or a mine does not hit on the way
 

@@ -55,7 +55,7 @@ CUE(ExplodeS, 50, 6, false, false, 1, "Resource/Audio/sfx/sfx_explode_s.wav")
 CUE(ExplodeM, 80, 3, false, false, 1, "Resource/Audio/sfx_explode_m.wav")
 // sfx_explode_l — 대형 폭발 공용 (운석·블랙홀·응축·신성)
 CUE(ExplodeL, 60, 2, true, false, 1, "Resource/Audio/sfx/sfx_explode_l.wav")
-// sfx_lightning — 낙뢰 1발 (삼연 낙뢰, 폭풍 성운, 뇌운 계열 패시브)
+// sfx_lightning — 낙뢰 1발 (삼연 낙뢰, 폭풍 방전, 뇌운 계열 패시브)
 CUE(Lightning, 70, 3, false, false, 1, "Resource/Audio/sfx/sfx_lightning.wav")
 // aug_flip_epic — 에픽 등급 카드 공개
 CUE(AugFlipEpic, 60, 3, false, false, 1, "Resource/Audio/sfx/aug_flip_epic.wav")
@@ -291,7 +291,7 @@ CUE(SkillScreenwide, 60, 2, true, false, 1, "Resource/Audio/sfx/skill_screenwide
 CUE(SkillSlam, 60, 3, false, false, 1, "Resource/Audio/sfx/skill_slam.wav")
 // skill_snipe — 초정밀 저격 관통 치명탄
 CUE(SkillSnipe, 60, 3, false, false, 1, "Resource/Audio/sfx/skill_snipe.wav")
-// skill_summon — 쌍성 분신, 별빛 포탑, 폭풍 성운, 굴절 수정체, 성간 지뢰 설치
+// skill_summon — 쌍성 분신, 별빛 포탑, 폭풍 방전, 굴절 수정체, 성간 지뢰 설치
 CUE(SkillSummon, 60, 3, false, false, 1, "Resource/Audio/sfx/skill_summon.wav")
 // skill_summon_end — 분신·포탑·성운·장벽 지속시간 종료
 CUE(SkillSummonEnd, 60, 3, false, false, 1, "Resource/Audio/sfx/skill_summon_end.wav")

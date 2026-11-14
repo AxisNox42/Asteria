@@ -332,9 +332,10 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
     // slow frames fire faster with less per shot (table) and the spread frames get a small correction
     // measured in the smoke run (kills in 20 s).
     if (o.F_SHOTGUN) { b.maxRange = 560.0f; b.speed *= 0.9f; b.dmgMult *= 1.3f; }
-    if (o.F_SNIPER) { b.speed *= 1.6f; b.sizeScale *= 1.4f; b.color = glm::vec3(0.85f, 0.95f, 1.0f); }
-    if (o.F_CROSSBOW) { b.speed *= 1.3f; b.sizeScale *= 2.0f; b.color = glm::vec3(0.95f, 0.85f, 0.55f); }
+    if (o.F_SNIPER) { b.speed *= 1.6f; b.sizeScale *= 1.4f; b.color = glm::vec3(0.85f, 0.95f, 1.0f); b.synFlags |= synf::FrameSniper; }
+    if (o.F_CROSSBOW) { b.speed *= 1.3f; b.sizeScale *= 2.0f; b.color = glm::vec3(0.95f, 0.85f, 0.55f); b.synFlags |= synf::FrameCrossbow; }
     if (o.F_WAVE) {
+        b.synFlags |= synf::FrameWave;
         b.dmgMult *= 1.3f; b.speed *= 0.55f; b.sizeScale *= 3.4f; b.piercing = true; b.synFlags |= synf::Erase;
         b.color = glm::vec3(0.55f, 0.85f, 1.0f);
     }
@@ -707,6 +708,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         if (CountOrbiters() < cap) {
             Bullet b = out.front();
             b.synFlags |= synf::Orbit; b.synOrbitAngle = Rand01() * 2.0f * kPi; b.synOrbitLeft = 4.5f;
+            if (o.Y_HALO) b.synFlags |= synf::Halo;
             b.speed = 0.0f; b.piercing = true; b.maxRange = 0.0f; b.sizeScale *= 1.2f;
             b.x = px; b.y = py;
             out.push_back(b);
@@ -725,6 +727,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
     // Echo: the same volley again a moment later.
     if (o.Y_ECHO) {
         Echo e; e.t = 0.2f; e.shots = out;
+        for (Bullet& shot : e.shots) shot.synFlags |= synf::Echo;
         s.echoes.push_back(std::move(e));
     }
 }

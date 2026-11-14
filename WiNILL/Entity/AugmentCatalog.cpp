@@ -421,7 +421,7 @@ extern const AugDef ALL_AUGS[] = {
         L"Strikes the 3 enemies on screen with the most HP with lightning (400% attack)",
         L"画面内で体力が最も多い敵3体に攻撃力400%の落雷"),
     ACT(A_STORM_STORM_NEBULA, LEGENDARY, 26.0f, Summon,
-        L"폭풍 성운 소환", L"Storm Nebula", L"嵐の星雲召喚",
+        L"폭풍 방전", L"Storm Discharge", L"嵐の放電",
         L"6초 동안 0.5초마다 기체에서 화면 안의 무작위 적에게 번개 (각 공격력 300%)",
         L"For 6s, every 0.5s your ship strikes a random enemy on screen with lightning (300% attack)",
         L"6秒間、0.5秒ごとに機体から画面内のランダムな敵に稲妻 (各攻撃力300%)"),

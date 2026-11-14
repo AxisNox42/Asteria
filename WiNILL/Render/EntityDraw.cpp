@@ -266,6 +266,98 @@ static bool DrawSkillShot(const Bullet& b) {
     }
 }
 
+// Player shots shaped by a synergy card (synFlags). Lines only with a dark
+// under-stroke. DrawCardShot replaces the round body (frame cards, the halo);
+// DrawCardMarks adds what rides on top of it (return, hunter).
+static bool DrawCardShot(const Bullet& b, float r) {
+    if (b.isEnemy || b.skillShot) return false;
+    const uint32_t f = b.synFlags;
+    const float ux = b.dirX, uy = b.dirY, nx = -uy, ny = ux;
+    const glm::vec3 c = b.color;
+    const glm::vec3 lit = c + (glm::vec3(1.0f) - c) * 0.55f;
+    auto P = [&](float fw, float sd, float& x, float& y) { x = b.x + ux * fw + nx * sd; y = b.y + uy * fw + ny * sd; };
+    if (f & synf::Halo) {   // 별빛 후광: a turning four-point star inside the ring it clears
+        const float spin = b.synOrbitAngle * 2.0f;
+        line_fx::Star4(b.x, b.y, r * 2.2f, r * 0.8f, spin, 3.6f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.55f);
+        line_fx::Star4(b.x, b.y, r * 2.2f, r * 0.8f, spin, 1.8f, { lit.r, lit.g, lit.b }, 1.0f);
+        line_fx::Circle(b.x, b.y, 30.0f, 1.0f, { c.r, c.g, c.b }, 0.45f);   // the reach it erases shots in
+        return true;
+    }
+    if (f & synf::FrameSniper) {   // 저격총: a long thin diamond head and a short wake
+        float px[4], py[4];
+        P(r * 3.2f, 0.0f, px[0], py[0]); P(r * 0.3f, r * 0.42f, px[1], py[1]);
+        P(-r * 1.6f, 0.0f, px[2], py[2]); P(r * 0.3f, -r * 0.42f, px[3], py[3]);
+        SkillLoop(px, py, 4, 1.8f, c, 1.0f);
+        float ax, ay, bx, by;
+        P(r * 2.6f, 0.0f, ax, ay); P(-r * 1.0f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.2f, lit, 1.0f);
+        P(-r * 1.6f, 0.0f, ax, ay); P(-r * 5.5f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.0f, c, 0.4f);
+        return true;
+    }
+    if (f & synf::FrameCrossbow) {   // 석궁: just a sharp arrowhead, barbed back to a notch
+        float px[4], py[4];
+        P(r * 2.0f, 0.0f, px[0], py[0]); P(-r * 0.75f, r * 0.62f, px[1], py[1]);
+        P(-r * 0.30f, 0.0f, px[2], py[2]); P(-r * 0.75f, -r * 0.62f, px[3], py[3]);
+        SkillLoop(px, py, 4, 2.0f, c, 1.0f);
+        float ax, ay, bx, by;
+        P(r * 1.3f, 0.0f, ax, ay); P(-r * 0.05f, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.2f, lit, 1.0f);
+        return true;
+    }
+    if (f & synf::FrameWave) {   // 파동포: three arcs of a wavefront, the front one brightest
+        const float head = std::atan2(uy, ux);
+        for (int k = 0; k < 3; ++k) {
+            const float back = r * 0.32f * (float)k;
+            const float rr = r * (1.0f - 0.2f * (float)k);
+            const float cx = b.x - ux * (back + rr * 0.55f), cy = b.y - uy * (back + rr * 0.55f);
+            line_fx::ArcLine(cx, cy, rr, head - 0.95f, 1.9f, 3.0f + 2.0f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.45f);
+            line_fx::ArcLine(cx, cy, rr, head - 0.95f, 1.9f, 3.0f - 0.8f * (float)k,
+                             k == 0 ? line_fx::Rgb{ lit.r, lit.g, lit.b } : line_fx::Rgb{ c.r, c.g, c.b },
+                             1.0f - 0.28f * (float)k);
+        }
+        return true;
+    }
+    return false;
+}
+static void DrawCardMarks(const Bullet& b, float r) {
+    if (b.isEnemy || b.skillShot) return;
+    const uint32_t f = b.synFlags;
+    const float ux = b.dirX, uy = b.dirY, nx = -uy, ny = ux;
+    const glm::vec3 c = b.color;
+    const glm::vec3 lit = c + (glm::vec3(1.0f) - c) * 0.55f;
+    const float head = std::atan2(uy, ux);
+    if (f & synf::Return) {
+        const bool hunter = b.homing;
+        if (hunter) {   // 집요한 사냥탄: aim brackets just ahead of the shot
+            for (int k = -1; k <= 1; k += 2) {
+                const float fx = b.x + ux * r * 2.6f, fy = b.y + uy * r * 2.6f;
+                const float sx = fx + nx * r * 1.3f * (float)k, sy = fy + ny * r * 1.3f * (float)k;
+                SkillStroke(sx, sy, sx - ux * r * 0.9f, sy - uy * r * 0.9f, 1.4f, lit, 0.95f);
+                SkillStroke(sx, sy, sx - nx * r * 0.6f * (float)k, sy - ny * r * 0.6f * (float)k, 1.4f, lit, 0.95f);
+            }
+        }
+        // 왕복: a hook of arc round the back; on the way back it closes into an arrow.
+        const bool back = (f & synf::Returning) != 0;
+        const float rr = r * 2.0f;
+        const float sweep = back ? 4.4f : 2.2f;
+        const float a0 = head + 3.14159265f - sweep * 0.5f;
+        line_fx::ArcLine(b.x, b.y, rr, a0, sweep, 3.2f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.5f);
+        line_fx::ArcLine(b.x, b.y, rr, a0, sweep, 1.5f, { lit.r, lit.g, lit.b }, 0.9f);
+        if (back) {   // arrowhead at the arc's end, pointing the way it turns
+            const float ae = a0 + sweep;
+            const float ex = b.x + std::cos(ae) * rr, ey = b.y + std::sin(ae) * rr;
+            const float tx = -std::sin(ae), ty = std::cos(ae);   // tangent along the sweep
+            const float ox = std::cos(ae), oy = std::sin(ae);
+            SkillStroke(ex, ey, ex - tx * r * 0.9f + ox * r * 0.5f, ey - ty * r * 0.9f + oy * r * 0.5f, 1.4f, lit, 0.95f);
+            SkillStroke(ex, ey, ex - tx * r * 0.9f - ox * r * 0.5f, ey - ty * r * 0.9f - oy * r * 0.5f, 1.4f, lit, 0.95f);
+        }
+    }
+    if (f & synf::Echo) {   // 메아리: a ring round the hollowed shot
+        line_fx::Circle(b.x, b.y, r * 1.7f, 1.2f, { lit.r, lit.g, lit.b }, 0.75f);
+    }
+}
+
 void drawBullet(const Bullet& b) {
     // A range-limited shot dwindles and fades over the end of its range
     // instead of vanishing at full (possibly grown) size.
@@ -278,6 +370,17 @@ void drawBullet(const Bullet& b) {
         ~AlphaScope() { g_BatchAlpha = saved; }
     } alphaScope(fade);
     if (DrawSkillShot(b)) return;
+    // A mythic echo is drawn hollow-ish: half strength, its ring added by DrawCardMarks.
+    struct EchoScope {
+        float saved; bool on;
+        explicit EchoScope(bool e) : saved(g_BatchAlpha), on(e) { if (on) g_BatchAlpha *= 0.5f; }
+        ~EchoScope() { if (on) g_BatchAlpha = saved; }
+    };
+    EchoScope echo((b.synFlags & synf::Echo) != 0 && !b.isEnemy);
+    if (DrawCardShot(b, r)) {
+        DrawCardMarks(b, r);
+        return;
+    }
     if (b.normaShot) {
         // NORMA's shot: a turned square outline with a short tail.
         const float ang = atan2f(b.dirY, b.dirX) + (float)glfwGetTime() * 6.0f;
@@ -364,6 +467,7 @@ void drawBullet(const Bullet& b) {
                b.color.r * 0.22f, b.color.g * 0.22f, b.color.b * 0.22f,
                0.70f * keyline);
     drawCircle(b.x, b.y, r, b.color.r, b.color.g, b.color.b, 1.0f);
+    DrawCardMarks(b, r);
 }
 
 static void DrawEnemyWirePolygon(const float* vx, const float* vy, int count,
