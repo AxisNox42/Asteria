@@ -46,12 +46,23 @@ IconDesc WrapIconDesc(const wchar_t* desc, float scale, float maxWidth, float ui
 // height lineH; text goes at desc.TextX(line, x).
 void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,
                       float x, float y, float lineH, float alpha);
+// A glossary word drawn on screen: its term and box.
+struct GlossWord { int term; float x0, y0, x1, y1; };
 // Draws a line wrapped with termIcons whose text starts at (x, y): the term
-// icons in colour (r, g, b, a), and each run of text between them through
-// drawText(text, x, piece index), so the caller keeps its own text style.
+// icons in colour (r, g, b, a), and each run of text through
+// drawText(text, x, piece index, term), term >= 0 for a glossary word, so the
+// caller keeps its own text style. The glossary words go to words, if given.
 void DrawDescLinePieces(const IconDesc& desc, const DescLine& line, float x, float y, float lineH,
                         float scale, float r, float g, float b, float a,
-                        const std::function<void(const wchar_t*, float, int)>& drawText);
+                        const std::function<void(const wchar_t*, float, int, int)>& drawText,
+                        std::vector<GlossWord>* words = nullptr);
+// Glossary words outside the augment pick (Astral Log, shop): underlines the
+// words and, while one is hovered, opens its definition with tipX, tipY as the
+// first level's top-left, like on the cards. context tells screens apart, so
+// one never shows another's open definition. inactive closes it.
+void DrawGlossaryHover(int context, const std::vector<GlossWord>& words, float tipX, float tipY,
+                       float r, float g, float b, bool active, float mx, float my, float delta,
+                       float sw, float sh, float ui);
 void DrawArchiveConstellation(float cx, float cy, float radius,
                               int category, int key, float now,
                               float r, float g, float b,

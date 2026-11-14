@@ -240,24 +240,29 @@ void DrawIconDescIcon(const IconDesc& desc, const DescLine& line,
 
 void DrawDescLinePieces(const IconDesc& desc, const DescLine& line, float x, float y, float lineH,
                         float scale, float r, float g, float b, float a,
-                        const std::function<void(const wchar_t*, float, int)>& drawText) {
+                        const std::function<void(const wchar_t*, float, int, int)>& drawText,
+                        std::vector<GlossWord>* words) {
     float px = x;
     int pos = 0, piece = 0;
-    auto run = [&](int end) {
+    auto run = [&](int end, int term) {
         if (end <= pos) return;
         const std::wstring s = line.text.substr((size_t)pos, (size_t)(end - pos));
-        drawText(s.c_str(), px, piece++);
-        px += g_TextS.Width(s.c_str(), scale);
+        drawText(s.c_str(), px, piece++, term);
+        const float w = g_TextS.Width(s.c_str(), scale);
+        if (term >= 0 && words) words->push_back({ term, px, y, px + w, y + lineH });
+        px += w;
         pos = end;
     };
     for (const DescLink& k : line.links) {
-        if (!k.icon) continue;
-        run(k.start);
-        const float is = desc.termIconSize;
-        DrawIcon(TermIconTex(k.term), px, y + lineH * 0.5f - is * 0.5f, is, is, r, g, b, a);
-        px += desc.termMarkW;
+        run(k.start, -1);
+        if (k.icon) {
+            const float is = desc.termIconSize;
+            DrawIcon(TermIconTex(k.term), px, y + lineH * 0.5f - is * 0.5f, is, is, r, g, b, a);
+            px += desc.termMarkW;
+        }
+        run(k.start + k.len, k.term);
     }
-    run((int)line.text.size());
+    run((int)line.text.size(), -1);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -544,6 +549,9 @@ constexpr float kTipTypeAt = 0.14f, kTipTypeCps = 240.0f, kTipRelSec = 0.15f;
 inline float TipEase(float t) { t = std::clamp(t, 0.0f, 1.0f); return 1.0f - (1.0f - t) * (1.0f - t); }
 // How open the definitions are (0..1): the deck fades out while they show.
 float g_GlossaryOpenA = 0.0f;
+// Off the cards (DrawGlossaryHover: codex, shop) the definitions open under a
+// block of text instead of a card.
+bool g_TipOffCards = false;
 
 void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX, const float* cardY,
                       const Rgb* cardCol, int count, bool active, float mx, float my, float delta,
@@ -706,7 +714,10 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
         // order never changes and nothing jumps when a level opens.
         {
             const float m = 24.0f * ui, gap = 24.0f * ui;
-            const float rowW = (float)kTipLevels * tl.w + (float)(kTipLevels - 1) * gap;
+            // Off the cards (codex, shop) the row only makes room for the levels
+            // open, so one definition stays right under the text it explains.
+            const int rowN = g_TipOffCards ? open : kTipLevels;
+            const float rowW = (float)rowN * tl.w + (float)(rowN - 1) * gap;
             float startX = cardX[tl.card] - ac::kCardW * 0.5f * ui;
             startX = std::max(m, std::min(startX, sw - m - rowW));
             tl.x = startX + (float)k * (tl.w + gap);
@@ -804,6 +815,39 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
 }
 
 }  // namespace
+
+void DrawGlossaryHover(int context, const std::vector<GlossWord>& words, float tipX, float tipY,
+                       float r, float g, float b, bool active, float mx, float my, float delta,
+                       float sw, float sh, float ui) {
+    // The definitions keep their state between frames; a different screen
+    // (or the cards) starts closed instead of showing what was open there.
+    static int lastContext = -1;
+    const std::vector<LinkBox> none;
+    if (context != lastContext) {
+        lastContext = context;
+        DrawGlossaryTips(none, nullptr, nullptr, nullptr, 0, false, 0, 0, 0, -1, false, false, sw, sh, ui);
+    }
+    const Rgb col{ r, g, b };
+    std::vector<LinkBox> links;
+    links.reserve(words.size());
+    for (const GlossWord& w : words) links.push_back({ 0, w.term, w.x0, w.y0, w.x1, w.y1, col, 1.0f });
+    if (active) {
+        BindMainShader();
+        for (const LinkBox& lb : links)
+            SLine(lb.x0, lb.y1 + 1.0f * ui, lb.x1, lb.y1 + 1.0f * ui, 1.0f * ui, col, 0.70f, 0.0f);
+        BatchFlush();
+    }
+    // One "card" whose first level opens at tipX, tipY (DrawGlossaryTips
+    // hangs it kCardH/2 + 52 under the card centre, kCardW/2 left of it). The
+    // leader leaves from that card's bottom edge, 48 above tipY, so callers
+    // keep tipY at least 48 under their last line of text: the leader never
+    // crosses it.
+    const float cx = tipX + aug_card::kCardW * 0.5f * ui;
+    const float cy = tipY - (aug_card::kCardH * 0.5f + 52.0f) * ui;
+    g_TipOffCards = true;
+    DrawGlossaryTips(links, &cx, &cy, &col, 1, active, mx, my, delta, -1, false, true, sw, sh, ui);
+    g_TipOffCards = false;
+}
 
 static void Scene_AugSelectCards(const SceneCtx& c) {
     const float sw = c.sw, sh = c.sh, delta = c.delta;

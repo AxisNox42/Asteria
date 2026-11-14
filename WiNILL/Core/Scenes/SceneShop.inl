@@ -674,9 +674,12 @@ void Scene_Shop(const SceneCtx& c) {
         const float lineH = g_TextS.Height(L"가", sBody) + 8.0f * ui;
         if (e.kind == Kind::Aug) {
             const wchar_t* desc = AugDesc(ALL_AUGS[e.id]);
+            std::vector<GlossWord> glossWords;   // glossary words in the description, for the hover
             if (desc && desc[0]) {
-                // Glossary words get their term icon in front, as on the cards.
+                // Glossary words get their term icon in front and link colour, as on the cards.
                 const IconDesc segs = WrapIconDesc(desc, sBody, panelW, ui, true);
+                const float lr = e.r + (0.92f - e.r) * 0.30f, lg = e.g + (0.96f - e.g) * 0.30f,
+                            lb = e.b + (1.0f - e.b) * 0.30f;
                 int line = 0;
                 for (const DescLine& seg : segs.lines) {
                     if (line >= 6) break;
@@ -684,11 +687,12 @@ void Scene_Shop(const SceneCtx& c) {
                     const float lh = g_TextS.Height(seg.text.c_str(), sBody);
                     DrawIconDescIcon(segs, seg, px, ly, lh, da);
                     DrawDescLinePieces(segs, seg, segs.TextX(seg, px), ly, lh, sBody,
-                                       0.78f, 0.86f, 0.95f, 0.88f * da,
-                                       [&](const wchar_t* s, float x, int) {
-                                           drawText(g_TextS, s, x, ly, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da,
-                                                    panelW - (x - px));
-                                       });
+                                       lr, lg, lb, 0.88f * da,
+                                       [&](const wchar_t* s, float x, int, int term) {
+                                           const bool link = term >= 0;
+                                           drawText(g_TextS, s, x, ly, sBody, link ? lr : 0.78f, link ? lg : 0.86f,
+                                                    link ? lb : 0.95f, 0.88f * da, panelW - (x - px));
+                                       }, &glossWords);
                     ++line;
                 }
                 y += std::max(1, line) * lineH;
@@ -697,6 +701,9 @@ void Scene_Shop(const SceneCtx& c) {
             drawText(g_TextS, ShopText(L"플레이 중 획득 효과 · 도감 전용", L"IN-PLAY EFFECT · CODEX ONLY",
                                        L"プレイ中の獲得効果・図鑑専用"),
                      px, y, sSmall, 0.70f, 0.80f, 0.92f, 0.85f * da, panelW);
+            // Hovering a glossary word opens its definition under the description.
+            DrawGlossaryHover(2, glossWords, px, y + lineH + 58.0f * ui, e.r, e.g, e.b,
+                              inputReady && da > 0.9f, (float)mx, (float)my, delta, sw, sh, ui);
         } else if (e.kind == Kind::Meta) {
             const int lv = g_MetaLv[e.id], maxLv = META_DEFS[e.id].maxLv;
             drawText(g_TextS, ShopText(L"출격 전 적용되는 영구 효과", L"PERMANENT EFFECT APPLIED BEFORE LAUNCH",

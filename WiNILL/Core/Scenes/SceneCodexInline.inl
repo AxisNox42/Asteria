@@ -1235,22 +1235,27 @@ static void Scene_CodexInline(const SceneCtx& c) {
     const float descriptionY = descY + g_TextS.Height(summaryText, summarySc)
                              + 8.0f * uiS;
     float descriptionEndY = descriptionY;
-    if (selectedCategory == 1 && seen) {
+    const bool augRecord = selectedCategory == 1 && seen;
+    std::vector<GlossWord> glossWords;   // glossary words in the record, for the hover
+    if (augRecord) {
         // Augment records: one line per effect, stat icon in front (as on the cards).
-        // Glossary words get their term icon in front, as on the cards.
+        // Glossary words get their term icon in front and link colour, as on the cards.
         const IconDesc desc = WrapIconDesc(selectedDesc(), descSc, detailW, uiS, true);
         const float lineH = std::max(22.0f * uiS, g_TextS.Height(L"Ag", descSc) + 5.0f * uiS);
+        const float lr = cr + (0.92f - cr) * 0.30f, lg = cg + (0.96f - cg) * 0.30f, lb = cb + (1.0f - cb) * 0.30f;
         for (size_t i = 0; i < desc.lines.size(); ++i) {
             const DescLine& l = desc.lines[i];
             const float ly = descriptionY + (float)i * lineH;
             const float lh = g_TextS.Height(l.text.c_str(), descSc);
             DrawIconDescIcon(desc, l, detailX, ly, lh, rightWake);
             DrawDescLinePieces(desc, l, desc.TextX(l, detailX), ly, lh, descSc,
-                               0.76f, 0.84f, 0.94f, 0.86f * rightWake,
-                               [&](const wchar_t* s, float x, int piece) {
-                                   drawScanTextS(s, x, ly, descSc, 0.76f, 0.84f, 0.94f, 0.86f * rightWake,
+                               lr, lg, lb, 0.86f * rightWake,
+                               [&](const wchar_t* s, float x, int piece, int term) {
+                                   const bool link = term >= 0;
+                                   drawScanTextS(s, x, ly, descSc, link ? lr : 0.76f, link ? lg : 0.84f,
+                                                 link ? lb : 0.94f, 0.86f * rightWake,
                                                  selKey + 13 + (int)i + piece * 7);
-                               });
+                               }, &glossWords);
         }
         descriptionEndY += (float)desc.lines.size() * lineH;
     } else {
@@ -1263,6 +1268,10 @@ static void Scene_CodexInline(const SceneCtx& c) {
     drawScanTextS(statBuf, detailX, metaY,
                   idSc, 0.84f, 0.90f, 0.98f,
                   0.88f * rightWake, selKey + 19);
+    // Hovering a glossary word opens its definition under the record.
+    DrawGlossaryHover(1, glossWords, detailX, metaY + g_TextS.Height(L"Ag", idSc) + 58.0f * uiS,
+                      cr, cg, cb, augRecord && inputReady && rightWake > 0.9f,
+                      (float)mx, (float)my, delta, sw, sh, uiS);
 
     if (selectedCategory == 0 && seen) {
         const long long kills = CodexMobKillCount(selKey);
