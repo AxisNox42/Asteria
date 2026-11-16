@@ -19,6 +19,7 @@ void ForgetEnemy(const void* enemy);   // removed without dying (a debug dummy):
 void PickupFx(int augIdx);             // a ring, sparks and the name when any card is taken
 bool CanOffer(int augIdx);             // may this synergy card appear in a pick?
 void Acquire(int augIdx);              // a synergy card was taken
+void RefreshStats();                   // re-apply the cards' stat changes after another card moved the stats
 // The small line under a card's name: its role, the tags it gives and the tags it needs (lang 0 KR, 1 EN, 2 JP).
 std::wstring MetaLine(int augIdx, int lang);
 

@@ -615,7 +615,7 @@ static void ApplyCard(int augIdx) {
     case AugType::P_LIFE_MAX_HP_UP:         st.maxHP += 15.0f; hp += 15.0f; break;
     case AugType::P_LIFE_REGENERATION:       st.regenPerSec += 0.2f; break;
     case AugType::P_FLIGHT_MOVE_SPEED_UP:      st.moveSpeedMult += 0.10f; break;
-    case AugType::P_EDGE_CRITICAL_STRIKE:         st.critChance = std::min(100, st.critChance + 12); break;
+    case AugType::P_EDGE_CRITICAL_STRIKE:         st.critChance += 12; break;   // uncapped sum (RollCrit caps the roll)
     case AugType::P_EDGE_CRITICAL_AMP:      st.critMult += 0.5f; break;
     case AugType::P_CHRONO_STAR_TEMPO: st.moveSpeedMult += 0.08f; break;
     case AugType::P_STONE_NEUTRON_WARHEAD: st.moveSpeedMult -= 0.08f; break;
@@ -636,12 +636,14 @@ static void ApplyCard(int augIdx) {
     case AugType::S_FIRE_RATE:  st.fireInterval /= 1.05f; break;
     case AugType::S_MOVE_SPEED: st.moveSpeedMult += 0.05f; break;
     case AugType::S_REGEN:      st.regenPerSec += 0.15f; break;
-    case AugType::S_CRIT:       st.critChance = std::min(100, st.critChance + 4); break;
+    case AugType::S_CRIT:       st.critChance += 4; break;    // uncapped sum (RollCrit caps the roll)
     default: break;
     }
     st.moveSpeedMult = std::max(0.30f, st.moveSpeedMult);
     hp = std::min(hp, st.maxHP);
     g_GameManager.maxHP = st.maxHP;
+    // The synergy cards' caps hold over stat cards too (Glass Cannon pins max HP at 30).
+    syn::RefreshStats();
 }
 
 static void RecordTaken(int augIdx) {

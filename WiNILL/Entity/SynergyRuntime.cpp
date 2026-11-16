@@ -81,7 +81,7 @@ struct State {
     float appliedMove = 1, appliedCrit = 0, appliedCritMul = 0, appliedHp = 0;
 
     // Run state.
-    float clock = 0, stillT = 0, waveAge = 0, comboT = 0, shieldPrev = 0, stillGuardCd = 0;
+    float clock = 0, stillT = 0, stillChargeT = 0, waveAge = 0, comboT = 0, shieldPrev = 0, stillGuardCd = 0;
     int   lastWave = -1, shots = 0, rhythm = 0, combo = 0, kills = 0, grazes = 0, orbitShots = 0;
     int   quietWaves = 0, cakeArmed = 0, cakeUsed = 0, mineShots = 0;
     float waveDamage = 0, revengeAcc = 0, cakeAcc = 0, stored = 0, absorbed = 0, dashBoostT = 0, swapCd = 0;
@@ -277,7 +277,9 @@ void Rebuild() {
     g_Stats.moveSpeedMult *= s.move / s.appliedMove;
     s.appliedMove = s.move;
     const int dc = (int)std::lround((s.crit - s.appliedCrit) * 100.0f);
-    g_Stats.critChance = std::clamp(g_Stats.critChance + dc, 0, 100);
+    // Not clamped to 100: the sum is kept so taking a bonus back removes only what it added
+    // (RollCrit caps the roll). Clamping here lost the base crit once a chance card switched off.
+    g_Stats.critChance = std::max(0, g_Stats.critChance + dc);
     s.appliedCrit = s.crit;
     g_Stats.critMult += s.critMul - s.appliedCritMul;
     s.appliedCritMul = s.critMul;
@@ -402,7 +404,7 @@ void UpdateChances(const passive::StepInput& in) {
             if (CondHolds(kChance[r].cond, in)) s.chance[(int)kChance[r].kind] += (float)kChance[r].pct / 100.0f;
         wantCrit = (int)std::lround(s.chance[(int)CKind::Crit] * 100.0f);
     }
-    g_Stats.critChance = std::clamp(g_Stats.critChance + wantCrit - s.appliedChanceCrit, 0, 100);
+    g_Stats.critChance = std::max(0, g_Stats.critChance + wantCrit - s.appliedChanceCrit);   // unclamped sum, see Rebuild
     s.appliedChanceCrit = wantCrit;
 }
 
@@ -416,7 +418,7 @@ void Landed(const Bullet& b, float radius) {
             if (mark) s.marks[&e] = 5.0f;
             if (burn) s.burns[&e] = { 3.0f, 0.5f };
         });
-    if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? Rings(1.5f) : 75.0f, s.on.Y_SINGULAR ? 150.0f : 0.0f, true, s.on.Y_SINGULAR ? Rings(2.5f) : 0.0f);
+    if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? Rings(1.5f) : 75.0f, s.on.Y_SINGULAR ? 150.0f * b.dmgMult * s.dmg : 0.0f, true, s.on.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     if (b.splitCount > 0 && s.pending.size() < 64) {
         const int n = std::min(b.splitCount, 5);
         for (int i = 0; i < n; ++i) {
@@ -600,6 +602,8 @@ std::wstring MetaLine(int augIdx, int lang) {
     return r;
 }
 
+void RefreshStats() { Rebuild(); }   // Rebuild applies differences only: safe to repeat
+
 void Acquire(int augIdx) {
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards) return;
@@ -636,7 +640,8 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         boost += std::min(1.0f, s.absorbed * 0.05f);
         s.absorbed = 0.0f;
     }
-    if (o.T_STILL && s.stillCharged) { boost *= 3.0f; s.stillCharged = false; }
+    // 정지 반응: the x3 is spent; another full second still charges the next one.
+    if (o.T_STILL && s.stillCharged) { boost *= 3.0f; s.stillCharged = false; s.stillChargeT = 0.0f; }
     if (o.T_RHYTHM && ++s.rhythm >= 4) { s.rhythm = 0; boost *= 3.0f; Audio::Play(Audio::Cue::ProcCounterFull); }
     if (s.dashBoostT > 0.0f) boost *= 1.3f;
     if (o.T_GRUDGE && s.stored > 0.0f) {
@@ -710,6 +715,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
             b.synFlags |= synf::Orbit; b.synOrbitAngle = Rand01() * 2.0f * kPi; b.synOrbitLeft = 4.5f;
             if (o.Y_HALO) b.synFlags |= synf::Halo;
             b.speed = 0.0f; b.piercing = true; b.maxRange = 0.0f; b.sizeScale *= 1.2f;
+            b.splitCount = 0;   // an orbiter hits again every 0.4 s; its split children inherited Orbit and broke the cap
             b.x = px; b.y = py;
             out.push_back(b);
         }
@@ -770,11 +776,14 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
     const Flags& o = s.on;
     if (b.synFlags & synf::Mark) s.marks[target] = 5.0f;
     if (b.synFlags & synf::Burn) s.burns[target] = { 3.0f, 0.5f };
+    // On-hit blasts scale with the shot's own damage factor (frame, split child, side shot, laser tick),
+    // as a mortar shell's landing already does: a flat % of attack made fast frames multiply them.
+    const float shotMult = b.dmgMult * s.dmg;
     if (b.blastPct > 0.0f) {
         const float r = 80.0f;
-        Burst(x, y, r, b.blastPct * 100.0f);
+        Burst(x, y, r, b.blastPct * 100.0f * shotMult);
     }
-    if (b.synFlags & synf::Gravity) Explode(x, y, o.Y_SINGULAR ? Rings(1.5f) : 75.0f, o.Y_SINGULAR ? 150.0f : 0.0f, true, o.Y_SINGULAR ? Rings(2.5f) : 0.0f);
+    if (b.synFlags & synf::Gravity) Explode(x, y, o.Y_SINGULAR ? Rings(1.5f) : 75.0f, o.Y_SINGULAR ? 150.0f * shotMult : 0.0f, true, o.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     if (b.splitCount > 0 && !b.splitSpent && s.pending.size() < 64) {
         b.splitSpent = true;
         const float fan[5] = { -0.70f, 0.70f, 0.0f, -1.30f, 1.30f };
@@ -809,12 +818,14 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             }
         });
     }
-    if (crit && o.T_CRITECHO) {
+    // An echo shot's crit sets off no echo of its own: at a high crit chance they chained without end.
+    if (crit && o.T_CRITECHO && !(b.synFlags & synf::CritEchoShot)) {
         const int extra = 1;
         for (int i = 0; i < extra; ++i) {
             const float a = std::atan2(b.dirY, b.dirX) + 0.10f * (float)(i + 1) * (i % 2 ? 1.0f : -1.0f);
             Bullet e = MakeShot(s.in.px, s.in.py, a, 0.8f, 0.0f);
             e.bouncesLeft = b.bouncesLeft; e.pierceLeft = b.pierceLeft;
+            e.synFlags |= synf::CritEchoShot;
             s.pending.push_back(e);
         }
     }
@@ -935,10 +946,10 @@ void Step(const passive::StepInput& in) {
     else s.waveAge += dt;
 
     // Stillness.
-    if (in.moving) { s.stillT = 0.0f; s.stillCharged = false; }
+    if (in.moving) { s.stillT = 0.0f; s.stillChargeT = 0.0f; s.stillCharged = false; }
     else {
-        s.stillT += dt;
-        if (o.T_STILL && s.stillT >= 1.0f) s.stillCharged = true;
+        s.stillT += dt; s.stillChargeT += dt;
+        if (o.T_STILL && s.stillChargeT >= 1.0f) s.stillCharged = true;
         if (o.G_STILLGUARD && s.stillT >= 2.0f && s.stillGuardCd <= 0.0f && g_PlayerShield < 30.0f) {
             AddShield(30.0f - g_PlayerShield); s.stillGuardCd = 20.0f;
         }
