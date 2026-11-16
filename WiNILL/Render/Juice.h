@@ -121,13 +121,14 @@ inline float g_ComboTimer = 0.0f;     // 남은 유지 시간
 inline float g_ComboPulse = 0.0f;     // 증가 시 팝 애니메이션 (0..1)
 inline float g_ComboMilestone = 0.0f; // 마일스톤 달성 강조 연출 잔여(초)
 inline constexpr float COMBO_WINDOW = 3.0f;
+inline float g_ComboWindowBonus = 0.0f;   // shop Combo Focus, set at run start
 inline bool ComboIsMilestone(int c) {
     return c == 10 || c == 25 || c == 50 || c == 100 ||
            (c > 100 && c % 50 == 0);
 }
 inline void AddKillCombo() {
     ++g_Combo;
-    g_ComboTimer = COMBO_WINDOW;
+    g_ComboTimer = COMBO_WINDOW + g_ComboWindowBonus;
     g_ComboPulse = 1.0f;
     Audio::Play(Audio::Cue::Kill);   // 적 처치음
     // 콤보 마일스톤(10/25/50/100/…) — 카운터 강조 연출 + 칩 사운드 (전체화면 번쩍 X — 눈뽕 방지)

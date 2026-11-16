@@ -137,6 +137,32 @@ inline void DrawShieldArc(float cx, float cy, float playerSize, float shieldFrac
     if (breaking) sheath(s_breakFrac, 7.0f * breakT, 0.9f * (1.0f - breakT));
 }
 
+// Shop Wave Ward: two thin full rings just outside the HP line while the
+// wave's blocked hit is still unused (the outer one fainter). They fade out
+// when the hit is taken.
+inline void DrawWardRings(float cx, float cy, float playerSize, bool ward, float time) {
+    static bool s_prev = false;
+    static float s_lostAt = -10.0f;
+    if (s_prev && !ward) s_lostAt = time;
+    if (time < s_lostAt) s_lostAt = -10.0f;
+    s_prev = ward;
+    constexpr float kFadeSec = 0.30f;
+    const float fadeT = (time - s_lostAt) / kFadeSec;
+    float a = ward ? 0.80f + 0.12f * std::sin(time * 2.2f)
+                   : (fadeT >= 0.0f && fadeT < 1.0f ? 0.85f * (1.0f - fadeT) : 0.0f);
+    if (a <= 0.01f) return;
+    constexpr Rgb kWardCol = { 0.30f, 0.88f, 0.92f };
+    constexpr Rgb kKeyCol  = { 0.03f, 0.06f, 0.10f };   // thin dark keyline: readable on light panes
+    const float base = HpArcRadius(playerSize) + HpArcThick(playerSize) * 0.5f + 5.0f;
+    const float grow = ward ? 0.0f : 8.0f * fadeT;
+    const float r0 = base + grow, r1 = base + 5.0f + grow * 1.5f;
+    const float full = 2.0f * hud_lines::kPi;
+    hud_lines::Arc(cx, cy, r0, 3.6f, 0.0f, full, kKeyCol, a * 0.45f);
+    hud_lines::Arc(cx, cy, r1, 2.6f, 0.0f, full, kKeyCol, a * 0.30f);
+    hud_lines::Arc(cx, cy, r0, 2.0f, 0.0f, full, kWardCol, a);
+    hud_lines::Arc(cx, cy, r1, 1.2f, 0.0f, full, kWardCol, a * 0.60f);
+}
+
 // Screen space text for the arc: "LOW HP" at the arc's right end while in
 // danger, and "hp / max" under the arc while a hit is fresh (numberA > 0).
 // visible = false on reward screens: time is frozen there, so a fresh-hit

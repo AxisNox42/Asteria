@@ -547,6 +547,11 @@ void HookKill() {
 
 void HookHurt(float& hp, float dmg) {
     if (s.in.damageProtected) { hp -= dmg; return; }   // undone this step anyway
+    if (g_PlayerWaveWard) {   // shop Wave Ward: this hit is blocked whole
+        g_PlayerWaveWard = false;
+        Audio::Play(Audio::Cue::SfxShieldBreak);
+        return;
+    }
     if (Has(AugType::P_STILL_STILLNESS_PLATING) && s.stillT >= 1.0f) dmg *= 0.70f;
     if (Has(AugType::P_GEM_BUFFER_PLATING) && s.emeraldLeft > 0.0f) {
         const float blocked = std::min(dmg, s.emeraldLeft);   // the plate takes what it can
@@ -623,7 +628,7 @@ void Reset() {
 int Owned(AugType type) { return s.count[(int)type]; }
 
 int Luck() {
-    int luck = 0;
+    int luck = MetaLuck();   // shop Luck upgrade
     if (Has(AugType::P_LUCK_LUCKY_STAR))
         luck += g_RunStardust >= 40 ? 3 : g_RunStardust >= 15 ? 1 : 0;
     return luck;

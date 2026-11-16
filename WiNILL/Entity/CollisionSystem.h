@@ -86,6 +86,10 @@ inline void CreditRegularKill(KillRewardSink& s, CodexMobId mobId, float scoreBa
     RegisterCodexMobKill(mobId);
     s.scoreAccum += scoreBase;
     s.score = (long long)s.scoreAccum;
+    // Shop: Kill Mend.
+    const float healChance = MetaKillHealChance();
+    if (healChance > 0.0f && (float)std::rand() / ((float)RAND_MAX + 1.0f) < healChance)
+        s.playerHP = std::min(s.stats.maxHP, s.playerHP + kMetaKillHealHp);
     if (passive_hooks::kill) passive_hooks::kill();
 }
 
@@ -143,6 +147,8 @@ inline void CollectMonsterKill(KillRewardSink& s, Monster& m) {
         CreditRegularKill(s, CodexMobIdForKind(m.kind), 0.0f);   // counts as a kill; pays later
         return;
     }
+    // Shop: Elite Bounty (an Antares family pays it once, with its last body).
+    if (IsEliteMob(m.kind) && !m.genesisSummoned) stardust += MetaEliteBounty();
     SpawnKillStardust(m, stardust, s.playerCX, s.playerCY, pickupXp);
     CreditRegularKill(s, CodexMobIdForKind(m.kind), scoreBase);
     gamelog::Kill(MobKindName(m.kind));

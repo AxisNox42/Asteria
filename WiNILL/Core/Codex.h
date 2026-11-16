@@ -7,6 +7,7 @@
 #include "Augment.h"   // AUG_TOTAL
 #include "Monster.h"   // MobKind
 #include "Settings.h"  // g_Language, g_CreativeMode
+#include "Meta.h"      // shop Codex Decoder
 #include <string>
 #include <cwctype>
 #include <algorithm>
@@ -540,6 +541,8 @@ inline int CodexMobDataStage(int id) {
     const long long kills = CodexMobKillCount(id);
     if (CodexFullReveal()) return 3;
     if (kills >= CodexMobKillThreshold(id, 2)) return 3;
+    // Shop Codex Decoder: one kill opens the whole record.
+    if (g_MetaLv[META_CODEX] > 0 && kills >= CodexMobKillThreshold(id, 0)) return 3;
     if (kills >= CodexMobKillThreshold(id, 1)) return 2;
     if (kills >= CodexMobKillThreshold(id, 0)) return 1;
     return 0;

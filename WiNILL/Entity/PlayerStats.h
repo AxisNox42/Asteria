@@ -34,6 +34,7 @@ inline float g_PlayerSizeMult = 1.0f;   // PlayerStats::playerSizeMult, for mob 
 inline float g_PlayerShield     = 0.0f;
 inline float g_PlayerShieldTimer = 0.0f;
 inline float g_PlayerDamagePulse = 0.0f;
+inline bool  g_PlayerWaveWard = false;   // shop Wave Ward: the next hit this wave is blocked
 
 inline void GrantPlayerShield(float amount, float durationSec) {
     if (amount <= 0.0f || durationSec <= 0.0f) return;

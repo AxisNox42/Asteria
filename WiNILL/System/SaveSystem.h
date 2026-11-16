@@ -614,6 +614,7 @@ inline bool RecordRunResult(int difficultyIdx, long long score, long long kills,
     float diffMul = (difficultyIdx == 3) ? 2.0f : (difficultyIdx == 2) ? 1.5f
                   : (difficultyIdx == 1) ? 1.2f : 1.0f;
     long long earned = (long long)((score / 1000 + kills / 2) * diffMul);
+    earned = MetaRunReward(earned, g_Coins);   // shop: Run Reward and Interest
     AddSaveValue(g_Coins, earned);
     g_LastRunCoins = earned;
     AddSaveValue(g_RunStardust, earned);

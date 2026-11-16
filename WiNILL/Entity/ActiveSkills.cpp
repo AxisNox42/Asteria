@@ -414,7 +414,7 @@ void Cast(int aug) {
         Audio::Play(Audio::Cue::SkillProjMulti);
         break;
     case AugType::A_SHADOW_TWIN_STAR_CLONE: {
-        Obj o; o.kind = ObjKind::Clone; o.x = px; o.y = py; o.life = 8.0f;
+        Obj o; o.kind = ObjKind::Clone; o.x = px; o.y = py; o.life = 8.0f * MetaDurationMult();
         o.col = { 0.60f, 0.50f, 0.95f };
         s.objs.push_back(o);
         Audio::Play(Audio::Cue::SkillSummon);
@@ -426,7 +426,7 @@ void Cast(int aug) {
         Audio::Play(Audio::Cue::SkillSlam);
         break;
     case AugType::A_STONE_ASTEROID_WALL: {
-        Obj o; o.kind = ObjKind::Wall; o.life = 6.0f;
+        Obj o; o.kind = ObjKind::Wall; o.life = 6.0f * MetaDurationMult();
         o.x = px + dx * 130.0f; o.y = py + dy * 130.0f;
         o.x2 = -dy * 120.0f; o.y2 = dx * 120.0f;    // half-extent along the wall
         o.col = { 0.85f, 0.70f, 0.50f };
@@ -451,7 +451,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_GEM_REFRACTION_CRYSTAL: {
-        Obj o; o.kind = ObjKind::Prism; o.x = px; o.y = py; o.life = 4.0f;
+        Obj o; o.kind = ObjKind::Prism; o.x = px; o.y = py; o.life = 4.0f * MetaDurationMult();
         o.col = { 0.75f, 0.95f, 1.0f };
         s.objs.push_back(o);
         Audio::Play(Audio::Cue::SkillSummon);
@@ -473,7 +473,7 @@ void Cast(int aug) {
     case AugType::A_STORM_TRIPLE_BOLT: CastLightningStrike(); break;
     case AugType::A_STORM_STORM_NEBULA: {
         // No cloud: for 6s the ship itself throws a bolt every 0.5s.
-        Obj o; o.kind = ObjKind::Storm; o.life = 6.0f; o.col = { 0.65f, 0.80f, 1.0f };
+        Obj o; o.kind = ObjKind::Storm; o.life = 6.0f * MetaDurationMult(); o.col = { 0.65f, 0.80f, 1.0f };
         s.objs.push_back(o);
         Audio::Play(Audio::Cue::SkillSummon);
         break;
@@ -491,7 +491,7 @@ void Cast(int aug) {
         Audio::Play(Audio::Cue::SkillWave);
         break;
     case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
-        Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f;
+        Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f * MetaDurationMult();
         o.col = { 0.55f, 0.35f, 0.95f };
         s.objs.push_back(o);
         Audio::StartLoop(Audio::Cue::SkillVortexLoop);
@@ -549,7 +549,7 @@ void Cast(int aug) {
         }
         break;
     case AugType::A_STILL_STARLIGHT_TURRET: {
-        Obj o; o.kind = ObjKind::Turret; o.x = px; o.y = py; o.life = 10.0f;
+        Obj o; o.kind = ObjKind::Turret; o.x = px; o.y = py; o.life = 10.0f * MetaDurationMult();
         o.col = { 0.60f, 0.95f, 0.80f };
         s.objs.push_back(o);
         Audio::Play(Audio::Cue::SkillSummon);
@@ -843,13 +843,16 @@ float CooldownFor(int augIdx) {
             if (o.aug >= 0 && o.aug != augIdx) base = std::max(base, CooldownFor(o.aug));
         return base;
     }
-    if (Has(AugType::P_CHRONO_TIME_COMPRESSOR) && base <= 12.0f) return 7.0f;
+    // The shop's Skill Cooldown upgrade scales the finished cooldown (Tidal Surge
+    // above follows the other slots, so it inherits it).
+    const float metaMul = MetaCooldownMult();
+    if (Has(AugType::P_CHRONO_TIME_COMPRESSOR) && base <= 12.0f) return 7.0f * metaMul;
     float cd = base;
     if (Has(AugType::P_NIGHT_DWARF_COOLING)) cd -= 1.0f;
     if (passive::FirescaleOn()) cd -= 3.0f;
     if (Has(AugType::P_ABYSS_OVERCHARGED_CAST)) cd += 5.0f;
     if (passive::DarkWingsOn()) cd -= 2.0f;
-    return std::max(1.0f, cd);
+    return std::max(1.0f, cd) * metaMul;
 }
 
 float DamageMult() {

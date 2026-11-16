@@ -3506,6 +3506,9 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
                        (int)earned, gm.rewardTier, gm.rewardTierCap, gm.rewardSpeed, gm.playerHP);
         gm.QueueAugmentReward();
         passive::OnWaveCleared(IsSpecialWave(gm.currentWave, g_Difficulty));
+        // Shop: Wave Mend.
+        if (MetaWaveMendFrac() > 0.0f)
+            gm.playerHP = std::min(g_Stats.maxHP, gm.playerHP + g_Stats.maxHP * MetaWaveMendFrac());
         Audio::Play(Audio::Cue::WaveClear);
         // Wave clear: every drop left on the map flies to the player.
         g_StardustCollectAll = true;
@@ -3530,6 +3533,12 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         gm.waveKillStart = g_Stats.killCount;
         gm.waveKills = 0;
         gm.waveTransitionTimer = 2.0f;
+        // Shop: Wave Ward comes back each wave; Boss Prep heals before a boss.
+        g_PlayerWaveWard = MetaWaveWard();
+        if (MetaBossPrepFrac() > 0.0f && WaveFightIsBoss(gm.currentWave)) {
+            gm.playerHP = std::min(g_Stats.maxHP, gm.playerHP + g_Stats.maxHP * MetaBossPrepFrac());
+            Audio::Play(Audio::Cue::SfxHealSmall);
+        }
         gamelog::SetClock(g_GameTime, gm.currentWave, gm.playerHP, gm.maxHP);
         gamelog::Event("WAVE_START", "quota=%d,level=%d,score=%lld,hp=%.1f",
                        RegularWaveKillQuota(gm.currentWave, g_Difficulty),
@@ -4701,6 +4710,11 @@ int main() {
             laser_fx::Clear();
             caelum_fx::Clear();
             ResetPlayerSkills();   // dash and shield runtime
+            g_PlayerWaveWard = MetaWaveWard();   // shop Wave Ward covers wave 1 too
+            g_MetaPlayerHpFrac = 1.0f;
+            g_MetaComboNow = 0;
+            g_MetaFirstCardPending = g_MetaLv[META_FIRSTCARD] > 0;
+            g_ComboWindowBonus = MetaComboWindowBonus();
             passive::Reset();
             g_SkillHudPulse.Reset();
             ResetPlayerInputEdges();
@@ -6292,6 +6306,8 @@ CollisionSystem::Update(pCX, pCY,
                 ApplyPlayerDamageProtection(
                     hpAtStep, g_GameManager.playerHP,
                     IsPlayerDamageProtected());
+                g_MetaPlayerHpFrac = g_GameManager.playerHP / std::max(1.0f, g_Stats.maxHP);
+                g_MetaComboNow = g_Combo;
 
                 // Regular enemy kill rewards (KillRewards.h).
                 KillRewardSink killSink{ g_GameManager.playerHP, g_GameManager.scoreAccum,
@@ -6956,6 +6972,7 @@ CollisionSystem::Update(pCX, pCY,
                 vitals_hud::DrawShieldArc(pCX, pCY, playerSize,
                     (g_PlayerShield + passive::PlateShieldLeft()) / std::max(1.0f, g_Stats.maxHP),
                     g_GameTime);
+                vitals_hud::DrawWardRings(pCX, pCY, playerSize, g_PlayerWaveWard, g_GameTime);
             }
             DrawPlayerWeaponShell(pCX, pCY, playerSize,
                                   atan2f(wmy - pCY, wmx - pCX), g_GameTime);

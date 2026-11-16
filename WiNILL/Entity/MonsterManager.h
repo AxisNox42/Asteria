@@ -8,6 +8,7 @@
 #include "SpaceRules.h"
 #include "PassiveHooks.h"   // EnemyRemoved: a capsule that hatches is not a kill
 #include "../System/GameLog.h"
+#include "../Core/Meta.h"     // shop upgrades on player hits
 #include "../System/Audio.h"
 
 class MonsterManager {
@@ -44,6 +45,9 @@ public:
                       int source = space::kPlayerSource,
                       float hitDirX = 0.0f, float hitDirY = 0.0f) {
         if (!space::Reaches(source, target.worldX, target.worldY)) return 0.0f;
+        // Shop upgrades on the player's own hits (Elite / Boss Damage, Last Stand).
+        if (source == space::kPlayerSource)
+            damage *= MetaPlayerHitMult(IsEliteMob(target.kind), IsBossMob(target.kind));
         const float dealt = target.ApplyDamage(damage);
         gamelog::Dealt(MobKindName(target.kind), dealt);
         if (dealt > 0.0f && target.alive && IsEliteMob(target.kind))
@@ -55,6 +59,7 @@ public:
     float ApplyDamage(RangedMob& target, float damage,
                       int source = space::kPlayerSource) {
         if (!space::Reaches(source, target.worldX, target.worldY)) return 0.0f;
+        if (source == space::kPlayerSource) damage *= MetaPlayerHitMult(false, false);
         const float dealt = target.ApplyDamage(damage);
         gamelog::Dealt("SCOPE", dealt);
         HandleShieldBreak(target);

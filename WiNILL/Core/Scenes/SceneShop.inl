@@ -72,7 +72,7 @@ static int ShopBuildEntries(int tab, shopgrid::Entry* out, shopgrid::Section* se
     int n = 0;
     secCount = 0;
     if (tab <= 1) {
-        Entry pool[32];
+        Entry pool[48];
         int pn = 0;
         for (int i = 0; i < META_COUNT; ++i) {
             if (MetaSlotRemoved(i)) continue;
@@ -83,7 +83,7 @@ static int ShopBuildEntries(int tab, shopgrid::Entry* out, shopgrid::Section* se
         }
         for (int t = 0; t < 3; ++t) {
             // Cheapest first inside a tier.
-            Entry inTier[32];
+            Entry inTier[48];
             int tn = 0;
             for (int i = 0; i < pn; ++i) if (pool[i].tier == t) inTier[tn++] = pool[i];
             std::stable_sort(inTier, inTier + tn,
@@ -142,6 +142,28 @@ static void ShopDrawMetaGlyph(int id, float cx, float cy, float size,
     LogoLine(cx - h + c, cy + h, cx - h, cy + h - c, th, r, g, b, a);
     LogoLine(cx - h, cy + h - c, cx - h, cy - h + c, th, r, g, b, a);
     LogoLine(cx - h, cy - h + c, cx - h + c, cy - h, th, r, g, b, a);
+    // Line-only helpers for the glyphs below (no filled shapes).
+    auto ring = [&](float x, float y, float rad, float t) {
+        for (int s2 = 0; s2 < 16; ++s2) {
+            const float a0 = 6.2831853f * (float)s2 / 16.0f, a1 = 6.2831853f * (float)(s2 + 1) / 16.0f;
+            LogoLine(x + rad * cosf(a0), y + rad * sinf(a0), x + rad * cosf(a1), y + rad * sinf(a1), t, r, g, b, a);
+        }
+    };
+    auto diamondLines = [&](float x, float y, float rad, float t) {
+        LogoLine(x, y - rad, x + rad, y, t, r, g, b, a);
+        LogoLine(x + rad, y, x, y + rad, t, r, g, b, a);
+        LogoLine(x, y + rad, x - rad, y, t, r, g, b, a);
+        LogoLine(x - rad, y, x, y - rad, t, r, g, b, a);
+    };
+    // Four-point star outline: tips at `outer`, waist corners at `inner`.
+    auto star4 = [&](float x, float y, float outer, float inner, float t) {
+        const float px[8] = { 0.0f, inner, outer, inner, 0.0f, -inner, -outer, -inner };
+        const float py[8] = { -outer, -inner, 0.0f, inner, outer, inner, 0.0f, -inner };
+        for (int i = 0; i < 8; ++i) {
+            const int j = (i + 1) % 8;
+            LogoLine(x + px[i], y + py[i], x + px[j], y + py[j], t, r, g, b, a);
+        }
+    };
     switch (id) {
     case META_HP:      // plus
         LogoLine(cx - k, cy, cx + k, cy, th * 1.4f, r, g, b, a);
@@ -170,6 +192,173 @@ static void ShopDrawMetaGlyph(int id, float cx, float cy, float size,
         LogoLine(cx - k * 0.95f, cy - k * 0.15f, cx - k * 0.55f, cy - k * 0.15f, th, r, g, b, a);
         LogoLine(cx + k * 0.55f, cy - k * 0.15f, cx + k * 0.95f, cy - k * 0.15f, th, r, g, b, a);
         drawDiamond(cx, cy - k * 0.70f, size * 0.12f, 1.0f, 0.85f, 0.30f, a);
+        break;
+    case META_ATKSPD:  // three quick chevrons
+        for (int i = 0; i < 3; ++i) {
+            const float ox = (-0.62f + 0.55f * (float)i) * k;
+            LogoLine(cx + ox - k * 0.25f, cy - k * 0.6f, cx + ox + k * 0.25f, cy, th * 1.2f, r, g, b, a);
+            LogoLine(cx + ox - k * 0.25f, cy + k * 0.6f, cx + ox + k * 0.25f, cy, th * 1.2f, r, g, b, a);
+        }
+        break;
+    case META_REGEN:   // a ring with three lines rising inside
+        ring(cx, cy, k * 0.85f, th);
+        for (int i = -1; i <= 1; ++i) {
+            const float x = cx + (float)i * k * 0.36f;
+            const float top = cy - k * (i == 0 ? 0.55f : 0.30f);
+            LogoLine(x, cy + k * 0.45f, x, top, th * 1.2f, r, g, b, a);
+            LogoLine(x - k * 0.14f, top + k * 0.14f, x, top, th, r, g, b, a);
+            LogoLine(x + k * 0.14f, top + k * 0.14f, x, top, th, r, g, b, a);
+        }
+        break;
+    case META_SHOTSPD: // a long shot line ending in two chevrons
+        LogoLine(cx - k, cy, cx + k * 0.55f, cy, th * 1.3f, r, g, b, a);
+        for (int i = 0; i < 2; ++i) {
+            const float x = cx + k * (0.35f + 0.38f * (float)i);
+            LogoLine(x - k * 0.3f, cy - k * 0.42f, x, cy, th * 1.2f, r, g, b, a);
+            LogoLine(x - k * 0.3f, cy + k * 0.42f, x, cy, th * 1.2f, r, g, b, a);
+        }
+        break;
+    case META_CRIT:    // crosshair with two flash lines off its corner
+    case META_CRITDMG: // crosshair around a diamond outline
+        ring(cx, cy, k * 0.62f, th);
+        LogoLine(cx - k, cy, cx - k * 0.40f, cy, th, r, g, b, a);
+        LogoLine(cx + k * 0.40f, cy, cx + k, cy, th, r, g, b, a);
+        LogoLine(cx, cy - k, cx, cy - k * 0.40f, th, r, g, b, a);
+        LogoLine(cx, cy + k * 0.40f, cx, cy + k, th, r, g, b, a);
+        if (id == META_CRIT) {
+            LogoLine(cx + k * 0.55f, cy - k * 0.55f, cx + k * 0.95f, cy - k * 0.95f, th * 1.2f, r, g, b, a);
+            LogoLine(cx + k * 0.80f, cy - k * 0.40f, cx + k * 1.05f, cy - k * 0.62f, th, r, g, b, a);
+        } else {
+            diamondLines(cx, cy, k * 0.30f, th);
+        }
+        break;
+    case META_COOLDOWN: // a clock ring running backwards, with an arrow head
+        for (int s2 = 0; s2 < 10; ++s2) {
+            const float a0 = -1.5707963f + 0.5236f + 0.5236f * (float)s2;
+            const float a1 = a0 + 0.5236f;
+            LogoLine(cx + k * 0.85f * cosf(a0), cy + k * 0.85f * sinf(a0),
+                     cx + k * 0.85f * cosf(a1), cy + k * 0.85f * sinf(a1), th, r, g, b, a);
+        }
+        {
+            const float ax = cx + k * 0.85f * cosf(-1.0472f), ay = cy + k * 0.85f * sinf(-1.0472f);
+            LogoLine(ax, ay, ax - k * 0.05f, ay - k * 0.32f, th * 1.2f, r, g, b, a);
+            LogoLine(ax, ay, ax + k * 0.30f, ay - k * 0.10f, th * 1.2f, r, g, b, a);
+        }
+        LogoLine(cx, cy, cx, cy - k * 0.50f, th * 1.2f, r, g, b, a);
+        LogoLine(cx, cy, cx - k * 0.36f, cy + k * 0.20f, th * 1.2f, r, g, b, a);
+        break;
+    case META_LUCK:    // a four-point star with a small one inside
+        star4(cx, cy, k * 0.95f, k * 0.30f, th * 1.2f);
+        star4(cx, cy, k * 0.38f, k * 0.12f, th);
+        break;
+    case META_REWARD:  // three small stars stacked as a pyramid
+        star4(cx, cy - k * 0.42f, k * 0.42f, k * 0.13f, th);
+        star4(cx - k * 0.50f, cy + k * 0.40f, k * 0.42f, k * 0.13f, th);
+        star4(cx + k * 0.50f, cy + k * 0.40f, k * 0.42f, k * 0.13f, th);
+        break;
+    case META_INTEREST: // a star over a rising stair line
+        star4(cx + k * 0.42f, cy - k * 0.45f, k * 0.45f, k * 0.14f, th);
+        LogoLine(cx - k * 0.95f, cy + k * 0.80f, cx - k * 0.45f, cy + k * 0.80f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.45f, cy + k * 0.80f, cx - k * 0.45f, cy + k * 0.35f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.45f, cy + k * 0.35f, cx + k * 0.05f, cy + k * 0.35f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.05f, cy + k * 0.35f, cx + k * 0.05f, cy - k * 0.10f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.05f, cy - k * 0.10f, cx - k * 0.20f, cy - k * 0.10f, th, r, g, b, a);
+        break;
+    case META_ELITEDMG: // a triangle with a small triangle on its top corner
+    case META_BOUNTY:   // a triangle with a small star under it
+        {
+            const float ty = (id == META_BOUNTY) ? -k * 0.25f : k * 0.15f;
+            LogoLine(cx, cy - k * 0.55f + ty, cx + k * 0.70f, cy + k * 0.55f + ty, th * 1.2f, r, g, b, a);
+            LogoLine(cx + k * 0.70f, cy + k * 0.55f + ty, cx - k * 0.70f, cy + k * 0.55f + ty, th * 1.2f, r, g, b, a);
+            LogoLine(cx - k * 0.70f, cy + k * 0.55f + ty, cx, cy - k * 0.55f + ty, th * 1.2f, r, g, b, a);
+            if (id == META_ELITEDMG) {
+                const float tipY = cy - k * 0.55f + ty;
+                LogoLine(cx, tipY - k * 0.50f, cx + k * 0.24f, tipY - k * 0.12f, th, r, g, b, a);
+                LogoLine(cx + k * 0.24f, tipY - k * 0.12f, cx - k * 0.24f, tipY - k * 0.12f, th, r, g, b, a);
+                LogoLine(cx - k * 0.24f, tipY - k * 0.12f, cx, tipY - k * 0.50f, th, r, g, b, a);
+            } else {
+                star4(cx, cy + k * 0.72f, k * 0.30f, k * 0.09f, th);
+            }
+        }
+        break;
+    case META_BOSSDMG:  // a large ring with a crown line inside
+        ring(cx, cy, k * 0.92f, th);
+        LogoLine(cx - k * 0.50f, cy + k * 0.30f, cx + k * 0.50f, cy + k * 0.30f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.50f, cy + k * 0.30f, cx - k * 0.50f, cy - k * 0.35f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.50f, cy - k * 0.35f, cx - k * 0.22f, cy - k * 0.05f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.22f, cy - k * 0.05f, cx, cy - k * 0.45f, th * 1.2f, r, g, b, a);
+        LogoLine(cx, cy - k * 0.45f, cx + k * 0.22f, cy - k * 0.05f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.22f, cy - k * 0.05f, cx + k * 0.50f, cy - k * 0.35f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.50f, cy - k * 0.35f, cx + k * 0.50f, cy + k * 0.30f, th * 1.2f, r, g, b, a);
+        break;
+    case META_BERSERK:  // a nearly empty bar with a flame line rising from it
+        LogoLine(cx - k * 0.85f, cy + k * 0.45f, cx + k * 0.85f, cy + k * 0.45f, th, r, g, b, a);
+        LogoLine(cx - k * 0.85f, cy + k * 0.85f, cx + k * 0.85f, cy + k * 0.85f, th, r, g, b, a);
+        LogoLine(cx - k * 0.85f, cy + k * 0.45f, cx - k * 0.85f, cy + k * 0.85f, th, r, g, b, a);
+        LogoLine(cx + k * 0.85f, cy + k * 0.45f, cx + k * 0.85f, cy + k * 0.85f, th, r, g, b, a);
+        LogoLine(cx - k * 0.60f, cy + k * 0.65f, cx - k * 0.35f, cy + k * 0.65f, th * 1.6f, r, g, b, a);
+        LogoLine(cx - k * 0.30f, cy + k * 0.20f, cx - k * 0.05f, cy - k * 0.30f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.05f, cy - k * 0.30f, cx + k * 0.10f, cy - k * 0.05f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.10f, cy - k * 0.05f, cx + k * 0.30f, cy - k * 0.85f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.30f, cy - k * 0.85f, cx + k * 0.40f, cy + k * 0.20f, th * 1.2f, r, g, b, a);
+        break;
+    case META_KILLHEAL: // an X with a small plus beside it
+        LogoLine(cx - k * 0.85f, cy - k * 0.55f, cx + k * 0.15f, cy + k * 0.55f, th * 1.3f, r, g, b, a);
+        LogoLine(cx + k * 0.15f, cy - k * 0.55f, cx - k * 0.85f, cy + k * 0.55f, th * 1.3f, r, g, b, a);
+        LogoLine(cx + k * 0.45f, cy - k * 0.35f, cx + k * 0.95f, cy - k * 0.35f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.70f, cy - k * 0.60f, cx + k * 0.70f, cy - k * 0.10f, th * 1.2f, r, g, b, a);
+        break;
+    case META_WARD:     // two rings, the outer one thinner
+        ring(cx, cy, k * 0.55f, th * 1.3f);
+        ring(cx, cy, k * 0.90f, th * 0.7f);
+        break;
+    case META_BOSSPREP: // a large ring with a plus in front of it
+        ring(cx + k * 0.25f, cy, k * 0.70f, th);
+        LogoLine(cx - k * 0.95f, cy, cx - k * 0.35f, cy, th * 1.3f, r, g, b, a);
+        LogoLine(cx - k * 0.65f, cy - k * 0.30f, cx - k * 0.65f, cy + k * 0.30f, th * 1.3f, r, g, b, a);
+        break;
+    case META_WAVEHEAL: // a small plus between two upright lines
+        LogoLine(cx - k * 0.75f, cy - k * 0.80f, cx - k * 0.75f, cy + k * 0.80f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.75f, cy - k * 0.80f, cx + k * 0.75f, cy + k * 0.80f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.35f, cy, cx + k * 0.35f, cy, th * 1.3f, r, g, b, a);
+        LogoLine(cx, cy - k * 0.35f, cx, cy + k * 0.35f, th * 1.3f, r, g, b, a);
+        break;
+    case META_FIRSTCARD: // a card outline with a small star over it
+        LogoLine(cx - k * 0.50f, cy - k * 0.45f, cx + k * 0.50f, cy - k * 0.45f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.50f, cy - k * 0.45f, cx + k * 0.50f, cy + k * 0.90f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.50f, cy + k * 0.90f, cx - k * 0.50f, cy + k * 0.90f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.50f, cy + k * 0.90f, cx - k * 0.50f, cy - k * 0.45f, th * 1.2f, r, g, b, a);
+        star4(cx, cy + k * 0.22f, k * 0.32f, k * 0.10f, th);
+        star4(cx, cy - k * 0.82f, k * 0.24f, k * 0.08f, th);
+        break;
+    case META_CODEX:     // an open book with a small triangle mob on its right page
+        LogoLine(cx, cy - k * 0.55f, cx, cy + k * 0.75f, th, r, g, b, a);
+        LogoLine(cx, cy - k * 0.55f, cx - k * 0.90f, cy - k * 0.70f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.90f, cy - k * 0.70f, cx - k * 0.90f, cy + k * 0.60f, th * 1.2f, r, g, b, a);
+        LogoLine(cx - k * 0.90f, cy + k * 0.60f, cx, cy + k * 0.75f, th * 1.2f, r, g, b, a);
+        LogoLine(cx, cy - k * 0.55f, cx + k * 0.90f, cy - k * 0.70f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.90f, cy - k * 0.70f, cx + k * 0.90f, cy + k * 0.60f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.90f, cy + k * 0.60f, cx, cy + k * 0.75f, th * 1.2f, r, g, b, a);
+        LogoLine(cx + k * 0.45f, cy - k * 0.25f, cx + k * 0.68f, cy + k * 0.20f, th, r, g, b, a);
+        LogoLine(cx + k * 0.68f, cy + k * 0.20f, cx + k * 0.22f, cy + k * 0.20f, th, r, g, b, a);
+        LogoLine(cx + k * 0.22f, cy + k * 0.20f, cx + k * 0.45f, cy - k * 0.25f, th, r, g, b, a);
+        LogoLine(cx - k * 0.70f, cy - k * 0.20f, cx - k * 0.22f, cy - k * 0.14f, th * 0.8f, r, g, b, a);
+        LogoLine(cx - k * 0.70f, cy + k * 0.10f, cx - k * 0.22f, cy + k * 0.16f, th * 0.8f, r, g, b, a);
+        break;
+    case META_COMBO:     // a timeline with even ticks, the last ones taller
+        LogoLine(cx - k * 0.95f, cy + k * 0.40f, cx + k * 0.95f, cy + k * 0.40f, th * 1.2f, r, g, b, a);
+        for (int i = 0; i < 5; ++i) {
+            const float x = cx + k * (-0.76f + 0.38f * (float)i);
+            const float hgt = k * (0.25f + 0.17f * (float)i);
+            LogoLine(x, cy + k * 0.40f, x, cy + k * 0.40f - hgt, th, r, g, b, a);
+        }
+        break;
+    case META_DURATION:  // an hourglass outline
+        LogoLine(cx - k * 0.60f, cy - k * 0.85f, cx + k * 0.60f, cy - k * 0.85f, th * 1.3f, r, g, b, a);
+        LogoLine(cx - k * 0.60f, cy + k * 0.85f, cx + k * 0.60f, cy + k * 0.85f, th * 1.3f, r, g, b, a);
+        LogoLine(cx - k * 0.48f, cy - k * 0.85f, cx + k * 0.48f, cy + k * 0.85f, th, r, g, b, a);
+        LogoLine(cx + k * 0.48f, cy - k * 0.85f, cx - k * 0.48f, cy + k * 0.85f, th, r, g, b, a);
+        LogoLine(cx - k * 0.20f, cy + k * 0.55f, cx + k * 0.20f, cy + k * 0.55f, th, r, g, b, a);
         break;
     default:           // identity slot: a slot frame with a node
         LogoLine(cx - k, cy - k * 0.6f, cx + k, cy - k * 0.6f, th, r, g, b, a);
@@ -620,9 +809,26 @@ void Scene_Shop(const SceneCtx& c) {
                 }
 
                 // Name and price.
-                drawText(g_TextS, name, cx - std::min(g_TextS.Width(name, sSmall), cw - 10.0f * ui) * 0.5f,
-                         y + 76.0f * ui, sSmall, 0.88f, 0.94f, 1.0f, (0.72f + 0.2f * hv + 0.08f * sa) * wk,
-                         cw - 10.0f * ui);
+                // Text never shrinks below the renderer's minimum scale, so a long
+                // name can stay wider than its box. Such a name drops its trailing
+                // "+15%"-style value here (the detail panel shows the full name),
+                // and every name is centred on the width it really draws at.
+                const float nameMaxW = cw - 14.0f * ui;
+                std::wstring label = name;
+                if (g_TextS.Width(label.c_str(), sSmall) > nameMaxW * 1.15f) {
+                    const size_t sp = label.find_last_of(L' ');
+                    if (sp != std::wstring::npos && sp + 1 < label.size() &&
+                        (label[sp + 1] == L'+' || label[sp + 1] == L'-'))
+                        label.erase(sp);
+                }
+                float nameSc = sSmall;
+                float nameW = g_TextS.Width(label.c_str(), nameSc);
+                if (nameW > nameMaxW) {
+                    nameSc *= nameMaxW / nameW;
+                    nameW = g_TextS.Width(label.c_str(), nameSc);
+                }
+                drawText(g_TextS, label.c_str(), cx - nameW * 0.5f,
+                         y + 76.0f * ui, nameSc, 0.88f, 0.94f, 1.0f, (0.72f + 0.2f * hv + 0.08f * sa) * wk);
                 wchar_t line[40] = L"";
                 float pr = 1.0f, pg = 0.84f, pb = 0.34f;
                 if (e.kind == Kind::Aug) {
@@ -767,9 +973,12 @@ void Scene_Shop(const SceneCtx& c) {
                               inputReady && da > 0.9f, (float)mx, (float)my, delta, sw, sh, ui);
         } else {
             const int lv = g_MetaLv[e.id], maxLv = META_DEFS[e.id].maxLv;
+            const wchar_t* effect = IsChinese() ? ZhTranslate(META_DEFS[e.id].desc[1]) : MetaDesc(e.id);
+            drawText(g_TextS, effect, px, y, sBody, 0.92f, 0.96f, 1.0f, 0.94f * da, panelW);
+            y += lineH;
             drawText(g_TextS, ShopText(L"출격 전 적용되는 영구 효과", L"PERMANENT EFFECT APPLIED BEFORE LAUNCH",
                                        L"出撃前に適用される恒久効果"),
-                     px, y, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da, panelW);
+                     px, y, sSmall, 0.70f, 0.80f, 0.92f, 0.80f * da, panelW);
             y += lineH + 6.0f * ui;
             // Level pips.
             for (int k = 0; k < maxLv; ++k) {
@@ -780,6 +989,30 @@ void Scene_Shop(const SceneCtx& c) {
             swprintf_s(lvBuf, ShopText(L"레벨  %d / %d", L"LEVEL  %d / %d", L"レベル  %d / %d"), lv, maxLv);
             drawText(g_TextS, lvBuf, pr, y - 2.0f * ui, sBody, 0.92f, 0.96f, 1.0f, 0.9f * da, 0.0f, true);
             y += lineH + 6.0f * ui;
+            // Refund: every level of this upgrade back for the full price paid.
+            // Buying again costs the same, so nothing is lost. The 1-stardust
+            // magnet from the first-visit guide is not refundable.
+            const long long spent = MetaSpentOn(e.id);
+            if (lv > 0 && spent > 0 && e.id != META_MAGNET) {
+                wchar_t rfBuf[96], rfNum[32];
+                FormatGrouped(spent, rfNum, 32);
+                swprintf_s(rfBuf, ShopText(L"환불  +%ls 별가루", L"REFUND  +%ls STARDUST", L"払い戻し  +%ls 星屑"),
+                           rfNum);
+                const float rw = g_TextS.Width(rfBuf, sSmall), rh = g_TextS.Height(rfBuf, sSmall);
+                const bool hovRf = inputReady && mx >= px - 6.0f * ui && mx <= px + rw + 6.0f * ui
+                                && my >= y - 6.0f * ui && my <= y + rh + 6.0f * ui;
+                const float ra = (hovRf ? 1.0f : 0.62f) * da;
+                drawText(g_TextS, rfBuf, px, y, sSmall, 0.88f, 0.94f, 1.0f, ra, panelW);
+                LogoLine(px, y + rh + 4.0f * ui, px + rw, y + rh + 4.0f * ui, 1.0f * ui,
+                         0.88f, 0.94f, 1.0f, (hovRf ? 0.7f : 0.25f) * da);
+                if (hovRf && lmbClick) {
+                    Audio::Play(Audio::Cue::UiConfirm);
+                    AddSaveValue(g_Coins, spent);
+                    g_MetaLv[e.id] = 0;
+                    SaveGame();
+                }
+                y += rh + 14.0f * ui;
+            }
             detailBottom = y;
         }
 

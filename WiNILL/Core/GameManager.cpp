@@ -1,6 +1,7 @@
 ﻿#include "GameManager.h"
 #include "Settings.h"
 #include "PlayerStats.h"
+#include "Meta.h"          // shop First Card Boon
 #include "Weapons.h"
 #include "GameContext.h"
 #include "Scenes.h"
@@ -226,6 +227,11 @@ void GameManager::PickRewardChoices() {
     bool used[AUG_TOTAL] = {};
     bool recent[AUG_TOTAL] = {};
     for (const int r : recentOffers) if (r >= 0 && r < AUG_TOTAL) recent[r] = true;
+    // Shop First Card Boon: the run's first wave reward has a Rare or better card.
+    if (g_MetaFirstCardPending) {
+        g_MetaFirstCardPending = false;
+        rewardTier = std::max(rewardTier, (int)AugRarity::RARE);
+    }
     const float luck = passive::LuckChanceMult() * (1.0f + 2.0f * std::clamp(rewardSpeed, 0.0f, 1.0f));
     int guaranteed = -1;
     const int cap = std::clamp(rewardTierCap, 0, (int)AugRarity::MYTHIC);
