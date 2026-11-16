@@ -95,7 +95,7 @@ struct State {
     float clock = 0, stillT = 0, stillChargeT = 0, waveAge = 0, comboT = 0, shieldPrev = 0, stillGuardCd = 0;
     int   lastWave = -1, shots = 0, rhythm = 0, combo = 0, kills = 0, grazes = 0, orbitShots = 0;
     int   quietWaves = 0, cakeArmed = 0, cakeUsed = 0, mineShots = 0;
-    float waveDamage = 0, revengeAcc = 0, cakeAcc = 0, stored = 0, absorbed = 0, dashBoostT = 0, swapCd = 0;
+    float waveDamage = 0, revengeAcc = 0, cakeAcc = 0, stored = 0, absorbed = 0, dashBoostT = 0;
     float shieldPulse = 0;
     std::unordered_map<const void*, glm::vec2> seen;        // enemies alive last step, to notice deaths
     std::unordered_set<const void*> counted;                // kills already handled this step
@@ -323,7 +323,6 @@ void ApplyVerbs(Bullet& b, float tx, float ty) {
     if (o.V_RETURN || o.V_HUNTER) { b.synFlags |= synf::Return; b.maxRange = 0.0f; }
     if (o.V_TRAIL) b.synFlags |= synf::Trail;
     if (o.V_GRAVITY || o.Y_SINGULAR) b.synFlags |= synf::Gravity;
-    if (o.V_SWAP) b.synFlags |= synf::Swap;
     if (o.V_ABSORB) b.synFlags |= synf::Absorb;
     {
         auto roll = [](float c) { return c > 0.0f && Rand01() < c; };
@@ -599,15 +598,15 @@ const wchar_t* const kTagNames[3][synergy::kTagCount] = {
     { L"관통", L"튕김", L"분열", L"유도", L"폭발", L"광선", L"공전", L"연쇄", L"연사", L"장전", L"산탄", L"박자",
       L"처치", L"치명타", L"튕길 때", L"피격", L"정지", L"대시", L"웨이브", L"보호막", L"체력", L"잔상", L"왕복",
       L"유리대포", L"벽 충돌", L"체공", L"점사", L"화상", L"표식", L"주사위", L"인력", L"소거", L"지뢰", L"성장",
-      L"자리바꿈", L"저장", L"콤보", L"박자 사격", L"고각", L"광선 II" },
+      L"저장", L"콤보", L"박자 사격", L"고각", L"광선 II" },
     { L"Pierce", L"Bounce", L"Split", L"Homing", L"Blast", L"Beam", L"Orbit", L"Chain", L"Rapid", L"Charge", L"Spread", L"Beat",
       L"Kill", L"Crit", L"On bounce", L"Hurt", L"Still", L"Dash", L"Wave", L"Shield", L"HP", L"Trail", L"Return",
       L"Glass", L"Wall hit", L"Hover", L"Burst", L"Burn", L"Mark", L"Dice", L"Pull", L"Erase", L"Mine", L"Grow",
-      L"Swap", L"Store", L"Combo", L"Beat shot", L"Lob", L"Beam II" },
+      L"Store", L"Combo", L"Beat shot", L"Lob", L"Beam II" },
     { L"貫通", L"跳弾", L"分裂", L"誘導", L"爆発", L"光線", L"周回", L"連鎖", L"連射", L"装填", L"散弾", L"拍子",
       L"撃破", L"会心", L"跳ね時", L"被弾", L"静止", L"ダッシュ", L"ウェーブ", L"シールド", L"体力", L"残像", L"往復",
       L"ガラス砲", L"壁衝突", L"滞空", L"点射", L"火傷", L"刻印", L"サイコロ", L"引力", L"消去", L"地雷", L"成長",
-      L"入替", L"蓄積", L"コンボ", L"拍子射撃", L"高角", L"光線 II" } };
+      L"蓄積", L"コンボ", L"拍子射撃", L"高角", L"光線 II" } };
 const wchar_t* const kRoleNames[3][7] = {
     { L"프레임", L"동사", L"트리거", L"증폭", L"대가", L"보호", L"확률" },
     { L"Frame", L"Verb", L"Trigger", L"Amp", L"Cost", L"Guard", L"Chance" },
@@ -854,23 +853,6 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             s.pending.push_back(c);
         }
     }
-    if ((b.synFlags & synf::Swap) && s.swapCd <= 0.0f) {
-        bool ok = false;
-        ForEachEnemy([&](auto& e, float ex, float ey) {
-            if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) {
-                if (&e != target || IsBoss(e) || ok) return;
-                ok = true;
-                const float ox = s.in.px, oy = s.in.py;
-                active::RequestTeleport(ex, ey);
-                e.worldX = ox; e.worldY = oy;
-                s.swapCd = 1.5f;
-                Pulse(ox, oy, 70.0f, 0.5f, 0.6f, 0.8f, 1.0f);
-                Pulse(ex, ey, 70.0f, 0.5f, 0.6f, 0.8f, 1.0f);
-                OnDashStarted();   // counts as a dash
-                DashEnded();
-            }
-        });
-    }
     // An echo shot's crit sets off no echo of its own: at a high crit chance they chained without end.
     if (crit && o.T_CRITECHO && !(b.synFlags & synf::CritEchoShot)) {
         const int extra = 1;
@@ -1040,7 +1022,6 @@ void Step(const passive::StepInput& in) {
     const Flags& o = s.on;
     const float dt = in.dt;
     s.clock += dt;
-    s.swapCd = std::max(0.0f, s.swapCd - dt);
     s.stillGuardCd = std::max(0.0f, s.stillGuardCd - dt);
     s.dashBoostT = std::max(0.0f, s.dashBoostT - dt);
     s.sinceDash += dt; s.sinceHurt += dt;

@@ -17,7 +17,7 @@ namespace glossary {
 
 enum class Term : int {
     Verb, Pierce, Bounce, Split, Homing, Blast, Burn, Mark, Orbit, Trail, Mine, Hover,
-    Pull, Return, Swap, Erase, Graze, Shield, Still, Crit, CritMult, HitCount, DmgKinds,
+    Pull, Return, Erase, Graze, Shield, Still, Crit, CritMult, HitCount, DmgKinds,
     FireRate, Range, Distance, Stardust, Luck, Broken, Stack, RunWave,
     ActiveSkill, Dash, SkillSlot, Reaction, Risky, ChanceAug, Enemies, Count
 };
@@ -121,12 +121,6 @@ inline const Entry kEntries[kTermCount] = {
         L"一定距離を飛んだ後プレイヤーへ戻り、戻る途中も敵に当たります。" },
       { L"되돌아옴|되돌아오며", L"turn back|come back", L"戻る|戻ってきて" },
       { Term::Verb }, 1 },
-    { { L"자리바꿈", L"Swap", L"位置交換" },
-      { L"맞힌 적과 플레이어의 위치를 서로 바꿉니다. 대시로 취급되어 대시 효과도 발동합니다.",
-        L"You and the enemy hit trade places. It counts as a dash, so dash effects trigger too.",
-        L"命中した敵とプレイヤーの位置を入れ替えます。ダッシュ扱いなのでダッシュ効果も発動します。" },
-      { L"위치를 바꿈", L"swaps places", L"位置を入れ替える" },
-      { Term::Verb, Term::Dash }, 2 },
     { { L"적탄 소거", L"Bullet clear", L"敵弾消去" },
       { L"범위 안의 적 탄환을 지웁니다. 지워진 탄은 피해를 주지 않습니다.",
         L"Removes enemy bullets in the area. Removed bullets deal no damage.",

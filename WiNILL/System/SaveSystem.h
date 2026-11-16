@@ -9,6 +9,7 @@
 #include <chrono>
 #include <random>
 #include <string>
+#include <vector>
 #include <filesystem>
 #include <system_error>
 #include "Settings.h"
@@ -270,7 +271,7 @@ inline void SaveGame() {
     auto add = [&](const char* fmt, long long v) {
         std::snprintf(ln, sizeof(ln), fmt, v); buf += ln;
     };
-    add("savever=%lld\n",   3);   // 형식 버전. 로더는 모르는 키를 무시하므로 키 추가는 호환된다
+    add("savever=%lld\n",   4);   // 형식 버전. 로더는 모르는 키를 무시하므로 키 추가는 호환된다
     add("lang=%lld\n",      (int)g_Language);
     add("fps=%lld\n",       g_FpsCap);
     add("crosshair=%lld\n", g_ShowCrosshair     ? 1 : 0);
@@ -433,6 +434,8 @@ inline void LoadGame() {
     bool sawTutorialKey = false;
     bool sawShopKey = false;
     long long removedProfiles = 0;   // old "themeowned" bits
+    long long saveVer = 0;           // savever (없으면 아주 예전 세이브)
+    std::vector<int> augSeenKeys;    // augseen 번호 — 버전을 다 읽은 뒤 옮겨 적용
     size_t pos = 0;
     char line[160];
     while (pos < content.size()) {
@@ -451,7 +454,8 @@ inline void LoadGame() {
 #  pragma warning(pop)
 #endif
         if (matched != 2) continue;
-        if      (!std::strcmp(key, "lang"))        { int l = (int)val; if (l >= 0 && l < LANG_TOTAL) g_Language = (Language)l; }
+        if      (!std::strcmp(key, "savever"))     saveVer = val;
+        else if (!std::strcmp(key, "lang"))        { int l = (int)val; if (l >= 0 && l < LANG_TOTAL) g_Language = (Language)l; }
         else if (!std::strcmp(key, "fps")) {
             // Only the caps the settings screen offers (0 = VSync, -1 = legacy unlimited).
             if (val == 0 || val == 30 || val == 60 || val == 144 || val == 300 || val == -1)
@@ -516,7 +520,7 @@ inline void LoadGame() {
         }
         else if (!std::strncmp(key, "augseen", 7)) {
             int ai = atoi(key + 7);
-            if (ai >= 0 && ai < AUG_TOTAL) g_AugSeen[ai] = (val != 0);
+            if (val != 0) augSeenKeys.push_back(ai);
         }
         else if (!std::strncmp(key, "mobseen", 7)) {
             int mi = atoi(key + 7);
@@ -531,6 +535,16 @@ inline void LoadGame() {
             int ji = atoi(key + 9);
             if (ji >= 1 && ji < JOB_COUNT) g_JobBought[ji] = (val != 0);
         }
+    }
+    // 버전 3 이하: 자리바꿈탄(SYN_V_SWAP)이 지금의 SYN_V_MINE 번호에 있었다.
+    // 그 카드는 버리고, 뒤의 카드는 한 칸씩 당긴다.
+    const int kRemovedSwap = (int)AugType::SYN_V_MINE;
+    for (int ai : augSeenKeys) {
+        if (saveVer < 4 && ai >= kRemovedSwap) {
+            if (ai == kRemovedSwap) continue;
+            --ai;
+        }
+        if (ai >= 0 && ai < AUG_TOTAL) g_AugSeen[ai] = true;
     }
     SanitizeKeyBindings(g_KeyBinds);
     // Profiles bought before they were removed come back as stardust. The key is

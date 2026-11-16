@@ -983,10 +983,6 @@ void Step(const StepInput& in) {
     StepObjects(dt);
 }
 
-void RequestTeleport(float x, float y) {
-    s.teleport = true; s.teleX = x; s.teleY = y;
-}
-
 bool TakeTeleport(float& x, float& y) {
     if (!s.teleport) return false;
     s.teleport = false;

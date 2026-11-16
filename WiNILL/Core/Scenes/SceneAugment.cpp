@@ -330,7 +330,7 @@ GLuint AugIconTex(const AugDef& def) {
 // loaded on first use. 0 for a term without one.
 constexpr const char* kTermIconNames[] = {
     "Verb", "Pierce", "Bounce", "Split", "Homing", "Blast", "Burn", "Mark", "Orbit", "Trail", "Mine", "Hover",
-    "Pull", "Return", "Swap", "Erase", "Graze", "Shield", "Still", "Crit", "CritMult", "HitCount", "DmgKinds",
+    "Pull", "Return", "Erase", "Graze", "Shield", "Still", "Crit", "CritMult", "HitCount", "DmgKinds",
     "FireRate", "Range", "Distance", "Stardust", "Luck", "Broken", "Stack", "RunWave",
     "ActiveSkill", "Dash", "SkillSlot", "Reaction", "Risky", "ChanceAug", "Enemies" };
 static_assert(sizeof(kTermIconNames) / sizeof(kTermIconNames[0]) == glossary::kTermCount,

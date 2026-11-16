@@ -7,7 +7,7 @@
 // Behaviour flags of a shot fired by a synergy card (Bullet::synFlags).
 namespace synf {
 inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover = 1u << 3,
-    Return = 1u << 4, Returning = 1u << 5, Trail = 1u << 6, Gravity = 1u << 7, Swap = 1u << 8,
+    Return = 1u << 4, Returning = 1u << 5, Trail = 1u << 6, Gravity = 1u << 7,
     Absorb = 1u << 9, Erase = 1u << 10, Lob = 1u << 11, Mine = 1u << 12, Orbit = 1u << 13,
     Seek = 1u << 14, Slowed = 1u << 15, Hovering = 1u << 16, Hovered = 1u << 17,
     // Look only (EntityDraw.cpp drawBullet): the frame card that shaped the shot,

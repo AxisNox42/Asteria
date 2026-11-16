@@ -30,15 +30,15 @@ enum Tag : uint64_t {
     T_ON_WALL  = 1ull << 24, T_HOVER    = 1ull << 25, T_BURST    = 1ull << 26,
     T_BURN     = 1ull << 27, T_MARK     = 1ull << 28, T_DICE     = 1ull << 29,
     T_PULL     = 1ull << 30, T_ERASE    = 1ull << 31, T_TRAP     = 1ull << 32,
-    T_GROW     = 1ull << 33, T_SWAP     = 1ull << 34, T_STORE    = 1ull << 35,
-    T_COMBO    = 1ull << 36, T_RHYTHM   = 1ull << 37, T_LOB      = 1ull << 38,
-    T_BEAM2    = 1ull << 39,   // 집속 레이저 (epic laser) gives it: the legendary laser needs it
+    T_GROW     = 1ull << 33, T_STORE    = 1ull << 34, T_COMBO    = 1ull << 35,
+    T_RHYTHM   = 1ull << 36, T_LOB      = 1ull << 37,
+    T_BEAM2    = 1ull << 38,   // 집속 레이저 (epic laser) gives it: the legendary laser needs it
 };
-inline constexpr int kTagCount = 40;
+inline constexpr int kTagCount = 39;
 
 // Groups the "variety" cards count.
 inline constexpr uint64_t kVerbTags = T_PIERCE | T_BOUNCE | T_SPLIT | T_HOMING | T_BLAST | T_ORBIT | T_CHAIN |
-    T_TRAIL | T_RETURN | T_HOVER | T_PULL | T_BURN | T_MARK | T_SPREAD | T_GROW | T_TRAP | T_SWAP | T_ERASE;
+    T_TRAIL | T_RETURN | T_HOVER | T_PULL | T_BURN | T_MARK | T_SPREAD | T_GROW | T_TRAP | T_ERASE;
 inline constexpr uint64_t kRiskTags = T_GLASS | T_HP | T_ON_HURT | T_STORE;
 inline constexpr uint64_t kEventTags = T_ON_KILL | T_ON_CRIT | T_ON_BOUNCE | T_ON_HURT | T_ON_STILL |
     T_ON_DASH | T_ON_WAVE | T_ON_WALL;
@@ -99,7 +99,7 @@ inline const char* TagName(int bit) {
         "PIERCE","BOUNCE","SPLIT","HOMING","BLAST","BEAM","ORBIT","CHAIN","RAPID",
         "CHARGE","SPREAD","NTH","ON_KILL","ON_CRIT","ON_BOUNCE","ON_HURT","ON_STILL",
         "ON_DASH","ON_WAVE","SHIELD","HP","TRAIL","RETURN","GLASS","ON_WALL","HOVER",
-        "BURST","BURN","MARK","DICE","PULL","ERASE","TRAP","GROW","SWAP","STORE","COMBO","RHYTHM","LOB","BEAM2" };
+        "BURST","BURN","MARK","DICE","PULL","ERASE","TRAP","GROW","STORE","COMBO","RHYTHM","LOB","BEAM2" };
     return n[bit];
 }
 
@@ -226,8 +226,6 @@ inline const std::vector<Aug>& Table() {
     // ── 특이한 동사 (새 규칙) ──
     {"V_DICE",    "주사위탄",   "발사할 때마다 하나를 무작위로 얻음: 관통 +2 · 벽 튕김 +2 · 3갈래 분열 (피해 28%) · 착탄 폭발 (1○, 공격력 30%)", Rar::Epic, Role::Verb,
         T_PIERCE | T_BOUNCE | T_SPLIT | T_BLAST | T_DICE, 0, false, Fx{}.proc_(0.45f)},
-    {"V_SWAP",    "자리바꿈탄", "맞힌 적과 위치를 바꿈 (1.5초에 한 번, 보스·엘리트·원거리 적 제외, 시너지 카드의 대시 효과도 발동)", Rar::Rare, Role::Verb,
-        T_SWAP | T_ON_DASH, 0, false, Fx{}.evade_(0.12f).proc_(0.3f)},
     {"V_MINE",    "매설탄",     "3번째 사격마다 1발이 조준한 곳 쪽으로 날아가 지뢰가 됨 (8초 유지, 적이 1○ 안에 오면 1○ 폭발, 공격력 220%에 탄 피해 배율 적용)", Rar::Epic, Role::Verb,
         T_TRAP | T_BLAST, 0, false, Fx{}.proc_(0.18f).blast_(0.15f)},
     {"V_GROW",    "거리 성장탄",     "멀리 날아갈수록 탄이 커지고 피해도 늘어남 (13○ 날아가면 피해 최대 2.5배)", Rar::Rare, Role::Verb,
