@@ -450,7 +450,7 @@ void Explode(float x, float y, float radius, float pct, bool pull, float pullRad
 
 // ───────────────────────── registration ─────────────────────────
 
-void Reset() { s = State{}; }
+void Reset() { s = State{}; g_PlayerDmgMult = 1.0f; }
 
 void ForgetEnemy(const void* enemy) {
     s.seen.erase(enemy);
@@ -610,7 +610,7 @@ void Acquire(int augIdx) {
     ++s.own[i];
     Rebuild();
     if (s.on.G_LASTWALL && !s.lastWallGiven) { s.lastWallGiven = true; AddShield(220.0f); }
-    if (s.on.G_MIRROR && s.own[Index("G_MIRROR")] == 1) AddShield(90.0f);
+    if (i == Index("G_MIRROR") && s.own[i] == 1) AddShield(90.0f);   // once, when the card itself is taken
 }
 
 // ───────────────────────── fire path ─────────────────────────
@@ -716,6 +716,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
             if (o.Y_HALO) b.synFlags |= synf::Halo;
             b.speed = 0.0f; b.piercing = true; b.maxRange = 0.0f; b.sizeScale *= 1.2f;
             b.splitCount = 0;   // an orbiter hits again every 0.4 s; its split children inherited Orbit and broke the cap
+            b.synFlags &= ~(synf::Lob | synf::Mine);   // a mortar shell held in orbit never hit (shells skip hits until they land)
             b.x = px; b.y = py;
             out.push_back(b);
         }
@@ -931,7 +932,7 @@ void Step(const passive::StepInput& in) {
     for (RingFx& r : s.rings) r.age += in.dt;
     s.rings.erase(std::remove_if(s.rings.begin(), s.rings.end(),
         [](const RingFx& r) { return r.age >= r.life; }), s.rings.end());
-    if (!s.any) return;
+    if (!s.any) { g_PlayerDmgMult = 1.0f; return; }   // no card: a past run's taken-damage factor must not linger
     const Flags& o = s.on;
     const float dt = in.dt;
     s.clock += dt;
@@ -983,10 +984,11 @@ void Step(const passive::StepInput& in) {
     if (o.T_GRAZE) {
         const float hitR = 10.0f * g_Stats.playerSizeMult;
         for (Bullet& b : g_Bullets) {
-            if (!b.active || !b.isEnemy || b.grazed) continue;
+            // Its own mark (not Bullet::grazed), so Graze Recovery still heals on the same bullet.
+            if (!b.active || !b.isEnemy || (b.synFlags & synf::Grazed)) continue;
             const float d = std::hypot(b.x - in.px, b.y - in.py);
             if (d > hitR && d < hitR + 18.0f) {
-                b.grazed = true;
+                b.synFlags |= synf::Grazed;
                 if (++s.grazes >= 30) { s.grazes = 0; AddShield(25.0f); Audio::Play(Audio::Cue::ProcCounterFull); }
             }
         }

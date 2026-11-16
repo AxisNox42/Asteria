@@ -438,7 +438,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
                           PlayRGB col, const wchar_t* name, const wchar_t* sub,
                           float* nameMidY = nullptr, bool brackets = false,
                           const wchar_t* subBig = nullptr, bool bars = false,
-                          float selAmt = -1.0f) -> bool {
+                          float selAmt = -1.0f, float nameReserveR = 0.0f) -> bool {
         const bool hov = ready && mx >= x - 14.0f * uiS && mx <= x + w
             && my >= y0 - 8.0f * uiS && my <= y0 + entryH;
         hover = UpdateMenuCommandHover(hover, hov, dt);
@@ -452,9 +452,14 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         const float textRightPad = boxed ? 28.0f : 4.0f;
         const float textFitW = (w - (textOff + textRightPad) * uiS);
         const float textX = x + textOff * uiS;
+        // nameReserveR: room kept clear at the row's right end (the difficulty gauge).
+        // The name then fits at its selected (larger) size, so NORMAL / NIGHTMARE /
+        // ノーマル never run into the gauge when picked.
+        const float nameFitW = nameReserveR > 0.0f ? w - (textOff + nameReserveR) * uiS : textFitW;
+        const float nameGrow = nameReserveR > 0.0f ? kPlayEntrySelectedScale : 1.0f;
         const float baseScale = std::min(entryTitleScale,
-            entryTitleScale * textFitW /
-            std::max(1.0f, g_TextS.Width(name, entryTitleScale)));
+            entryTitleScale * nameFitW /
+            std::max(1.0f, g_TextS.Width(name, entryTitleScale) * nameGrow));
         const float selScale = baseScale * kPlayEntrySelectedScale;
         const float drawScale = sel ? selScale : baseScale;
         // 배치는 선택 크기를 기준으로 고정해, 선택이 바뀌어도 보조 줄이 움직이지 않게 한다.
@@ -610,7 +615,8 @@ void Scene_RunConfigInline(const SceneCtx& c) {
         const float selShown = diffSelT[i] * diffSelT[i] * (3.0f - 2.0f * diffSelT[i]);   // smoothstep
         float midY = 0.0f;
         if (drawChoice(rightX, sideW, entryY(i), sel,
-                       diffHover[i], col, diffName(i), tailBuf, &midY, true, bigText, false, selShown)) {
+                       diffHover[i], col, diffName(i), tailBuf, &midY, true, bigText, false, selShown,
+                       kPlayGaugeInset + (kPlayDifficultyCount - 1) * kPlayGaugeStep + kPlayGaugeSize + 10.0f)) {
             Audio::Play(Audio::Cue::UiDiffPick);
             s_RcDifficulty = i;
         }

@@ -4,7 +4,7 @@
 # Needs build\windows\x64\Release\WiNILL.exe. Uses a throwaway save folder.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = if ($env:MIRA_EXE_DIR) { $env:MIRA_EXE_DIR } else { Join-Path $root 'buildwindowsdRelease' }
+$exeDir = if ($env:MIRA_EXE_DIR) { $env:MIRA_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
 $exe = Join-Path $exeDir 'WiNILL.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $shots = Join-Path $exeDir 'Screenshots'

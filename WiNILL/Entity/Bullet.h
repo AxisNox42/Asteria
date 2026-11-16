@@ -14,7 +14,8 @@ inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover 
     // a mythic echo of an earlier volley, a mythic halo orbiter.
     FrameSniper = 1u << 18, FrameCrossbow = 1u << 19, FrameWave = 1u << 20,
     Echo = 1u << 21, Halo = 1u << 22,
-    CritEchoShot = 1u << 26; // 치명 반응's extra shot: its own crits set off no further echo
+    CritEchoShot = 1u << 26, // 치명 반응's extra shot: its own crits set off no further echo
+    Grazed = 1u << 27;       // an enemy shot already counted by 스침 (T_GRAZE); Bullet::grazed is Graze Recovery's
 }
 inline constexpr uint32_t kSynNoHit = synf::Lob | synf::Mine;   // a shell or a mine does not hit on the way
 

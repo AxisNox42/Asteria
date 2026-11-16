@@ -81,6 +81,7 @@ inline const Entry kEntries[] = {
     { L"SEARCH", L"搜索" }, { L"NO MATCHES", L"无匹配结果" }, { L"TRY A DIFFERENT SEARCH", L"请尝试其他搜索词" },
     { L"%d MATCHES", L"%d 个结果" }, { L"ENTITIES", L"观测体" }, { L"SIGNAL CLASS", L"信号类别" },
     { L"UNDISCOVERED", L"未发现" }, { L"UNDISCOVERED SIGNAL", L"未发现的信号" },
+    { L"REGULAR", L"普通" }, { L"ELITE", L"精英" }, { L"BOSS", L"首领" }, { L"TYPE TO FILTER", L"输入以筛选" },
     { L"RECORD SUMMARY", L"记录摘要" }, { L"TIER %ls", L"等阶 %ls" }, { L"TIER ?", L"等阶 ?" },
     { L"TYPE : %ls", L"类型 : %ls" }, { L"TIER : %ls", L"等阶 : %ls" }, { L"TIER : LOCKED", L"等阶 : 未解锁" },
     { L"NEXT : TIER AND OVERVIEW", L"下一项 : 等阶与概览" }, { L"NEXT : COMBAT STATS", L"下一项 : 战斗属性" },

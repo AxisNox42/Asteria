@@ -6,6 +6,7 @@
 #include "Monster.h"
 #include "RangedMob.h"
 #include "SpaceRules.h"
+#include "PassiveHooks.h"   // EnemyRemoved: a capsule that hatches is not a kill
 #include "../System/GameLog.h"
 #include "../System/Audio.h"
 
@@ -613,6 +614,7 @@ private:
             r->hitFlashTimer = 0.25f;
             rangedMobs.push_back(r);
             c.alive = false; c.scored = true; c.noBlast = true;     // the capsule is spent
+            passive_hooks::EnemyRemoved(&c);                         // hatching is not a kill (no chain / kill-burst)
         }
     }
 

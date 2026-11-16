@@ -27,5 +27,9 @@ inline void (*hurt)(float& hp, float dmg) = nullptr;
 inline void (*bulletBounce)(Bullet& bullet) = nullptr;
 // A player shot just hit `target`: true when it should fly on toward another one (ricochet).
 inline bool (*bulletRedirect)(Bullet& bullet, const void* target) = nullptr;
+// An enemy was taken off the field without dying (a boss withdrawing, an elite
+// timing out, a capsule hatching): it must not count as a kill.
+inline void (*enemyRemoved)(const void* enemy) = nullptr;
+inline void EnemyRemoved(const void* enemy) { if (enemyRemoved) enemyRemoved(enemy); }
 
 }  // namespace passive_hooks

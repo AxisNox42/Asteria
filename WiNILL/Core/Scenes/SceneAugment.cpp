@@ -1,5 +1,6 @@
 #include "Scenes.h"
 #include <glad/glad.h>
+#include <cwchar>
 #include <GLFW/glfw3.h>
 #include "GameManager.h"
 #include "GameContext.h"
@@ -129,13 +130,30 @@ static void WrapSegment(std::wstring segment, float scale, float maxWidth,
                 lines.push_back(line);
                 line.clear();
             }
+            // A run with no spaces (Japanese, Chinese) breaks between any two
+            // characters, but not where a line would start with closing
+            // punctuation or a unit ("、", ")", "%", "○"), end on an opening
+            // bracket, or split a number ("6." / "5○", "+1" / "5%").
+            const auto noStart = [](wchar_t c) {
+                return std::wcschr(L"、。，．,.:;!?)]）］」』〕〉》%％○…ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ", c) != nullptr;
+            };
+            const auto noEnd = [](wchar_t c) { return std::wcschr(L"([（［「『〔〈《", c) != nullptr; };
+            const auto numJoin = [](wchar_t a, wchar_t b) {
+                const bool da = (a >= L'0' && a <= L'9') || a == L'.' || a == L'+' || a == L'-';
+                const bool db = (b >= L'0' && b <= L'9') || b == L'.';
+                return da && db;
+            };
             std::wstring part;
             for (wchar_t ch : word) {
                 const std::wstring next = part + ch;
                 if (!part.empty() &&
                     WrapWidth(next, scale) > maxWidth) {
-                    lines.push_back(part);
-                    part.clear();
+                    size_t b = part.size();   // next[b..] moves down
+                    while (b > 0 && (noStart(next[b]) || numJoin(next[b - 1], next[b]) || noEnd(next[b - 1])))
+                        --b;
+                    if (b == 0) b = part.size();   // nowhere better: break where it overflowed
+                    lines.push_back(part.substr(0, b));
+                    part.erase(0, b);
                 }
                 part += ch;
             }
@@ -654,6 +672,25 @@ void DrawGlossaryTips(const std::vector<LinkBox>& cardLinks, const float* cardX,
     } else if (open > 0) {
         grace -= delta;
         if (grace <= 0.0f) open = 0;
+    }
+    // The cards keep moving after a word opens (the deal, the focused card
+    // growing): keep each open word's bold underline on the word as drawn now,
+    // not where it was in the frame it was hovered (it hung over the next line).
+    for (int k = 0; k < open; ++k) {
+        TipLevel& tl = tips[k];
+        const std::vector<LinkBox>& src = k == 0 ? cardLinks : relLinks;
+        const LinkBox* best = nullptr;
+        float bestD = 1e30f;
+        for (const LinkBox& b : src) {
+            if (b.term != tl.term || b.owner != (k == 0 ? tl.card : k - 1)) continue;
+            const float d = std::fabs(b.x0 - tl.ax0) + std::fabs(b.y1 - tl.ay);   // the same occurrence
+            if (d < bestD) { bestD = d; best = &b; }
+        }
+        if (best) {
+            tl.ax0 = best->x0;
+            tl.ax1 = best->x1;
+            tl.ay = best->y1 + (k == 0 ? 1.0f : 2.0f) * ui;
+        }
     }
     relLinks.clear();
     g_GlossaryOpenA += ((open > 0 ? 1.0f : 0.0f) - g_GlossaryOpenA) * (1.0f - std::exp(-14.0f * std::max(0.0f, delta)));

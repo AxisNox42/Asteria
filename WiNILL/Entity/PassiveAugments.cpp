@@ -569,6 +569,7 @@ void InstallHooks() {
     passive_hooks::hurt = HookHurt;
     passive_hooks::bulletBounce = [](Bullet& b) { syn::OnBounce(b, true); };
     passive_hooks::bulletRedirect = [](Bullet& b, const void* t) { return syn::Redirect(b, t); };
+    passive_hooks::enemyRemoved = syn::ForgetEnemy;
 }
 
 void Reset() {

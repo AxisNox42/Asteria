@@ -8,6 +8,7 @@
 #include "EnemyRoster.h"
 #include "PlayerStats.h"
 #include "../Core/WaveSystem.h"
+#include "PassiveHooks.h"   // EnemyRemoved: a mob that withdraws is not a kill
 #include "../System/Settings.h"
 #include <algorithm>
 #include <cstdlib>
@@ -171,7 +172,7 @@ static void PlaceNormaBoss(MonsterManager& monsters, int screenWidth,
     // reward): the last wave is the final boss's duel alone.
     if (finalBoss)
         for (Monster* mob : monsters.monsters)
-            if (IsBossMob(mob->kind) && mob->alive) { mob->alive = false; mob->scored = true; }
+            if (IsBossMob(mob->kind) && mob->alive) { mob->alive = false; mob->scored = true; passive_hooks::EnemyRemoved(mob); }
     Monster* boss = new Monster((float)screenWidth * 0.5f, -160.0f,
                                 hpMultiplier * BalanceFor((int)difficulty).bossHp);
     boss->MakeKind(kind);
@@ -278,11 +279,12 @@ bool DebugClearWaveObjective(MonsterManager& monsters, float gameTime) {
             if (mob->alive && (mob == s.eliteMob ||
                                (s.eliteKind == MobKind::ANTARES && mob->kind == MobKind::ANTARES))) {
                 mob->alive = false; mob->scored = true; mob->noBlast = true;
+                passive_hooks::EnemyRemoved(mob);
             }
         s.eliteMob = nullptr;
     } else if (s.objective == WaveObjective::MidBoss) {
         for (Monster* mob : monsters.monsters)
-            if (IsBossMob(mob->kind) && mob->alive) { mob->alive = false; mob->scored = true; }
+            if (IsBossMob(mob->kind) && mob->alive) { mob->alive = false; mob->scored = true; passive_hooks::EnemyRemoved(mob); }
         s.normaAlive = false;
     } else {
         return false;

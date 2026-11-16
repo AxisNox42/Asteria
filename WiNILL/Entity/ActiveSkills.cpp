@@ -880,6 +880,7 @@ void OnWaveCleared() { s.waveKills = 0; }
 void OnDash() { s.ribbonWindow = 0.0f; }   // opens when the dash ends (Step)
 
 void OnPlayerBullet(const Bullet& shot) {
+    if (shot.synFlags & synf::Orbit) return;   // an orbiter is held round the ship: a copy broke the orbiter cap
     for (const Obj& o : s.objs) {
         if (o.kind != ObjKind::Clone) continue;
         Bullet b = shot;
