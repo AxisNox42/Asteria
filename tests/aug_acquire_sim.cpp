@@ -42,7 +42,8 @@ GameManager g_GameManager;
 MonsterManager g_MonsterManager;
 std::vector<Bullet> g_Bullets;
 PlayerRuntimeState g_PlayerRuntime;
-namespace Audio { void Play(Cue) {} }
+namespace Audio { void Play(Cue) {} void StartLoop(Cue) {} void StopLoop(Cue) {} }
+bool keys[1024] = {};
 int g_CurrentWeapon = 0;
 GameState g_SettingsReturnTo = GameState::MAIN_MENU;
 int g_HoveredAug = -1, g_AugExitSlot = -1;

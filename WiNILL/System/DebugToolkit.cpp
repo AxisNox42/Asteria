@@ -109,7 +109,7 @@ int SpawnEntries(int category, const int*& ids) {
 }
 
 // Augment tab categories: level-up stat cards, the synergy roles, then the legacy cards
-// (only listed when kLegacyAugments is on). Filter button 0 is "all", button i is category i-1.
+// (each group only listed when its kLegacy* switch is on). Filter button 0 is "all", button i is category i-1.
 enum AugCat { AC_STAT, AC_FRAME, AC_VERB, AC_TRIGGER, AC_AMP, AC_COST, AC_GUARD, AC_CHANCE,
               AC_LEGACY_PASSIVE, AC_LEGACY_ACTIVE, AC_COUNT };
 constexpr int AUG_FILTER_COUNT = AC_COUNT + 1;
