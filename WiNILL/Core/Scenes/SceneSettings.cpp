@@ -1118,7 +1118,11 @@ void Scene_SettingsInline(const SceneCtx& c) {
             listHover[i] = UpdateMenuCommandHover(listHover[i], false, dt);
             continue;
         }
-        const float dAr = dA * rowOpen * rowOpen;
+        // A row cut by the list's top or bottom edge fades by how much of it
+        // still shows, so the clip never slices a label in half at full strength.
+        const float shown = std::clamp((std::min(y + rowHt, listBottom) - std::max(y, listTop)) /
+                                       std::max(rowHt, 1.0f), 0.0f, 1.0f);
+        const float dAr = dA * rowOpen * rowOpen * shown * shown;
         const float rowCenter = y + rowHt * 0.50f;
         const float railX = listRailXAt(rowCenter)
             - (1.0f - rowOpen) * 18.0f * uiS;

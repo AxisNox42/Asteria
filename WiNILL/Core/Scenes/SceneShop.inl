@@ -610,8 +610,9 @@ void Scene_Shop(const SceneCtx& c) {
                 if (e.kind == Kind::Meta) ShopDrawMetaGlyph(e.id, cx, gy, gs, e.r, e.g, e.b, ga);
                 else ShopDrawPayloadGlyph(ALL_AUGS[e.id].type, cx, gy, gs, e.r, e.g, e.b, ga);
                 if (owned && e.kind != Kind::Aug) {
-                    // Owned mark: a small check at the glyph's corner.
-                    const float mx0 = cx + gs * 0.46f, my0 = gy - gs * 0.50f;
+                    // Owned mark: a small check just off the glyph's top-right corner
+                    // (on the corner it crossed the octagon's cut edge).
+                    const float mx0 = cx + gs * 0.62f, my0 = gy - gs * 0.60f;
                     LogoLine(mx0 - 5.0f * ui, my0 + 1.0f * ui, mx0 - 1.5f * ui, my0 + 5.0f * ui,
                              1.8f * ui, 0.60f, 1.0f, 0.70f, 0.95f * wk);
                     LogoLine(mx0 - 1.5f * ui, my0 + 5.0f * ui, mx0 + 6.0f * ui, my0 - 4.0f * ui,
