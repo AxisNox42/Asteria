@@ -3868,7 +3868,9 @@ static void DrawAchievementToast(float sw, float sh, float delta) {
         if (comboUp) {
             const float comboMaxSc = UiTextScale(g_TextS, UiTextLevel::Subtitle,
                                                  1.95f * 1.12f * UiScale(sw, sh));
-            wantY = sh * 0.115f + g_TextS.Height(L"0 COMBO", comboMaxSc) + 14.0f;
+            // + 콤보 유지 바 (간격 6 + 굵기 3, UI 배율)
+            wantY = sh * 0.115f + g_TextS.Height(L"0 COMBO", comboMaxSc) + 14.0f +
+                    9.0f * UiScale(sw, sh);
         }
         static float s_toastY = -1.0f;
         if (s_toastY < 0.0f || g_AchToastTimer > 3.9f) s_toastY = wantY;
@@ -4028,6 +4030,54 @@ int main() {
     if (g_SmokeRun.Init()) os_pane::SetCoverCheck(false);   // ASTERIA_SMOKE 스모크 캡처 세션 설정
     if (g_SmokeCapture && SmokeEnv("ASTERIA_SMOKE_RECORDS") == "1") {
         // Smoke-only PLAY panel records (never saved).
+
+            // 콤보 유지 바: 글자 밑 얇은 실선, 왼쪽 고정 · 오른쪽이 줄어듦.
+            // 판 없이 선만 — 빈 구간은 흐린 같은 굵기 선으로 남긴다.
+            const float ui    = UiScale(sw, sh);
+            const float baseSc = UiTextScale(g_TextS, UiTextLevel::Subtitle, ui) *
+                                 (1.0f + (g_Combo > 30 ? 0.12f : 0.0f));
+            const float barW = g_TextS.Width(cb, baseSc);       // 펄스와 무관하게 고정 폭
+            const float barH = std::max(2.0f, roundf(3.0f * ui));
+            const float barX = roundf((sw - barW) * 0.5f);
+            const float barY = roundf(sh * 0.115f + g_TextS.Height(cb, sc) + 6.0f * ui);
+            const float ratio = g_ComboWindowMax > 0.0f
+                ? std::clamp(g_ComboTimer / g_ComboWindowMax, 0.0f, 1.0f) : 0.0f;
+            float br = cr, bg = cg, bb = cbl, ba = 0.95f;
+            if (ratio < 0.3f) {   // 곧 끊김 경고: 빨갛게 + 깜빡임 (끝으로 갈수록 빨라짐)
+                const float k = 1.0f - ratio / 0.3f;
+                br = br + (1.0f - br) * k; bg = bg + (0.22f - bg) * k; bb = bb + (0.18f - bb) * k;
+                const float blinkHz = 5.0f + 7.0f * k;
+                ba = 0.45f + 0.5f * (0.5f + 0.5f * std::cos(g_ComboTimer * blinkHz * 6.2831853f));
+            }
+            // 킬 직후 다시 꽉 차면서 잠깐 밝게
+            br += (1.0f - br) * g_ComboPulse; bg += (1.0f - bg) * g_ComboPulse;
+            bb += (1.0f - bb) * g_ComboPulse;
+            BindMainShader();
+            drawRect(barX, barY, barW, barH, cr, cg, cbl, 0.18f);
+            drawRect(barX, barY, roundf(barW * ratio), barH, br, bg, bb, ba);
+            BatchFlush();
+        } else if (g_ShowCombo && st == GameState::RUNNING && g_ComboBreakFx > 0.0f &&
+                   g_ComboBreakCount >= 5) {
+            // 콤보 끊김: 빨간 글자가 내려앉으며 사라지고, 빈 바는 가운데서 갈라져 흩어짐
+            const float t  = g_ComboBreakFx / COMBO_BREAK_FX;   // 1 → 0
+            const float ui = UiScale(sw, sh);
+            wchar_t cb[48], comboText[32]; FormatGrouped(g_ComboBreakCount, comboText, 32);
+            swprintf_s(cb, L"%ls COMBO", comboText);
+            const float sc = UiTextScale(g_TextS, UiTextLevel::Subtitle, ui) *
+                             (1.0f + (g_ComboBreakCount > 30 ? 0.12f : 0.0f));
+            const float w  = g_TextS.Width(cb, sc);
+            const float drop = (1.0f - t) * 10.0f * ui;
+            g_TextS.Draw(cb, (sw - w) * 0.5f, sh * 0.115f + drop, sc,
+                         1.0f, 0.25f, 0.2f, 0.95f * t);
+            const float barH = std::max(2.0f, roundf(3.0f * ui));
+            const float barY = roundf(sh * 0.115f + g_TextS.Height(cb, sc) + 6.0f * ui + drop);
+            const float half = w * 0.5f * (0.4f + 0.6f * t);    // 조각이 짧아지며
+            const float push = w * 0.18f * (1.0f - t);          // 양옆으로 밀려남
+            const float cx   = sw * 0.5f;
+            BindMainShader();
+            drawRect(roundf(cx - push - half), barY, roundf(half), barH, 1.0f, 0.25f, 0.2f, 0.6f * t);
+            drawRect(roundf(cx + push), barY, roundf(half), barH, 1.0f, 0.25f, 0.2f, 0.6f * t);
+            BatchFlush();
         g_BestWave[0] = 10;
         g_BestWave[1] = 12;
         g_BestWave[2] = 20;
@@ -4894,6 +4944,13 @@ int main() {
                         ready_launch::g_TutorialMode = true;
                         ready_launch::BeginTutorial();
                         Ready_SmokeCompleteSteps(std::atoi(step.c_str() + 8));
+                    } else if (step.rfind("COMBO=", 0) == 0) {
+                        // COMBO=<n>: combo counter at n with a full keep window
+                        // (HUD keep bar captures: hold to watch it drain/break).
+                        g_Combo = std::max(0, std::atoi(step.c_str() + 6));
+                        g_ComboTimer = COMBO_WINDOW + g_ComboWindowBonus;
+                        g_ComboWindowMax = g_ComboTimer;
+                        g_ComboPulse = 0.0f; g_ComboBreakFx = 0.0f;
                     } else if (step == "TUTGUIDE=hp" || step == "TUTGUIDE=xp") {
                         // The tutorial's HUD guide card, settled (after TUTSTEP=0).
                         const bool xp = step == "TUTGUIDE=xp";
@@ -6403,7 +6460,18 @@ CollisionSystem::Update(pCX, pCY,
                 [](const WorldText& w){ return w.life <= 0.0f; }), g_WorldTexts.end());
             if (g_ComboTimer > 0.0f) {
                 g_ComboTimer -= delta;
-                if (g_ComboTimer <= 0.0f) g_Combo = 0;
+                if (g_ComboTimer <= 0.0f) {
+                    g_ComboTimer = 0.0f;
+                    if (g_Combo >= 5) {   // HUD 에 보이던 콤보만 끊김 연출
+                        g_ComboBreakCount = g_Combo;
+                        g_ComboBreakFx = COMBO_BREAK_FX;
+                    }
+                    g_Combo = 0;
+                }
+            }
+            if (g_ComboBreakFx > 0.0f) {
+                g_ComboBreakFx -= delta;
+                if (g_ComboBreakFx < 0.0f) g_ComboBreakFx = 0.0f;
             }
             g_ComboPulse -= delta * 4.0f;
             if (g_ComboPulse < 0.0f) g_ComboPulse = 0.0f;

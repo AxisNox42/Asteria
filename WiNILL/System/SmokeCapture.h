@@ -9,6 +9,7 @@
 //   ASTERIA_SMOKE_ORBITS  = 0              (선택, PLAY 무기 별자리 궤도 링 끄기)
 // STEP 형식: NAME[@fx,fy][!|*][~sec]
 //   QUASARFALL=<초> / QUASARBEAM=<초> : 퀘이사 준비 시작부터 지정 시점 재현 (ASTERIA_QREFLECT=<n> 로 빔 반사 횟수)
+//   COMBO=<n> : 콤보를 n 으로, 유지 시간은 꽉 찬 상태로 (콤보 유지 바 확인용)
 //   DEBUG / DEBUG=0 : F1 디버그 콘솔 열기 / 닫기
 //   SHOPINTRO=<n> / RUNDUST=<n> : 상점 해금 안내 단계(1 결과, 2 로비, 3 상점 둘러보기) / 이번 판 별가루
 //   CAPTUREKEY=<GLFW 키> : 설정의 키 지정 대기 중이면 그 키를 누른 것처럼 (32 = SPACE)
