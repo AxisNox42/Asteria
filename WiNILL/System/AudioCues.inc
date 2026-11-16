@@ -383,3 +383,11 @@ CUE(BossOctansReboot, 1000, 1, false, false, 1, "Resource/Audio/sfx/boss_octans_
 CUE(BossOctansShot, 60, 3, false, false, 3, "Resource/Audio/sfx/boss_octans_shot_01.wav", "Resource/Audio/sfx/boss_octans_shot_02.wav", "Resource/Audio/sfx/boss_octans_shot_03.wav")
 // boss_octans_warp_charge — OCTANS 2페이즈 창 속으로 빨려 들어가려 함 (0.7초)
 CUE(BossOctansWarpCharge, 500, 1, false, false, 1, "Resource/Audio/sfx/boss_octans_warp_charge.wav")
+// player_laser_charge — 레이저: 발사를 누르고 차징 (0.4초, 집속 레이저 0.25초)
+CUE(LaserCharge, 150, 2, false, false, 1, "Resource/Audio/sfx/player_laser_charge.wav")
+// player_laser_open — 레이저: 차징이 끝나 광선이 켜짐
+CUE(LaserOpen, 120, 2, false, false, 1, "Resource/Audio/sfx/player_laser_open.wav")
+// player_laser_loop — 레이저: 광선이 켜져 있는 동안 웅웅 (main.cpp 가 상태로 켜고 끔)
+CUE(LaserLoop, 60, 1, false, true, 1, "Resource/Audio/sfx/player_laser_loop.wav")
+// player_laser_release — 과부하 레이저: 모은 열을 굵은 광선 한 방으로 방출
+CUE(LaserRelease, 200, 2, false, false, 1, "Resource/Audio/sfx/player_laser_release.wav")

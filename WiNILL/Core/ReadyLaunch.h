@@ -51,7 +51,35 @@ inline bool LaunchUnlocked() { return !g_TutorialMode || g_Stage == TutorialStag
 inline constexpr float kLaunchLockedSec = 1.8f;
 inline float g_LaunchLockedT = 0.0f;
 
+// HUD guide: when the tutorial opens, two cards point at the health ring and
+// then the XP line before the practice starts. The field stands still while a
+// card is up; the Confirm key (Space) or a left click moves on. Not saved: every tutorial
+// entry shows it again.
+enum class HudGuide { Hp, Xp, Done };
+inline constexpr int kHudGuideCards = 2;
+inline HudGuide g_HudGuide = HudGuide::Done;
+inline float g_HudGuideT = 0.0f;                 // seconds on the current card
+inline constexpr float kHudGuideDelay = 0.50f;   // the first card waits for the page to settle
+inline constexpr float kHudGuideReady = 0.35f;   // a card can be closed this long after it shows
+inline bool HudGuideActive() { return g_TutorialMode && g_HudGuide != HudGuide::Done; }
+// The card is drawn (past the first card's opening delay).
+inline bool HudGuideShown() {
+    return HudGuideActive() && (g_HudGuide != HudGuide::Hp || g_HudGuideT >= kHudGuideDelay);
+}
+// Confirm pressed while the guide is up. Returns true when the press was the
+// guide's (a card closed, or it was too early to close one).
+inline bool HudGuideConfirm() {
+    if (!HudGuideActive()) return false;
+    const float since = g_HudGuide == HudGuide::Hp ? g_HudGuideT - kHudGuideDelay : g_HudGuideT;
+    if (since < kHudGuideReady) return true;
+    g_HudGuide = g_HudGuide == HudGuide::Hp ? HudGuide::Xp : HudGuide::Done;
+    g_HudGuideT = 0.0f;
+    return true;
+}
+
 inline void BeginTutorial() {
+    g_HudGuide = HudGuide::Hp;
+    g_HudGuideT = 0.0f;
     g_LaunchT = -1.0f;
     g_Stage = TutorialStage::Practice;
     g_PicksTaken = false;

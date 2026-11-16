@@ -1,6 +1,7 @@
 ﻿#include "EntityDraw.h"
 #include "MiterStroke.h"
 #include "LineFx.h"
+#include "LaserFx.h"
 #include "../Entity/SkillTags.h"
 #include "../Entity/MonsterManager.h"
 #include "../Entity/GravisField.h"
@@ -276,6 +277,7 @@ static bool DrawCardShot(const Bullet& b, float r) {
     const glm::vec3 c = b.color;
     const glm::vec3 lit = c + (glm::vec3(1.0f) - c) * 0.55f;
     auto P = [&](float fw, float sd, float& x, float& y) { x = b.x + ux * fw + nx * sd; y = b.y + uy * fw + ny * sd; };
+    if (laser_fx::IsLaserShot(b) || laser_fx::IsScan(b)) return true;   // 레이저: DrawPlayerLasers draws the beam
     if (f & synf::Halo) {   // 별빛 후광: a turning four-point star inside the ring it clears
         const float spin = b.synOrbitAngle * 2.0f;
         line_fx::Star4(b.x, b.y, r * 2.2f, r * 0.8f, spin, 3.6f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.55f);
@@ -508,7 +510,7 @@ void DrawBulletHalos(const std::vector<Bullet>& bullets) {
     quads.clear();
     quads.reserve(bullets.size() * 2u);
     for (const auto& bullet : bullets) {
-        if (!bullet.active) continue;
+        if (!bullet.active || laser_fx::IsLaserShot(bullet) || laser_fx::IsScan(bullet)) continue;   // a beam has its own glow
         const BulletHaloStyle style = GetBulletHaloStyle(bullet);
         const WorldDiscProjection outer = ProjectWorldDisc(
             bullet.x, bullet.y, style.outerRadius);
@@ -2914,6 +2916,179 @@ static void DrawBeamRift(float x0, float y0, float x1, float y1, float bandR, fl
             }
         }
         pc = c; pl = l; pr = r; po = o;
+    }
+}
+
+// 레이저 (F_LASER): the player's beam (LaserFx.h), in the Quasar beam's style at
+// the gun's scale: soft glow, a darkened band, the colour body, a bright inner
+// column and white core, energy flowing out, and hard three-layer edges exactly
+// on the hit band. Charging shows a quiet aim line and a ring closing on the muzzle.
+namespace {
+// `tier` (1..3, the laser cards owned) adds structure inside the beam besides the width:
+// 2 집속 twin focusing rails, 3 과부하 an outer sheath and two strands winding along it.
+void DrawLaserPath(const std::vector<glm::vec2>& pts, float R, float ws, float age, float alpha,
+                   const glm::vec3& col, float flowT, bool impact, int tier = 1) {
+    const int n = (int)pts.size();
+    if (n < 2 || ws <= 0.01f) return;
+    const float batchSaved = g_BatchAlpha;
+    const float cr = col.r, cg = col.g, cb = col.b;
+    const float bandR = R * ws;
+    const float swell = (0.45f + 0.55f * Monster::QuasarEase(age / 0.08f)) * ws;     // snaps open
+    const float flash = 1.0f + 0.40f * (1.0f - Monster::QuasarEase(age / 0.20f));    // brighter as it opens
+    const float pulse = 0.90f + 0.10f * sinf(age * 18.85f);                           // breathing, no flicker
+    g_BatchAlpha = batchSaved * alpha * (0.35f + 0.65f * std::sqrt(ws));
+    float carried = 0.0f;
+    for (int k = 0; k + 1 < n; ++k) {
+        const float x0 = pts[k].x, y0 = pts[k].y, x1 = pts[k + 1].x, y1 = pts[k + 1].y;
+        const float len = std::hypot(x1 - x0, y1 - y0);
+        if (len < 0.5f) continue;
+        const bool lastLeg = k + 2 == n;
+        DrawBeamGlow(x0, y0, x1, y1, bandR, (18.0f + 12.0f * ws) * std::max(1.0f, R / 6.5f),
+                     std::min(0.55f, 0.30f * pulse * flash) * (0.35f + 0.65f * ws),
+                     lastLeg ? std::min(len, 40.0f) : 0.0f, cr, cg, cb);
+        drawLineQuad(x0, y0, x1, y1, bandR * 2.0f + 2.0f, 0.0f, 0.0f, 0.0f, 0.28f);
+        drawLineQuad(x0, y0, x1, y1, bandR * 2.0f, cr, cg, cb, std::min(1.0f, 0.42f * pulse * flash));
+        drawLineQuad(x0, y0, x1, y1, R * 0.95f * swell, cr, cg, cb, std::min(1.0f, 0.70f * pulse * flash));
+        drawLineQuad(x0, y0, x1, y1, std::max(1.0f, R * 0.42f * swell), 1.0f, 1.0f, 1.0f, 0.95f);
+        if (flowT > 0.0f && ws > 0.05f)
+            DrawBeamFlow(x0, y0, x1, y1, bandR, carried, flowT, ws, 5, k, cr, cg, cb);
+        // Hard edges on the band: dark under-stroke, beam colour, white core.
+        const float nx = -(y1 - y0) / len * bandR, ny = (x1 - x0) / len * bandR;
+        const float ew = (1.2f + 0.6f * ws) * (tier >= 3 ? 1.6f : tier == 2 ? 1.3f : 1.0f);
+        for (int e = -1; e <= 1; e += 2) {
+            const float ox = nx * (float)e, oy = ny * (float)e;
+            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew + 2.0f, 0.0f, 0.0f, 0.0f, 0.55f);
+            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew, cr, cg, cb, 0.95f);
+            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew * 0.45f, 1.0f, 1.0f, 1.0f, 0.85f);
+        }
+        // Tier structure (lines only, inside or hugging the band).
+        if (tier >= 2 && ws > 0.05f) {
+            const float ux = (x1 - x0) / len, uy = (y1 - y0) / len, px = -uy, py = ux;
+            // 집속: two bright rails that pinch the core (the beam is being focused).
+            for (int e = -1; e <= 1; e += 2) {
+                const float o = bandR * 0.55f * (float)e;
+                drawLineQuad(x0 + px * o, y0 + py * o, x1 + px * o, y1 + py * o, 1.4f, 1.0f, 1.0f, 1.0f, 0.55f);
+            }
+            if (tier >= 3) {
+                // 과부하: an outer sheath just off the band, and two strands winding along the
+                // beam in opposite phase, scrolling outward from the ship.
+                for (int e = -1; e <= 1; e += 2) {
+                    const float o = bandR * 1.45f * (float)e;
+                    drawLineQuad(x0 + px * o, y0 + py * o, x1 + px * o, y1 + py * o, 1.6f, 0.0f, 0.0f, 0.0f, 0.45f);
+                    drawLineQuad(x0 + px * o, y0 + py * o, x1 + px * o, y1 + py * o, 1.0f, cr, cg, cb, 0.75f);
+                }
+                const float wave = std::max(40.0f, bandR * 5.0f);   // one turn of a strand
+                const int steps = std::min(240, (int)(len / 8.0f) + 2);
+                for (int s = 0; s < 2; ++s) {
+                    float lx = 0.0f, ly = 0.0f;
+                    for (int i = 0; i <= steps; ++i) {
+                        const float d = len * (float)i / (float)steps;
+                        const float ph = (carried + d) / wave * 6.2831853f - age * 14.0f + 3.14159265f * (float)s;
+                        const float o = bandR * 1.15f * sinf(ph);
+                        const float qx = x0 + ux * d + px * o, qy = y0 + uy * d + py * o;
+                        if (i > 0) drawLineQuad(lx, ly, qx, qy, 1.5f, 1.0f, 1.0f, 1.0f, 0.70f);
+                        lx = qx; ly = qy;
+                    }
+                }
+            }
+        }
+        if (!lastLeg)   // bounce point: a thin ring where the legs meet
+            DrawEnemyArc(x1, y1, R * 1.4f, 0.0f, 6.2831853f, 18, 1.0f, 1.0f, 1.0f, 0.60f * ws, 1.2f);
+        carried += len;
+    }
+    // The muzzle: a ring bursts out as the beam opens.
+    if (age < 0.22f) {
+        const float u = age / 0.22f;
+        const float out = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
+        DrawEnemyArc(pts[0].x, pts[0].y, R * (1.2f + 3.0f * out), 0.0f, 6.2831853f, 28,
+                     1.0f, 1.0f, 1.0f, 0.90f * (1.0f - u), 2.0f);
+        DrawEnemyArc(pts[0].x, pts[0].y, R * (1.0f + 2.0f * out), 0.0f, 6.2831853f, 24,
+                     cr, cg, cb, 0.60f * (1.0f - u), 1.4f);
+    }
+    // Where it ends: a small flickering ring (the beam stops here).
+    if (impact) {
+        const glm::vec2 e = pts.back();
+        const float f = 0.8f + 0.2f * sinf(age * 41.0f);
+        DrawEnemyArc(e.x, e.y, bandR * 1.3f * f, 0.0f, 6.2831853f, 18, 1.0f, 1.0f, 1.0f, 0.70f, 1.4f);
+        drawCircle(e.x, e.y, bandR * 0.55f, 1.0f, 1.0f, 1.0f, 0.75f * ws);
+    }
+    g_BatchAlpha = batchSaved;
+}
+}  // namespace
+
+void DrawPlayerLasers() {
+    const laser_fx::Main& m = laser_fx::g_Main;
+    static std::vector<glm::vec2> pts;
+    const float ws = laser_fx::MainWidth();
+    if (m.on || ws > 0.01f) {
+        // The beam (each shot of the volley at its angle off the aim), from the ship now.
+        static const std::vector<float> one{ 0.0f };
+        const std::vector<float>& offs = m.offsets.empty() ? one : m.offsets;
+        // 집속 레이저: the beam swells and runs whiter as it heats up.
+        const float heat = laser_fx::Heat();
+        const glm::vec3 col = m.color + (glm::vec3(1.0f) - m.color) * (0.45f * heat);
+        for (const float off : offs) {
+            const float a = m.aim + off;
+            laser_fx::Path(m.px, m.py, std::cos(a), std::sin(a), m.range, m.bounces, laser_fx::g_Arena, pts);
+            DrawLaserPath(pts, laser_fx::HalfWidth(), ws, m.onT, 1.0f, col, m.onT + 0.05f, true, m.tier);
+        }
+        // Heat gauge at the muzzle: an arc that closes as the beam heats (full = the release is at its most).
+        if (heat > 0.02f && m.on) {
+            const float R = laser_fx::HalfWidth();
+            const float sweep = 6.2831853f * heat;
+            DrawEnemyArc(m.px, m.py, R * 2.6f, m.aim + 3.14159265f - sweep * 0.5f, sweep, 40,
+                         0.0f, 0.0f, 0.0f, 0.45f, 3.6f);
+            DrawEnemyArc(m.px, m.py, R * 2.6f, m.aim + 3.14159265f - sweep * 0.5f, sweep, 40,
+                         col.r, col.g, col.b, 0.55f + 0.40f * heat, 1.8f);
+        }
+    } else if (m.charge > 0.0f) {
+        // Charging: a quiet aim line along the beam's path whose band edges fade in,
+        // and a ring closing on the muzzle with sparks drawn in toward it.
+        const float c = m.charge / laser_fx::ChargeTime();
+        const float e = Monster::QuasarEase(c);
+        laser_fx::Path(m.px, m.py, std::cos(m.aim), std::sin(m.aim), m.range, m.bounces, laser_fx::g_Arena, pts);
+        const float cr = m.color.r, cg = m.color.g, cb = m.color.b;
+        const float R = m.baseHalfW;
+        for (size_t k = 0; k + 1 < pts.size(); ++k) {
+            const float x0 = pts[k].x, y0 = pts[k].y, x1 = pts[k + 1].x, y1 = pts[k + 1].y;
+            const float len = std::hypot(x1 - x0, y1 - y0);
+            if (len < 0.5f) continue;
+            drawLineQuad(x0, y0, x1, y1, 1.2f, 1.0f, 1.0f, 1.0f, 0.15f + 0.45f * e);
+            drawLineQuad(x0, y0, x1, y1, R * 2.0f * e, cr, cg, cb, 0.06f + 0.10f * e);
+            const float nx = -(y1 - y0) / len * R, ny = (x1 - x0) / len * R;
+            for (int s = -1; s <= 1; s += 2)
+                drawLineQuad(x0 + nx * s, y0 + ny * s, x1 + nx * s, y1 + ny * s, 1.0f, cr, cg, cb, 0.55f * e);
+        }
+        const float ringR = R * (1.2f + 4.0f * (1.0f - e));
+        DrawEnemyArc(m.px, m.py, ringR, 0.0f, 6.2831853f, 32, 1.0f, 1.0f, 1.0f, 0.25f + 0.65f * e, 1.6f);
+        DrawEnemyArc(m.px, m.py, ringR * 0.7f, 0.0f, 6.2831853f, 28, cr, cg, cb, 0.20f + 0.50f * e, 1.2f);
+        for (int k = 0; k < 6; ++k) {   // sparks drawn in toward the muzzle
+            const float a = m.aim + 1.0471976f * (float)k + 0.6f;
+            const float ph = std::fmod(c * 2.2f + 0.37f * (float)k, 1.0f);
+            const float r0 = R * (2.0f + 7.0f * (1.0f - ph)), r1 = r0 + R * 1.6f;
+            drawLineQuad(m.px + cosf(a) * r0, m.py + sinf(a) * r0, m.px + cosf(a) * r1, m.py + sinf(a) * r1,
+                         1.4f, cr, cg, cb, (0.3f + 0.6f * ph) * e);
+        }
+        drawCircle(m.px, m.py, R * 0.45f * (0.4f + 0.6f * e), 1.0f, 1.0f, 1.0f, 0.4f + 0.55f * e);
+    }
+    for (const laser_fx::Flash& f : laser_fx::g_Flashes) {
+        if (!f.big) {
+            DrawLaserPath(f.pts, f.halfW, laser_fx::FlashWidth(f), f.age, f.alpha, f.color, 0.0f, false, m.tier);
+            continue;
+        }
+        // 과부하 레이저: the released heat, one thick white-hot beam from the ship.
+        const glm::vec3 hot = f.color + (glm::vec3(1.0f) - f.color) * 0.55f;
+        DrawLaserPath(f.pts, f.halfW, laser_fx::FlashWidth(f), f.age, 1.0f, hot, f.age + 0.3f, true, 3);
+        // A shock ring leaves the muzzle, and a second, slower one in the beam's colour.
+        const glm::vec2 o = f.pts.front();
+        const float u = std::clamp(f.age / 0.40f, 0.0f, 1.0f);
+        const float out = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
+        DrawEnemyArc(o.x, o.y, f.halfW * (1.0f + 3.5f * out), 0.0f, 6.2831853f, 48,
+                     0.0f, 0.0f, 0.0f, 0.45f * (1.0f - u), 5.0f);
+        DrawEnemyArc(o.x, o.y, f.halfW * (1.0f + 3.5f * out), 0.0f, 6.2831853f, 48,
+                     1.0f, 1.0f, 1.0f, 0.95f * (1.0f - u), 2.6f);
+        DrawEnemyArc(o.x, o.y, f.halfW * (0.8f + 2.4f * out), 0.0f, 6.2831853f, 40,
+                     f.color.r, f.color.g, f.color.b, 0.70f * (1.0f - u), 1.8f);
     }
 }
 

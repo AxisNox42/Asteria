@@ -647,7 +647,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
         bool isKeyReset = false;            // CONTROLS: restore-defaults row
     };
     SRow settingsRows[5][kSettingsRowMax] = {};
-    const int rowCounts[5] = { 4, 5, kDebugSettingsVisible ? 4 : 3,
+    // GAMEPLAY: auto skill, fire mode, crosshair, crosshair size, crosshair colour,
+    // pane photos, then the debug row (last, so hiding it just drops the count).
+    constexpr int kGameplayRows = 7;
+    const int rowCounts[5] = { 4, 5, kDebugSettingsVisible ? kGameplayRows : kGameplayRows - 1,
                                GAME_ACTION_COUNT + 1, 3 };
 
     static wchar_t s_volBuf[8];
@@ -702,12 +705,25 @@ void Scene_SettingsInline(const SceneCtx& c) {
                            g_AudioEngineEnabled ? 0 : 1 };
     settingsRows[2][0] = { SettingsText(L"자동 스킬", L"AUTO SKILL", L"自動スキル"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_AutoSkill ? 0 : 1 };
-    settingsRows[2][1] = { SettingsText(L"조준선", L"CROSSHAIR", L"照準"), nullptr, false, false, false, false,
+    settingsRows[2][1] = { SettingsText(L"공격 방식", L"FIRE MODE", L"攻撃方式"), nullptr, false, false, false, false,
+                           { SettingsText(L"홀드", L"HOLD", L"ホールド"),
+                             SettingsText(L"토글", L"TOGGLE", L"トグル") },
+                           2, g_FireToggle ? 1 : 0 };
+    settingsRows[2][2] = { SettingsText(L"조준선", L"CROSSHAIR", L"照準"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_ShowCrosshair ? 0 : 1 };
+    settingsRows[2][3] = { SettingsText(L"조준선 크기", L"CROSSHAIR SIZE", L"照準サイズ"), nullptr, false, false, false, false,
+                           { SettingsText(L"작게", L"S", L"小"), SettingsText(L"보통", L"M", L"中"),
+                             SettingsText(L"크게", L"L", L"大"), SettingsText(L"특대", L"XL", L"特大") },
+                           kCrosshairSizeCount, g_CrosshairSize };
+    settingsRows[2][4] = { SettingsText(L"조준선 색", L"CROSSHAIR COLOR", L"照準の色"), nullptr, false, false, false, false,
+                           { SettingsText(L"하늘", L"CYAN", L"空色"), SettingsText(L"흰색", L"WHITE", L"白"),
+                             SettingsText(L"노랑", L"YELLOW", L"黄"), SettingsText(L"초록", L"GREEN", L"緑"),
+                             SettingsText(L"분홍", L"PINK", L"ピンク") },
+                           kCrosshairColorCount, g_CrosshairColor };
     // Off by default: the boss panes then show only Windows wallpapers.
-    settingsRows[2][2] = { SettingsText(L"보스 창에 내 사진", L"MY PHOTOS IN PANES", L"ボス窓に写真"), nullptr, false, false, false, false,
+    settingsRows[2][5] = { SettingsText(L"보스 창에 내 사진", L"MY PHOTOS IN PANES", L"ボス窓に写真"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_PanePhotos ? 0 : 1 };
-    settingsRows[2][3] = { SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード"), nullptr, false, false, false, false,
+    settingsRows[2][6] = { SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード"), nullptr, false, false, false, false,
                            { toggleOn, toggleOff }, 2, g_DebugMode ? 0 : 1 };
     for (int a = 0; a < GAME_ACTION_COUNT; ++a) {
         settingsRows[3][a].label = kKeyActionLabels[a][LangIndex()];
@@ -747,9 +763,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
             if (row == 4) return g_AudioEngineEnabled != savedSettings.audioEngineEnabled;
         } else if (category == 2) {
             if (row == 0) return g_AutoSkill != savedSettings.autoSkill;
-            if (row == 1) return g_ShowCrosshair != savedSettings.crosshair;
-            if (row == 2) return g_PanePhotos != savedSettings.panePhotos;
-            if (row == 3) return g_DebugMode != savedSettings.debugMode;
+            if (row == 1) return g_FireToggle != savedSettings.fireToggle;
+            if (row == 2) return g_ShowCrosshair != savedSettings.crosshair;
+            if (row == 3) return g_CrosshairSize != savedSettings.crosshairSize;
+            if (row == 4) return g_CrosshairColor != savedSettings.crosshairColor;
+            if (row == 5) return g_PanePhotos != savedSettings.panePhotos;
+            if (row == 6) return g_DebugMode != savedSettings.debugMode;
         } else if (category == 3) {
             return row < GAME_ACTION_COUNT
                 && g_KeyBinds.key[row] != savedSettings.keyBinds.key[row];
@@ -781,9 +800,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
         SettingsText(L"효과음 채널", L"SFX BUS", L"効果音"),
         SettingsText(L"출력", L"OUTPUT", L"出力"),
         SettingsText(L"오디오 엔진", L"AUDIO ENGINE", L"オーディオエンジン") };
-    const wchar_t* gameplayLabels[4] = {
+    const wchar_t* gameplayLabels[kGameplayRows] = {
         SettingsText(L"자동 스킬", L"AUTO SKILL", L"自動スキル"),
+        SettingsText(L"공격 방식", L"FIRE MODE", L"攻撃方式"),
         SettingsText(L"조준선", L"CROSSHAIR", L"照準"),
+        SettingsText(L"조준선 크기", L"CROSSHAIR SIZE", L"照準サイズ"),
+        SettingsText(L"조준선 색", L"CROSSHAIR COLOR", L"照準の色"),
         SettingsText(L"보스 창에 내 사진", L"MY PHOTOS IN PANES", L"ボス窓に写真"),
         SettingsText(L"\uB514\uBC84\uAE45 \uBAA8\uB4DC", L"DEBUG MODE", L"デバッグモード") };
     const wchar_t* controlsLabels[GAME_ACTION_COUNT + 1] = {};
@@ -801,7 +823,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     addHeader(1, SettingsText(L"소리", L"AUDIO", L"サウンド"));
     for (int i = 0; i < 5; ++i) addItem(1, i, audioLabels[i]);
     addHeader(2, SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"));
-    for (int i = 0; i < (kDebugSettingsVisible ? 4 : 3); ++i)
+    for (int i = 0; i < rowCounts[2]; ++i)
         addItem(2, i, gameplayLabels[i]);
     addHeader(3, SettingsText(L"조작", L"CONTROLS", L"操作"));
     for (int i = 0; i < GAME_ACTION_COUNT + 1; ++i)
@@ -1301,7 +1323,28 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 };
                 return output[optionLanguage][optionIndex];
             }
-        } else if (category == 2 && row < 4) {
+        } else if (category == 2) {
+            if (row == 1) {
+                static const wchar_t* fire[3][2] = {
+                    { L"홀드", L"토글" }, { L"HOLD", L"TOGGLE" }, { L"ホールド", L"トグル" }
+                };
+                return fire[optionLanguage][optionIndex];
+            }
+            if (row == 3) {
+                static const wchar_t* size[3][kCrosshairSizeCount] = {
+                    { L"작게", L"보통", L"크게", L"특대" }, { L"S", L"M", L"L", L"XL" },
+                    { L"小", L"中", L"大", L"特大" }
+                };
+                return size[optionLanguage][optionIndex];
+            }
+            if (row == 4) {
+                static const wchar_t* color[3][kCrosshairColorCount] = {
+                    { L"하늘", L"흰색", L"노랑", L"초록", L"분홍" },
+                    { L"CYAN", L"WHITE", L"YELLOW", L"GREEN", L"PINK" },
+                    { L"空色", L"白", L"黄", L"緑", L"ピンク" }
+                };
+                return color[optionLanguage][optionIndex];
+            }
             return kToggleLabels[optionLanguage][optionIndex];
         } else if (category == 4 && row == 0) {
             static const wchar_t* language[] = {
@@ -1506,8 +1549,18 @@ void Scene_SettingsInline(const SceneCtx& c) {
             : compactLanguageRow ? languageOptionScale : commonOptionScale;
         const UiTextLevel optionTextLevel = setting.optCount > 0
             ? settingsOptionTextLevel(category, row) : UiTextLevel::Title;
-        const float settingLabelScale = settingsScale(
+        // A label longer than its column ("RESTORE DEFAULTS") shrinks to fit
+        // instead of running into the control column.
+        const float settingLabelX = rightRowX + 20.0f * uiS;
+        const float settingLabelMaxW = std::max(1.0f,
+            rightControlX - settingLabelX - 16.0f * uiS);
+        float settingLabelScale = settingsScale(
             g_TextL, 1.0f, UiTextLevel::Title);
+        {
+            const float w = g_TextL.Width(setting.label, settingLabelScale);
+            if (w > settingLabelMaxW && w > 0.0f)
+                settingLabelScale *= settingLabelMaxW / w;
+        }
         const float settingLabelH = g_TextL.Height(
             setting.label, settingLabelScale);
         // The label and its control occupy separate columns of the same row.
@@ -1517,10 +1570,9 @@ void Scene_SettingsInline(const SceneCtx& c) {
         const float controlHitY = y;
         const float controlHitH = rightRowH;
         const float controlY = y + rightRowH * 0.5f;
-        drawSettingsTextAtLevel(
-            g_TextL, setting.label, rightRowX + 20.0f * uiS,
-            settingLabelY, 1.0f, titleR, titleG, titleB,
-            1.0f * rowA, UiTextLevel::Title, 0.66f);
+        DrawShadowedText(g_TextL, setting.label, settingLabelX,
+                         settingLabelY, settingLabelScale,
+                         titleR, titleG, titleB, 1.0f * rowA, 0.66f);
         if (changed) {
             DrawConstellationDisc(rightRowX + 5.0f * uiS,
                                   y + rightRowH * 0.50f,
@@ -1832,19 +1884,20 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 const float optionHoverT = optHover[category][row][j];
                 // The selected value must read as state, not just as a tiny
                 // marker. Keep it near-white at full alpha; non-selected
-                // values remain visible but recede until hovered.
+                // values remain readable (testers could not see them at 0.32
+                // alpha) but stay tinted and dimmer than the selected one.
                 const float optionA = current
                     ? 1.0f
-                    : 0.32f + 0.44f * optionHoverT;
+                    : 0.62f + 0.30f * optionHoverT;
                 const float optionR = current
                     ? catR * 0.42f + 0.58f
-                    : catR * (0.68f + 0.18f * optionHoverT);
+                    : catR * (0.70f + 0.10f * optionHoverT) + 0.16f;
                 const float optionG = current
                     ? catG * 0.42f + 0.58f
-                    : catG * (0.68f + 0.18f * optionHoverT);
+                    : catG * (0.70f + 0.10f * optionHoverT) + 0.16f;
                 const float optionB = current
                     ? catB * 0.42f + 0.58f
-                    : catB * (0.68f + 0.18f * optionHoverT);
+                    : catB * (0.70f + 0.10f * optionHoverT) + 0.16f;
                 // DrawShadowedText takes the top of the glyph box. Lift the
                 // labels to align their visual centers with the option hit row.
                 const float optionScale = settingsScale(
@@ -2259,9 +2312,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
              }
          } else if (category == 2) {
              if (row == 0) g_AutoSkill = option == 0;
-             else if (row == 1) g_ShowCrosshair = option == 0;
-             else if (row == 2) g_PanePhotos = option == 0;
-             else if (row == 3) g_DebugMode = option == 0;
+             else if (row == 1) g_FireToggle = option == 1;
+             else if (row == 2) g_ShowCrosshair = option == 0;
+             else if (row == 3) g_CrosshairSize = option;
+             else if (row == 4) g_CrosshairColor = option;
+             else if (row == 5) g_PanePhotos = option == 0;
+             else if (row == 6) g_DebugMode = option == 0;
          } else if (category == 4 && row == 2) {
              showCredits = true;
          } else if (category == 4 && row == 0) {

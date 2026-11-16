@@ -4,7 +4,7 @@
 LOC = {
     # ── frames ──
     "F_MINIGUN": ("Minigun", "ミニガン", "Fire interval 0.07s, bullet damage -60%, move speed -10%", "連射間隔0.07秒、弾のダメージ-60%、移動速度-10%"),
-    "F_LASER": ("Laser", "レーザー", "Fires fast beam shots in a stream (all pierce, range 9.5○, bounce off walls with a bounce card)", "高速の光線弾を連射 (全て貫通、射程9.5○、跳弾カードがあれば壁で反射)"),
+    "F_LASER": ("Laser", "レーザー", "After a 0.4s charge, holds a laser beam while you fire · enemies in the beam take 30% of your attack every 0.1s (pierces everything it touches, range 9.5○, bounces off walls with a bounce card)", "0.4秒のチャージ後、押している間レーザー光線を撃ち続ける · 光線に触れた敵は0.1秒ごとに攻撃力の30%のダメージ (触れた敵を全て貫通、射程9.5○、跳弾カードがあれば壁で反射)"),
     "F_SHOTGUN": ("Shotgun", "ショットガン", "Fires 7 pellets in a spread, range 7○", "一度に7発を散弾発射、射程7○"),
     "F_SNIPER": ("Sniper Rifle", "スナイパーライフル", "Slow but heavy piercing shots (pass through 2 enemies)", "遅いが重い貫通弾を発射 (敵2体を貫通)"),
     "F_BURST": ("Burst Rifle", "バースト銃", "Fires 3 shots at once in a tight group, slow fire rate", "一度に3発をまとめて撃つ、連射は遅い"),
@@ -118,5 +118,7 @@ LOC = {
     "P_COMBO_BOUNCE": ("Fervor Ricochet", "高揚跳弾", "At a kill combo of 5+, bullets have a 75% chance of +1 wall bounce", "撃破コンボが5以上のとき、弾が75%の確率で壁跳ね+1"),
     "P_COMBO_BLAST": ("Fervor Blast", "高揚爆発", "At a kill combo of 5+, bullets have a 45% chance to burst in 1○ on hit (30% attack)", "撃破コンボが5以上のとき、弾が45%の確率で命中時に1○の爆発 (攻撃力30%)"),
     "P_LONG_SPLIT": ("Attrition Split", "持久分裂", "From 20s into a wave, bullets have a 40% chance to split in 3 on hit (28% damage)", "ウェーブ開始20秒後から、弾が40%の確率で命中時に3方向へ分裂 (ダメージ28%)"),
+    "A_LASER_FOCUS": ("Focus Laser", "集束レーザー", "The laser grows thicker, reaches the walls and charges in 0.25s · it grows thicker and hotter the longer it stays on: +60% damage after 2.5s", "レーザーが太くなって壁まで届き、チャージが0.25秒に短縮 · 照射し続けるほど太く熱くなり、2.5秒でダメージ+60%"),
+    "A_LASER_OVERLOAD": ("Overload Laser", "過負荷レーザー", "The laser grows thicker still · its heat spreads to enemies it touches, one layer per 0.25s (up to 5 layers, 10% attack per second per layer, holds 3s after the last touch) · let go of a laser held over 0.6s to release the stored heat as one thick beam (scales with the time held: 10x the laser's damage at 2.5s; enemies hit go straight to 5 layers)", "レーザーがさらに太くなる · 光線に触れた敵に熱が移り、0.25秒ごとに1層ずつ溜まる (最大5層、1層につき毎秒攻撃力10%、最後に触れてから3秒持続) · 0.6秒以上照射したレーザーを離すと、溜めた熱を太い光線1発として放出 (照射時間に比例、2.5秒でレーザーのダメージの10倍、当たった敵はすぐ5層)"),
     "P_LONG_CRIT": ("Attrition Crit", "持久会心", "From 20s into a wave, crit chance +100%", "ウェーブ開始20秒後から、会心率+100%"),
 }

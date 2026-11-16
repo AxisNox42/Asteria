@@ -279,7 +279,7 @@ public:
                     monster->thrownPhase == 0) {
                     monster->TryHitStun(bullet.dirX, bullet.dirY);
                 }
-                SpawnSparks(bullet.x, bullet.y, crit ? 6 : 3,
+                SpawnSparks((bullet.synFlags & synf::Hitscan) ? monster->worldX : bullet.x, (bullet.synFlags & synf::Hitscan) ? monster->worldY : bullet.y, crit ? 6 : 3,
                             bullet.color.r, bullet.color.g, bullet.color.b);
                 if (passive_hooks::bulletHit)
                     passive_hooks::bulletHit(bullet, monster, monster->worldX,
@@ -324,7 +324,7 @@ public:
                     ranged->TryHitStun(bullet.dirX, bullet.dirY, Monster::HIT_STUN_TIME,
                                        Monster::HIT_STUN_COOLDOWN, Monster::HIT_KNOCK_SPEED);
                 }
-                SpawnSparks(bullet.x, bullet.y, crit ? 6 : 3,
+                SpawnSparks((bullet.synFlags & synf::Hitscan) ? ranged->worldX : bullet.x, (bullet.synFlags & synf::Hitscan) ? ranged->worldY : bullet.y, crit ? 6 : 3,
                             bullet.color.r, bullet.color.g, bullet.color.b);
                 if (passive_hooks::bulletHit)
                     passive_hooks::bulletHit(bullet, ranged, ranged->worldX,

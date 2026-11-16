@@ -13,7 +13,7 @@ static const wchar_t* ShopText(const wchar_t* kr, const wchar_t* en,
 // tier of their own, so they are grouped by the price of their first purchase.
 namespace shopgrid {
 
-enum class Kind { Meta, Theme, Aug };
+enum class Kind { Meta, Aug };
 
 struct Entry {
     Kind      kind;
@@ -55,7 +55,7 @@ inline void TierColor(int t, float& r, float& g, float& b) {
 inline int Key(Kind k, int id) { return (int)k * 1000 + id; }
 
 constexpr int kMaxEntries = 128;
-constexpr int kTabCount = 4;
+constexpr int kTabCount = 3;   // ALL, UPGRADES, CODEX
 
 } // namespace shopgrid
 
@@ -71,23 +71,15 @@ static int ShopBuildEntries(int tab, shopgrid::Entry* out, shopgrid::Section* se
     using namespace shopgrid;
     int n = 0;
     secCount = 0;
-    if (tab <= 2) {
+    if (tab <= 1) {
         Entry pool[32];
         int pn = 0;
-        if (tab == 0 || tab == 1) {
-            for (int i = 0; i < META_COUNT; ++i) {
-                if (i == META_RESERVED_STARTAUG || i == META_RESERVED_VISION) continue;
-                float r, g, b;
-                const long long cost = META_DEFS[i].baseCost;
-                TierColor(TierOfCost(cost), r, g, b);
-                pool[pn++] = { Kind::Meta, i, TierOfCost(cost), cost, r, g, b };
-            }
-        }
-        if (tab == 0 || tab == 2) {
-            for (int i = 1; i < ACCENT_COUNT; ++i)
-                pool[pn++] = { Kind::Theme, i, TierOfCost(ACCENT_THEMES[i].cost),
-                               ACCENT_THEMES[i].cost, ACCENT_THEMES[i].r,
-                               ACCENT_THEMES[i].g, ACCENT_THEMES[i].b };
+        for (int i = 0; i < META_COUNT; ++i) {
+            if (MetaSlotRemoved(i)) continue;
+            float r, g, b;
+            const long long cost = META_DEFS[i].baseCost;
+            TierColor(TierOfCost(cost), r, g, b);
+            pool[pn++] = { Kind::Meta, i, TierOfCost(cost), cost, r, g, b };
         }
         for (int t = 0; t < 3; ++t) {
             // Cheapest first inside a tier.
@@ -167,28 +159,24 @@ static void ShopDrawMetaGlyph(int id, float cx, float cy, float size,
             LogoLine(cx + ox - k * 0.5f, cy + k * 0.8f, cx + ox + k * 0.3f, cy, th * 1.3f, r, g, b, a);
         }
         break;
+    case META_MAGNET:  // horseshoe magnet pulling a stardust diamond
+        LogoLine(cx - k * 0.75f, cy - k * 0.15f, cx - k * 0.75f, cy + k * 0.45f, th * 1.3f, r, g, b, a);
+        LogoLine(cx + k * 0.75f, cy - k * 0.15f, cx + k * 0.75f, cy + k * 0.45f, th * 1.3f, r, g, b, a);
+        for (int s2 = 0; s2 < 6; ++s2) {   // the bend
+            const float a0 = 3.14159265f * (float)s2 / 6.0f, a1 = 3.14159265f * (float)(s2 + 1) / 6.0f;
+            LogoLine(cx + k * 0.75f * cosf(a0), cy + k * 0.45f + k * 0.75f * sinf(a0),
+                     cx + k * 0.75f * cosf(a1), cy + k * 0.45f + k * 0.75f * sinf(a1), th * 1.3f, r, g, b, a);
+        }
+        LogoLine(cx - k * 0.95f, cy - k * 0.15f, cx - k * 0.55f, cy - k * 0.15f, th, r, g, b, a);
+        LogoLine(cx + k * 0.55f, cy - k * 0.15f, cx + k * 0.95f, cy - k * 0.15f, th, r, g, b, a);
+        drawDiamond(cx, cy - k * 0.70f, size * 0.12f, 1.0f, 0.85f, 0.30f, a);
+        break;
     default:           // identity slot: a slot frame with a node
         LogoLine(cx - k, cy - k * 0.6f, cx + k, cy - k * 0.6f, th, r, g, b, a);
         LogoLine(cx - k, cy + k * 0.6f, cx + k, cy + k * 0.6f, th, r, g, b, a);
         drawDiamond(cx, cy, size * 0.10f, r, g, b, a);
         break;
     }
-}
-
-// Colour profile glyph: a ring with a soft coloured core.
-static void ShopDrawThemeGlyph(float cx, float cy, float size,
-                               float r, float g, float b, float a) {
-    DrawConstellationDisc(cx, cy, size * 0.58f, r, g, b, 0.14f * a, false);
-    BindMainShader();
-    const int seg = 28;
-    const float rad = size * 0.40f;
-    for (int i = 0; i < seg; ++i) {
-        const float a0 = 6.2831853f * i / seg, a1 = 6.2831853f * (i + 1) / seg;
-        LogoLine(cx + std::cos(a0) * rad, cy + std::sin(a0) * rad,
-                 cx + std::cos(a1) * rad, cy + std::sin(a1) * rad,
-                 std::max(1.2f, size * 0.05f), r, g, b, a);
-    }
-    drawDiamond(cx, cy, size * 0.16f, r, g, b, a);
 }
 
 // Payload (augment) glyph. Some augments have no icon art; those get a hexagon
@@ -211,6 +199,9 @@ static void ShopDrawPayloadGlyph(AugType t, float cx, float cy, float size,
     }
     drawDiamond(cx, cy, size * 0.12f, r, g, b, a);
 }
+
+// First-visit guide steps (g_ShopIntroStage == SHOP_INTRO_TOUR).
+enum ShopTourStep : int { kTourPick = 0, kTourDetail, kTourBuy, kTourDone, kTourSteps };
 
 void Scene_Shop(const SceneCtx& c) {
     using namespace shopgrid;
@@ -237,6 +228,8 @@ void Scene_Shop(const SceneCtx& c) {
     static float s_buyFlashT = 1.0f;           // 0..1 after a purchase
     static int   s_buyFlashKey = -1;
     static bool  s_hadFocusKey = false;
+    static int   s_tourStep = 0;               // first-visit guide (g_ShopIntroStage == TOUR)
+    static float s_tourT = 0.0f;               // seconds on the current step
 
     if (g_LobbyPanel != LobbyPanel::Shop)
         DrawMenuBackground(sw, sh, delta, false);
@@ -249,6 +242,7 @@ void Scene_Shop(const SceneCtx& c) {
         s_detailT = 1.0f; s_buyFlashT = 1.0f;
         for (float& v : s_cellHov) v = 0.0f;
         for (float& v : s_cellSel) v = 0.0f;
+        s_tourStep = 0; s_tourT = 0.0f;
     }
     g_ShopEntryT = std::min(1.0f, g_ShopEntryT + dt);
     // Same side contrast fields as SETTINGS, scaled by the menu darkness setting.
@@ -260,7 +254,9 @@ void Scene_Shop(const SceneCtx& c) {
     const bool rmbClick = rawRmb && !g_RmbPrev;
     const bool escClick = EscPressedEdge(c, s_prevEsc);
     const bool lmbClick = lmb && !g_LmbPrev;
-    const bool inputReady = !s_backExit && g_ShopEntryT >= 0.55f;
+    // While the first-visit guide runs, the shop itself takes no input.
+    const bool tourOn = g_ShopIntroStage == SHOP_INTRO_TOUR && !s_backExit;
+    const bool inputReady = !s_backExit && g_ShopEntryT >= 0.55f && !tourOn;
     auto beginBack = [&]() {
         if (!inputReady) return;
         s_backExit = true;
@@ -299,6 +295,39 @@ void Scene_Shop(const SceneCtx& c) {
         s_selKey = Key(entries[0].kind, entries[0].id);
         s_detailT = 0.0f;
     }
+
+    // ── First-visit guide state ─────────────────────────────────────────
+    int tutIdx = -1;   // the 1-stardust module the guide has the player buy
+    for (int i = 0; i < entryCount; ++i)
+        if (entries[i].kind == Kind::Meta && entries[i].id == META_MAGNET) tutIdx = i;
+    const bool magnetOwned = g_MetaLv[META_MAGNET] >= META_DEFS[META_MAGNET].maxLv;
+    // Already owned (or not listed): skip straight to the closing step.
+    if (tourOn && s_tourStep < kTourDone && s_tourStep != kTourBuy && (magnetOwned || tutIdx < 0)) {
+        s_tourStep = kTourDone; s_tourT = 0.0f;
+    }
+    const bool tourLive = tourOn && g_ShopEntryT >= 0.55f;
+    if (tourOn && (s_tourStep == kTourDetail || s_tourStep == kTourBuy) && tutIdx >= 0) {
+        selIndex = tutIdx;
+        s_selKey = Key(entries[tutIdx].kind, entries[tutIdx].id);
+    }
+    const bool tourBuyStep = tourLive && s_tourStep == kTourBuy && selIndex == tutIdx;
+    // Everything but the part in focus is drawn faint (no veil over the screen):
+    // 0 title/tabs/back, 1 other cells, 2 the module cell, 3 detail, 4 purchase.
+    static float s_dimF[5] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    {
+        float tgt[5] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+        if (tourOn && s_tourStep < kTourDone) {
+            constexpr float kDim = 0.22f;
+            tgt[0] = kDim;
+            tgt[1] = kDim;
+            tgt[2] = s_tourStep == kTourPick ? 1.0f : 0.40f;
+            tgt[3] = s_tourStep == kTourDetail ? 1.0f : kDim;
+            tgt[4] = s_tourStep == kTourBuy ? 1.0f : kDim;
+        }
+        for (int k = 0; k < 5; ++k) s_dimF[k] = UiApproach(s_dimF[k], tgt[k], dt, 6.0f);
+    }
+    const float wakeTitle = wake * s_dimF[0];
+    const float wakeGrid = wake * s_dimF[1];
 
     // ── Layout ──────────────────────────────────────────────────────────
     const float ui = UiScale(sw, sh);
@@ -407,16 +436,48 @@ void Scene_Shop(const SceneCtx& c) {
 
     // Title and tabs.
     drawText(g_TextL, ShopText(L"상점", L"SHOP", L"ショップ"), gridX - slideIn, titleY, sTitle,
-             1.0f, 1.0f, 1.0f, 0.95f * wake);
+             1.0f, 1.0f, 1.0f, 0.95f * wakeTitle);
     {
         const float ruleY = titleY + 58.0f * ui;
-        LogoLine(gridX - slideIn, ruleY, panelR, ruleY, 1.0f * ui, 0.34f, 0.72f, 1.0f, 0.16f * wake);
+        LogoLine(gridX - slideIn, ruleY, panelR, ruleY, 1.0f * ui, 0.34f, 0.72f, 1.0f, 0.16f * wakeTitle);
+    }
+    // Stardust held, top right on every tab: a diamond outline and the count.
+    // It brightens for a moment whenever the count changes (a purchase).
+    {
+        static long long s_shownCoins = -1;
+        static float s_coinFlash = 0.0f;
+        if (s_shownCoins >= 0 && s_shownCoins != g_Coins) s_coinFlash = 1.0f;
+        s_shownCoins = g_Coins;
+        s_coinFlash = std::max(0.0f, s_coinFlash - dt / 0.6f);
+        // Lit with the purchase step of the shop guide, faint with the rest of the title.
+        const float dustA = wake * std::max(s_dimF[0], s_dimF[4]);
+        wchar_t num[32];
+        FormatGrouped(g_Coins, num, 32);
+        const float numSc = sTitle * 0.62f;
+        const float numW = g_TextL.Width(num, numSc);
+        const float numH = g_TextL.Height(num, numSc);
+        const float rx = panelR + slideIn;
+        const float ny = titleY + (g_TextL.Height(L"SHOP", sTitle) - numH) * 0.5f;
+        const float f = s_coinFlash * s_coinFlash;
+        const float cr = 1.0f, cg = 0.84f + 0.14f * f, cb = 0.34f + 0.50f * f;
+        drawText(g_TextL, num, rx, ny, numSc, cr, cg, cb, (0.92f + 0.08f * f) * dustA, 0.0f, true);
+        const float ix = rx - numW - 22.0f * ui, iy = ny + numH * 0.5f;
+        const float h = 11.0f * ui * (1.0f + 0.15f * f), th = 1.6f * ui;
+        LogoLine(ix, iy - h, ix + h * 0.72f, iy, th, cr, cg, cb, 0.95f * dustA);
+        LogoLine(ix + h * 0.72f, iy, ix, iy + h, th, cr, cg, cb, 0.95f * dustA);
+        LogoLine(ix, iy + h, ix - h * 0.72f, iy, th, cr, cg, cb, 0.95f * dustA);
+        LogoLine(ix - h * 0.72f, iy, ix, iy - h, th, cr, cg, cb, 0.95f * dustA);
+        drawDiamond(ix, iy, 3.0f * ui, cr, cg, cb, 0.95f * dustA);
+        const wchar_t* lbl = ShopText(L"별가루", L"STARDUST", L"星屑");
+        drawText(g_TextS, lbl, ix - h - 12.0f * ui, iy - g_TextS.Height(lbl, sSmall) * 0.5f, sSmall,
+                 0.88f, 0.94f, 1.0f, 0.70f * dustA, 0.0f, true);
     }
     static const wchar_t* kTabName[3][kTabCount] = {
-        { L"전체", L"영구 업그레이드", L"화면 프로필", L"도감" },
-        { L"ALL", L"UPGRADES", L"PROFILES", L"CODEX" },
-        { L"すべて", L"恒久強化", L"画面プロファイル", L"図鑑" },
+        { L"전체", L"영구 업그레이드", L"도감" },
+        { L"ALL", L"UPGRADES", L"CODEX" },
+        { L"すべて", L"恒久強化", L"図鑑" },
     };
+    float tabsEndX = gridX, tabsH = 0.0f;   // tab row extent, for the guide
     {
         float tx = gridX - slideIn;
         const float tabScale = sBody * 1.15f;
@@ -433,16 +494,18 @@ void Scene_Shop(const SceneCtx& c) {
                 for (float& v : s_cellSel) v = 0.0f;
             }
             const bool sel = s_tab == t;
-            const float a = (sel ? 1.0f : 0.58f + 0.30f * s_tabHov[t]) * wake;
+            const float a = (sel ? 1.0f : 0.58f + 0.30f * s_tabHov[t]) * wakeTitle;
             drawText(g_TextS, name, tx, tabsY, tabScale,
                      sel ? 1.0f : 0.72f, sel ? 1.0f : 0.84f, 1.0f, a);
-            const float ulA = (sel ? 0.95f : 0.22f * s_tabHov[t]) * wake;
+            const float ulA = (sel ? 0.95f : 0.22f * s_tabHov[t]) * wakeTitle;
             if (ulA > 0.01f) {
                 LogoLine(tx, tabsY + th + 8.0f * ui, tx + tw, tabsY + th + 8.0f * ui,
                          (sel ? 2.0f : 1.0f) * ui, 0.40f, 0.82f, 1.0f, ulA);
                 if (sel) drawDiamond(tx + tw + 8.0f * ui, tabsY + th + 8.0f * ui, 2.6f * ui,
-                                     0.40f, 0.82f, 1.0f, 0.8f * wake);
+                                     0.40f, 0.82f, 1.0f, 0.8f * wakeTitle);
             }
+            tabsEndX = tx + tw;
+            tabsH = std::max(tabsH, th);
             tx += tw + 40.0f * ui;
         }
     }
@@ -459,25 +522,27 @@ void Scene_Shop(const SceneCtx& c) {
             else {
                 const float hx = gridX - slideIn;
                 drawText(g_TextS, secs[s].label, hx, sy + 6.0f * ui, sBody * 1.12f,
-                         secs[s].r, secs[s].g, secs[s].b, 0.95f * wake);
+                         secs[s].r, secs[s].g, secs[s].b, 0.95f * wakeGrid);
                 wchar_t cnt[16];
                 swprintf_s(cnt, L"%d", secs[s].count);
                 const float lw = g_TextS.Width(secs[s].label, sBody * 1.12f);
                 LogoLine(hx + lw + 16.0f * ui, sy + 21.0f * ui, gridX + gridW - slideIn, sy + 21.0f * ui,
-                         1.0f * ui, secs[s].r, secs[s].g, secs[s].b, 0.30f * wake);
+                         1.0f * ui, secs[s].r, secs[s].g, secs[s].b, 0.30f * wakeGrid);
                 drawText(g_TextS, cnt, gridX + gridW - slideIn, sy + 4.0f * ui, sSmall,
-                         secs[s].r, secs[s].g, secs[s].b, 0.70f * wake, 0.0f, true);
+                         secs[s].r, secs[s].g, secs[s].b, 0.70f * wakeGrid, 0.0f, true);
             }
             for (int k = 0; k < secs[s].count; ++k) {
                 const int i = secs[s].first + k;
                 const Entry& e = entries[i];
+                const float wk = wake * (i == tutIdx ? s_dimF[2] : s_dimF[1]);
                 const float x = cellX[i] - slideIn;
                 const float y = gridTop + cellY[i] - s_scroll;
                 if (y + cellH < gridTop - 4.0f || y > gridTop + gridH) {
                     s_cellHov[i] = UpdateMenuCommandHover(s_cellHov[i], false, dt);
                     continue;
                 }
-                const bool hov = inputReady && mx >= x && mx < x + cellW - 8.0f * ui
+                const bool cellInput = inputReady || (tourLive && s_tourStep == kTourPick && i == tutIdx);
+                const bool hov = cellInput && mx >= x && mx < x + cellW - 8.0f * ui
                               && my >= std::max(y, gridTop) && my < std::min(y + cellH - 6.0f * ui, gridTop + gridH);
                 s_cellHov[i] = UpdateMenuCommandHover(s_cellHov[i], hov, dt);
                 if (hov && lmbClick) clickedIndex = i;
@@ -497,9 +562,6 @@ void Scene_Shop(const SceneCtx& c) {
                     owned = lv > 0; maxed = lv >= maxLv;
                     name = MetaName(e.id);
                     price = MetaNextCost(e.id);
-                } else if (e.kind == Kind::Theme) {
-                    owned = ThemeOwned(e.id);
-                    name = AccentName(e.id);
                 } else {
                     name = ALL_AUGS[e.id].locName[LangIndex()];
                 }
@@ -508,14 +570,14 @@ void Scene_Shop(const SceneCtx& c) {
                 const float cx = x + cw * 0.5f;
                 const float gy = y + 42.0f * ui;
                 const float gs = 52.0f * ui;
-                const float a = (0.80f + 0.20f * hv + 0.2f * sa) * wake;
+                const float a = (0.80f + 0.20f * hv + 0.2f * sa) * wk;
 
                 // Selection: bracket corners that light up, with a soft glow.
                 {
                     const float bx0 = x, bx1 = x + cw, by0 = y, by1 = y + cellH - 6.0f * ui;
                     const float arm = ((5.0f + 3.0f * hv) + (11.0f - (5.0f + 3.0f * hv)) * sa) * ui;
                     const float th = (0.9f + 0.8f * sa) * ui;
-                    const float ba = ((0.36f * hv) + (1.0f - 0.36f * hv) * sa) * wake;
+                    const float ba = ((0.36f * hv) + (1.0f - 0.36f * hv) * sa) * wk;
                     const float lift = 0.16f * sa;
                     const float br = e.r + (1.0f - e.r) * lift, bg = e.g + (1.0f - e.g) * lift,
                                 bb = e.b + (1.0f - e.b) * lift;
@@ -540,26 +602,25 @@ void Scene_Shop(const SceneCtx& c) {
                 if (s_buyFlashKey == Key(e.kind, e.id) && s_buyFlashT < 1.0f) {
                     const float f = s_buyFlashT;
                     DrawConstellationDisc(cx, gy, gs * (0.6f + 1.3f * f), e.r, e.g, e.b,
-                                          0.35f * (1.0f - f) * wake, false);
+                                          0.35f * (1.0f - f) * wk, false);
                 }
 
                 // Glyph.
-                const float ga = a * (e.kind == Kind::Aug ? 1.0f : (owned || e.kind == Kind::Meta ? 1.0f : 0.78f));
+                const float ga = a;
                 if (e.kind == Kind::Meta) ShopDrawMetaGlyph(e.id, cx, gy, gs, e.r, e.g, e.b, ga);
-                else if (e.kind == Kind::Theme) ShopDrawThemeGlyph(cx, gy, gs, e.r, e.g, e.b, ga);
                 else ShopDrawPayloadGlyph(ALL_AUGS[e.id].type, cx, gy, gs, e.r, e.g, e.b, ga);
                 if (owned && e.kind != Kind::Aug) {
                     // Owned mark: a small check at the glyph's corner.
                     const float mx0 = cx + gs * 0.46f, my0 = gy - gs * 0.50f;
                     LogoLine(mx0 - 5.0f * ui, my0 + 1.0f * ui, mx0 - 1.5f * ui, my0 + 5.0f * ui,
-                             1.8f * ui, 0.60f, 1.0f, 0.70f, 0.95f * wake);
+                             1.8f * ui, 0.60f, 1.0f, 0.70f, 0.95f * wk);
                     LogoLine(mx0 - 1.5f * ui, my0 + 5.0f * ui, mx0 + 6.0f * ui, my0 - 4.0f * ui,
-                             1.8f * ui, 0.60f, 1.0f, 0.70f, 0.95f * wake);
+                             1.8f * ui, 0.60f, 1.0f, 0.70f, 0.95f * wk);
                 }
 
                 // Name and price.
                 drawText(g_TextS, name, cx - std::min(g_TextS.Width(name, sSmall), cw - 10.0f * ui) * 0.5f,
-                         y + 76.0f * ui, sSmall, 0.88f, 0.94f, 1.0f, (0.72f + 0.2f * hv + 0.08f * sa) * wake,
+                         y + 76.0f * ui, sSmall, 0.88f, 0.94f, 1.0f, (0.72f + 0.2f * hv + 0.08f * sa) * wk,
                          cw - 10.0f * ui);
                 wchar_t line[40] = L"";
                 float pr = 1.0f, pg = 0.84f, pb = 0.34f;
@@ -568,9 +629,6 @@ void Scene_Shop(const SceneCtx& c) {
                     pr = 0.62f; pg = 0.74f; pb = 0.88f;
                 } else if (maxed) {
                     swprintf_s(line, L"%ls", ShopText(L"최대", L"MAX", L"最大"));
-                    pr = 0.60f; pg = 1.0f; pb = 0.70f;
-                } else if (e.kind == Kind::Theme && owned) {
-                    swprintf_s(line, L"%ls", ShopText(L"보유", L"OWNED", L"所持"));
                     pr = 0.60f; pg = 1.0f; pb = 0.70f;
                 } else {
                     wchar_t num[24];
@@ -582,7 +640,7 @@ void Scene_Shop(const SceneCtx& c) {
                 }
                 drawText(g_TextS, line, cx - std::min(g_TextS.Width(line, sSmall), cw - 6.0f * ui) * 0.5f,
                          y + 76.0f * ui + g_TextS.Height(name, sSmall) + 8.0f * ui, sSmall,
-                         pr, pg, pb, (0.80f + 0.2f * hv) * wake, cw - 6.0f * ui);
+                         pr, pg, pb, (0.80f + 0.2f * hv) * wk, cw - 6.0f * ui);
             }
         }
         BatchFlush();
@@ -592,20 +650,23 @@ void Scene_Shop(const SceneCtx& c) {
             const float trackX = gridX + gridW + 26.0f * ui - slideIn;
             const float thumbH = std::max(30.0f * ui, gridH * gridH / (gridH + maxScroll));
             const float thumbY = gridTop + (gridH - thumbH) * (s_scroll / maxScroll);
-            LogoLine(trackX, gridTop, trackX, gridTop + gridH, 0.7f * ui, 0.34f, 0.72f, 1.0f, 0.12f * wake);
-            LogoLine(trackX, thumbY, trackX, thumbY + thumbH, 1.8f * ui, 0.34f, 0.82f, 1.0f, 0.55f * wake);
+            LogoLine(trackX, gridTop, trackX, gridTop + gridH, 0.7f * ui, 0.34f, 0.72f, 1.0f, 0.12f * wakeGrid);
+            LogoLine(trackX, thumbY, trackX, thumbY + thumbH, 1.8f * ui, 0.34f, 0.82f, 1.0f, 0.55f * wakeGrid);
         }
     }
     if (clickedIndex >= 0) {
         {   // 이미 최대·보유 항목을 고름
             const Entry& ce = entries[clickedIndex];
-            const bool ceMaxed = ce.kind == Kind::Meta ? g_MetaLv[ce.id] >= META_DEFS[ce.id].maxLv
-                               : (ce.kind == Kind::Theme && ThemeOwned(ce.id));
+            const bool ceMaxed = ce.kind == Kind::Meta && g_MetaLv[ce.id] >= META_DEFS[ce.id].maxLv;
             if (ceMaxed) Audio::Play(Audio::Cue::ShopMaxed);
         }
         s_selKey = Key(entries[clickedIndex].kind, entries[clickedIndex].id);
         selIndex = clickedIndex;
         s_detailT = 0.0f;
+        if (tourLive && s_tourStep == kTourPick && clickedIndex == tutIdx) {
+            s_tourStep = kTourDetail;
+            s_tourT = 0.0f;
+        }
     }
 
     // ── Detail panel ────────────────────────────────────────────────────
@@ -613,11 +674,13 @@ void Scene_Shop(const SceneCtx& c) {
     {
         const float dx = panelX - 34.0f * ui + slideIn * 0.4f;
         LogoLine(dx, gridTop - 18.0f * ui, dx, gridTop + gridH + 40.0f * ui,
-                 1.0f * ui, 0.34f, 0.72f, 1.0f, 0.14f * wake);
+                 1.0f * ui, 0.34f, 0.72f, 1.0f, 0.14f * wake * s_dimF[3]);
     }
+    float detailBottom = gridTop + 240.0f * ui;   // where the panel's content ends (guide uses it)
     if (selIndex >= 0) {
         const Entry& e = entries[selIndex];
-        const float da = wake * (0.35f + 0.65f * s_detailT);
+        const float daBase = wake * (0.35f + 0.65f * s_detailT);
+        const float da = daBase * s_dimF[3];
         const float px = panelX + slideIn * 0.4f;
         const float pr = px + panelW;
         float y = gridTop - 6.0f * ui + (1.0f - s_detailT) * 8.0f * ui;
@@ -625,7 +688,6 @@ void Scene_Shop(const SceneCtx& c) {
         // Kind tag.
         const wchar_t* kindText =
             e.kind == Kind::Meta ? ShopText(L"영구 업그레이드", L"PERMANENT UPGRADE", L"恒久強化")
-          : e.kind == Kind::Theme ? ShopText(L"화면 프로필", L"DISPLAY PROFILE", L"画面プロファイル")
           : ShopText(L"도감 · 페이로드", L"CODEX · PAYLOAD", L"図鑑・ペイロード");
         // Dark tier colours (e.g. epic purple) are lifted toward white for small text.
         const float tl = 0.45f;
@@ -637,10 +699,8 @@ void Scene_Shop(const SceneCtx& c) {
         const float gs = 84.0f * ui;
         const float gcx = px + gs * 0.5f, gcy = y + gs * 0.5f;
         if (e.kind == Kind::Meta) ShopDrawMetaGlyph(e.id, gcx, gcy, gs, e.r, e.g, e.b, da);
-        else if (e.kind == Kind::Theme) ShopDrawThemeGlyph(gcx, gcy, gs, e.r, e.g, e.b, da);
         else ShopDrawPayloadGlyph(ALL_AUGS[e.id].type, gcx, gcy, gs, e.r, e.g, e.b, da);
         const wchar_t* title = e.kind == Kind::Meta ? MetaName(e.id)
-                             : e.kind == Kind::Theme ? AccentName(e.id)
                              : ALL_AUGS[e.id].locName[LangIndex()];
         const float tx = px + gs + 22.0f * ui;
         drawText(g_TextL, title, tx, y + 4.0f * ui, sTitle * 0.9f, 0.97f, 0.98f, 1.0f, 0.99f * da,
@@ -704,7 +764,7 @@ void Scene_Shop(const SceneCtx& c) {
             // Hovering a glossary word opens its definition under the description.
             DrawGlossaryHover(2, glossWords, px, y + lineH + 58.0f * ui, e.r, e.g, e.b,
                               inputReady && da > 0.9f, (float)mx, (float)my, delta, sw, sh, ui);
-        } else if (e.kind == Kind::Meta) {
+        } else {
             const int lv = g_MetaLv[e.id], maxLv = META_DEFS[e.id].maxLv;
             drawText(g_TextS, ShopText(L"출격 전 적용되는 영구 효과", L"PERMANENT EFFECT APPLIED BEFORE LAUNCH",
                                        L"出撃前に適用される恒久効果"),
@@ -719,26 +779,20 @@ void Scene_Shop(const SceneCtx& c) {
             swprintf_s(lvBuf, ShopText(L"레벨  %d / %d", L"LEVEL  %d / %d", L"レベル  %d / %d"), lv, maxLv);
             drawText(g_TextS, lvBuf, pr, y - 2.0f * ui, sBody, 0.92f, 0.96f, 1.0f, 0.9f * da, 0.0f, true);
             y += lineH + 6.0f * ui;
-        } else {
-            drawText(g_TextS, ShopText(L"메뉴와 플레이어 창에 쓰이는 색상", L"COLOUR USED BY MENUS AND THE PLAYER WINDOW",
-                                       L"メニューとプレイヤー窓に使われる配色"),
-                     px, y, sBody, 0.78f, 0.86f, 0.95f, 0.88f * da, panelW);
-            y += lineH + 8.0f * ui;
-            LogoLine(px, y + 6.0f * ui, px + panelW * 0.5f, y + 6.0f * ui, 5.0f * ui, e.r, e.g, e.b, 0.85f * da);
-            y += lineH;
+            detailBottom = y;
         }
 
         // Purchase block, anchored to the panel's bottom.
         if (e.kind != Kind::Aug) {
+            const float daB = daBase * s_dimF[4];
+            const bool buyInput = inputReady || tourBuyStep;
             const float bottom = gridTop + gridH + 20.0f * ui;
             const float btnH = 64.0f * ui;
             const float btnY = bottom + 10.0f * ui;
-            const bool isMeta = e.kind == Kind::Meta;
-            const int lv = isMeta ? g_MetaLv[e.id] : 0;
-            const int maxLv = isMeta ? META_DEFS[e.id].maxLv : 0;
-            const bool owned = isMeta ? lv > 0 : ThemeOwned(e.id);
-            const bool maxed = isMeta ? lv >= maxLv : owned;
-            const long long cost = isMeta ? MetaNextCost(e.id) : e.cost;
+            const int lv = g_MetaLv[e.id];
+            const int maxLv = META_DEFS[e.id].maxLv;
+            const bool maxed = lv >= maxLv;
+            const long long cost = MetaNextCost(e.id);
             const bool canBuy = !maxed && cost >= 0 && g_Coins >= cost;
 
             float ry = bottom - 112.0f * ui;
@@ -746,55 +800,53 @@ void Scene_Shop(const SceneCtx& c) {
             if (!maxed) {
                 FormatGrouped(cost, num, 32);
                 swprintf_s(buf, ShopText(L"비용  %ls 별가루", L"COST  %ls STARDUST", L"費用  %ls 星屑"), num);
-                drawText(g_TextS, buf, pr, ry, sBody, 1.0f, 0.84f, 0.34f, 0.98f * da, panelW, true);
+                drawText(g_TextS, buf, pr, ry, sBody, 1.0f, 0.84f, 0.34f, 0.98f * daB, panelW, true);
                 ry += lineH;
             } else {
-                drawText(g_TextS, isMeta ? ShopText(L"최대 레벨", L"MAX LEVEL", L"最大レベル")
-                                         : ShopText(L"구매 완료", L"OWNED", L"購入済み"),
-                         pr, ry, sBody, 0.60f, 1.0f, 0.70f, 0.98f * da, panelW, true);
+                drawText(g_TextS, ShopText(L"최대 레벨", L"MAX LEVEL", L"最大レベル"),
+                         pr, ry, sBody, 0.60f, 1.0f, 0.70f, 0.98f * daB, panelW, true);
                 ry += lineH;
             }
             FormatGrouped(g_Coins, num, 32);
             swprintf_s(buf, ShopText(L"보유 별가루  %ls", L"STARDUST  %ls", L"所持星屑  %ls"), num);
-            drawText(g_TextS, buf, pr, ry, sBody, 0.88f, 0.94f, 1.0f, 0.80f * da, panelW, true);
+            drawText(g_TextS, buf, pr, ry, sBody, 0.88f, 0.94f, 1.0f, 0.80f * daB, panelW, true);
             ry += lineH;
             if (canBuy) {
                 FormatGrouped(g_Coins - cost, num, 32);
                 swprintf_s(buf, ShopText(L"구매 후  %ls 별가루", L"AFTER  %ls STARDUST", L"購入後  %ls 星屑"), num);
-                drawText(g_TextS, buf, pr, ry, sSmall, e.r, e.g, e.b, 0.86f * da, panelW, true);
+                drawText(g_TextS, buf, pr, ry, sSmall, e.r, e.g, e.b, 0.86f * daB, panelW, true);
             }
 
             const float btnW = std::min(panelW, 360.0f * ui);
             const float btnX = pr - btnW;
-            const bool hovBtn = inputReady && mx >= btnX - 12.0f * ui && mx <= btnX + btnW + 12.0f * ui
+            const bool hovBtn = buyInput && mx >= btnX - 12.0f * ui && mx <= btnX + btnW + 12.0f * ui
                              && my >= btnY && my <= btnY + btnH;
             s_buyHov = UpdateMenuCommandHover(s_buyHov, hovBtn && canBuy, dt);
-            const bool pressBuy = inputReady && ((hovBtn && lmbClick) || keyEdge[4]);
+            const bool pressBuy = buyInput && ((hovBtn && lmbClick) || keyEdge[4]);
             const bool doBuy = canBuy && pressBuy;
             if (pressBuy && !canBuy) Audio::Play(Audio::Cue::UiDeny);   // 별가루 부족·최대 레벨
             if (doBuy) {
                 Audio::Play(Audio::Cue::ShopBuy);
                 g_Coins -= cost;
-                if (isMeta) ++g_MetaLv[e.id];
-                else g_ThemeOwned |= (1 << e.id);
+                ++g_MetaLv[e.id];
                 SaveGame();
                 s_buyFlashT = 0.0f;
                 s_buyFlashKey = Key(e.kind, e.id);
+                if (tourBuyStep) { s_tourStep = kTourDone; s_tourT = 0.0f; }   // guide: bought
             }
             const wchar_t* label =
-                maxed ? (isMeta ? ShopText(L"최대 레벨", L"MAX LEVEL", L"最大レベル")
-                                : ShopText(L"구매 완료", L"OWNED", L"購入済み"))
+                maxed ? ShopText(L"최대 레벨", L"MAX LEVEL", L"最大レベル")
                       : (!canBuy ? ShopText(L"별가루 부족", L"NOT ENOUGH", L"星屑不足")
-                                 : (isMeta && lv > 0 ? ShopText(L"강화", L"UPGRADE", L"強化")
+                                 : (lv > 0 ? ShopText(L"강화", L"UPGRADE", L"強化")
                                                      : ShopText(L"구매", L"BUY", L"購入")));
             const wchar_t* variants[3] = {
-                maxed ? (isMeta ? L"최대 레벨" : L"구매 완료") : L"별가루 부족",
-                maxed ? (isMeta ? L"MAX LEVEL" : L"OWNED") : L"NOT ENOUGH",
-                maxed ? (isMeta ? L"最大レベル" : L"購入済み") : L"星屑不足" };
+                maxed ? L"최대 레벨" : L"별가루 부족",
+                maxed ? L"MAX LEVEL" : L"NOT ENOUGH",
+                maxed ? L"最大レベル" : L"星屑不足" };
             const float cr = maxed ? 0.60f : (canBuy ? 0.34f : 0.96f);
             const float cg = maxed ? 1.00f : (canBuy ? 0.86f : 0.36f);
             const float cb = maxed ? 0.70f : (canBuy ? 1.00f : 0.38f);
-            DrawUnifiedMenuCommand(label, btnX, btnY, btnW, btnH, cr, cg, cb, da,
+            DrawUnifiedMenuCommand(label, btnX, btnY, btnW, btnH, cr, cg, cb, daB,
                                    0.38f * (canBuy ? 1.0f : 0.5f) + 0.62f * s_buyHov, false,
                                    canBuy ? 0.10f + 0.08f * std::sin(now * 2.4f) : 0.0f, now,
                                    ui, true, true, true, variants, 3);
@@ -803,8 +855,212 @@ void Scene_Shop(const SceneCtx& c) {
 
     // ── Back ────────────────────────────────────────────────────────────
     if (DrawBottomLeftBackButton(s_backHov, sw, sh, ui, mx, my, lmb && inputReady, g_LmbPrev,
-                                 wake, now, dt))
+                                 wakeTitle, now, dt))
         beginBack();
+
+    // ── First-visit guide ───────────────────────────────────────────────
+    // A hands-on first purchase: pick the 1-stardust module, read its effect,
+    // buy it. Gold corner brackets mark the part to look at and everything else
+    // is drawn faint (no veil over the screen). ESC skips at any time.
+    if (tourOn && g_ShopEntryT >= 0.55f) {
+        const float prevT = s_tourT;
+        s_tourT += dt;
+        if (prevT <= 0.0f && s_tourStep == kTourPick) Audio::Play(Audio::Cue::UiTab);
+        const bool spaceNow = c.window && glfwGetKey(c.window, GLFW_KEY_SPACE) == GLFW_PRESS;
+        static bool s_prevSpace = false;
+        const bool spaceEdge = spaceNow && !s_prevSpace && !c.inputFocusChanged;
+        s_prevSpace = spaceNow;
+        const bool ready = s_tourT > 0.35f;
+        const bool next = ready && (lmbClick || keyEdge[4] || spaceEdge);
+        const long long magnetCost = MetaNextCost(META_MAGNET);
+        const bool canAffordMagnet = !magnetOwned && magnetCost >= 0 && g_Coins >= magnetCost;
+        bool finish = false;
+        if (escClick) {   // only ESC skips; a stray right-click must not end the guide
+            Audio::Play(Audio::Cue::UiBack);
+            finish = true;
+        } else if (s_tourStep == kTourPick && ready && (keyEdge[4] || spaceEdge) && tutIdx >= 0) {
+            Audio::Play(Audio::Cue::UiConfirm);   // keyboard pick of the module
+            s_selKey = Key(entries[tutIdx].kind, entries[tutIdx].id);
+            s_detailT = 0.0f;
+            s_tourStep = kTourDetail; s_tourT = 0.0f;
+        } else if (s_tourStep == kTourDetail && next) {
+            Audio::Play(Audio::Cue::UiConfirm);
+            s_tourStep = kTourBuy; s_tourT = 0.0f;
+        } else if (s_tourStep == kTourBuy && next && !canAffordMagnet) {
+            s_tourStep = kTourDone; s_tourT = 0.0f;   // nothing to buy with: wrap up
+        } else if (s_tourStep == kTourDone && next) {
+            Audio::Play(Audio::Cue::UiConfirm);
+            finish = true;
+        }
+        if (finish) {
+            g_ShopIntroStage = SHOP_INTRO_NONE;
+            SaveGame();
+            s_tourStep = 0; s_tourT = 0.0f;
+        } else {
+            const float in = Smoothstep(std::min(1.0f, s_tourT / 0.30f));
+            const float pulse = 0.5f + 0.5f * std::sin(now * 3.0f);
+            // Region of the current step (none once it is done).
+            const float px = panelX + slideIn * 0.4f;
+            const float bottom = gridTop + gridH + 20.0f * ui;
+            // The module cell's frame (the pick step's region; the closing caption sits under it).
+            const bool cellShown = tutIdx >= 0;
+            const float cellRx = cellShown ? cellX[tutIdx] - slideIn - 8.0f * ui : 0.0f;
+            const float cellRy = cellShown ? gridTop + cellY[tutIdx] - s_scroll - 8.0f * ui : 0.0f;
+            const float cellRw = cellW + 8.0f * ui, cellRh = cellH + 10.0f * ui;
+            float rx = 0.0f, ry = 0.0f, rw = 0.0f, rh = 0.0f;
+            bool hasRegion = true;
+            if (s_tourStep == kTourPick && cellShown) {
+                rx = cellRx; ry = cellRy; rw = cellRw; rh = cellRh;
+            } else if (s_tourStep == kTourDetail) {
+                // Only the panel's content (kind tag down to the level row).
+                rx = px - 16.0f * ui; ry = gridTop - 18.0f * ui;
+                rw = panelW + 32.0f * ui; rh = detailBottom + 6.0f * ui - ry;
+            } else if (s_tourStep == kTourBuy) {
+                rx = px - 16.0f * ui; ry = bottom - 124.0f * ui;
+                rw = panelW + 32.0f * ui; rh = (bottom + 10.0f * ui + 64.0f * ui + 14.0f * ui) - ry;
+            } else {
+                hasRegion = false;
+            }
+            const float rx_ = rx, ry_ = ry, rw_ = rw, rh_ = rh;
+            if (hasRegion) {
+                const float grow = (1.0f - in) * 14.0f * ui;
+                const float rx = rx_ - grow, ry = ry_ - grow, rw = rw_ + grow * 2.0f, rh = rh_ + grow * 2.0f;
+                const float ga = (0.70f + 0.30f * pulse) * in * wake;
+                const float arm = std::min(28.0f * ui, std::min(rw, rh) * 0.25f);
+                const float th = 1.8f * ui;
+                BindMainShader();
+                DrawGuideCorners(rx, ry, rw, rh, arm, th, ga);
+            }
+
+            // Caption: title + step on the title row, body on the tab row,
+            // key hint left of the title.
+            const wchar_t* title = L"";
+            const wchar_t* body = L"";
+            const wchar_t* footer = L"";
+            switch (s_tourStep) {
+            case kTourPick:
+                title = ShopText(L"모듈 고르기", L"PICK A MODULE", L"モジュールを選ぶ");
+                body = ShopText(L"별가루 1로 살 수 있는 '별가루 자석'을 눌러 보세요.",
+                                L"Click Stardust Magnet. It costs just 1 stardust.",
+                                L"星屑1で買える「星屑マグネット」をクリックしてみよう。");
+                footer = ShopText(L"모듈 클릭      ESC  건너뛰기", L"CLICK the module      ESC  skip",
+                                  L"モジュールをクリック      ESC  スキップ");
+                break;
+            case kTourDetail:
+                title = ShopText(L"효과 확인", L"CHECK THE EFFECT", L"効果を確認");
+                body = ShopText(L"고른 모듈의 효과와 레벨, 비용이 여기 나와요. 별가루 자석은 별가루를 15% 더 멀리서 끌어옵니다.",
+                                L"The module's effect, level and cost show here. Stardust Magnet pulls stardust in from 15% farther.",
+                                L"選んだモジュールの効果・レベル・費用がここに出ます。星屑マグネットは星屑を15%遠くから引き寄せます。");
+                footer = ShopText(L"클릭 · Enter  다음      ESC  건너뛰기", L"CLICK · ENTER  next      ESC  skip",
+                                  L"クリック・Enter  次へ      ESC  スキップ");
+                break;
+            case kTourBuy:
+                title = ShopText(L"구매하기", L"BUY IT", L"購入する");
+                body = canAffordMagnet
+                    ? ShopText(L"구매를 눌러 보세요. 보유 별가루에서 1이 빠집니다.",
+                               L"Press BUY. 1 stardust comes out of what you hold.",
+                               L"購入を押してみよう。所持星屑から1引かれます。")
+                    : ShopText(L"별가루가 모자라요. 판에서 별가루를 모아 오면 살 수 있어요.",
+                               L"Not enough stardust yet. Collect some in a play and come back.",
+                               L"星屑が足りません。プレイで集めてくれば買えます。");
+                footer = canAffordMagnet
+                    ? ShopText(L"구매 클릭      ESC  건너뛰기", L"CLICK BUY      ESC  skip",
+                               L"購入をクリック      ESC  スキップ")
+                    : ShopText(L"클릭 · Enter  다음      ESC  건너뛰기", L"CLICK · ENTER  next      ESC  skip",
+                               L"クリック・Enter  次へ      ESC  スキップ");
+                break;
+            default:
+                title = magnetOwned ? ShopText(L"구매 완료", L"PURCHASED", L"購入完了")
+                                    : ShopText(L"상점 안내 끝", L"THAT'S THE SHOP", L"ショップ案内おわり");
+                body = magnetOwned
+                    ? ShopText(L"다음 판부터 적용돼요. 별가루를 모아 다른 모듈도 사 보세요.",
+                               L"It applies from your next play. Collect stardust to buy more modules.",
+                               L"次のプレイから適用されます。星屑を集めて他のモジュールも買ってみよう。")
+                    : ShopText(L"별가루를 모아 다시 와 보세요.", L"Collect stardust and come back.",
+                               L"星屑を集めてまた来てね。");
+                footer = ShopText(L"클릭 · Enter  닫기", L"CLICK · ENTER  close", L"クリック・Enter  閉じる");
+                break;
+            }
+            // Caption: one block right next to the part in focus, so the eye
+            // never leaves the lit area. Pick/Done: under the module cell;
+            // Detail: under the panel's content; Buy: above the purchase block.
+            const float ca = in * wake;
+            const float gap = 18.0f * ui;
+            float ax = px, ay = 0.0f, wrapW = panelW;
+            bool alignRight = false, above = false;
+            if ((s_tourStep == kTourPick || s_tourStep == kTourDone) && cellShown) {
+                ax = cellRx + 8.0f * ui;
+                ay = cellRy + cellRh + gap;
+                wrapW = std::min(560.0f * ui, (panelX - 70.0f * ui) - ax);
+            } else if (s_tourStep == kTourBuy) {
+                ax = px + panelW;
+                ay = ry_ - gap;
+                alignRight = true; above = true;
+            } else {
+                ay = (s_tourStep == kTourDetail ? ry_ + rh_ : detailBottom) + gap;
+            }
+            wrapW = std::max(220.0f * ui, wrapW);
+            const float tSc = sBody * 1.12f;
+            // Greedy wrap of the body by measured width (spaces when it can,
+            // between characters otherwise).
+            std::vector<std::wstring> lines;
+            {
+                std::wstring cur;
+                size_t lastSpace = std::wstring::npos;
+                for (const wchar_t* p = body; p && *p && lines.size() < 4; ++p) {
+                    if (*p == L' ') lastSpace = cur.size();
+                    cur += *p;
+                    if (cur.size() > 1 && g_TextS.Width(cur.c_str(), sBody) > wrapW) {
+                        std::wstring rest;
+                        if (lastSpace != std::wstring::npos && lastSpace > 0) {
+                            rest = cur.substr(lastSpace + 1);
+                            cur.resize(lastSpace);
+                        } else {
+                            rest = cur.substr(cur.size() - 1);
+                            cur.pop_back();
+                        }
+                        lines.push_back(cur);
+                        cur = rest;
+                        lastSpace = cur.find_last_of(L' ');
+                    }
+                }
+                if (!cur.empty() && lines.size() < 4) lines.push_back(cur);
+            }
+            wchar_t stepBuf[16];
+            swprintf_s(stepBuf, L"%d / %d", s_tourStep + 1, (int)kTourSteps);
+            const float headH = g_TextS.Height(title, tSc);
+            const float lineH = g_TextS.Height(L"가", sBody) + 8.0f * ui;
+            const float footH = g_TextS.Height(footer, sSmall);
+            const float blockH = headH + 12.0f * ui + (float)lines.size() * lineH + 6.0f * ui + footH;
+            float y = above ? ay - blockH : ay;
+            // Row 1: progress diamonds, step count, title.
+            const float dW = (float)((int)kTourSteps - 1) * 14.0f * ui + 6.0f * ui;
+            const float stepW = g_TextS.Width(stepBuf, sSmall);
+            const float titleW = std::min(g_TextS.Width(title, tSc), wrapW - dW - stepW - 36.0f * ui);
+            const float rowW = dW + 18.0f * ui + stepW + 14.0f * ui + titleW;
+            float x = alignRight ? ax - rowW : ax;
+            const float dy = y + headH * 0.5f;
+            for (int k = 0; k < (int)kTourSteps; ++k)
+                drawDiamond(x + 3.0f * ui + (float)k * 14.0f * ui, dy,
+                            6.0f * ui, 1.0f, 0.86f, 0.40f, (k <= s_tourStep ? 0.95f : 0.28f) * ca);
+            x += dW + 18.0f * ui;
+            drawText(g_TextS, stepBuf, x, dy - g_TextS.Height(stepBuf, sSmall) * 0.5f, sSmall,
+                     0.70f, 0.80f, 0.92f, 0.85f * ca);
+            x += stepW + 14.0f * ui;
+            drawText(g_TextS, title, x, y, tSc, 1.0f, 0.86f, 0.40f, ca, titleW);
+            y += headH + 12.0f * ui;
+            // Body.
+            for (const std::wstring& ln : lines) {
+                drawText(g_TextS, ln.c_str(), ax, y, sBody,
+                         0.94f, 0.96f, 1.0f, 0.95f * ca, 0.0f, alignRight);
+                y += lineH;
+            }
+            y += 6.0f * ui;
+            // Key hint.
+            drawText(g_TextS, footer, ax, y, sSmall,
+                     0.78f, 0.86f, 0.96f, (0.55f + 0.30f * pulse) * ca, wrapW, alignRight);
+        }
+    }
 
     if (finishBack) {
         s_backExit = false;

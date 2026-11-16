@@ -18,6 +18,7 @@
 #include "SceneStart.h"
 #include "SceneUI.h"
 #include "TutorialText.h"
+#include "Translations.h"
 #include "TextRenderer.h"
 #include "DrawPrim.h"
 #include "EntityDraw.h"
@@ -93,6 +94,7 @@ constexpr float kBobSpeed = 1.6f;
 constexpr float kWobbleSpin = 20.0f;
 constexpr float kShardLife = 0.4f;
 constexpr float kPulseFlash = 0.22f;           // Static Field ring flash, seconds
+constexpr float kXpFlash = 0.6f;               // XP line flash on the level-up, seconds
 constexpr float kHpBarW = 34.0f, kHpBarY = 46.0f;   // world px, above the Swarm
 
 // ── Guided brightness ──
@@ -217,10 +219,35 @@ struct PracticeView {
     std::array<float, kGuideCount> glow{};
     int   lastPulses = 0;
     float pulseFlash = 0.0f;
+    int   lastKills = 0;
+    float xpFlash = 0.0f;        // the XP line flashes when the kills fill it
     rp::Objective shownStep = rp::Objective::Count;
     float stepAge = 0.0f;
     double lastSeen = -1.0;
+    // HUD guide (ready_launch::HudGuide): how faint the rest of the page is,
+    // and the screen rectangle of the part the current card points at.
+    float guideDim = 0.0f;
+    float focusX = 0.0f, focusY = 0.0f, focusW = 0.0f, focusH = 0.0f;
 };
+
+// HUD guide look.
+constexpr float kGuideRestA = 0.28f;      // alpha of everything but the part in focus
+constexpr float kGuideDimEase = 6.0f;     // per second
+constexpr float kHpDemoPeriod = 3.0f;     // the health ring's drain-and-refill demo, seconds
+constexpr float kHpDemoLow = 0.62f;       // how far it drains
+
+// Health fraction of the demo at t seconds into the HP card: full, a hit
+// drains it, it holds, then it fills back up.
+float HpDemoFrac(float t) {
+    if (t < 0.0f) return 1.0f;
+    const float p = std::fmod(t, kHpDemoPeriod);
+    auto ease = [](float x) { x = std::clamp(x, 0.0f, 1.0f); return x * x * (3.0f - 2.0f * x); };
+    if (p < 0.7f) return 1.0f;
+    if (p < 1.0f) return 1.0f - (1.0f - kHpDemoLow) * ease((p - 0.7f) / 0.3f);
+    if (p < 1.9f) return kHpDemoLow;
+    if (p < 2.6f) return kHpDemoLow + (1.0f - kHpDemoLow) * ease((p - 1.9f) / 0.7f);
+    return 1.0f;
+}
 
 PracticeView& View() {
     static PracticeView v;
@@ -363,7 +390,9 @@ void StepNumber(rp::Objective current, bool dashOk, int& index, int& total) {
 
 // ── Field ──
 void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, bool dashOk,
-               const Canvas& cv, TextRenderer& body, float now, float dt) {
+               const Canvas& cv, TextRenderer& body, float now, float dt,
+               ready_launch::HudGuide focus = ready_launch::HudGuide::Done) {
+    using ready_launch::HudGuide;
     const float fx = cv.X(kFieldX), fy = cv.Y(kFieldY);
     const float fw = cv.S(kFieldW), fh = cv.S(kFieldH);
     const float key = cv.S(1.5f);
@@ -371,6 +400,10 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
     auto toX = [&](float wx) { return fx + wx * ws; };
     auto toY = [&](float wy) { return fy + wy * ws; };
     const float batchAlpha = g_BatchAlpha;
+    // HUD guide: the part the card points at stays bright, the rest goes faint.
+    const float restA = batchAlpha * (1.0f - (1.0f - kGuideRestA) * v.guideDim);
+    auto partAlpha = [&](HudGuide part) { return focus == part ? batchAlpha : restA; };
+    g_BatchAlpha = restA;
 
     // Frame with corner brackets.
     Box(fx, fy, fw, fh, cv.S(1.3f), kCyan, 0.32f, key);
@@ -399,7 +432,7 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
     const Rgb swarmText = Lighten(swarm, 0.45f);
     const std::wstring kills = std::wstring(ReadyKills()) + L" " + std::to_wstring(v.field.kills);
     Text(body, kills.c_str(), fx + fw, labelY, labelPx + cv.S(2.0f), swarmText, 0.95f, Align::Right);
-    g_BatchAlpha = batchAlpha;
+    g_BatchAlpha = restA;
 
     // The field stays empty while a tutorial card screen is drawn over it.
     if (!ready_launch::g_SelectionUp) {
@@ -485,6 +518,7 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         }
         // The ship at its spot in the field, at the run's size scaled by the view.
         const float shipRunSize = PLAYER_SIZE_PX * g_Stats.playerSizeMult;
+        g_BatchAlpha = partAlpha(HudGuide::Hp);
         DrawPlayerWeaponShell(toX(v.field.playerX), toY(v.field.playerY),
                               shipRunSize * ws, v.field.aim, now);
 
@@ -494,9 +528,22 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
             const float px = toX(v.field.playerX), py = toY(v.field.playerY);
             const float R = kRangeUnit * ws, thick = vitals_hud::HpArcThick(0.0f) * ws;
             const Rgb hp{ vitals_hud::kHpCol.r, vitals_hud::kHpCol.g, vitals_hud::kHpCol.b };
-            hud_lines::Arc(px, py, R, thick + cv.S(3.0f), vitals_hud::kArcStart, vitals_hud::kArcSweep,
+            // On the HUD guide's HP card a hit drains it and it fills back up.
+            const float hpFrac = focus == HudGuide::Hp ? HpDemoFrac(ready_launch::g_HudGuideT) : 1.0f;
+            const float a0 = vitals_hud::kArcStart, sweep = vitals_hud::kArcSweep;
+            const Rgb trackC{ vitals_hud::kTrackCol.r, vitals_hud::kTrackCol.g, vitals_hud::kTrackCol.b };
+            // The ring is wider than the ship, so near a wall it is cut at the
+            // field's edge (as the run's screen edge cuts it), never drawn outside.
+            BatchFlush();
+            glEnable(GL_SCISSOR_TEST);
+            ScissorUnits(fx, fy, fw, fh);
+            hud_lines::Arc(px, py, R, thick + cv.S(3.0f), a0, sweep,
                            hud_lines::KeyCol(hp), hud_lines::kKeyA * 0.85f);
-            hud_lines::Arc(px, py, R, thick, vitals_hud::kArcStart, vitals_hud::kArcSweep, hp, 0.85f);
+            if (hpFrac < 1.0f)
+                hud_lines::Arc(px, py, R, thick, a0 + sweep * hpFrac, sweep * (1.0f - hpFrac), trackC, 0.40f);
+            hud_lines::Arc(px, py, R, thick, a0, sweep * hpFrac, hp, 0.85f);
+            BatchFlush();
+            glDisable(GL_SCISSOR_TEST);
 
             const float notePx = cv.S(18.0f);
             const float scale = notePx / std::max(1.0f, body.LineHeightPixels());
@@ -519,11 +566,83 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
             drawCircle(gx, py, std::max(1.0f, gr * 0.26f), noteCol.r, noteCol.g, noteCol.b, a);
             tx += glyph + gap;
             Text(body, note, tx, py, notePx, kText, 0.80f);
-            g_BatchAlpha = batchAlpha;
+            g_BatchAlpha = restA;
+            if (focus == HudGuide::Hp) {
+                // Focus: the ring and its note.
+                const float pad = cv.S(16.0f);
+                const float x0 = (left ? px - R - cv.S(12.0f) - labelW : px - R) - pad;
+                const float x1 = (left ? px + R : px + R + cv.S(12.0f) + labelW) + pad;
+                // Kept inside the field, like the ring it points at.
+                const float in = cv.S(8.0f);
+                const float cx0 = std::max(x0, fx + in), cx1 = std::min(x1, fx + fw - in);
+                const float cy0 = std::max(py - R - pad, fy + in);
+                const float cy1 = std::min(py + R + pad, fy + fh - in);
+                v.focusX = cx0; v.focusY = cy0;
+                v.focusW = cx1 - cx0; v.focusH = cy1 - cy0;
+            }
+        }
+
+        // The XP line: the line a run draws along the screen's bottom edge, here
+        // along the field's bottom. Each kill fills a quarter; the fourth fills it
+        // and the level-up card follows. Bright while the kill step is taught.
+        {
+            const int kills = v.field.kills;
+            if (kills < v.lastKills) v.lastKills = kills;   // field restarted
+            if (v.lastKills < rp::kKillGoal && kills >= rp::kKillGoal) v.xpFlash = kXpFlash;
+            v.lastKills = kills;
+            v.xpFlash = std::max(0.0f, v.xpFlash - dt);
+            const bool leveled = kills >= rp::kKillGoal;
+            const float frac = leveled ? 0.0f : (float)kills / (float)rp::kKillGoal;
+            const float flash = v.xpFlash / kXpFlash;
+            const float pulse = 0.80f + 0.20f * (0.5f + 0.5f * std::sin(now * kPulseSpeed));
+            float a = current < rp::Objective::Kill ? kGlowWaiting
+                    : current == rp::Objective::Kill ? pulse : kGlowDone;
+            float shownFrac = frac;
+            if (focus == HudGuide::Xp) {
+                // On the HUD guide's XP card it fills a quarter at a time, like four kills.
+                a = pulse;
+                shownFrac = std::floor(std::fmod(ready_launch::g_HudGuideT, 4.0f) / 0.8f) / 4.0f;
+            }
+            g_BatchAlpha = partAlpha(HudGuide::Xp);
+            const Rgb xp{ vitals_hud::kXpCol.r, vitals_hud::kXpCol.g, vitals_hud::kXpCol.b };
+            const Rgb track{ vitals_hud::kTrackCol.r, vitals_hud::kTrackCol.g, vitals_hud::kTrackCol.b };
+
+            const float notePx = cv.S(18.0f);
+            const float scale = notePx / std::max(1.0f, body.LineHeightPixels());
+            const float y = fy + fh - cv.S(26.0f);
+            const float x0 = fx + cv.S(22.0f);
+            wchar_t lv[24];
+            swprintf_s(lv, L"%ls%d", T(StrId::LV_PREFIX), leveled ? 2 : 1);
+            Text(body, lv, x0, y, notePx, xp, std::min(1.0f, a + 0.15f * flash));
+            const float lx = x0 + body.Width(lv, scale) + cv.S(10.0f);
+            const float rx = fx + fw * 0.46f;
+            const float fillX = lx + (rx - lx) * std::min(1.0f, shownFrac);
+            if (fillX < rx) Line(fillX, y, rx, y, cv.S(3.0f), track, 0.65f * a, key);
+            if (fillX > lx) Line(lx, y, fillX, y, cv.S(4.0f), xp, a, key);
+            if (flash > 0.0f) Line(lx, y, rx, y, cv.S(4.0f + 1.6f * flash), xp, 0.90f * flash, key);
+
+            // The note after the line, shrunk if a language runs long.
+            const wchar_t* note = ReadyXpNote();
+            const float nx = rx + cv.S(14.0f);
+            const float maxW = std::max(1.0f, fx + fw - cv.S(18.0f) - nx);
+            const float noteW = body.Width(note, scale);
+            const float px = noteW > maxW ? notePx * maxW / noteW : notePx;
+            Text(body, note, nx, y, px, kText, 0.80f * a);
+            g_BatchAlpha = restA;
+            if (focus == HudGuide::Xp) {
+                // Focus: Lv, the line and its note.
+                const float pad = cv.S(12.0f);
+                const float noteEnd = nx + body.Width(note, px / std::max(1.0f, body.LineHeightPixels()));
+                v.focusX = x0 - pad; v.focusY = y - cv.S(14.0f) - pad;
+                v.focusW = std::min(noteEnd, fx + fw - cv.S(10.0f)) + pad - v.focusX;
+                v.focusH = cv.S(28.0f) + 2.0f * pad;
+            }
         }
     }
 
-    // The current step's instruction, inside the field.
+    // The current step's instruction, inside the field. It steps aside while
+    // a HUD guide card is up so the card's caption has the field to itself.
+    g_BatchAlpha = batchAlpha * (1.0f - v.guideDim);
     if (current != v.shownStep) { v.shownStep = current; v.stepAge = 0.0f; }
     v.stepAge += dt;
     const float in = std::clamp(v.stepAge / kStepFadeIn, 0.0f, 1.0f);
@@ -749,12 +868,108 @@ void DrawKeyboard(const PracticeView& v, rp::Objective current, const Canvas& cv
     }
 }
 
+// ── HUD guide card ──
+// Gold corners around the part in focus (the shop tour's look) and one caption
+// block beside it: progress diamonds, "n / 2", title, body, and the key to go on.
+constexpr Rgb kGold { 1.00f, 0.86f, 0.40f };
+
+void DrawHudGuideCard(const PracticeView& v, ready_launch::HudGuide card, const Canvas& cv,
+                      TextRenderer& body, float now) {
+    using ready_launch::HudGuide;
+    if (v.focusW <= 0.0f || v.focusH <= 0.0f || body.LineHeightPixels() <= 0.0f) return;
+    const float since = ready_launch::g_HudGuideT -
+                        (card == HudGuide::Hp ? ready_launch::kHudGuideDelay : 0.0f);
+    float in = std::clamp(since / 0.30f, 0.0f, 1.0f);
+    in = in * in * (3.0f - 2.0f * in);
+    const float pulse = 0.5f + 0.5f * std::sin(now * 3.0f);
+
+    // Corners close in on the part as the card opens.
+    const float grow = (1.0f - in) * cv.S(14.0f);
+    const float rx = v.focusX - grow, ry = v.focusY - grow;
+    const float rw = v.focusW + 2.0f * grow, rh = v.focusH + 2.0f * grow;
+    BindMainShader();
+    DrawGuideCorners(rx, ry, rw, rh, std::min(cv.S(28.0f), std::min(rw, rh) * 0.25f), cv.S(1.8f),
+                     (0.70f + 0.30f * pulse) * in);
+
+    const int idx = card == HudGuide::Hp ? 0 : 1;
+    const wchar_t* title = ReadyHudGuide(idx, 0);
+    const wchar_t* text = ReadyHudGuide(idx, 1);
+    const wchar_t* footer = ReadyHudGuideNext();
+    const float titlePx = cv.S(25.0f), bodyPx = cv.S(19.0f), smallPx = cv.S(15.0f);
+    const float bodyScale = bodyPx / body.LineHeightPixels();
+    const float wrapW = cv.S(540.0f);
+    // Greedy wrap by measured width (at spaces when it can, else between characters).
+    std::vector<std::wstring> lines;
+    {
+        std::wstring cur;
+        size_t lastSpace = std::wstring::npos;
+        for (const wchar_t* p = text; *p && lines.size() < 4; ++p) {
+            if (*p == L' ') lastSpace = cur.size();
+            cur += *p;
+            if (cur.size() > 1 && body.Width(cur.c_str(), bodyScale) > wrapW) {
+                std::wstring rest;
+                if (lastSpace != std::wstring::npos && lastSpace > 0) {
+                    rest = cur.substr(lastSpace + 1);
+                    cur.resize(lastSpace);
+                } else {
+                    rest = cur.substr(cur.size() - 1);
+                    cur.pop_back();
+                }
+                lines.push_back(cur);
+                cur = rest;
+                lastSpace = cur.find_last_of(L' ');
+            }
+        }
+        if (!cur.empty() && lines.size() < 4) lines.push_back(cur);
+    }
+    const float headH = titlePx * 1.25f, lineH = bodyPx * 1.45f, footH = smallPx * 1.3f;
+    const float blockH = headH + cv.S(10.0f) + (float)lines.size() * lineH + cv.S(8.0f) + footH;
+
+    // Place: under the health ring (above it if that runs past the XP line),
+    // above the XP line. Kept inside the field.
+    const float fieldL = cv.X(kFieldX), fieldR = cv.X(kFieldX + kFieldW);
+    const float fieldT = cv.Y(kFieldY), fieldB = cv.Y(kFieldY + kFieldH);
+    const float gap = cv.S(18.0f);
+    float top = card == HudGuide::Xp ? v.focusY - gap - blockH : v.focusY + v.focusH + gap;
+    if (card == HudGuide::Hp && top + blockH > fieldB - cv.S(64.0f)) top = v.focusY - gap - blockH;
+    top = std::max(top, fieldT + cv.S(12.0f));
+    top += (1.0f - in) * cv.S(8.0f);
+    float x = std::min(v.focusX + cv.S(8.0f), fieldR - cv.S(16.0f) - wrapW);
+    x = std::max(x, fieldL + cv.S(16.0f));
+
+    // Row 1: progress diamonds, step count, title.
+    const float rowY = top + headH * 0.5f;
+    const float key = cv.S(1.5f);
+    for (int k = 0; k < ready_launch::kHudGuideCards; ++k) {
+        const float dx = x + cv.S(4.0f) + (float)k * cv.S(15.0f);
+        if (k <= idx) hud_lines::SectorFill(dx, rowY, cv.S(4.5f), hud_lines::FillShape::Diamond, 1.0f, kGold, 0.9f * in);
+        hud_lines::DiamondOutline(dx, rowY, cv.S(4.5f), cv.S(1.4f), kGold, (k <= idx ? 0.95f : 0.40f) * in, key);
+    }
+    float tx = x + cv.S(4.0f) + (float)(ready_launch::kHudGuideCards - 1) * cv.S(15.0f) + cv.S(18.0f);
+    wchar_t stepBuf[16];
+    swprintf_s(stepBuf, L"%d / %d", idx + 1, ready_launch::kHudGuideCards);
+    Text(body, stepBuf, tx, rowY, smallPx, kText, 0.85f * in);
+    tx += body.Width(stepBuf, smallPx / body.LineHeightPixels()) + cv.S(14.0f);
+    Text(body, title, tx, rowY, titlePx, kGold, in);
+
+    float y = top + headH + cv.S(10.0f) + lineH * 0.5f;
+    for (const std::wstring& l : lines) {
+        Text(body, l.c_str(), x, y, bodyPx, kWhite, 0.95f * in);
+        y += lineH;
+    }
+    // Footer: the key to go on, breathing a little so it reads as the action.
+    y += cv.S(8.0f) - lineH * 0.5f + footH * 0.5f;
+    Text(body, footer, x, y, smallPx, kGold, (0.70f + 0.25f * pulse) * in);
+}
+
 } // namespace
 
 void Ready_SmokeCompleteSteps(int steps) {
     PracticeView& v = View();
     TouchView(v);
     rp::Field& f = v.field;
+    // Past the first step the HUD guide has been read (TUTGUIDE= shows it again).
+    if (steps > 0) ready_launch::g_HudGuide = ready_launch::HudGuide::Done;
     if (steps > 0) f.moved = rp::kMoveGoal * f.worldH;
     if (steps > 1) f.shots = rp::kShotGoal;
     if (steps > 2) f.dashes = rp::kDashGoal;
@@ -808,7 +1023,24 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     in.left  = mv.left;
     in.right = mv.right;
     in.dashHeld = ActionHeld(GameAction::Dash);
-    in.fireHeld = c.lmb;
+    // The card screen (and the HUD guide) ends a toggled burst.
+    if (ready_launch::g_SelectionUp || ready_launch::HudGuideActive()) g_FireLatched = false;
+    // A left click moves the HUD guide on too (same as Space); that click
+    // does not shoot or toggle the fire latch.
+    static bool s_GuideLmbPrev = false;
+    const bool guideClick = c.lmb && !s_GuideLmbPrev;
+    s_GuideLmbPrev = c.lmb;
+    const bool guideTookClick = guideClick && ready_launch::HudGuideActive() &&
+        !ready_launch::g_SelectionUp && !ready_launch::Launching() &&
+        g_GameManager.currentState != GameState::PAUSED;
+    in.fireHeld = ResolveFireInput(c.lmb, g_LmbPrev, !ready_launch::g_SelectionUp);
+    if (guideTookClick) {
+        const ready_launch::HudGuide guideBefore = ready_launch::g_HudGuide;
+        ready_launch::HudGuideConfirm();
+        if (ready_launch::g_HudGuide != guideBefore) Audio::Play(Audio::Cue::UiConfirm);
+        in.fireHeld = false;
+        g_FireLatched = false;
+    }
     in.aimValid = true;
     in.aimX = ((float)c.mx - cv.X(kFieldX)) / (kViewScale * cv.k);
     in.aimY = ((float)c.my - cv.Y(kFieldY)) / (kViewScale * cv.k);
@@ -816,7 +1048,18 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     const bool picking = ready_launch::g_SelectionUp;
     // The field stands still under a card screen and during the launch.
     const bool paused = g_GameManager.currentState == GameState::PAUSED;   // tutorial pause menu
-    const bool still = picking || launching || paused;
+    // Tutorial HUD guide: the field waits while its cards are up.
+    const bool guideUp = ready_launch::HudGuideActive();
+    if (guideUp && !picking && !launching && !paused) {
+        // The first card opens with a tab sound; the press that turns to the
+        // second one already plays its confirm.
+        const bool wasShown = ready_launch::HudGuideShown();
+        ready_launch::g_HudGuideT += dt;
+        if (!wasShown && ready_launch::HudGuideShown()) Audio::Play(Audio::Cue::UiTab);
+    }
+    const bool guideShown = ready_launch::HudGuideShown();
+    v.guideDim = UiApproach(v.guideDim, guideShown ? 1.0f : 0.0f, dt, kGuideDimEase);
+    const bool still = picking || launching || paused || guideUp;
     if (still) in = rp::Input{};
     bool dummyWasAlive[rp::kDummyCount];
     for (int i = 0; i < rp::kDummyCount; ++i) dummyWasAlive[i] = v.field.dummies[i].Alive();
@@ -988,13 +1231,20 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         return;
     }
 
+    // HUD guide: the page around the part in focus goes faint (alpha, no veil).
+    const float pageA = 1.0f - (1.0f - kGuideRestA) * v.guideDim;
+    const ready_launch::HudGuide focusCard =
+        guideShown ? ready_launch::g_HudGuide : ready_launch::HudGuide::Done;
     BindMainShader();
+    g_BatchAlpha = pageA;
     DrawTitle(cv, text.title, 1.0f);
     Text(text.body, ReadyBrief(), cv.X(kCanvasW * 0.5f), cv.Y(kBriefY), cv.S(kBriefPx),
          kText, 0.9f, Align::Center);
+    g_BatchAlpha = 1.0f;
 
     BindMainShader();
-    DrawField(v, rules, current, dashOk, cv, text.body, now, dt);
+    DrawField(v, rules, current, dashOk, cv, text.body, now, dt, focusCard);
+    g_BatchAlpha = pageA;
     DrawObjectives(v.field, current, dashOk, cv, text.body, pulse);
     if (ready_launch::g_TutorialMode) {
         // Explain the system the current step is about, under the field.
@@ -1023,5 +1273,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         }
     }
     DrawKeyboard(v, current, cv, text.body, pulse, c.lmb, now);
+    g_BatchAlpha = 1.0f;
+    if (focusCard != ready_launch::HudGuide::Done) DrawHudGuideCard(v, focusCard, cv, text.body, now);
     BatchFlush();
 }

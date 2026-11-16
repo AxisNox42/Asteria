@@ -29,9 +29,10 @@ void  AddStardust(long long n);
 void  ResetDash();
 void  ChanceTriggered();              // Crown of Storms follow-up
 void  CountHit();                     // one hit for the hit counters
+float MultiHitMult();                 // Multi-Hit Amp on each hit of a many-hit attack (1 without it)
 
 bool  RubyIntact();                   // Glass Star owned and not broken
-bool  FirescaleOn();                  // not switched off by a dash this wave
+bool  FirescaleOn();                  // not switched off by a dash in the last 4s
 bool  DarkWingsOn();                  // not switched off by a repeat this wave
 void  SwitchOffDarkWings();
 

@@ -17,6 +17,7 @@
 #include "Achievements.h"
 #include "Codex.h"
 #include "Augment.h"
+#include "RunBuildPanel.h"
 #include "PlayerStats.h"
 #include "Weapons.h"
 #include "ExpSystem.h"
@@ -97,6 +98,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     static bool   s_ConfirmAbandon = false;
     static int    s_KbFocus = -1;       // keyboard cursor (-1 = pointer only)
     static double s_LastMx = 0.0, s_LastMy = 0.0;
+    static run_build::PanelState s_BuildPanel;   // augments taken + stats, right side
 
     const double curTime = glfwGetTime();
     if (curTime - s_LastCall > 0.12) {
@@ -106,6 +108,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
         s_ExitT   = 0.0f;
         s_ConfirmAbandon = false;
         s_KbFocus = -1;
+        s_BuildPanel.Reset();   // stats are read again on each pause
     }
     s_LastCall  = curTime;
     s_EntryT   += delta;
@@ -238,6 +241,37 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
                 s_ExitSel = i;
                 s_ExitT   = 0.0f;
             }
+        }
+    }
+
+    // Right side: this play's augments and the player's stats, the same panel
+    // as the results screen (QA: "no way to see the augments taken mid-play").
+    // The tutorial pause has no build yet, so it shows none.
+    if (!tutorialPause) {
+        float panelW = std::clamp(sw * 0.30f, 300.0f, 560.0f);
+        const float margin = std::max(42.0f, sw * 0.075f);
+        float panelX = sw - margin - panelW;
+        const float panelMinX = btnX0 + BW + 64.0f * uiScale;
+        if (panelX < panelMinX) { panelX = panelMinX; panelW = sw - margin - panelX; }
+        if (panelW >= 240.0f) {
+            const float panelA = Smoothstep(std::min(std::max(0.0f, (s_EntryT - 0.12f) / 0.36f), 1.0f))
+                               * entryFade * (1.0f - exitP);
+            run_build::PanelIn pin;
+            pin.text = &state.text;
+            pin.panelX = panelX + (1.0f - panelA) * 24.0f * uiScale;
+            pin.panelW = panelW;
+            pin.top = titleY;
+            pin.bottomLimit = sh - 40.0f * uiScale;
+            pin.uiS = uiScale; pin.alpha = panelA; pin.delta = delta; pin.now = fnow;
+            pin.mx = mx; pin.my = my;
+            pin.click = false;
+            pin.canHover = !exitActive && !s_ConfirmAbandon && panelA > 0.9f;
+            pin.showShell = false;          // the ship is right there in the paused play
+            pin.statsAlwaysOpen = true;
+            pin.keyline = true;             // drawn over the paused play, not a dark page
+            pin.accentR = ar; pin.accentG = ag; pin.accentB = ab;
+            run_build::DrawPanel(s_BuildPanel, pin);
+            BindMainShader();
         }
     }
 

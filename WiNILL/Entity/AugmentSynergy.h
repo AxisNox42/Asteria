@@ -32,8 +32,9 @@ enum Tag : uint64_t {
     T_PULL     = 1ull << 30, T_ERASE    = 1ull << 31, T_TRAP     = 1ull << 32,
     T_GROW     = 1ull << 33, T_SWAP     = 1ull << 34, T_STORE    = 1ull << 35,
     T_COMBO    = 1ull << 36, T_RHYTHM   = 1ull << 37, T_LOB      = 1ull << 38,
+    T_BEAM2    = 1ull << 39,   // 집속 레이저 (epic laser) gives it: the legendary laser needs it
 };
-inline constexpr int kTagCount = 39;
+inline constexpr int kTagCount = 40;
 
 // Groups the "variety" cards count.
 inline constexpr uint64_t kVerbTags = T_PIERCE | T_BOUNCE | T_SPLIT | T_HOMING | T_BLAST | T_ORBIT | T_CHAIN |
@@ -98,7 +99,7 @@ inline const char* TagName(int bit) {
         "PIERCE","BOUNCE","SPLIT","HOMING","BLAST","BEAM","ORBIT","CHAIN","RAPID",
         "CHARGE","SPREAD","NTH","ON_KILL","ON_CRIT","ON_BOUNCE","ON_HURT","ON_STILL",
         "ON_DASH","ON_WAVE","SHIELD","HP","TRAIL","RETURN","GLASS","ON_WALL","HOVER",
-        "BURST","BURN","MARK","DICE","PULL","ERASE","TRAP","GROW","SWAP","STORE","COMBO","RHYTHM","LOB" };
+        "BURST","BURN","MARK","DICE","PULL","ERASE","TRAP","GROW","SWAP","STORE","COMBO","RHYTHM","LOB","BEAM2" };
     return n[bit];
 }
 
@@ -122,8 +123,8 @@ inline const std::vector<Aug>& Table() {
     {"F_BASIC",   "기본 사격",  "지금의 기본 총", Rar::Common, Role::Frame, T_NONE, 0, false, Fx{}},
     {"F_MINIGUN", "미니건",     "연사 간격 0.07초, 탄 피해 -60%, 이동 -10%", Rar::Rare, Role::Frame,
         T_RAPID, 0, false, Fx{}.rate_(2.857f).dmg_(0.40f).acc_(0.92f).move_(0.9f)},
-    {"F_LASER",   "레이저",     "빠른 광선 탄을 연달아 쏨 (모두 관통, 사거리 9.5○, 튕김 카드가 있으면 벽에서 반사)", Rar::Rare, Role::Frame,
-        T_BEAM | T_PIERCE, 0, false, Fx{}.rate_(2.0f).dmg_(0.27f).acc_(1.27f).pierce_(9)},
+    {"F_LASER",   "레이저",     "0.4초 차징 뒤 누르는 동안 레이저 광선을 계속 쏨 · 광선에 닿은 적은 0.1초마다 공격력의 30% 피해 (모두 관통, 사거리 9.5○, 튕김 카드가 있으면 벽에서 반사)", Rar::Rare, Role::Frame,
+        T_BEAM | T_PIERCE, 0, false, Fx{}.rate_(2.0f).dmg_(0.30f).acc_(1.27f).pierce_(9)},
     {"F_SHOTGUN", "샷건",       "한 번에 7발 산개, 사거리 7○", Rar::Rare, Role::Frame,
         T_SPREAD, 0, false, Fx{}.rate_(0.36f).dmg_(0.52f).acc_(0.66f).bullets_(7.0f)},
     {"F_SNIPER",  "저격총",     "느리지만 묵직한 관통탄을 쏨 (적 2명 관통)", Rar::Epic, Role::Frame,
@@ -146,7 +147,7 @@ inline const std::vector<Aug>& Table() {
     {"V_SPLIT",   "갈래 분열탄",     "첫 명중 시 3방향으로 분열 (피해 28%)", Rar::Epic, Role::Verb,
         T_SPLIT, 0, false, Fx{}.split_(3).splitDmg_(0.28f)},
     {"V_HOMING",  "추적 유도탄",     "가까운 적 쪽으로 완만히 휨", Rar::Rare, Role::Verb,
-        T_HOMING, 0, false, Fx{}.homing_(0.26f)},
+        T_HOMING, 0, false, Fx{}.homing_(0.17f)},
     {"V_BLAST",   "착탄 파열탄",     "맞힌 자리 주변 1○ 안에 작은 폭발 (공격력 30%)", Rar::Epic, Role::Verb,
         T_BLAST, 0, false, Fx{}.blast_(0.30f)},
     {"V_ORBIT",   "궤도 공전탄",     "5번째 사격마다 1발이 더 생겨 4.5초 동안 플레이어 주위를 돌며 접촉 피해 (최대 2개)", Rar::Epic, Role::Verb,
@@ -354,6 +355,12 @@ inline const std::vector<Aug>& Table() {
         T_NONE, 0, false, Fx{}.dmgAdd_(0.208f)},
     {"P_LONG_CRIT", "지구전 치명운", "웨이브 시작 20초 뒤부터 치명타 확률 +100%", Rar::Rare, Role::Chance,
         T_NONE, 0, false, Fx{}.crit_(0.400f)},
+    // ── 레이저 강화 (레어 레이저 → 에픽 → 전설, 앞 단계 카드가 있어야 나옴; LaserFx.h) ──
+    // proc is the reference model's estimate of the heat-up / the release blast (the runtime does the real thing).
+    {"A_LASER_FOCUS", "집속 레이저", "레이저가 더 굵어지고 벽까지 닿으며 차징이 0.25초로 줄어듦 · 켜 둘수록 굵고 뜨거워져 2.5초 동안 켜 두면 피해 +60%", Rar::Epic, Role::Amp,
+        T_BEAM2, T_BEAM, false, Fx{}.proc_(0.55f)},
+    {"A_LASER_OVERLOAD", "과부하 레이저", "레이저가 한층 더 굵어짐 · 광선에 닿은 적에게 열이 옮겨붙어 0.25초마다 1겹씩 쌓임 (최대 5겹, 겹마다 초당 공격력 10%, 마지막으로 닿은 뒤 3초 유지) · 0.6초 넘게 켜 두다 놓으면 모은 열을 굵은 광선 한 방으로 방출 (켜 둔 시간에 비례, 2.5초면 레이저 피해의 10배, 맞은 적은 바로 5겹)", Rar::Legendary, Role::Amp,
+        T_NONE, T_BEAM2, false, Fx{}.proc_(0.95f)},
     };
     return t;
 }

@@ -37,6 +37,7 @@ add_executable(WiNILL
     ${WINILL_DIR}/Core/Scenes/SceneReady.cpp
     ${WINILL_DIR}/Core/Scenes/ScenePause.cpp
     ${WINILL_DIR}/Core/Scenes/SceneRunEnd.cpp
+    ${WINILL_DIR}/Core/Scenes/RunBuildPanel.cpp
     ${WINILL_DIR}/Core/Scenes/SceneAugment.cpp
     ${WINILL_DIR}/Core/Scenes/SceneMenus.cpp
     ${WINILL_DIR}/Core/Scenes/WindowChrome.cpp

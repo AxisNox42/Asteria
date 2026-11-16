@@ -25,11 +25,14 @@ std::wstring MetaLine(int augIdx, int lang);
 
 // Fire path (main.cpp).
 float FireIntervalMult();              // the gun's interval is divided by this
+bool  LaserFrame();                    // 레이저 owned: the gun charges and holds a beam (LaserFx.h)
+int   LaserTier();                     // 0 none, 1 레이저, 2 + 집속 레이저, 3 + 과부하 레이저
 // Turns the gun's one bullet into this shot's volley (frames, twin, spray, nth-shot ...).
 // `base` is the bullet the gun made, aimed at (tx, ty). Always returns at least one bullet.
 void  Shape(const Bullet& base, float px, float py, float tx, float ty, std::vector<Bullet>& out);
 float DamageMult(const Bullet& b, const void* target);    // per-bullet part, on top of the passive multipliers
 float CardDamageMult();                // the cards' "모든 피해" part, folded into passive::AllDamageMult
+float ShotDamageMult();                // the frames' flat bullet-damage part (e.g. Minigun -60%), no per-target terms
 float DamageTakenMult();               // g_PlayerDmgMult
 
 // Once per fixed step.

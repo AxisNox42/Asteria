@@ -47,6 +47,7 @@ void Scene_MainMenu(const SceneCtx& c) {
     static int   s_menuSelect = -1;
     static float s_menuExitT  = 0.0f;
     static bool  s_confirmQuit = false;
+    static int   s_guideAsk = -1;       // locked button pressed during the shop guide: ask to end it
     static float s_vanishT = 0.0f;          // glitch-out clock of the TUTORIAL entry
     static float kHoverT[kMainMenuRouteCount] = {};
     static int   s_kbFocus = -1;      // keyboard cursor (-1 = pointer only)
@@ -64,6 +65,7 @@ void Scene_MainMenu(const SceneCtx& c) {
         s_menuSelect = -1;
         s_menuExitT = 0.0f;
         s_confirmQuit = false;
+        s_guideAsk = -1;
         s_vanishT = 0.0f;
         s_kbFocus = -1;
         for (int i = 0; i < kMainMenuRouteCount; ++i) kHoverT[i] = 0.0f;
@@ -139,7 +141,7 @@ void Scene_MainMenu(const SceneCtx& c) {
     // The label breaks up harder and harder, then is cut off at full glitch (no fade).
     constexpr float kVanishWait = 0.40f, kVanishGlitch = 1.30f, kVanishDur = kVanishGlitch;
     if (tutVanishing && !booting && !introActive && !introWasActive && g_FadeDir == 0
-        && !exitActive && !s_confirmQuit) {
+        && !exitActive && !s_confirmQuit && s_guideAsk < 0) {
         const float vanishPrevT = s_vanishT;
         s_vanishT += std::min(delta, 0.05f);
         if (vanishPrevT <= kVanishWait && s_vanishT > kVanishWait) Audio::Play(Audio::Cue::UiGlitch);
@@ -148,16 +150,20 @@ void Scene_MainMenu(const SceneCtx& c) {
             s_vanishT = 0.0f;
         }
     }
+    // Shop guide (first stardust): only SHOP can be pressed; the rest is faint and locked.
+    const bool shopGuide = g_ShopUnlocked
+        && (g_ShopIntroStage == SHOP_INTRO_RESULT || g_ShopIntroStage == SHOP_INTRO_LOBBY);
     bool kbLocked[kMainMenuRouteCount];
     for (int i = 0; i < kBtnCount; ++i)
-        kbLocked[i] = (!g_TutorialDone && (i == kMainMenuPlayIndex || i == kMainMenuCodexIndex))
+        kbLocked[i] = (shopGuide && i != kMainMenuShopIndex)
+                   || (!g_TutorialDone && (i == kMainMenuPlayIndex || i == kMainMenuCodexIndex))
                    || (!g_ShopUnlocked && i == kMainMenuShopIndex)
                    || (i == kMainMenuTutorialIndex && (tutHidden || tutVanishing));
     const bool pointerMoved = std::fabs(mx - s_lastMx) + std::fabs(my - s_lastMy) > 1.0;
     s_lastMx = mx; s_lastMy = my;
     const bool kbConfirm = MenuKeyboardNav(c, s_kbFocus, kBtnCount,
         !booting && !introActive && !introWasActive && !exitActive
-            && !s_confirmQuit && g_FadeDir == 0, kbLocked);
+            && !s_confirmQuit && s_guideAsk < 0 && g_FadeDir == 0, kbLocked);
 
     const float now = (float)glfwGetTime();
     const float menuFieldA = Smoothstep(LogoClamp01((s_introT - 0.10f) / 0.62f)) * uiA;
@@ -204,9 +210,12 @@ void Scene_MainMenu(const SceneCtx& c) {
         const bool locked =
             (!g_TutorialDone && (i == kMainMenuPlayIndex || i == kMainMenuCodexIndex))
             || (!g_ShopUnlocked && i == kMainMenuShopIndex);
-        const bool buttonReady = !booting && !introActive && !introWasActive
-                              && !exitActive && !s_confirmQuit && g_FadeDir == 0
-                              && !locked && !vanishing;
+        // Guide lock: no padlock (it is not a progression lock), just faint and inert.
+        const bool guideLock = shopGuide && i != kMainMenuShopIndex;
+        const bool sceneReady = !booting && !introActive && !introWasActive
+                             && !exitActive && !s_confirmQuit && s_guideAsk < 0 && g_FadeDir == 0
+                             && !locked && !vanishing;
+        const bool buttonReady = sceneReady && !guideLock;
         const float priorBx = baseBx + (1.0f - reveal) * 34.0f - 10.0f * kHoverT[i];
         const float priorBy = baseBy + (exitActive && !selected ? exitP * 28.0f : 0.0f);
         const bool ptr = buttonReady && PanelButtonHit(mx, my, priorBx, priorBy,
@@ -216,7 +225,16 @@ void Scene_MainMenu(const SceneCtx& c) {
         kHoverT[i] = UpdateMenuCommandHover(kHoverT[i], ptr || kbHot, delta);
         const bool hov = ptr;
         float t = kHoverT[i];
+        // Shop guide: SHOP breathes at a light hover until it is opened.
+        if (i == kMainMenuShopIndex && !locked && buttonReady
+            && (g_ShopIntroStage == SHOP_INTRO_RESULT || g_ShopIntroStage == SHOP_INTRO_LOBBY))
+            t = std::max(t, 0.30f + 0.22f * (0.5f + 0.5f * sinf(now * 3.2f)));
         float rowA = reveal * uiA * (locked ? 0.42f : 1.0f);
+        {   // Guide dimming eases in/out with the guide.
+            static float s_guideDimT[kMainMenuRouteCount] = {};
+            s_guideDimT[i] = UiApproach(s_guideDimT[i], guideLock ? 1.0f : 0.0f, delta, 6.0f);
+            rowA *= 1.0f - 0.70f * s_guideDimT[i];
+        }
         if (s_returnT < 1.0f)
             rowA *= kReturnFromA + (1.0f - kReturnFromA) * Smoothstep(s_returnT);
         if (exitActive && !selected) rowA *= (1.0f - exitP * 0.86f);
@@ -257,6 +275,53 @@ void Scene_MainMenu(const SceneCtx& c) {
                             routeVariants, 3);
         }
 
+        if (i == kMainMenuShopIndex && !locked && !vanishing
+            && (g_ShopIntroStage == SHOP_INTRO_RESULT || g_ShopIntroStage == SHOP_INTRO_LOBBY)) {
+            // After the first play that earned stardust: point at SHOP with a NEW tag
+            // and a "take a look" line until the player opens it.
+            static const wchar_t* kNew[3] = { L"NEW", L"NEW", L"NEW" };
+            static const wchar_t* kHint[3] = {
+                L"상점이 열렸어요 · 눌러서 둘러보세요",
+                L"The shop is open · click to take a look",
+                L"ショップ解放 · クリックしてのぞいてみよう" };
+            const float hintA = reveal * uiA * textA
+                              * (exitActive && !selected ? (1.0f - exitP) : 1.0f);
+            if (hintA > 0.001f) {
+                const float pulse = 0.65f + 0.35f * sinf(now * 4.0f);
+                const float nSc = UiTextScale(g_TextL, UiTextLevel::Supporting, uiScale);
+                const float hSc = UiTextScale(g_TextS, UiTextLevel::Supporting, uiScale);
+                const float nh = g_TextL.Height(kNew[li2], nSc);
+                const float hh = g_TextS.Height(kHint[li2], hSc);
+                // Tag where a locked entry shows its padlock (close to the label); the hint follows it.
+                const float nx = bx + std::min(BW - 24.0f * uiScale, 250.0f * uiScale);
+                const float ny = by + BH * 0.5f - nh * 0.5f;
+                BindMainShader();
+                {   // Gold corner brackets around SHOP (same mark as the shop's own guide).
+                    const float rx = bx - 12.0f * uiScale, ry = by - 8.0f * uiScale;
+                    const float rw = BW + 24.0f * uiScale, rh = BH + 16.0f * uiScale;
+                    const float ga = (0.70f + 0.30f * (0.5f + 0.5f * sinf(now * 3.0f))) * hintA;
+                    const float arm = std::min(28.0f * uiScale, rh * 0.30f);
+                    const float th = 1.8f * uiScale;
+                    for (int ix = 0; ix < 2; ++ix)
+                        for (int iy = 0; iy < 2; ++iy) {
+                            const float cx0 = ix ? rx + rw : rx, cy0 = iy ? ry + rh : ry;
+                            const float sx = ix ? -1.0f : 1.0f, sy = iy ? -1.0f : 1.0f;
+                            LogoLine(cx0, cy0, cx0 + sx * arm, cy0, th * 3.2f, 1.0f, 0.84f, 0.34f, 0.14f * ga);
+                            LogoLine(cx0, cy0, cx0, cy0 + sy * arm, th * 3.2f, 1.0f, 0.84f, 0.34f, 0.14f * ga);
+                            LogoLine(cx0 - sx * th * 0.5f, cy0, cx0 + sx * arm, cy0, th, 1.0f, 0.86f, 0.40f, ga);
+                            LogoLine(cx0, cy0 - sy * th * 0.5f, cx0, cy0 + sy * arm, th, 1.0f, 0.86f, 0.40f, ga);
+                        }
+                }
+                drawDiamond(nx - 6.0f * uiScale, by + BH * 0.5f, 6.0f * uiScale,
+                            1.0f, 0.85f, 0.30f, 0.90f * hintA * pulse);
+                DrawShadowedText(g_TextL, kNew[li2], nx + 4.0f * uiScale, ny, nSc,
+                                 1.0f, 0.86f, 0.36f, hintA * (0.75f + 0.25f * pulse), 0.80f);
+                const float hx = nx + 4.0f * uiScale + g_TextL.Width(kNew[li2], nSc) + 14.0f * uiScale;
+                DrawShadowedText(g_TextS, kHint[li2], hx, by + BH * 0.5f - hh * 0.5f, hSc,
+                                 0.92f, 0.94f, 1.0f, 0.90f * hintA, 0.80f);
+            }
+        }
+
         if (locked) {
             // Line-only padlock to the right of the label: a shackle arc over
             // a body outline with a keyhole stroke.
@@ -286,7 +351,13 @@ void Scene_MainMenu(const SceneCtx& c) {
             LogoLine(scx, by0 + bh * 0.30f, scx, by0 + bh * 0.70f, lw, 0.80f, 0.90f, 1.0f, la);
         }
 
-        if (((hov && lmb && !g_LmbPrev) || (kbHot && kbConfirm)) && !locked) {
+        // A guide-locked button asks whether to end the shop guide.
+        if (guideLock && sceneReady && lmb && !g_LmbPrev
+            && PanelButtonHit(mx, my, priorBx, priorBy, BW, BH, 4.0f * uiScale)) {
+            Audio::Play(Audio::Cue::UiConfirm);
+            s_guideAsk = i;
+        }
+        if (((hov && lmb && !g_LmbPrev) || (kbHot && kbConfirm)) && !locked && !guideLock) {
             if (!kbConfirm) Audio::Play(Audio::Cue::UiConfirm);   // keys already ticked in MenuKeyboardNav
             if (i == kMainMenuExitIndex) {
                 s_confirmQuit = true;   // EXIT asks first
@@ -310,6 +381,10 @@ void Scene_MainMenu(const SceneCtx& c) {
             g_LobbyPanel = LobbyPanel::Run;
             break;
         case kMainMenuShopIndex:
+            if (g_ShopIntroStage == SHOP_INTRO_RESULT || g_ShopIntroStage == SHOP_INTRO_LOBBY) {
+                g_ShopIntroStage = SHOP_INTRO_TOUR;   // the shop walks through its parts
+                SaveGame();
+            }
             ResetShopUi(handoffT);
             g_LobbyPanel = LobbyPanel::Shop;
             break;
@@ -332,6 +407,27 @@ void Scene_MainMenu(const SceneCtx& c) {
         }
     }
 
+    if (s_guideAsk >= 0 && !booting) {
+        const ConfirmChoice answer = DrawConfirmDialog(
+            true, ConfirmTextEndShopGuide(), sw, sh, mx, my, lmb, g_LmbPrev, delta);
+        if (answer != ConfirmChoice::None) {
+            const int pressed = s_guideAsk;
+            s_guideAsk = -1;
+            DrawConfirmDialog(false, ConfirmTextEndShopGuide(), sw, sh, mx, my, lmb, g_LmbPrev, delta);
+            if (answer == ConfirmChoice::Yes) {
+                // Guide over for good; the pressed button then does its job.
+                g_ShopIntroStage = SHOP_INTRO_NONE;
+                SaveGame();
+                if (pressed == kMainMenuExitIndex) {
+                    s_confirmQuit = true;   // EXIT still asks first
+                } else {
+                    s_menuSelect = pressed;
+                    s_menuExitT = 0.0f;
+                    Audio::Play(Audio::Cue::UiSceneOut);
+                }
+            }
+        }
+    }
     if (s_confirmQuit && !booting) {
         const ConfirmChoice answer = DrawConfirmDialog(
             true, ConfirmTextQuit(), sw, sh, mx, my, lmb, g_LmbPrev, delta);

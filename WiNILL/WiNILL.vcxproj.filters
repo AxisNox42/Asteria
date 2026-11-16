@@ -76,6 +76,9 @@
     <ClCompile Include="Core\Scenes\SceneRunEnd.cpp">
       <Filter>Core\Scenes</Filter>
     </ClCompile>
+    <ClCompile Include="Core\Scenes\RunBuildPanel.cpp">
+      <Filter>Core\Scenes</Filter>
+    </ClCompile>
     <ClCompile Include="Core\Scenes\SceneAugment.cpp">
       <Filter>Core\Scenes</Filter>
     </ClCompile>

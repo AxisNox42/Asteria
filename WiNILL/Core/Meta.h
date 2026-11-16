@@ -8,7 +8,13 @@
 
 // The META_RESERVED_* slots preserve saved meta indices after removing the
 // obsolete start-vision, start-augment and identity-slot upgrades.
-enum MetaId { META_HP, META_DMG, META_MOVE, META_RESERVED_VISION, META_RESERVED_STARTAUG, META_RESERVED_IDSLOT, META_COUNT };
+// META_MAGNET is the 1-stardust module the first shop visit has the player buy
+// (appended, not put in a reserved slot, so old saves cannot already own it).
+enum MetaId { META_HP, META_DMG, META_MOVE, META_RESERVED_VISION, META_RESERVED_STARTAUG, META_RESERVED_IDSLOT,
+              META_MAGNET, META_COUNT };
+inline bool MetaSlotRemoved(int id) {
+    return id == META_RESERVED_VISION || id == META_RESERVED_STARTAUG || id == META_RESERVED_IDSLOT;
+}
 
 struct MetaDef {
     const wchar_t* name[3];   // KR / EN / JP
@@ -22,6 +28,7 @@ inline const MetaDef META_DEFS[META_COUNT] = {
     { { L"REMOVED", L"REMOVED", L"REMOVED" }, 0, 0 },
     { { L"REMOVED", L"REMOVED", L"REMOVED" }, 0, 0 },
     { { L"REMOVED", L"REMOVED", L"REMOVED" }, 0, 0 },
+    { { L"별가루 자석 +15%", L"Stardust Magnet +15%", L"星屑マグネット +15%" }, 1, 1 },
 };
 
 inline long long g_Coins = 0;
@@ -41,42 +48,9 @@ inline const wchar_t* MetaName(int id) {
     return META_DEFS[id].name[li];
 }
 
-// ── 코스메틱: OS 액센트 컬러 테마 ──────────────────────────────
-//   플레이어 창 네온 색을 바꾸는 순수 외형. 코인으로 영구 구매(저장).
-struct AccentTheme {
-    const wchar_t* name[3];   // KR / EN / JP
-    long long      cost;      // 0 = 기본(항상 보유)
-    float          r, g, b;
-};
-inline const AccentTheme ACCENT_THEMES[] = {
-    { { L"시안",     L"Cyan",     L"シアン" },     0,    0.30f, 1.00f, 1.00f },
-    { { L"매트릭스", L"Matrix",   L"マトリックス" }, 300,  0.30f, 1.00f, 0.45f },
-    { { L"앰버",     L"Amber",    L"アンバー" },   300,  1.00f, 0.72f, 0.20f },
-    { { L"마젠타",   L"Magenta",  L"マゼンタ" },   500,  1.00f, 0.30f, 0.80f },
-    { { L"블러드",   L"Blood",    L"ブラッド" },   500,  1.00f, 0.30f, 0.30f },
-    { { L"바이올렛", L"Violet",   L"バイオレット" }, 800,  0.62f, 0.42f, 1.00f },
-    { { L"골드",     L"Gold",     L"ゴールド" },   1200, 1.00f, 0.86f, 0.32f },
-};
-inline const int ACCENT_COUNT = (int)(sizeof(ACCENT_THEMES) / sizeof(ACCENT_THEMES[0]));
-
-inline const wchar_t* AccentName(int id) {
-    int li = LangIndex();
-    if (id < 0 || id >= ACCENT_COUNT) id = 0;
-    return ACCENT_THEMES[id].name[li];
-}
-inline bool ThemeOwned(int id) {
-    if (id <= 0) return true;                 // 기본은 항상 보유
-    if (id >= ACCENT_COUNT) return false;
-    return (g_ThemeOwned & (1 << id)) != 0;
-}
-// 선택 테마의 RGB 를 g_Accent* 에 반영 (로드/구매/장착 시 호출)
-inline void ApplyAccentTheme() {
-    int id = g_ThemeSel;
-    if (id < 0 || id >= ACCENT_COUNT || !ThemeOwned(id)) id = 0;
-    g_ThemeSel = id;
-    g_AccentR = ACCENT_THEMES[id].r;
-    g_AccentG = ACCENT_THEMES[id].g;
-    g_AccentB = ACCENT_THEMES[id].b;
+// Stardust starts flying to the ship from this much farther (Stardust Magnet: +15%).
+inline float MetaStardustPullMult() {
+    return 1.0f + 0.15f * (float)g_MetaLv[META_MAGNET];
 }
 
 inline void ApplyMeta(PlayerStats& s) {

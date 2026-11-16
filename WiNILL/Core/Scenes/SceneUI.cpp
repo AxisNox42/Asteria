@@ -497,6 +497,15 @@ const ConfirmText& ConfirmTextAbandon() {
     return t;
 }
 
+const ConfirmText& ConfirmTextEndShopGuide() {
+    static const ConfirmText t = {
+        { L"상점 안내를 끝낼까요?", L"END THE SHOP GUIDE?", L"ショップ案内を終了しますか？" },
+        { L"안내는 다시 나오지 않아요. 상점은 로비에서 언제든 열 수 있어요.",
+          L"THE GUIDE WON'T SHOW AGAIN. THE SHOP STAYS OPEN IN THE LOBBY.",
+          L"案内はもう表示されません。ショップはロビーからいつでも開けます。" } };
+    return t;
+}
+
 ConfirmChoice DrawConfirmDialog(bool open, const ConfirmText& text,
                                 float sw, float sh, double mx, double my,
                                 bool lmb, bool lmbPrev, float dt) {

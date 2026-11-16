@@ -285,6 +285,9 @@ inline void SaveGame() {
     add("autoskill=%lld\n", g_AutoSkill ? 1 : 0);
     add("panephotos=%lld\n", g_PanePhotos ? 1 : 0);
     add("menudim=%lld\n", g_MenuDim);
+    add("firetoggle=%lld\n", g_FireToggle ? 1 : 0);
+    add("xhairsize=%lld\n", g_CrosshairSize);
+    add("xhaircolor=%lld\n", g_CrosshairColor);
     add("debugmode=%lld\n",    g_DebugMode ? 1 : 0);
     add("shaderfx=%lld\n",  g_ShaderFx  ? 1 : 0);
     add("mobstyle=%lld\n",  (int)g_MobVisualStyle);
@@ -311,8 +314,7 @@ inline void SaveGame() {
     }
     add("tutdone=%lld\n",    g_TutorialDone ? 1 : 0);
     add("shopopen=%lld\n",   g_ShopUnlocked ? 1 : 0);
-    add("themeowned=%lld\n", (long long)g_ThemeOwned);
-    add("themesel=%lld\n",   (long long)g_ThemeSel);
+    add("shopintro=%lld\n",  (long long)g_ShopIntroStage);
     for (int i = 0; i < META_COUNT; i++) {
         std::snprintf(ln, sizeof(ln), "meta%d=%d\n", i, g_MetaLv[i]); buf += ln;
     }
@@ -430,6 +432,7 @@ inline void LoadGame() {
     // 줄 단위 파싱 (기존 sscanf 로직 그대로)
     bool sawTutorialKey = false;
     bool sawShopKey = false;
+    long long removedProfiles = 0;   // old "themeowned" bits
     size_t pos = 0;
     char line[160];
     while (pos < content.size()) {
@@ -467,6 +470,9 @@ inline void LoadGame() {
         else if (!std::strcmp(key, "autoskill"))   g_AutoSkill         = (val != 0);
         else if (!std::strcmp(key, "panephotos"))  g_PanePhotos        = (val != 0);
         else if (!std::strcmp(key, "menudim"))     g_MenuDim           = (int)(val < 0 ? 0 : val > 100 ? 100 : val);
+        else if (!std::strcmp(key, "firetoggle"))  g_FireToggle = (val != 0);
+        else if (!std::strcmp(key, "xhairsize"))   { if (val >= 0 && val < kCrosshairSizeCount) g_CrosshairSize = (int)val; }
+        else if (!std::strcmp(key, "xhaircolor"))  { if (val >= 0 && val < kCrosshairColorCount) g_CrosshairColor = (int)val; }
         else if (!std::strcmp(key, "debugmode"))    g_DebugMode = (val != 0);
         else if (!std::strcmp(key, "shaderfx"))    g_ShaderFx          = (val != 0);
         else if (!std::strcmp(key, "mobstyle"))   { int v = (int)val; if (v >= 0 && v <= 1) g_MobVisualStyle = (MobVisualStyle)v; }
@@ -492,9 +498,11 @@ inline void LoadGame() {
         else if (!std::strcmp(key, "coins"))       g_Coins             = ClampSaveValue(val);
         else if (!std::strcmp(key, "tutdone"))   { g_TutorialDone = (val != 0); sawTutorialKey = true; }
         else if (!std::strcmp(key, "shopopen"))  { g_ShopUnlocked = (val != 0); sawShopKey = true; }
-        else if (!std::strcmp(key, "themeowned"))  g_ThemeOwned        = (int)val | 1;
-        // Ownership is checked by ApplyAccentTheme (themeowned may load later).
-        else if (!std::strcmp(key, "themesel"))  { if (val >= 0 && val < ACCENT_COUNT) g_ThemeSel = (int)val; }
+        else if (!std::strcmp(key, "shopintro"))
+            g_ShopIntroStage = (val >= SHOP_INTRO_NONE && val <= SHOP_INTRO_TOUR) ? (int)val : SHOP_INTRO_NONE;
+        // Screen profiles left the shop (2026-11-14): owned ones are refunded below.
+        else if (!std::strcmp(key, "themeowned"))  removedProfiles = val;
+        else if (!std::strcmp(key, "themesel"))  { (void)val; }
         else if (!std::strcmp(key, "bosskills")) { (void)val; }
         else if (!std::strncmp(key, "meta", 4)) {
             int mi = atoi(key + 4);
@@ -525,11 +533,15 @@ inline void LoadGame() {
         }
     }
     SanitizeKeyBindings(g_KeyBinds);
+    // Profiles bought before they were removed come back as stardust. The key is
+    // no longer written, so the refund happens once.
+    const long long refund = RemovedProfileRefund(removedProfiles);
+    if (refund > 0) AddSaveValue(g_Coins, refund);
     // 튜토리얼 기록이 없는 예전 세이브는 이미 플레이한 사람의 것이라 잠그지 않는다.
     if (!sawTutorialKey) g_TutorialDone = true;
     // 상점 기록이 없는 세이브: 예전 세이브이거나 이미 별가루를 모은 적이 있으면 연다.
     if (!sawShopKey) {
-        bool spent = g_ThemeOwned != 1;
+        bool spent = refund > 0;
         for (int i = 0; i < META_COUNT; i++) spent = spent || g_MetaLv[i] > 0;
         for (int i = 0; i < JOB_COUNT; i++)  spent = spent || g_JobBought[i];
         g_ShopUnlocked = !sawTutorialKey || g_Coins > 0 || spent;
@@ -553,11 +565,11 @@ inline void ResetSaveProgress() {
         g_MobKillCounts[i] = 0;
         g_RunMobKillCounts[i] = 0;
     }
-    g_ThemeOwned = 1; g_ThemeSel = 0; ApplyAccentTheme();
     for (int i = 0; i < JOB_COUNT; i++) g_JobBought[i] = false;
     g_TutorialDone = false;
     g_TutorialVanishPending = false;
     g_ShopUnlocked = false;
+    g_ShopIntroStage = SHOP_INTRO_NONE;
     SaveGame();
 }
 
@@ -591,7 +603,7 @@ inline bool RecordRunResult(int difficultyIdx, long long score, long long kills,
     AddSaveValue(g_Coins, earned);
     g_LastRunCoins = earned;
     AddSaveValue(g_RunStardust, earned);
-    if (earned > 0) g_ShopUnlocked = true;
+    if (earned > 0) UnlockShop();
     SaveGame();
     return isRecord;
 }

@@ -34,9 +34,12 @@ namespace passive {
 constexpr float kNearRadius = Rings(3);
 constexpr float kWideRadius = Rings(5);
 // Hit effects count damage, not hits: a tick of 0.1 must not use up a charge.
-constexpr float kPlateAbsorb = 30.0f;   // Buffer Plating: damage it blocks in total
+constexpr float kPlateAbsorb = 30.0f;   // Buffer Plating: damage it blocks each wave (refilled on wave clear)
 constexpr float kAmethystLife = 30.0f;  // Unstable Amp / Gift of Stars break after this much damage
-constexpr float kRubyLife = 10.0f;      // Glass Star breaks after this much damage
+constexpr float kRubyLife = 10.0f;      // Glass Star: off for the rest of the wave after this much damage (back on wave clear)
+constexpr float kDashOffTime = 4.0f;    // Limit Break / Stellar Overheat: seconds off after a dash
+constexpr int   kShardMax = 2;          // Emergency Mend Shards: shards held at most
+constexpr float kAfterglowCap = 0.5f;   // Afterglow Recovery: cooldown cut per second at most
 constexpr float kShardEvery = 20.0f;    // Emergency Mend Shards: one shard per this much damage
 
 struct State {
@@ -51,8 +54,9 @@ struct State {
     int   cakeSlices = 0;
     float cakeDamage = 0.0f;                                         // damage since the last shard
     bool phoenixUsed = false;
-    bool hornsOffThisWave = false;
-    bool firescaleOffThisWave = false;
+    float hornsOffT = 0.0f;       // Limit Break: seconds left switched off after a dash
+    float firescaleOffT = 0.0f;   // Stellar Overheat: the same
+    float afterglowUsed = 0.0f, afterglowClock = 0.0f;   // Afterglow Recovery's cut this second
     bool darkWingsOffThisWave = false;
     float canaryBonus = 0.0f;
     // Timers.
@@ -108,13 +112,13 @@ float AttackPower() { return g_Stats.GetBaseDamage() * g_Stats.GetDamageMultipli
 // "모든 피해" multipliers.
 float AllDamageMult() {
     float m = 1.0f;
-    if (Has(AugType::P_FLAME_LIMIT_BREAK) && !s.hornsOffThisWave) m *= 1.30f;
+    if (Has(AugType::P_FLAME_LIMIT_BREAK) && s.hornsOffT <= 0.0f) m *= 1.45f;
     if (Has(AugType::P_GEM_UNSTABLE_AMP) && s.amethystLeft > 0.0f) m *= 1.30f;
     if (Has(AugType::P_HERESY_BOUND_AMP)) m *= 1.40f;
     if (Has(AugType::P_HERESY_SLOT_SACRIFICE)) m *= 1.35f;
     if (Has(AugType::P_VEIN_SKILL_SYNERGY))
-        m *= 1.05f + 0.07f * (float)active::EquippedCount();
-    if (Has(AugType::P_LIFE_EMERGENCY_MEND_SHARDS)) m *= 1.0f + 0.10f * (float)s.cakeSlices;
+        m *= 1.03f + 0.05f * (float)active::EquippedCount();
+    if (Has(AugType::P_LIFE_EMERGENCY_MEND_SHARDS)) m *= 1.0f + 0.15f * (float)s.cakeSlices;
     m *= 1.0f + s.canaryBonus;
     m *= syn::CardDamageMult();   // synergy cards' "모든 피해" bonuses reach skills, blasts and burns too
     return m;
@@ -125,7 +129,7 @@ float BulletOnlyMult() {
     float m = 1.0f;
     if (Has(AugType::P_STONE_NEUTRON_WARHEAD)) m *= 1.40f;
     if (Has(AugType::P_STONE_GIANT_WARHEAD)) m *= 1.80f;
-    if (Has(AugType::P_GALE_PARTICLE_ROUNDS)) m *= 0.60f;
+    if (Has(AugType::P_GALE_PARTICLE_ROUNDS)) m *= 0.70f;
     if (Has(AugType::P_GEM_GLASS_STAR) && s.rubyLeft > 0.0f) m *= 1.25f;
     if (Has(AugType::P_HUNTER_PROXIMITY_WARHEAD)) m *= 1.30f;
     return m;
@@ -270,6 +274,32 @@ void StepLandingHits(float dt) {
         [](const State::LandingHit& h) { return h.t <= 0.0f; }), s.landing.end());
 }
 
+// pct of attack to up to `count` random enemies on screen (Static Buildup).
+void DamageRandom(int count, float pct, float r, float g, float b, ScreenFx fx) {
+    const float base = AttackPower() * pct / 100.0f * AllDamageMult();
+    std::vector<std::pair<bool, void*>> pool;   // (ranged, enemy)
+    for (auto* m : g_MonsterManager.monsters)
+        if (m->alive && OnScreen(m->worldX, m->worldY)) pool.push_back({ false, m });
+    for (auto* rm : g_MonsterManager.rangedMobs)
+        if (rm->alive && OnScreen(rm->worldX, rm->worldY)) pool.push_back({ true, rm });
+    for (int i = (int)pool.size() - 1; i > 0; --i) std::swap(pool[i], pool[std::rand() % (i + 1)]);
+    if ((int)pool.size() > count) pool.resize(count);
+    std::vector<std::pair<float, float>> at;
+    auto hit = [&](auto& target) {
+        const float dealt = g_MonsterManager.ApplyDamage(target, base);
+        if (dealt <= 0.0f) return;
+        SpawnDamageNumber(target.worldX, target.worldY, dealt, false);
+        SpawnSparks(target.worldX, target.worldY, 4, r, g, b, 260.0f);
+        at.push_back({ target.worldX, target.worldY });
+    };
+    for (auto& e : pool) {
+        if (e.first) hit(*(RangedMob*)e.second);
+        else         hit(*(Monster*)e.second);
+    }
+    ShowScreenHits(fx, at, { r, g, b });
+    Audio::Play(Audio::Cue::FieldPulse);
+}
+
 void DamageAll(float pct, float r, float g, float b, bool canCrit, float extra, ScreenFx fx) {
     const float base = AttackPower() * pct / 100.0f * AllDamageMult() * extra;
     if (fx == ScreenFx::StarFall) {
@@ -355,6 +385,8 @@ void AddStardust(long long n) {
     AddSaveValue(g_Coins, n);
     AddSaveValue(g_RunStardust, n);
     g_StardustHudPulse = 1.0f;
+    // Augment stardust counts as a first pickup too.
+    UnlockShop();
 }
 
 void ResetDash() {
@@ -365,7 +397,7 @@ void ResetDash() {
 void ChanceTriggered() {
     if (!Has(AugType::P_STORM_CASCADE_COLLISION) || s.procBusy) return;
     s.procBusy = true;
-    DamageAll(100.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
+    DamageAll(150.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
     s.procBusy = false;
 }
 
@@ -374,12 +406,13 @@ void CountHit() {
     if (Has(AugType::P_SPARK_STATIC_BUILDUP) && ++s.staticHits >= 10) {
         s.staticHits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
-        DamageAll(25.0f, 0.55f, 0.85f, 1.0f, false, 1.0f, ScreenFx::Zap);
+        DamageRandom(15, 25.0f, 0.55f, 0.85f, 1.0f, ScreenFx::Zap);   // 15 random enemies on screen
     }
-    if (Has(AugType::P_SPARK_STELLAR_DYNAMO) && ++s.batteryHits >= 30) {
+    if (Has(AugType::P_SPARK_STELLAR_DYNAMO) && ++s.batteryHits >= 25) {
         s.batteryHits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
         ResetDash();
+        active::ReduceAllCooldowns(1.0f);
     }
     if (Has(AugType::P_SPARK_CRITICAL_BURST) && ++s.blackboltHits >= 50) {
         s.blackboltHits = 0;
@@ -387,6 +420,9 @@ void CountHit() {
         DamageAll(600.0f, 0.45f, 0.30f, 0.85f, false, 1.0f, ScreenFx::BlackBolt);
     }
 }
+
+// Multi-Hit Amp: every hit of a many-hit attack.
+float MultiHitMult() { return Has(AugType::P_SHADOW_MULTI_HIT_AMP) ? 1.40f : 1.0f; }
 
 // Triple Strike: three strikes on enemies around (x, y).
 void ExtraStrikes(float x, float y) {
@@ -405,7 +441,7 @@ void ExtraStrikes(float x, float y) {
     if (total == 0) return;
     Audio::Play(Audio::Cue::ProcExtraHit);
     float dmg = AttackPower() * AllDamageMult();
-    if (Has(AugType::P_SHADOW_MULTI_HIT_AMP)) dmg *= 1.30f;
+    dmg *= MultiHitMult();
     for (int i = 0; i < 3; ++i) {
         const int pick = std::rand() % total;
         float tx, ty, dealt;
@@ -468,11 +504,11 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
         ChanceTriggered();
     }
     if (Has(AugType::P_STORM_CORONA_ROUND) && Chance(0.03f)) {
-        DamageAll(100.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
+        DamageAll(40.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
         ChanceTriggered();
     }
     if (Has(AugType::P_VEIN_CRATER_ROUND) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
-        s.pickaxeCd = 5.0f;
+        s.pickaxeCd = 2.5f;
         DamageRadius(x, y, Rings(1.5f), 200.0f, 1.0f, 0.70f, 0.30f);
         ChanceTriggered();
     }
@@ -492,7 +528,11 @@ bool HookExecutes(const void* target, float hp, bool regular) {
 void HookKill() {
     ++s.kills;
     active::OnKill();
-    if (Has(AugType::P_NOVA_AFTERGLOW_RECOVERY)) active::ReduceAllCooldowns(0.2f);
+    if (Has(AugType::P_NOVA_AFTERGLOW_RECOVERY) && s.afterglowUsed < kAfterglowCap) {
+        const float cut = std::min(0.1f, kAfterglowCap - s.afterglowUsed);
+        s.afterglowUsed += cut;
+        active::ReduceAllCooldowns(cut);
+    }
     if (Has(AugType::P_NOVA_STARDUST_HARVEST) && Chance(0.05f)) {
         AddStardust(1);
         Audio::Play(Audio::Cue::ProcStardustGain);
@@ -507,7 +547,7 @@ void HookKill() {
 
 void HookHurt(float& hp, float dmg) {
     if (s.in.damageProtected) { hp -= dmg; return; }   // undone this step anyway
-    if (Has(AugType::P_STILL_STILLNESS_PLATING) && s.stillT >= 2.0f) dmg *= 0.75f;
+    if (Has(AugType::P_STILL_STILLNESS_PLATING) && s.stillT >= 1.0f) dmg *= 0.70f;
     if (Has(AugType::P_GEM_BUFFER_PLATING) && s.emeraldLeft > 0.0f) {
         const float blocked = std::min(dmg, s.emeraldLeft);   // the plate takes what it can
         s.emeraldLeft -= blocked;
@@ -557,7 +597,7 @@ void TrackEnemies() {
 }
 
 bool RubyIntact() { return Has(AugType::P_GEM_GLASS_STAR) && s.rubyLeft > 0.0f; }
-bool FirescaleOn() { return Has(AugType::P_FLAME_STELLAR_OVERHEAT) && !s.firescaleOffThisWave; }
+bool FirescaleOn() { return Has(AugType::P_FLAME_STELLAR_OVERHEAT) && s.firescaleOffT <= 0.0f; }
 bool DarkWingsOn() { return Has(AugType::P_HERESY_UNSTABLE_DRIVE) && !s.darkWingsOffThisWave; }
 void SwitchOffDarkWings() { s.darkWingsOffThisWave = true; }
 
@@ -585,11 +625,11 @@ int Owned(AugType type) { return s.count[(int)type]; }
 int Luck() {
     int luck = 0;
     if (Has(AugType::P_LUCK_LUCKY_STAR))
-        luck += g_RunStardust >= 50 ? 3 : g_RunStardust >= 20 ? 1 : 0;
+        luck += g_RunStardust >= 40 ? 3 : g_RunStardust >= 15 ? 1 : 0;
     return luck;
 }
 
-float LuckChanceMult() { return 1.0f + 0.05f * (float)Luck(); }
+float LuckChanceMult() { return 1.0f + 0.10f * (float)Luck(); }
 
 bool CanOffer(int augIdx) {
     if (augIdx < 0 || augIdx >= AUG_TOTAL) return false;
@@ -612,7 +652,7 @@ static void ApplyCard(int augIdx) {
     float& hp = g_GameManager.playerHP;
     switch (ALL_AUGS[augIdx].type) {
     case AugType::P_GALE_FIRE_RATE_UP:     st.fireInterval /= 1.10f; break;
-    case AugType::P_STONE_ATTACK_UP:     st.baseDamage += 8.0f; break;
+    case AugType::P_STONE_ATTACK_UP:     st.baseDamage += 6.0f; break;
     case AugType::P_LIFE_MAX_HP_UP:         st.maxHP += 15.0f; hp += 15.0f; break;
     case AugType::P_LIFE_REGENERATION:       st.regenPerSec += 0.2f; break;
     case AugType::P_FLIGHT_MOVE_SPEED_UP:      st.moveSpeedMult += 0.10f; break;
@@ -622,22 +662,21 @@ static void ApplyCard(int augIdx) {
     case AugType::P_STONE_NEUTRON_WARHEAD: st.moveSpeedMult -= 0.08f; break;
     case AugType::P_STONE_GIANT_WARHEAD: st.moveSpeedMult -= 0.10f; break;
     case AugType::P_HERESY_UNSTABLE_DRIVE:      st.moveSpeedMult += 0.25f; break;
-    case AugType::P_STILL_SEA_OF_TRANQUILITY:     st.moveSpeedMult -= 0.08f; break;
     case AugType::P_LIFE_GRAZE_RECOVERY:   st.maxHP += 10.0f; hp += 10.0f; break;
     case AugType::P_LUCK_STARDUST_SUPPLY:       AddStardust(30); break;
     case AugType::P_GEM_UNSTABLE_AMP:  s.amethystLeft = kAmethystLife; break;
     case AugType::P_LUCK_GIFT_OF_STARS:       s.topazLeft = kAmethystLife; break;
     case AugType::P_GEM_GLASS_STAR:       s.rubyLeft = kRubyLife; break;
     case AugType::P_GEM_BUFFER_PLATING:      s.emeraldLeft = kPlateAbsorb; break;
-    case AugType::P_LIFE_EMERGENCY_MEND_SHARDS:   s.cakeSlices = 2; break;
+    case AugType::P_LIFE_EMERGENCY_MEND_SHARDS:   s.cakeSlices = kShardMax; break;
     case AugType::P_HERESY_SLOT_SACRIFICE:  active::SealSlot(); break;
     // Level-up stat cards.
-    case AugType::S_ATTACK:     st.baseDamage += 6.0f; break;
+    case AugType::S_ATTACK:     st.baseDamage += 4.0f; break;
     case AugType::S_MAX_HP:     st.maxHP += 12.0f; hp += 12.0f; break;
-    case AugType::S_FIRE_RATE:  st.fireInterval /= 1.05f; break;
+    case AugType::S_FIRE_RATE:  st.fireInterval /= 1.08f; break;
     case AugType::S_MOVE_SPEED: st.moveSpeedMult += 0.05f; break;
     case AugType::S_REGEN:      st.regenPerSec += 0.15f; break;
-    case AugType::S_CRIT:       st.critChance += 4; break;    // uncapped sum (RollCrit caps the roll)
+    case AugType::S_CRIT:       st.critChance += 6; break;    // uncapped sum (RollCrit caps the roll)
     default: break;
     }
     st.moveSpeedMult = std::max(0.30f, st.moveSpeedMult);
@@ -675,8 +714,10 @@ void Acquire(int augIdx) {
     }
     if (ALL_AUGS[augIdx].type == AugType::P_PERFORM_AUGMENT_REPLICATOR && s.lastPicked >= 0)
     {
-        RecordTaken(s.lastPicked);
-        ApplyCard(s.lastPicked);   // the previous card once more
+        for (int i = 0; i < 2; ++i) {   // the previous card twice more
+            RecordTaken(s.lastPicked);
+            ApplyCard(s.lastPicked);
+        }
     }
     ApplyCard(augIdx);
     if (!AugIsStatCard(ALL_AUGS[augIdx])) s.lastPicked = augIdx;
@@ -698,6 +739,9 @@ void Step(const StepInput& in) {
     s.greavesCd = std::max(0.0f, s.greavesCd - dt);
     s.strongmanWindow = std::max(0.0f, s.strongmanWindow - dt);
     s.rushOwed = std::max(0.0f, s.rushOwed - dt);
+    s.hornsOffT = std::max(0.0f, s.hornsOffT - dt);
+    s.firescaleOffT = std::max(0.0f, s.firescaleOffT - dt);
+    if ((s.afterglowClock += dt) >= 1.0f) { s.afterglowClock = 0.0f; s.afterglowUsed = 0.0f; }
 
     TrackEnemies();
 
@@ -726,15 +770,15 @@ void Step(const StepInput& in) {
     if (Has(AugType::P_SHADOW_QUIET_ORBIT) && s.stillT >= 1.0f &&
         !s.shinobiFired && s.shinobiCd <= 0.0f) {
         s.shinobiFired = true;
-        s.shinobiCd = 10.0f;
+        s.shinobiCd = 18.0f;
         ClearEnemyBullets(in.px, in.py, kNearRadius);
-        active::ResetLongestCooldown();
+        active::HalveLongestCooldown();
         Audio::Play(Audio::Cue::SkillCooldownCut);
     }
     if (Has(AugType::P_STILL_SEA_OF_TRANQUILITY) && s.stillT >= 1.0f &&
         !s.greavesFired && s.greavesCd <= 0.0f) {
         s.greavesFired = true;
-        s.greavesCd = 12.0f;
+        s.greavesCd = 8.0f;
         ClearEnemyBullets(in.px, in.py, kWideRadius);
         ResetDash();
     }
@@ -791,13 +835,18 @@ void Step(const StepInput& in) {
     }
 }
 
+float ShotDamageNow() {
+    return AttackPower() * AllDamageMult() * BulletOnlyMult() * syn::ShotDamageMult();
+}
+float FireIntervalNow() { return FireInterval(g_Stats.fireInterval); }
+
 float FireInterval(float base) {
     float interval = base;
     if (Has(AugType::P_CHRONO_STAR_TEMPO)) {
         interval = 0.18f;   // fixed: other fire-rate cards do not apply
     } else {
         if (Has(AugType::P_GALE_PARTICLE_ROUNDS)) interval *= 0.5f;
-        if (Has(AugType::P_STONE_GIANT_WARHEAD)) interval += 0.08f;
+        if (Has(AugType::P_STONE_GIANT_WARHEAD)) interval += 0.04f;
     }
     if (s.fastNext) interval *= 0.6f;
     interval /= syn::FireIntervalMult();
@@ -834,17 +883,16 @@ void OnDashStarted() {
     gamelog::Dash();
     gamelog::Event("DASH", "hp=%.1f", g_GameManager.playerHP);
     float cd = DASH_CD;
-    if (Has(AugType::P_ABYSS_ERRATIC_ORBIT)) cd = 1.0f + 5.0f * Rand01();
     if (Has(AugType::P_NIGHT_DWARF_COOLING)) cd -= 1.0f;
     if (DarkWingsOn()) cd -= 2.0f;
     cd = std::max(0.4f, cd);
     g_PlayerRuntime.dashCooldown = cd;
     g_PlayerRuntime.dashCooldownMax = cd;
-    if ((Has(AugType::P_FLAME_LIMIT_BREAK) && !s.hornsOffThisWave) ||
-        (Has(AugType::P_FLAME_STELLAR_OVERHEAT) && !s.firescaleOffThisWave))
-        Audio::Play(Audio::Cue::ProcSeal);   // 이번 웨이브 동안 꺼짐
-    if (Has(AugType::P_FLAME_LIMIT_BREAK)) s.hornsOffThisWave = true;
-    if (Has(AugType::P_FLAME_STELLAR_OVERHEAT)) s.firescaleOffThisWave = true;
+    if ((Has(AugType::P_FLAME_LIMIT_BREAK) && s.hornsOffT <= 0.0f) ||
+        (Has(AugType::P_FLAME_STELLAR_OVERHEAT) && s.firescaleOffT <= 0.0f))
+        Audio::Play(Audio::Cue::ProcSeal);   // 대시 후 4초 동안 꺼짐
+    if (Has(AugType::P_FLAME_LIMIT_BREAK)) s.hornsOffT = kDashOffTime;
+    if (Has(AugType::P_FLAME_STELLAR_OVERHEAT)) s.firescaleOffT = kDashOffTime;
     active::OnDash();
     if (Has(AugType::P_CHRONO_DOUBLE_CAST) && Chance(0.30f)) {
         ResetDash();
@@ -859,18 +907,25 @@ void OnDashStarted() {
     syn::OnDashStarted();
 }
 
-void OnWaveCleared() {
+void OnWaveCleared(bool specialWave) {
     syn::OnWaveCleared();
-    if (Has(AugType::P_VEIN_GROWING_STAR) && s.canaryBonus < 0.30f) {
-        s.canaryBonus = std::min(0.30f, s.canaryBonus + 0.02f);
+    if (Has(AugType::P_VEIN_GROWING_STAR) && s.canaryBonus < 0.20f) {
+        s.canaryBonus = std::min(0.20f, s.canaryBonus + 0.015f);
         Audio::Play(Audio::Cue::ProcGrow);
     }
     if (Has(AugType::P_LUCK_GIFT_OF_STARS) && s.topazLeft > 0.0f) { AddStardust(8); Audio::Play(Audio::Cue::ProcStardustGain); }
-    if (s.hornsOffThisWave || s.firescaleOffThisWave || s.darkWingsOffThisWave)
+    if (s.darkWingsOffThisWave || (Has(AugType::P_GEM_GLASS_STAR) && s.rubyLeft <= 0.0f))
         Audio::Play(Audio::Cue::ProcSeal);   // 꺼졌던 증강이 다시 켜짐
-    s.hornsOffThisWave = false;
-    s.firescaleOffThisWave = false;
     s.darkWingsOffThisWave = false;
+    // Per-wave charges: Glass Star and Buffer Plating come back every wave.
+    if (Has(AugType::P_GEM_GLASS_STAR)) s.rubyLeft = kRubyLife;
+    if (Has(AugType::P_GEM_BUFFER_PLATING)) s.emeraldLeft = kPlateAbsorb;
+    // Emergency Mend Shards: a boss or elite wave cleared gives one shard back.
+    if (specialWave && Has(AugType::P_LIFE_EMERGENCY_MEND_SHARDS) && s.cakeSlices < kShardMax) {
+        ++s.cakeSlices;
+        s.cakeDamage = 0.0f;
+        Audio::Play(Audio::Cue::SfxHealSmall);
+    }
     active::OnWaveCleared();
 }
 

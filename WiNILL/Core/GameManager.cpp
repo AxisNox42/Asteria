@@ -7,6 +7,7 @@
 #include "ReadyLaunch.h"
 #include "PassiveAugments.h"
 #include "Input.h"
+#include "../System/Audio.h"
 #include <algorithm>
 #include <cstdlib>
 
@@ -126,7 +127,11 @@ void GameManager::HandleInput(GLFWwindow* window) {
             // The practice wall squeezes and swells out first; the READY scene
             // starts the run when that animation ends. Locked until every
             // tutorial step is cleared.
-            if (ready_launch::LaunchUnlocked())
+            // While the tutorial's HUD guide is up, the press moves the guide on.
+            const ready_launch::HudGuide guideBefore = ready_launch::g_HudGuide;
+            if (ready_launch::HudGuideConfirm()) {
+                if (ready_launch::g_HudGuide != guideBefore) Audio::Play(Audio::Cue::UiConfirm);
+            } else if (ready_launch::LaunchUnlocked())
                 ready_launch::StartLaunch();
             else
                 ready_launch::g_LaunchLockedT = ready_launch::kLaunchLockedSec;

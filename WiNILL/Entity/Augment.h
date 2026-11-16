@@ -116,8 +116,12 @@ inline constexpr bool kLegacyAugments = false;
 inline bool AugIsSynergy(AugType t) { return (int)t > (int)AugType::S_CRIT; }
 inline int  SynergyIndex(AugType t) { return (int)t - (int)AugType::S_CRIT; }
 inline bool AugIsLegacy(const AugDef& d) { return !AugIsSynergy(d.type) && !AugIsStatCard(d); }
+// Deleted cards: never offered or listed, even with kLegacyAugments on. Their rows stay so saved
+// indices do not move. 변칙 궤도 (Erratic Orbit), 2026-11-14: its 1-6s dash cooldown averaged longer
+// than the normal 2.9s, so picking it was a loss.
+inline bool AugIsRemoved(const AugDef& d) { return d.type == AugType::P_ABYSS_ERRATIC_ORBIT; }
 // In the build: the synergy cards and the level-up stat cards (and the legacy ones if switched on).
-inline bool AugInBuild(const AugDef& d) { return kLegacyAugments || !AugIsLegacy(d); }
+inline bool AugInBuild(const AugDef& d) { return !AugIsRemoved(d) && (kLegacyAugments || !AugIsLegacy(d)); }
 inline const wchar_t* AugName(const AugDef& d) { return d.locName[CurLangIdx()]; }
 inline const wchar_t* AugDesc(const AugDef& d) { return d.locDesc[CurLangIdx()]; }
 

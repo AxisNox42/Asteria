@@ -14,6 +14,8 @@ void DrawRegulusBuffMarks(const Monster* m, float visualTime);
 void DrawLynxRay(const Monster* m);
 void DrawMiraZones();
 void DrawRegulusBeams(const MonsterManager& manager, float visualTime);
+// 레이저 frame card: the player's beams (LaserFx.h).
+void DrawPlayerLasers();
 // Render an Astral Log entity preview with the same silhouette as gameplay.
 void drawCodexMobPreview(int codexId, float x, float y, float scale = 3.0f);
 void DrawEnemySightRear(float x, float y, float foregroundRadius,

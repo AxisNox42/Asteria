@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <type_traits>
 
 #include "ActiveSkills.h"
 #include "AugmentCombat.h"
@@ -44,6 +45,16 @@ static_assert(sizeof(Flags) == kCards * sizeof(bool), "Flags must be a plain boo
 struct Zone  { float x, y, r, life, pct, tick, blastAtEnd, cr, cg, cb; };   // pct: % of attack per second
 struct Mine  { float x, y, life, pct, pulse; };
 struct Burn  { float t, tick; };
+// 과부하 레이저: stacking burn. t = time left at this stack count, gain = cooldown to the next stack,
+// lx/ly = where the enemy was last step, trail = distance moved since the last ember.
+struct LaserBurn { float t, tick, gain, lx, ly, trail; int stacks; };
+struct Ember { float x, y, dx, dy, len, age, life, seed; };   // a burnt-out streak left where a burning enemy went
+constexpr int   kLaserBurnMax = 5;        // stacks
+constexpr float kLaserBurnPct = 0.10f;    // of attack per second, per stack
+constexpr float kLaserBurnGain = 0.25f;   // one stack per this long on the beam
+constexpr float kLaserBurnHold = 3.0f;    // stacks hold this long after the last touch...
+constexpr float kLaserBurnDrop = 1.0f;    // ...then drop one per this long
+constexpr int   kMaxEmbers = 420;
 struct RingFx { float x, y, r, age, life, cr, cg, cb; };   // a brief line ring (Pulse)
 struct Echo  { float t; std::vector<Bullet> shots; };
 
@@ -97,6 +108,8 @@ struct State {
     std::vector<Bullet> pending;                          // spawned during a collision pass
     std::unordered_map<const void*, float> marks;
     std::unordered_map<const void*, Burn>  burns;
+    std::unordered_map<const void*, LaserBurn> laserBurns;
+    std::vector<Ember> embers;
     std::vector<RingFx> rings;
     passive::StepInput in;
 };
@@ -300,7 +313,8 @@ void ApplyVerbs(Bullet& b, float tx, float ty) {
     b.pierceLeft += s.pierce;
     if (s.split > 0) { b.splitCount = s.split; b.splitDmg = s.splitDmg; }
     if (o.V_RICOCHET) b.synRicochet = 1;
-    if (o.V_HOMING || o.V_HUNTER) { b.homing = true; b.homingTurn = o.V_HUNTER ? 4.0f : 3.0f; }
+    // Tracking Rounds only bends gently (1.5 rad/s, was 3.0: it hit almost everything); Hunter stays strong.
+    if (o.V_HOMING || o.V_HUNTER) { b.homing = true; b.homingTurn = o.V_HUNTER ? 4.0f : 1.5f; }
     if (o.V_BLAST) b.blastPct = 0.30f;
     if (o.V_MARK) b.synFlags |= synf::Mark;
     if (o.V_BURN) b.synFlags |= synf::Burn;
@@ -342,8 +356,11 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
         b.color = glm::vec3(0.55f, 0.85f, 1.0f);
     }
     if (o.F_LASER) {
-        b.speed = 3400.0f; b.maxRange = 760.0f; b.piercing = true; b.sizeScale *= 0.55f;
+        // A real beam (LaserFx.h): the shot never flies, it becomes the still segments
+        // of a beam held from the ship. The beam's band is the shot's hit width.
+        b.maxRange = 760.0f; b.piercing = true; b.sizeScale *= 1.3f;
         b.color = glm::vec3(0.55f, 0.95f, 1.0f);
+        b.synFlags |= synf::FrameLaser;
     }
     if (o.F_MORTAR) {
         // The shell lands at a distance fixed now, along its own heading (spread shells land spread
@@ -456,6 +473,7 @@ void ForgetEnemy(const void* enemy) {
     s.seen.erase(enemy);
     s.marks.erase(enemy);
     s.burns.erase(enemy);
+    s.laserBurns.erase(enemy);
 }
 
 void DrawWorld() {
@@ -489,6 +507,18 @@ void DrawWorld() {
     for (const Mine& m : s.mines) {
         lf::Diamond(m.x, m.y, 9.0f, 1.5f, { 1.0f, 0.45f, 0.35f }, 0.95f);
         lf::Diamond(m.x, m.y, 4.0f, 1.0f, { 1.0f, 0.80f, 0.70f }, 0.8f);
+    }
+    // 과부하 레이저 embers: a short streak that glows white-yellow, cools to orange, then dull red, and shrinks.
+    for (const Ember& e : s.embers) {
+        const float u = e.age / e.life;
+        const float flick = 0.8f + 0.2f * std::sin(s.clock * 23.0f + e.seed);
+        const lf::Rgb col{ 1.0f, std::max(0.18f, 0.85f - 0.75f * u), std::max(0.05f, 0.45f - 0.6f * u) };
+        const float L = e.len * (1.0f - 0.6f * u);
+        lf::Line(e.x - e.dx * L * 0.5f, e.y - e.dy * L * 0.5f, e.x + e.dx * L * 0.5f, e.y + e.dy * L * 0.5f,
+                 1.8f - 0.8f * u, col, (1.0f - u) * flick);
+        if (u < 0.35f)   // fresh: a hot white core along the streak
+            lf::Line(e.x - e.dx * L * 0.3f, e.y - e.dy * L * 0.3f, e.x + e.dx * L * 0.3f, e.y + e.dy * L * 0.3f,
+                     1.0f, { 1.0f, 0.95f, 0.8f }, (1.0f - u / 0.35f) * flick);
     }
     if (s.marks.empty() && s.burns.empty()) return;
     const float t = s.clock;
@@ -548,13 +578,20 @@ static bool ClashesWithMortar(int card) {
     return isFlight && s.own[mortar] > 0;
 }
 
+// Relentless Hunter Rounds is Boomerang Rounds plus strong homing: both set the same return flag, so
+// the second one would add nothing. Once either is owned the other is not offered.
+static bool ClashesWithReturn(int card) {
+    const int ret = Index("V_RETURN"), hunter = Index("V_HUNTER");
+    return (card == ret && s.own[hunter] > 0) || (card == hunter && s.own[ret] > 0);
+}
+
 bool CanOffer(int augIdx) {
     if (augIdx < 0 || augIdx >= AUG_TOTAL || !AugIsSynergy(ALL_AUGS[augIdx].type)) return false;
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards || s.own[i] > 0) return false;
     if (T()[i].role == synergy::Role::Frame && s.frame != 0) return false;   // one frame per run
     if ((T()[i].needs & s.tags) != T()[i].needs) return false;                // a card that would do nothing
-    return !ClashesWithMortar(i);
+    return !ClashesWithMortar(i) && !ClashesWithReturn(i);
 }
 
 namespace {
@@ -562,15 +599,15 @@ const wchar_t* const kTagNames[3][synergy::kTagCount] = {
     { L"관통", L"튕김", L"분열", L"유도", L"폭발", L"광선", L"공전", L"연쇄", L"연사", L"장전", L"산탄", L"박자",
       L"처치", L"치명타", L"튕길 때", L"피격", L"정지", L"대시", L"웨이브", L"보호막", L"체력", L"잔상", L"왕복",
       L"유리대포", L"벽 충돌", L"체공", L"점사", L"화상", L"표식", L"주사위", L"인력", L"소거", L"지뢰", L"성장",
-      L"자리바꿈", L"저장", L"콤보", L"박자 사격", L"고각" },
+      L"자리바꿈", L"저장", L"콤보", L"박자 사격", L"고각", L"광선 II" },
     { L"Pierce", L"Bounce", L"Split", L"Homing", L"Blast", L"Beam", L"Orbit", L"Chain", L"Rapid", L"Charge", L"Spread", L"Beat",
       L"Kill", L"Crit", L"On bounce", L"Hurt", L"Still", L"Dash", L"Wave", L"Shield", L"HP", L"Trail", L"Return",
       L"Glass", L"Wall hit", L"Hover", L"Burst", L"Burn", L"Mark", L"Dice", L"Pull", L"Erase", L"Mine", L"Grow",
-      L"Swap", L"Store", L"Combo", L"Beat shot", L"Lob" },
+      L"Swap", L"Store", L"Combo", L"Beat shot", L"Lob", L"Beam II" },
     { L"貫通", L"跳弾", L"分裂", L"誘導", L"爆発", L"光線", L"周回", L"連鎖", L"連射", L"装填", L"散弾", L"拍子",
       L"撃破", L"会心", L"跳ね時", L"被弾", L"静止", L"ダッシュ", L"ウェーブ", L"シールド", L"体力", L"残像", L"往復",
       L"ガラス砲", L"壁衝突", L"滞空", L"点射", L"火傷", L"刻印", L"サイコロ", L"引力", L"消去", L"地雷", L"成長",
-      L"入替", L"蓄積", L"コンボ", L"拍子射撃", L"高角" } };
+      L"入替", L"蓄積", L"コンボ", L"拍子射撃", L"高角", L"光線 II" } };
 const wchar_t* const kRoleNames[3][7] = {
     { L"프레임", L"동사", L"트리거", L"증폭", L"대가", L"보호", L"확률" },
     { L"Frame", L"Verb", L"Trigger", L"Amp", L"Cost", L"Guard", L"Chance" },
@@ -602,8 +639,6 @@ std::wstring MetaLine(int augIdx, int lang) {
     return r;
 }
 
-void RefreshStats() { Rebuild(); }   // Rebuild applies differences only: safe to repeat
-
 void Acquire(int augIdx) {
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards) return;
@@ -614,6 +649,14 @@ void Acquire(int augIdx) {
 }
 
 // ───────────────────────── fire path ─────────────────────────
+
+void RefreshStats() { Rebuild(); }   // Rebuild applies differences only: safe to repeat
+
+bool LaserFrame() { return s.on.F_LASER; }
+int LaserTier() {
+    if (!s.on.F_LASER) return 0;
+    return s.on.A_LASER_OVERLOAD ? 3 : (s.on.A_LASER_FOCUS ? 2 : 1);
+}
 
 float FireIntervalMult() {
     if (!s.any) return 1.0f;
@@ -750,6 +793,8 @@ float DamageMult(const Bullet& b, const void* target) {
     return m;
 }
 
+float ShotDamageMult() { return s.any ? s.dmg : 1.0f; }
+
 // Every "피해 +X%" / "모든 피해" card: bullets, skills, blasts, burns, zones alike.
 float CardDamageMult() {
     if (!s.any) return 1.0f;
@@ -777,6 +822,13 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
     const Flags& o = s.on;
     if (b.synFlags & synf::Mark) s.marks[target] = 5.0f;
     if (b.synFlags & synf::Burn) s.burns[target] = { 3.0f, 0.5f };
+    if ((b.synFlags & (synf::FrameLaser | synf::LaserBlast)) && o.A_LASER_OVERLOAD) {
+        auto [it, fresh] = s.laserBurns.try_emplace(target, LaserBurn{ 0.0f, 0.25f, 0.0f, x, y, 0.0f, 0 });
+        LaserBurn& lb = it->second;
+        if (b.synFlags & synf::LaserBlast) lb.stacks = kLaserBurnMax;
+        else if (lb.gain <= 0.0f) { lb.stacks = std::min(kLaserBurnMax, lb.stacks + 1); lb.gain = kLaserBurnGain; }
+        lb.t = kLaserBurnHold;
+    }
     // On-hit blasts scale with the shot's own damage factor (frame, split child, side shot, laser tick),
     // as a mortar shell's landing already does: a flat % of attack made fast frames multiply them.
     const float shotMult = b.dmgMult * s.dmg;
@@ -926,6 +978,58 @@ bool TryRevive() {
 
 // ───────────────────────── per step ─────────────────────────
 
+// 과부하 레이저 burns: damage per stack, and the embers a burning enemy leaves where it goes.
+// The embers stay where they fell (no rising sparks, no tint on the enemy): the path it burned along.
+void StepLaserBurns(float dt) {
+    for (Ember& e : s.embers) e.age += dt;
+    s.embers.erase(std::remove_if(s.embers.begin(), s.embers.end(), [](const Ember& e) { return e.age >= e.life; }), s.embers.end());
+    if (s.laserBurns.empty()) return;
+    const float perStack = passive::AttackPower() * kLaserBurnPct * 0.25f * passive::AllDamageMult();   // one 0.25s tick
+    ForEachEnemy([&](auto& e, float ex, float ey) {
+        auto it = s.laserBurns.find(&e);
+        if (it == s.laserBurns.end()) return;
+        LaserBurn& lb = it->second;
+        lb.gain -= dt;
+        lb.t -= dt;
+        if (lb.t <= 0.0f) { --lb.stacks; lb.t += kLaserBurnDrop; }
+        if (lb.stacks <= 0) return;
+        lb.tick -= dt;
+        if (lb.tick <= 0.0f) {
+            lb.tick += 0.25f;
+            const float dealt = g_MonsterManager.ApplyDamage(e, perStack * (float)lb.stacks);
+            if (dealt > 0.0f) SpawnDamageNumber(ex, ey, dealt, false);
+        }
+        // Embers: one per few px moved (denser with more stacks), and a slow drip while standing still.
+        const float mx = ex - lb.lx, my = ey - lb.ly, moved = std::sqrt(mx * mx + my * my);
+        lb.lx = ex; lb.ly = ey;
+        if (moved > 200.0f) return;   // teleported: no streak across the screen
+        const float k = (float)lb.stacks / (float)kLaserBurnMax;
+        float body = 28.0f;   // ranged mobs: about a regular mob's body
+        if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) body = 26.0f * e.sizeScale;
+        lb.trail += moved + dt * 30.0f;
+        const float every = 22.0f - 10.0f * k;
+        const float ux = moved > 0.01f ? mx / moved : 0.0f, uy = moved > 0.01f ? my / moved : 0.0f;
+        while (lb.trail >= every && (int)s.embers.size() < kMaxEmbers) {
+            lb.trail -= every;
+            const float ang = Rand01() * 2.0f * kPi;
+            const float rr = body * 0.6f * std::sqrt(Rand01());   // within 0.6x the body (user 2026-11-16)
+            Ember em;
+            em.x = ex + std::cos(ang) * rr - ux * lb.trail;
+            em.y = ey + std::sin(ang) * rr - uy * lb.trail;
+            // Streaks lie along the way the enemy went (random when it stands still).
+            const float sa = moved > 0.01f ? std::atan2(uy, ux) + (Rand01() - 0.5f) * 0.8f : Rand01() * 2.0f * kPi;
+            em.dx = std::cos(sa); em.dy = std::sin(sa);
+            em.len = 4.0f + 4.0f * Rand01() + 3.0f * k;
+            em.age = 0.0f;
+            em.life = 0.40f + 0.45f * k + 0.2f * Rand01();
+            em.seed = Rand01() * 6.28f;
+            s.embers.push_back(em);
+        }
+        if (lb.trail > every) lb.trail = every;
+    });
+    for (auto it = s.laserBurns.begin(); it != s.laserBurns.end();) it = it->second.stacks <= 0 ? s.laserBurns.erase(it) : std::next(it);
+}
+
 void Step(const passive::StepInput& in) {
     s.in = in;
     // Ring pulses age even without synergy cards (a pickup of any card shows one).
@@ -1021,6 +1125,7 @@ void Step(const passive::StepInput& in) {
         });
         for (auto it = s.burns.begin(); it != s.burns.end();) it = it->second.t <= 0.0f ? s.burns.erase(it) : std::next(it);
     }
+    StepLaserBurns(dt);
 
     // Zones (trails, wall clouds, dash afterimages).
     for (Zone& z : s.zones) {

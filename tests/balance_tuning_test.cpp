@@ -27,7 +27,14 @@ int main() {
     EXPECT(Near(BalanceFor(1).wv3, 0.424f), "NORMAL wv3");
     EXPECT(Near(BalanceFor(2).kGimbal, 1.359f), "HARD kGimbal");
     EXPECT(Near(BalanceFor(1).scopeInterval, 2.159f), "NORMAL scopeInterval");
-    EXPECT(Near(BalanceFor(3).bossHp, 0.814f), "NIGHTMARE bossHp");
+    EXPECT(Near(BalanceFor(1).bossHp, 5.10f) && Near(BalanceFor(3).bossHp, 7.45f), "bossHp (2026-11-14 x12)");
+    // Final-boss HP climbs with difficulty: run HP x elite ramp x bossHp.
+    EXPECT(BalanceFor(1).bossHp * 1.00f * 1.9f < BalanceFor(2).bossHp * 1.15f * 2.2f &&
+           BalanceFor(2).bossHp * 1.15f * 2.2f < BalanceFor(3).bossHp * 1.30f * 2.2f, "boss HP order");
+    // The Easy final boss must not outlast Normal's. Final-boss HP = run HP
+    // (0.90 / 1.00) x elite ramp (1 + 0.3 per elite wave: 2 / 3) x bossHp.
+    EXPECT(BalanceFor(0).bossHp * 0.90f * 1.6f < BalanceFor(1).bossHp * 1.00f * 1.9f,
+           "EASY final boss below NORMAL");
     EXPECT(Near(BalanceFor(0).hpScale, 0.80f) && Near(BalanceFor(0).hpLate, 0.70f), "hp rows");
 
     // Wave bands: 1-3, 4-6, 7-9, 10+.

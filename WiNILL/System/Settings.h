@@ -47,6 +47,27 @@ inline int LangIndex() {
 
 // 크로스헤어 표시 (기본 ON)
 inline bool g_ShowCrosshair = true;
+// 조준선 크기 (0 작게 0.75x / 1 보통 / 2 크게 1.4x / 3 아주 크게 1.8x) 와 색 (0 하늘 1 흰색 2 노랑 3 초록 4 분홍).
+inline constexpr int kCrosshairSizeCount = 4;
+inline constexpr int kCrosshairColorCount = 5;
+inline int g_CrosshairSize = 1;
+inline int g_CrosshairColor = 0;
+inline float CrosshairSizeScale() {
+    static const float k[kCrosshairSizeCount] = { 0.75f, 1.0f, 1.4f, 1.8f };
+    const int i = g_CrosshairSize < 0 ? 0 : (g_CrosshairSize >= kCrosshairSizeCount ? kCrosshairSizeCount - 1 : g_CrosshairSize);
+    return k[i];
+}
+// 기본 공격 방식: false = 누르고 있는 동안 쏨, true = 한 번 눌러 켜고 다시 눌러 끔.
+inline bool g_FireToggle = false;
+// TOGGLE 모드에서 지금 쏘는 중인지. 카드 고르기·일시정지 등 전투 밖으로 나가면 꺼진다.
+inline bool g_FireLatched = false;
+// Turns this frame's left button into "should the gun fire". HOLD passes the
+// button through; TOGGLE flips on each fresh press (only when canToggle).
+inline bool ResolveFireInput(bool lmb, bool lmbPrev, bool canToggle) {
+    if (!g_FireToggle) { g_FireLatched = false; return lmb; }
+    if (canToggle && lmb && !lmbPrev) g_FireLatched = !g_FireLatched;
+    return g_FireLatched;
+}
 
 // 하단 작업표시줄 높이(px) — 풀스크린 오버레이 위에 작업표시줄이 떠 있을 때
 //   체력바 등 하단 UI 가 가려지지 않도록 이만큼 위로 올린다. main 이 시작 시 계산.
@@ -461,11 +482,16 @@ inline int GfxArcSegs(float mult = 1.5f) {
     return s < 6 ? 6 : s;
 }
 
-// ── 코스메틱: OS 액센트 컬러 테마 (코인 상점에서 구매/장착, 저장됨) ──
-//   플레이어 창 네온 보더/타이틀바 색을 바꾼다("데스크톱 테마" 커스터마이즈).
-//   g_ThemeOwned 는 비트마스크(비트0=기본, 항상 보유), g_ThemeSel 은 선택 인덱스.
-//   g_Accent* 는 선택 테마의 실제 RGB (ApplyAccentTheme 가 세팅, 렌더가 읽음).
-inline int   g_ThemeOwned = 1;
+// 화면 프로필(색상 테마)은 2026-11-14 상점에서 빠졌다. 예전 세이브의 "themeowned"
+// 비트(i = 아래 표의 i번)는 로드 때 산 값만큼 별가루로 돌려준다.
+inline constexpr long long kRemovedProfileCost[] = { 0, 300, 300, 500, 500, 800, 1200 };
+inline long long RemovedProfileRefund(long long ownedBits) {
+    long long total = 0;
+    const int n = (int)(sizeof(kRemovedProfileCost) / sizeof(kRemovedProfileCost[0]));
+    for (int i = 1; i < n; ++i)
+        if (ownedBits & (1LL << i)) total += kRemovedProfileCost[i];
+    return total;
+}
 // 로비 튜토리얼을 끝까지 마쳤는지. false 인 동안(첫 실행)은 튜토리얼·설정·종료만 열린다.
 // 마치면 플레이·도감이 열린다.
 inline bool  g_TutorialDone = false;
@@ -476,9 +502,21 @@ inline bool  g_TutorialVanishPending = false;
 inline bool  TutorialRouteHidden() { return g_TutorialDone && !g_TutorialVanishPending; }
 // 별가루를 처음 모았는지. true 가 되면 로비의 상점이 열린다.
 inline bool  g_ShopUnlocked = false;
-inline int   g_ThemeSel   = 0;
-inline float g_AccentR    = 0.30f;
-inline float g_AccentG    = 1.0f;
-inline float g_AccentB    = 1.0f;
+// First-stardust shop guide. Nothing is shown in play; the guide runs after the
+// play: the result screen lights up STARDUST GAINED, the lobby points at SHOP,
+// and the first shop visit walks through its parts. Saved ("shopintro").
+enum ShopIntroStage : int {
+    SHOP_INTRO_NONE = 0,      // never started, or finished
+    SHOP_INTRO_RESULT = 1,    // shop just opened; the result screen highlights stardust
+    SHOP_INTRO_LOBBY = 2,     // lobby points at SHOP
+    SHOP_INTRO_TOUR = 3,      // first shop visit: guided tour
+};
+inline int g_ShopIntroStage = SHOP_INTRO_NONE;
+// Opens the shop on the first stardust (silently; the guide runs after the play).
+inline void UnlockShop() {
+    if (g_ShopUnlocked) return;
+    g_ShopUnlocked = true;
+    g_ShopIntroStage = SHOP_INTRO_RESULT;
+}
 
 // (추후 확장: 마스터 볼륨, 마우스 감도 등)

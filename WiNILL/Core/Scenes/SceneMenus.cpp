@@ -172,6 +172,19 @@ void LogoLine(float x1, float y1, float x2, float y2,
     BatchTri(x1 - nx, y1 - ny, x2 - nx, y2 - ny, x2 + nx, y2 + ny, r, g, b, a);
 }
 
+void DrawGuideCorners(float x, float y, float w, float h, float arm, float th, float a) {
+    if (a <= 0.0f) return;
+    for (int ix = 0; ix < 2; ++ix)
+        for (int iy = 0; iy < 2; ++iy) {
+            const float bx = ix ? x + w : x, by = iy ? y + h : y;
+            const float sx = ix ? -1.0f : 1.0f, sy = iy ? -1.0f : 1.0f;
+            LogoLine(bx, by, bx + sx * arm, by, th * 3.2f, 1.0f, 0.84f, 0.34f, 0.14f * a);
+            LogoLine(bx, by, bx, by + sy * arm, th * 3.2f, 1.0f, 0.84f, 0.34f, 0.14f * a);
+            LogoLine(bx - sx * th * 0.5f, by, bx + sx * arm, by, th, 1.0f, 0.86f, 0.40f, a);
+            LogoLine(bx, by - sy * th * 0.5f, bx, by + sy * arm, th, 1.0f, 0.86f, 0.40f, a);
+        }
+}
+
 void DrawSceneLeftVignette(float sw, float sh, float alpha) {
     if (alpha <= 0.001f) return;
     const UiThemePalette& theme = GetUiTheme();

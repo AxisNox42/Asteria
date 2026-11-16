@@ -85,6 +85,10 @@ float LogoClamp01(float value);
 void SetSceneTextureReveal(float reveal);
 void LogoLine(float x1, float y1, float x2, float y2,
               float thick, float r, float g, float b, float alpha);
+// Gold corner brackets around the part a first-time guide points at (shop
+// tour, tutorial HUD guide): a soft glow under a thin line at each corner.
+// arm = bracket length, th = line thickness, a = alpha.
+void DrawGuideCorners(float x, float y, float w, float h, float arm, float th, float a);
 void DrawPersistentSceneSideVignettes(float sw, float sh, float alpha);
 void DrawSceneLeftVignette(float sw, float sh, float alpha);
 void DrawSceneRadialVignette(float cx, float cy, float radius, float alpha);

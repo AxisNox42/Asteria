@@ -16,6 +16,7 @@
 #include "Codex.h"
 #include "Augment.h"
 #include "PassiveAugments.h"
+#include "RunBuildPanel.h"
 #include "../../Render/AugCardModel.h"
 #include "PlayerStats.h"
 #include "RunStats.h"
@@ -47,6 +48,8 @@
 
 extern float g_GameTime;   // main.cpp: seconds of the run
 
+using namespace run_build;   // PickText, Snap, WrapLines
+
 namespace {
 enum class GameOverAction : int { Restart, ReturnToMenu, Quit };
 constexpr int kGameOverActionCount = static_cast<int>(GameOverAction::Quit) + 1;
@@ -54,6 +57,11 @@ constexpr int kGameOverActionCount = static_cast<int>(GameOverAction::Quit) + 1;
 void ApplyGameOverAction(GameOverAction action, GLFWwindow* window,
                          const SceneCtx& scene,
                          const GameOverSceneContext& state) {
+    // Leaving the first result that earned stardust: the lobby points at SHOP next.
+    if (g_ShopIntroStage == SHOP_INTRO_RESULT) {
+        g_ShopIntroStage = SHOP_INTRO_LOBBY;
+        SaveGame();
+    }
     switch (action) {
     case GameOverAction::Restart:
         if (scene.reset) scene.reset();
@@ -68,118 +76,6 @@ void ApplyGameOverAction(GameOverAction action, GLFWwindow* window,
     }
 }
 
-// The glyph atlases are baked at fixed sizes (S, L, XL) and only ever scaled
-// at draw time, so text blurs as soon as it is drawn above its baked size.
-// Pick the smallest atlas that can reach the wanted line height without
-// being enlarged.
-struct TextPick {
-    TextRenderer* r;
-    float scale;
-};
-
-TextPick PickText(const SceneTextContext& t, float lineHeightPx) {
-    TextRenderer* order[3] = { &t.body, &t.title, &g_TextXL };
-    for (TextRenderer* r : order) {
-        const float lh = r->LineHeightPixels();
-        if (lh > 0.0f && lineHeightPx <= lh)
-            return { r, lineHeightPx / lh };
-    }
-    const float lh = std::max(1.0f, g_TextXL.LineHeightPixels());
-    return { &g_TextXL, lineHeightPx / lh };
-}
-
-float Snap(float v) { return std::floor(v + 0.5f); }
-
-constexpr int kWrapChars = 160;
-
-// Greedy wrap by measured width. Breaks at spaces when it can and between
-// characters otherwise (Korean and Japanese run long without spaces).
-int WrapLines(TextRenderer& r, float scale, const wchar_t* text, float maxW,
-              wchar_t (*lines)[kWrapChars], int maxLines) {
-    int count = 0;
-    wchar_t cur[kWrapChars] = {};
-    int len = 0, lastSpace = -1;
-    auto emit = [&](int n) {
-        if (count >= maxLines) return;
-        while (n > 0 && cur[n - 1] == L' ') --n;
-        wmemcpy(lines[count], cur, (size_t)n);
-        lines[count][n] = 0;
-        ++count;
-    };
-    for (const wchar_t* p = text; p && *p && count < maxLines; ++p) {
-        if (len >= kWrapChars - 2) { emit(len); len = 0; lastSpace = -1; }
-        if (*p == L' ') lastSpace = len;
-        cur[len++] = *p;
-        cur[len] = 0;
-        if (len > 1 && r.Width(cur, scale) > maxW) {
-            if (lastSpace > 0) {
-                emit(lastSpace);
-                const int rest = len - lastSpace - 1;
-                wmemmove(cur, cur + lastSpace + 1, (size_t)rest);
-                len = rest;
-            } else {
-                emit(len - 1);
-                cur[0] = cur[len - 1];
-                len = 1;
-            }
-            cur[len] = 0;
-            lastSpace = -1;
-            for (int i = 0; i < len; ++i) if (cur[i] == L' ') lastSpace = i;
-        }
-    }
-    if (len > 0 && count < maxLines) emit(len);
-    return count;
-}
-
-// ---- Player stats: weapon and meta, plus trial ----------------------------
-enum Metric { kAttack, kFireRate, kBulletSpeed, kMove, kMaxHp, kRegen,
-              kMetricCount };
-
-float MetricValue(const PlayerStats& s, int m) {
-    switch (m) {
-    case kAttack:      return s.GetBaseDamage() * s.damageMultiplier;
-    case kFireRate:    return s.fireInterval > 0.0001f ? 1.0f / s.fireInterval : 0.0f;
-    case kBulletSpeed: return s.bulletSpeed;
-    case kMove:        return s.moveSpeedMult * 100.0f;
-    case kMaxHp:       return s.maxHP;
-    case kRegen:       return s.regenPerSec;
-    default:           return 0.0f;
-    }
-}
-
-struct StatRow {
-    float total = 0.0f, base = 0.0f, run = 0.0f, trial = 0.0f;
-};
-
-// total = the run's final stats (augments and level-up cards included);
-// base = weapon and meta. The gap splits into the run's gains and the trial cut.
-void BuildStatRows(StatRow* rows) {
-    const PlayerStats base = PreviewBaseStats(g_CurrentWeapon, g_Scale);
-    PlayerStats trial = base;
-    ApplyTrialMaxHp(trial);
-    for (int m = 0; m < kMetricCount; ++m) {
-        const float b = MetricValue(base, m);
-        const float tr = MetricValue(trial, m);
-        rows[m].base = b;
-        rows[m].trial = tr - b;
-        rows[m].total = MetricValue(g_Stats, m);
-        rows[m].run = rows[m].total - tr;
-    }
-}
-
-// Parts smaller than this are not worth a "+ x" term.
-float MetricEps(int m) {
-    return (m == kFireRate || m == kRegen) ? 0.005f : 0.05f;
-}
-void FormatMetric(wchar_t* out, int m, float v) {
-    switch (m) {
-    case kAttack:     swprintf_s(out, 32, L"%.1f", v); break;
-    case kFireRate:   swprintf_s(out, 32, L"%.2f", v); break;
-    case kRegen:      swprintf_s(out, 32, L"%.2f/s", v); break;
-    case kMove:       swprintf_s(out, 32, L"%.0f%%", v); break;
-    default:          FormatGrouped(std::llround(v), out, 32); break;
-    }
-}
 }
 
 void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
@@ -219,14 +115,6 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
     };
     static const wchar_t* kStardustLabel[LANG_COUNT] = {
         L"\uD68D\uB4DD \uBCC4\uAC00\uB8E8", L"STARDUST GAINED", L"\u7372\u5F97\u30B9\u30BF\u30FC\u30C0\u30B9\u30C8"
-    };
-    static const wchar_t* kBuildStatsLabel[LANG_COUNT] = {
-        L"\uD50C\uB808\uC774\uC5B4 \uB2A5\uB825\uCE58", L"PLAYER STATS", L"\u30D7\u30EC\u30A4\u30E4\u30FC\u80FD\u529B\u5024"
-    };
-    static const wchar_t* kMetricLabel[LANG_COUNT][kMetricCount] = {
-        { L"\uACF5\uACA9\uB825", L"\uC5F0\uC0AC\uB825", L"\uD0C4\uC18D", L"\uC774\uB3D9\uC18D\uB3C4", L"HP", L"\uCCB4\uB825 \uC7AC\uC0DD" },
-        { L"ATTACK", L"FIRE RATE", L"BULLET SPEED", L"MOVE SPEED", L"HP", L"HP REGEN" },
-        { L"\u653B\u6483\u529B", L"\u9023\u5C04\u529B", L"\u5F3E\u901F", L"\u79FB\u52D5\u901F\u5EA6", L"HP", L"HP\u56DE\u5FA9" }
     };
     static const wchar_t* kRoute[LANG_COUNT][kGameOverActionCount] = {
         { L"\uC7AC\uC2DC\uC791", L"\uBA54\uC778 \uBA54\uB274", L"\uC885\uB8CC" },
@@ -279,7 +167,18 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
     const float rule2Y = heroY + heroH + 16.0f * uiS;
     const float rowLabY = rule2Y + 18.0f * uiS;
     const float rowValY = rowLabY + labH + 6.0f * uiS;
-    const float statsBottom = rowValY + valH;
+    // First play that earned stardust (the shop just opened): STARDUST GAINED
+    // lights up once the journey lands, with a line pointing to the lobby shop.
+    const bool dustIntro = g_ShopIntroStage == SHOP_INTRO_RESULT && g_RunStardust > 0;
+    static const wchar_t* kDustHint[LANG_COUNT] = {
+        L"처음 모은 별가루입니다 · 로비에 상점이 열렸어요",
+        L"Your first stardust · the SHOP is now open in the lobby",
+        L"初めての星屑 · ロビーにショップが開きました"
+    };
+    const TextPick hintT = PickText(state.text, 24.0f * uiS);
+    const float hintGap = 12.0f * uiS;
+    const float hintH = dustIntro ? hintT.r->Height(kDustHint[li], hintT.scale) + hintGap : 0.0f;
+    const float statsBottom = rowValY + valH + hintH;
 
     static float s_hovGO[kGameOverActionCount] = {};
     static int   s_confirmGO = -1;   // Restart / Quit awaiting an answer
@@ -435,8 +334,56 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         const float col1X = leftX + lvW + 56.0f * uiS;
         drawLabel(kLevelLabel[li], leftX, top + rowLabY, false);
         drawValue(val, levelBuf, leftX, top + rowValY, false, 0.68f, 0.92f, 1.0f);
-        drawLabel(kStardustLabel[li], col1X, top + rowLabY, false);
-        drawValue(val, gainBuf, col1X, top + rowValY, false, 0.72f, 0.88f, 1.0f);
+        // Highlight clock: starts a beat after the journey lands.
+        static float s_dustT = -1.0f;
+        if (gof < 0.05f) s_dustT = -1.0f;
+        float hi = 0.0f;       // 0..1 settled highlight
+        float flare = 0.0f;    // the brief flare on top
+        if (dustIntro && arrived) {
+            const float prevT = s_dustT;
+            s_dustT = burstT - 0.55f;
+            if (prevT < 0.0f && s_dustT >= 0.0f) Audio::Play(Audio::Cue::ShopUnlock);
+            if (s_dustT > 0.0f) {
+                hi = Smoothstep(std::min(1.0f, s_dustT / 0.45f));
+                // Two soft pulses over ~2.4 s, then it rests at the settled gold.
+                if (s_dustT < 2.4f) {
+                    const float k = 1.0f - s_dustT / 2.4f;
+                    flare = k * (0.5f + 0.5f * sinf(s_dustT * 5.2f - 1.57f));
+                }
+            }
+        }
+        if (hi <= 0.0f) {
+            drawLabel(kStardustLabel[li], col1X, top + rowLabY, false);
+            drawValue(val, gainBuf, col1X, top + rowValY, false, 0.72f, 0.88f, 1.0f);
+        } else {
+            // Stardust gold, brightening toward white on each pulse.
+            const float gr = 1.0f, gg = 0.84f + 0.14f * flare, gb = 0.34f + 0.50f * flare;
+            const float labA = (0.88f + 0.12f * hi) * ge;
+            lab.r->Draw(kStardustLabel[li], Snap(col1X), Snap(top + rowLabY), lab.scale,
+                        0.64f + (gr - 0.64f) * hi, 0.76f + (gg - 0.76f) * hi,
+                        0.88f + (gb - 0.88f) * hi, labA);
+            const float vw = val.r->Width(gainBuf, val.scale);
+            const float ox = flare * 1.5f * uiS;   // a hair of lift on the pulse
+            val.r->Draw(gainBuf, Snap(col1X), Snap(top + rowValY - ox), val.scale,
+                        0.72f + (gr - 0.72f) * hi, 0.88f + (gg - 0.88f) * hi,
+                        1.0f + (gb - 1.0f) * hi, 0.94f * ge);
+            BindMainShader();
+            // Underline that draws out from the value, plus a diamond at its end.
+            const float uy = top + rowValY + valH + 4.0f * uiS;
+            const float lw = std::max(vw, lab.r->Width(kStardustLabel[li], lab.scale));
+            const float ux1 = col1X + lw * hi;
+            LogoLine(col1X, uy, ux1, uy, (1.2f + 1.4f * flare) * uiS,
+                     1.0f, 0.84f, 0.34f, (0.55f + 0.40f * flare) * ge);
+            drawDiamond(ux1 + 6.0f * uiS, uy, (4.0f + 3.0f * flare) * uiS,
+                        1.0f, 0.86f, 0.40f, 0.85f * hi * ge);
+            // Pointer line to the lobby shop.
+            const float hintA = Smoothstep(std::clamp((s_dustT - 0.25f) / 0.45f, 0.0f, 1.0f));
+            if (hintA > 0.001f) {
+                DrawShadowedText(*hintT.r, kDustHint[li], Snap(leftX),
+                                 Snap(top + rowValY + valH + hintGap), hintT.scale,
+                                 1.0f, 0.88f, 0.48f, 0.92f * hintA * ge, 0.80f);
+            }
+        }
     }
 
     // ---- Right panel: the player and stats ------------------------------------
@@ -448,298 +395,19 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         panelW = sw - margin - panelX;
     }
     if (panelW >= 240.0f) {
-        static bool s_statsOpen = false;
-        static float s_statsT = 0.0f;
-        static bool s_rowsValid = false;
-        static StatRow s_rows[kMetricCount];
-        static int s_descAug = -1;
-        static float s_descT = 0.0f;
-        if (gof < 0.05f) {
-            s_statsOpen = false; s_statsT = 0.0f; s_rowsValid = false;
-            s_descAug = -1; s_descT = 0.0f;
-        }
-        // Cards taken this run (the level-up stat cards are left out).
-        const std::vector<int>& taken = passive::AcquiredOrder();
-        const int nTaken = (int)taken.size();
-        constexpr int kDescLines = 3;
-        if (!s_rowsValid) { BuildStatRows(s_rows); s_rowsValid = true; }
-
-        const bool statRowShown[kMetricCount] = { true, true, true, true, true, true };
-        int statRows = 0;
-        for (int m = 0; m < kMetricCount; ++m) if (statRowShown[m]) ++statRows;
-
-        // The panel is a vertical stack; when it would run off the bottom the
-        // graphic parts (player, cells, gaps) shrink, text stays at its size.
-        // The panel is a vertical stack; when it would run off the bottom the
-        // graphic parts (player, cells) shrink, text stays at its size.
-        float k = 1.0f;
-        float shellSize = 0, shellR = 0, shellCy = 0;
-        float augLabY = 0, augRuleY = 0, gridY = 0, cell = 0;
-        int cols = 1, shown = 0;
-        float toggleY = 0, toggleRuleY = 0, tableY0 = 0, rowH = 0;
-        for (int pass = 0; pass < 12; ++pass) {
-            shellSize = 25.0f * 2.2f * uiS * k;
-            shellR = shellSize * 1.2f;
-            shellCy = top + shellR;
-            // Below the outer orbit arc, so the label never sits on a ring.
-            augLabY = shellCy + shellR * 1.30f + 10.0f * uiS * k;
-            augRuleY = augLabY + labH + 8.0f * uiS * k;
-            gridY = augRuleY + 10.0f * uiS * k;
-            cell = 64.0f * uiS * k;
-            cols = std::max(1, (int)(panelW / cell));
-            const int maxCells = cols * 3;
-            shown = nTaken > maxCells ? maxCells - 1 : nTaken;
-            const int cells = std::max(1, std::min(nTaken, maxCells));
-            const float gridH = (float)((cells + cols - 1) / cols) * cell;
-            toggleY = gridY + gridH + 12.0f * uiS * k;
-            toggleRuleY = toggleY + labH + 8.0f * uiS * k;
-            tableY0 = toggleRuleY + 12.0f * uiS * k;
-            rowH = labH + 6.0f * uiS * k;
-            const float bottom = tableY0 + (float)statRows * rowH + 14.0f * uiS * k +
-                                 labH * 1.3f + (float)kDescLines * (labH + 3.0f * uiS * k);
-            if (bottom <= sh - 24.0f || k <= 0.50f) break;
-            k -= 0.04f;
-        }
-
-        // The player's own look, with two slow orbit arcs behind it.
-        const float shellCx = panelX + panelW * 0.5f;
-        BindMainShader();
-        DrawSettingsOrbitArc(shellCx, shellCy, shellR, shellR,
-                             now * 0.35f, now * 0.35f + 3.6f,
-                             accentR, accentG, accentB, 1.4f * uiS, 0.35f * ge);
-        DrawSettingsOrbitArc(shellCx, shellCy, shellR * 1.16f, shellR * 1.16f,
-                             -now * 0.22f + 2.0f, -now * 0.22f + 4.6f,
-                             accentR, accentG, accentB, 1.0f * uiS, 0.22f * ge);
-        DrawPlayerWeaponShell(shellCx, shellCy, shellSize, now * 0.6f, now);
-        BatchFlush();
-
-        // Cards taken this run, as their family constellations in the
-        // rarity colour; hovering one explains it below the stats.
-        static const wchar_t* kTakenLabel[LANG_COUNT] = {
-            L"\uC5BB\uC740 \uC99D\uAC15", L"AUGMENTS TAKEN", L"\u7372\u5F97\u3057\u305F\u5F37\u5316" };
-        static const wchar_t* kNoneLabel[LANG_COUNT] = {
-            L"\uC5C6\uC74C", L"NONE", L"\u306A\u3057" };
-        lab.r->Draw(kTakenLabel[li], Snap(panelX), Snap(augLabY), lab.scale,
-                    accentR, accentG, accentB, 0.92f * ge);
-        LogoLine(panelX, augRuleY, panelX + panelW, augRuleY,
-                 1.0f, accentR, accentG, accentB, 0.24f * ge);
-        const bool canHoverCards = gof >= 0.9f && !skippedCinematic;
-        int hoverAug = -1;
-        if (nTaken == 0) {
-            lab.r->Draw(kNoneLabel[li], Snap(panelX), Snap(gridY + cell * 0.5f - labH * 0.5f),
-                        lab.scale, 0.64f, 0.76f, 0.88f, 0.70f * ge);
-        }
-        BindMainShader();
-        for (int i = 0; i < shown; ++i) {
-            const int idx = taken[i];
-            const AugDef& def = ALL_AUGS[idx];
-            const float ccx = panelX + ((float)(i % cols) + 0.5f) * cell;
-            const float ccy = gridY + ((float)(i / cols) + 0.5f) * cell;
-            const float dx = (float)mx - ccx, dy = (float)my - ccy;
-            const bool hov = canHoverCards && std::fabs(dx) <= cell * 0.5f && std::fabs(dy) <= cell * 0.5f;
-            if (hov) hoverAug = idx;
-            float rr, rg, rb;
-            GetRarityColor(def.rarity, rr, rg, rb);
-            rr = std::min(1.0f, rr * 1.3f + 0.15f);
-            rg = std::min(1.0f, rg * 1.3f + 0.15f);
-            rb = std::min(1.0f, rb * 1.3f + 0.15f);
-            const aug_card::Shape& shp =
-                aug_card::ShapeOf(aug_card::FamilyFromCode(def.name));
-            const float size = cell * (hov ? 0.78f : 0.70f);
-            const float a = (hov ? 1.0f : 0.82f) * ge;
-            auto P = [&](int v, float& x, float& y) {
-                x = ccx + (shp.x[v] - 0.5f) * size;
-                y = ccy + (shp.y[v] - 0.5f) * size;
-            };
-            for (int e = 0; e < shp.ne; ++e) {
-                float x0, y0, x1, y1;
-                P(shp.ea[e], x0, y0);
-                P(shp.eb[e], x1, y1);
-                LogoLine(x0, y0, x1, y1, (hov ? 1.6f : 1.2f) * uiS, rr, rg, rb, a);
-            }
-            for (int v = 0; v < shp.nv; ++v) {
-                float x, y;
-                P(v, x, y);
-                drawDiamond(x, y, 2.6f * uiS, rr, rg, rb, a);
-            }
-            // Actives get a small ring under the shape so they read apart.
-            if (AugIsActive(def))
-                DrawSettingsOrbitArc(ccx, ccy, cell * 0.46f, cell * 0.46f, 0.0f, 6.2832f,
-                                     rr, rg, rb, 1.0f * uiS, 0.45f * ge);
-        }
-        BatchFlush();
-        for (int i = 0; i < shown; ++i) {
-            const int n = passive::AcquiredCount(taken[i]);
-            if (n <= 1) continue;
-            wchar_t cb[16];
-            swprintf_s(cb, L"x%d", n);
-            const float ccx = panelX + ((float)(i % cols) + 0.5f) * cell;
-            const float ccy = gridY + ((float)(i / cols) + 0.5f) * cell;
-            const float cw = lab.r->Width(cb, lab.scale * 0.65f);
-            lab.r->Draw(cb, Snap(ccx + cell * 0.5f - cw), Snap(ccy + cell * 0.5f - labH * 0.65f),
-                        lab.scale * 0.65f, 1.0f, 1.0f, 1.0f, 0.95f * ge);
-        }
-        if (nTaken > shown) {
-            wchar_t more[16];
-            swprintf_s(more, L"+%d", nTaken - shown);
-            const float ccx = panelX + ((float)(shown % cols) + 0.5f) * cell;
-            const float ccy = gridY + ((float)(shown / cols) + 0.5f) * cell;
-            const float mw = lab.r->Width(more, lab.scale);
-            lab.r->Draw(more, Snap(ccx - mw * 0.5f), Snap(ccy - labH * 0.5f), lab.scale,
-                        0.64f, 0.76f, 0.88f, 0.90f * ge);
-        }
-
-        // Fold-out toggle: a label, a rule and a chevron.
-        const bool canHover = gof >= 0.9f && !skippedCinematic;
-        const bool toggleHover = canHover &&
-            mx >= panelX && mx <= panelX + panelW &&
-            my >= toggleY - 6.0f * uiS && my <= toggleRuleY + 6.0f * uiS;
-        if (toggleHover && lmb && !state.previousLeftMouseDown)
-            s_statsOpen = !s_statsOpen;
-        const float target = s_statsOpen ? 1.0f : 0.0f;
-        s_statsT += (target - s_statsT) * (1.0f - std::exp(-delta * 10.0f));
-        if (fabsf(target - s_statsT) < 0.002f) s_statsT = target;
-        const float openE = Smoothstep(s_statsT);
-        const float tA = (toggleHover ? 1.0f : 0.82f) * ge;
-        lab.r->Draw(kBuildStatsLabel[li], Snap(panelX), Snap(toggleY), lab.scale,
-                    accentR, accentG, accentB, tA);
-        const float chevX = panelX + panelW - 12.0f * uiS;
-        const float chevY = toggleY + labH * 0.5f;
-        const float arm = 7.0f * uiS;
-        const float dir = 1.0f - 2.0f * openE;   // 1 = pointing down, -1 = up
-        BindMainShader();
-        LogoLine(chevX - arm, chevY - arm * 0.5f * dir, chevX, chevY + arm * 0.5f * dir,
-                 1.5f * uiS, accentR, accentG, accentB, tA);
-        LogoLine(chevX + arm, chevY - arm * 0.5f * dir, chevX, chevY + arm * 0.5f * dir,
-                 1.5f * uiS, accentR, accentG, accentB, tA);
-        LogoLine(panelX, toggleRuleY, panelX + panelW, toggleRuleY,
-                 1.0f, accentR, accentG, accentB, (toggleHover ? 0.40f : 0.24f) * ge);
-
-        // Stat rows: total (white) = base (white) + trial (yellow). Every part sits in its own left-aligned column so the
-        // rows line up under each other.
-        if (openE > 0.01f) {
-            const float tableY = tableY0 + (1.0f - openE) * -10.0f * uiS;
-            const float a = openE * ge;
-            const float wr = 0.95f, wg = 0.97f, wb = 1.0f;       // total, base
-            const float yr = 1.0f, yg = 0.84f, yb = 0.30f;       // trial
-            const float dr = 0.55f, dg = 0.65f, db = 0.78f;      // operators
-            TextPick rp = lab;
-            // A value in one colour, its % sign included.
-            auto drawValueText = [&](const wchar_t* s, float x, float y,
-                                     float cr, float cg, float cb, float al) {
-                rp.r->Draw(s, Snap(x), Snap(y), rp.scale, cr, cg, cb, al);
-            };            float opW = 0.0f, eqW = 0.0f;
-            float labelColW = 0.0f, totalColW = 0.0f, baseColW = 0.0f;
-            // Parts follow the base one after another with the same gap between
-            // any two, positives first and nerfs last, whatever kind they are.
-            float xPart0 = 0.0f;
-            const float partGap = 12.0f * uiS;
-            float xTotal = 0.0f, xEq = 0.0f, xBase = 0.0f;
-            const float opGap = 5.0f * uiS;
-            auto partUsed = [&](int m, float v) { return fabsf(v) >= MetricEps(m); };
-            // The row's parts in display order: run gains, then the trial cut.
-            auto rowParts = [&](const StatRow& row, int m, float* vals) {
-                int n = 0;
-                if (partUsed(m, row.run))   vals[n++] = row.run;
-                if (partUsed(m, row.trial)) vals[n++] = row.trial;
-                return n;
-            };
-            auto partWidth = [&](int m, float v) {
-                wchar_t pb[32];
-                FormatMetric(pb, m, fabsf(v));
-                return opW + opGap + rp.r->Width(pb, rp.scale);
-            };
-            auto drawPart = [&](int m, float v, float x, float y, float cr, float cg, float cb) {
-                if (!partUsed(m, v)) return;
-                // A nerf (a negative part) has a red value, whichever part it is;
-                // the + and - signs share the operator colour.
-                const bool nerf = v < 0.0f;
-                const wchar_t opText[2] = { nerf ? L'-' : L'+', 0 };
-                if (nerf) { cr = 1.0f; cg = 0.36f; cb = 0.38f; }
-                rp.r->Draw(opText, Snap(x), Snap(y), rp.scale, dr, dg, db, 0.9f * a);
-                wchar_t pb[32];
-                FormatMetric(pb, m, fabsf(v));
-                drawValueText(pb, x + opW + opGap, y, cr, cg, cb, 0.95f * a);
-            };
-            // Shrink the text a little until the widest row fits the panel.
-            float rowFit = 1.0f;
-            for (int pass = 0; pass < 10; ++pass) {
-                rp = PickText(state.text, 26.0f * uiS * rowFit);
-                opW = std::max(rp.r->Width(L"+", rp.scale), rp.r->Width(L"-", rp.scale));
-                eqW = rp.r->Width(L"=", rp.scale);
-                labelColW = totalColW = baseColW = 0.0f;
-                for (int m = 0; m < kMetricCount; ++m) {
-                    if (!statRowShown[m]) continue;
-                    const StatRow& row = s_rows[m];
-                    labelColW = std::max(labelColW, rp.r->Width(kMetricLabel[li][m], rp.scale));
-                    wchar_t fb[32];
-                    FormatMetric(fb, m, row.total);
-                    totalColW = std::max(totalColW, rp.r->Width(fb, rp.scale));
-                    FormatMetric(fb, m, row.base);
-                    baseColW = std::max(baseColW, rp.r->Width(fb, rp.scale));
-                }
-                xTotal = panelX + labelColW + 14.0f * uiS;
-                xEq = xTotal + totalColW + 10.0f * uiS;
-                xBase = xEq + eqW + 8.0f * uiS;
-                xPart0 = xBase + baseColW + 12.0f * uiS;
-                float partsEnd = xBase + baseColW;
-                for (int m = 0; m < kMetricCount; ++m) {
-                    if (!statRowShown[m]) continue;
-                    float pv[2];
-                    const int pn = rowParts(s_rows[m], m, pv);
-                    float ex = xPart0;
-                    for (int i = 0; i < pn; ++i) ex += partWidth(m, pv[i]) + partGap;
-                    if (pn > 0) partsEnd = std::max(partsEnd, ex - partGap);
-                }
-                if (partsEnd - panelX <= panelW || rowFit <= 0.62f) break;
-                rowFit -= 0.05f;
-            }
-            int shownRows = 0;
-            for (int m = 0; m < kMetricCount; ++m) {
-                if (!statRowShown[m]) continue;
-                const StatRow& row = s_rows[m];
-                const float y = tableY + (float)shownRows * rowH;
-                ++shownRows;
-                rp.r->Draw(kMetricLabel[li][m], Snap(panelX), Snap(y), rp.scale,
-                           0.64f, 0.76f, 0.88f, 0.88f * a);
-                wchar_t fb[32];
-                FormatMetric(fb, m, row.total);
-                drawValueText(fb, xTotal, y, wr, wg, wb, 0.98f * a);
-                rp.r->Draw(L"=", Snap(xEq), Snap(y), rp.scale, dr, dg, db, 0.9f * a);
-                FormatMetric(fb, m, row.base);
-                drawValueText(fb, xBase, y, wr, wg, wb, 0.95f * a);
-                float pv[2];
-                const int pn = rowParts(row, m, pv);
-                float px = xPart0;
-                for (int i = 0; i < pn; ++i) {
-                    drawPart(m, pv[i], px, y, yr, yg, yb);
-                    px += partWidth(m, pv[i]) + partGap;
-                }
-            }
-        }
-        // Hovering a card explains it right below the stats.
-        const float descY = tableY0 + Smoothstep(s_statsT) * (float)statRows * rowH +
-                            14.0f * uiS * k;
-        if (hoverAug >= 0) s_descAug = hoverAug;
-        s_descT += ((hoverAug >= 0 ? 1.0f : 0.0f) - s_descT) * std::min(1.0f, delta * 12.0f);
-        if (s_descAug >= 0 && s_descT > 0.01f) {
-            const AugDef& def = ALL_AUGS[s_descAug];
-            float rr, rg, rb;
-            GetRarityColor(def.rarity, rr, rg, rb);
-            const float a = s_descT * ge;
-            LogoLine(panelX, descY - 8.0f * uiS * k, panelX + panelW, descY - 8.0f * uiS * k,
-                     1.0f, rr, rg, rb, 0.45f * a);
-            lab.r->Draw(def.locName[li], Snap(panelX), Snap(descY), lab.scale,
-                        0.45f + 0.55f * rr, 0.45f + 0.55f * rg, 0.45f + 0.55f * rb, 0.98f * a);
-            wchar_t lines[kDescLines][kWrapChars];
-            const int n = WrapLines(*lab.r, lab.scale, def.locDesc[li], panelW, lines, kDescLines);
-            float ly = descY + labH * 1.3f;
-            for (int l = 0; l < n; ++l) {
-                lab.r->Draw(lines[l], Snap(panelX), Snap(ly), lab.scale,
-                            0.82f, 0.88f, 0.96f, 0.92f * a);
-                ly += labH + 3.0f * uiS * k;
-            }
-        }
+        static run_build::PanelState s_panel;
+        if (gof < 0.05f) s_panel.Reset();
+        run_build::PanelIn pin;
+        pin.text = &state.text;
+        pin.panelX = panelX; pin.panelW = panelW; pin.top = top;
+        pin.bottomLimit = sh - 24.0f;
+        pin.uiS = uiS; pin.alpha = ge; pin.delta = delta; pin.now = now;
+        pin.mx = mx; pin.my = my;
+        pin.click = lmb && !state.previousLeftMouseDown;
+        pin.canHover = gof >= 0.9f && !skippedCinematic;
+        pin.accentR = accentR; pin.accentG = accentG; pin.accentB = accentB;
+        pin.labH = labH;
+        run_build::DrawPanel(s_panel, pin);
     }
 
     // ---- Commands ----------------------------------------------------------
@@ -759,24 +427,70 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         drawDiamond(ancX + 0.6f, ancY + ancH - 4.0f, 2.8f,
                     accentR, accentG, accentB, 0.16f * ge);
     }
+    // Shop guide (first stardust): MAIN MENU leads to the shop, so it gets the
+    // gold brackets and a line; RESTART and EXIT are faint and locked.
+    static float s_goGuideT = 0.0f;
+    static int s_guideAskGO = -1;   // RESTART/EXIT pressed during the guide: ask to end it
+    if (gof < 0.05f) { s_goGuideT = 0.0f; s_guideAskGO = -1; }
+    if (dustIntro && showButtons) s_goGuideT += delta;
+    const float guideA = dustIntro ? Smoothstep(std::clamp((s_goGuideT - 0.6f) / 0.45f, 0.0f, 1.0f)) : 0.0f;
+    static float s_goDim = 0.0f;
+    s_goDim = UiApproach(s_goDim, dustIntro && showButtons ? 1.0f : 0.0f, delta, 6.0f);
     for (int i = 0; i < kGameOverActionCount; ++i) {
         const float by = bY0 + (float)i * (BH + BGAP);
-        const bool hov = showButtons && s_confirmGO < 0 &&
+        const bool isMenu = static_cast<GameOverAction>(i) == GameOverAction::ReturnToMenu;
+        const bool guideLock = dustIntro && !isMenu;
+        const bool hov = showButtons && s_confirmGO < 0 && s_guideAskGO < 0 &&
             mx >= bX0 - 26.0f && mx <= bX0 + BW + 32.0f &&
             my >= by && my <= by + BH;
         s_hovGO[i] = UpdateMenuCommandHover(s_hovGO[i], hov, delta);
-        const float rowA = (showButtons ? 1.0f : 0.0f) * ge;
+        const float rowA = (showButtons ? 1.0f : 0.0f) * ge * (guideLock ? 1.0f - 0.70f * s_goDim : 1.0f);
+        float hovT = s_hovGO[i];
+        if (isMenu && dustIntro)   // MAIN MENU breathes at a light hover
+            hovT = std::max(hovT, (0.30f + 0.22f * (0.5f + 0.5f * sinf(now * 3.2f))) * guideA);
         const wchar_t* routeVariants[LANG_COUNT] = {};
         for (int language = 0; language < LANG_COUNT; ++language)
             routeVariants[language] = kRoute[language][i];
         DrawUnifiedMenuCommand(kRoute[li][i],
-                               bX0 - 10.0f * s_hovGO[i], by, BW, BH,
+                               bX0 - 10.0f * hovT, by, BW, BH,
                                accentR, accentG, accentB, rowA,
-                               s_hovGO[i], false, 0.0f,
+                               hovT, false, 0.0f,
                                now + (float)i * 0.17f,
                                uiS, false, true, false,
                                routeVariants, LANG_COUNT);
-        if (hov && lmb && !state.previousLeftMouseDown) {
+        if (isMenu && guideA > 0.001f) {
+            // Gold corner brackets (the shop guide's mark) and the pointer line.
+            static const wchar_t* kGoHint[LANG_COUNT] = {
+                L"메인 메뉴로 나가 상점을 열어 보세요",
+                L"Go to MAIN MENU and open the SHOP",
+                L"メインメニューに戻ってショップを開いてみよう"
+            };
+            const float ga = (0.70f + 0.30f * (0.5f + 0.5f * sinf(now * 3.0f))) * guideA * ge;
+            const float grow = (1.0f - guideA) * 14.0f * uiS;
+            const float rx = bX0 - 22.0f * uiS - grow, ry = by - 8.0f * uiS - grow;
+            const float rw = BW + 34.0f * uiS + grow * 2.0f, rh = BH + 16.0f * uiS + grow * 2.0f;
+            const float arm = std::min(28.0f * uiS, rh * 0.30f);
+            const float th = 1.8f * uiS;
+            BindMainShader();
+            for (int ix = 0; ix < 2; ++ix)
+                for (int iy = 0; iy < 2; ++iy) {
+                    const float cx0 = ix ? rx + rw : rx, cy0 = iy ? ry + rh : ry;
+                    const float sx = ix ? -1.0f : 1.0f, sy = iy ? -1.0f : 1.0f;
+                    LogoLine(cx0, cy0, cx0 + sx * arm, cy0, th * 3.2f, 1.0f, 0.84f, 0.34f, 0.14f * ga);
+                    LogoLine(cx0, cy0, cx0, cy0 + sy * arm, th * 3.2f, 1.0f, 0.84f, 0.34f, 0.14f * ga);
+                    LogoLine(cx0 - sx * th * 0.5f, cy0, cx0 + sx * arm, cy0, th, 1.0f, 0.86f, 0.40f, ga);
+                    LogoLine(cx0, cy0 - sy * th * 0.5f, cx0, cy0 + sy * arm, th, 1.0f, 0.86f, 0.40f, ga);
+                }
+            const float hy = by + BH * 0.5f;
+            const float hx = rx + rw + 22.0f * uiS;
+            drawDiamond(hx, hy, 5.0f * uiS, 1.0f, 0.86f, 0.40f, 0.90f * ga);
+            const float hh = hintT.r->Height(kGoHint[li], hintT.scale);
+            DrawShadowedText(*hintT.r, kGoHint[li], Snap(hx + 14.0f * uiS), Snap(hy - hh * 0.5f),
+                             hintT.scale, 1.0f, 0.88f, 0.48f, 0.95f * guideA * ge, 0.80f);
+        }
+        if (hov && lmb && !state.previousLeftMouseDown && guideLock) {
+            s_guideAskGO = i;   // ask to end the shop guide first
+        } else if (hov && lmb && !state.previousLeftMouseDown) {
             const GameOverAction action = static_cast<GameOverAction>(i);
             if (action == GameOverAction::ReturnToMenu)
                 ApplyGameOverAction(action, window, c, state);
@@ -785,6 +499,21 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
         }
     }
 
+    if (s_guideAskGO >= 0) {
+        const ConfirmChoice answer = DrawConfirmDialog(
+            true, ConfirmTextEndShopGuide(), sw, sh, mx, my, lmb, state.previousLeftMouseDown, delta);
+        if (answer != ConfirmChoice::None) {
+            const int pressed = s_guideAskGO;
+            s_guideAskGO = -1;
+            DrawConfirmDialog(false, ConfirmTextEndShopGuide(), sw, sh, mx, my, lmb,
+                              state.previousLeftMouseDown, delta);
+            if (answer == ConfirmChoice::Yes) {
+                g_ShopIntroStage = SHOP_INTRO_NONE;   // guide over; the button then asks as usual
+                SaveGame();
+                s_confirmGO = pressed;
+            }
+        }
+    }
     if (s_confirmGO >= 0) {
         const GameOverAction pending = static_cast<GameOverAction>(s_confirmGO);
         const ConfirmText& prompt = pending == GameOverAction::Quit

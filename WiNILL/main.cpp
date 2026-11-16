@@ -68,6 +68,7 @@
 #include "EntityDraw.h"
 #include "CaelumDraw.h"
 #include "StrikeFx.h"        // shared hit effects: blasts, bolts, falling stars, novas
+#include "LaserFx.h"         // the 레이저 frame card's beams
 #include "NormaFx.h"         // OCTANS's own seals and pane frames
 #include "CaelumFx.h"        // ERIDANUS's own torn crop-mark rings
 #include "WaveHud.h"
@@ -3235,9 +3236,17 @@ static void DrawGameplayCrosshair(float x, float y) {
     // A hollow cyan reticle. Each stroke carries only a thin keyline in a
     // dark shade of the same cyan, so it reads on bright wallpapers without
     // the black disc that used to sit behind the whole reticle.
-    const UiColor3 accent = UiCol::ACCENT_CYAN;
+    // Settings pick the colour (cyan, white, yellow, green, pink) and the size.
+    static const UiColor3 kColors[kCrosshairColorCount] = {
+        UiCol::ACCENT_CYAN, { 0.96f, 0.98f, 1.00f }, { 1.00f, 0.86f, 0.26f },
+        { 0.42f, 1.00f, 0.56f }, { 1.00f, 0.46f, 0.80f } };
+    const int ci = std::max(0, std::min(kCrosshairColorCount - 1, g_CrosshairColor));
+    const UiColor3 accent = kColors[ci];
+    const float s = CrosshairSizeScale();
     const float kr = accent.r * 0.22f, kg = accent.g * 0.22f, kb = accent.b * 0.22f;
     const float ka = 0.55f * CombatKeylineStrength() + 0.15f;
+    // TOGGLE mode: the centre dot is bright while the gun runs, dim while it rests.
+    const float dotA = (g_FireToggle && !g_FireLatched) ? 0.35f : 1.0f;
     auto ring = [&](float rOuter, float rInner, float r, float g, float b, float a) {
         constexpr int kSegs = 40;
         for (int i = 0; i < kSegs; ++i) {
@@ -3254,14 +3263,16 @@ static void DrawGameplayCrosshair(float x, float y) {
         drawRect(rx - 0.8f, ry - 0.8f, w + 1.6f, h + 1.6f, kr, kg, kb, ka);
         drawRect(rx, ry, w, h, accent.r, accent.g, accent.b, 0.96f);
     };
-    ring(9.3f, 6.0f, kr, kg, kb, ka);
-    ring(8.5f, 6.8f, accent.r, accent.g, accent.b, 0.92f);
-    drawCircle(x, y, 2.6f, kr, kg, kb, ka);
-    drawCircle(x, y, 1.8f, 0.96f, 0.99f, 1.0f, 1.0f);
-    tick(x - 15.0f, y - 1.0f, 6.0f, 2.0f);
-    tick(x + 9.0f, y - 1.0f, 6.0f, 2.0f);
-    tick(x - 1.0f, y - 15.0f, 2.0f, 6.0f);
-    tick(x - 1.0f, y + 9.0f, 2.0f, 6.0f);
+    // Ring radii and tick spans scale; stroke widths stay put so a big reticle stays thin.
+    ring(8.5f * s + 0.8f, 6.8f * s - 0.8f, kr, kg, kb, ka);
+    ring(8.5f * s, 6.8f * s, accent.r, accent.g, accent.b, 0.92f);
+    drawCircle(x, y, 2.6f, kr, kg, kb, ka * dotA);
+    drawCircle(x, y, 1.8f, 0.96f, 0.99f, 1.0f, dotA);
+    const float t0 = 9.0f * s, tl = 6.0f * s;
+    tick(x - t0 - tl, y - 1.0f, tl, 2.0f);
+    tick(x + t0, y - 1.0f, tl, 2.0f);
+    tick(x - 1.0f, y - t0 - tl, 2.0f, tl);
+    tick(x - 1.0f, y + t0, 2.0f, tl);
 }
 
 void SyncPlayerBoundsSize(SpatialBounds& pw, float delta, bool animate) {
@@ -3401,6 +3412,7 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
     norma_fx::Clear();
     caelum_fx::Clear();
     strike_fx::Clear();
+    laser_fx::Clear();
     g_GameManager.currentState = GameState::GAMEOVER;
 }
 
@@ -3493,7 +3505,7 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
                        gm.currentWave, seconds, quotaMet ? "quota" : "objective", gm.waveKills, quota,
                        (int)earned, gm.rewardTier, gm.rewardTierCap, gm.rewardSpeed, gm.playerHP);
         gm.QueueAugmentReward();
-        passive::OnWaveCleared();
+        passive::OnWaveCleared(IsSpecialWave(gm.currentWave, g_Difficulty));
         Audio::Play(Audio::Cue::WaveClear);
         // Wave clear: every drop left on the map flies to the player.
         g_StardustCollectAll = true;
@@ -3678,6 +3690,11 @@ static void UpdateBgmFlow(float realDelta) {
         Audio::StartLoop(Audio::Cue::SfxLowhpLoop);
     else
         Audio::StopLoop(Audio::Cue::SfxLowhpLoop);
+    // 레이저: hums while the beam stands in a running fight (quiet when paused or picking cards).
+    if (gm.currentState == GameState::RUNNING && laser_fx::g_Main.on)
+        Audio::StartLoop(Audio::Cue::LaserLoop);
+    else
+        Audio::StopLoop(Audio::Cue::LaserLoop);
     // 런 밖(사망·결과·메뉴)에서는 남은 루프 효과음을 모두 끔
     if (gm.currentState != GameState::RUNNING && gm.currentState != GameState::PAUSED &&
         gm.currentState != GameState::AUG_SELECT) {
@@ -3833,7 +3850,21 @@ static void DrawAchievementToast(float sw, float sh, float delta) {
         const float toastScale = UiTextScale(g_TextS, UiTextLevel::Description,
                                              UiScale(sw, sh));
         float bw = g_TextS.Width(tb, toastScale) + 48.0f;
-        float bx0 = (sw - bw) * 0.5f, by0 = sh * 0.10f;
+        // The combo counter sits at the top centre too (sh * 0.115). While it is
+        // up, the toast drops below its largest size (pulse + milestone) so
+        // neither hides the other; it glides there instead of jumping.
+        const bool comboUp = g_ShowCombo && g_Combo >= 5 &&
+                             g_GameManager.currentState == GameState::RUNNING;
+        float wantY = sh * 0.10f;
+        if (comboUp) {
+            const float comboMaxSc = UiTextScale(g_TextS, UiTextLevel::Subtitle,
+                                                 1.95f * 1.12f * UiScale(sw, sh));
+            wantY = sh * 0.115f + g_TextS.Height(L"0 COMBO", comboMaxSc) + 14.0f;
+        }
+        static float s_toastY = -1.0f;
+        if (s_toastY < 0.0f || g_AchToastTimer > 3.9f) s_toastY = wantY;
+        else s_toastY += (wantY - s_toastY) * (1.0f - std::exp(-delta * 10.0f));
+        float bx0 = (sw - bw) * 0.5f, by0 = s_toastY;
         BindMainShader();
         drawRect(bx0, by0, bw, 52.0f, 0.12f, 0.10f, 0.02f, 0.85f * a);
         drawRect(bx0, by0, bw, 4.0f, 1.0f, 0.85f, 0.25f, 0.95f * a);
@@ -4002,7 +4033,6 @@ int main() {
         SaveGame();
     }
 #endif
-    ApplyAccentTheme();   // �����?�׼�Ʈ �׸� �� g_Accent* �ݿ�
 
     if (!glfwInit()) return -1;
     // Sleep ?�상??1ms �?(FPS �??��??�용). Windows �??��? ?�음
@@ -4668,6 +4698,7 @@ int main() {
             ResetJuice();
             norma_fx::Clear();
             strike_fx::Clear();
+            laser_fx::Clear();
             caelum_fx::Clear();
             ResetPlayerSkills();   // dash and shield runtime
             passive::Reset();
@@ -4769,6 +4800,7 @@ int main() {
             ResetJuice();
             norma_fx::Clear();
             strike_fx::Clear();
+            laser_fx::Clear();
             caelum_fx::Clear();
 
             g_GameManager.playerHP = 0.0f;
@@ -4819,6 +4851,12 @@ int main() {
                         if (g_KeyCaptureActive) g_CapturedKey = std::atoi(step.c_str() + 11);
                     } else if (step == "TUTDONE") {
                         g_TutorialDone = true;   // unlock the lobby for captures (not saved in smoke)
+                    } else if (step.rfind("SHOPINTRO=", 0) == 0) {
+                        // First-stardust shop guide at a stage (1 result, 2 lobby, 3 tour).
+                        g_ShopUnlocked = true;
+                        g_ShopIntroStage = std::atoi(step.c_str() + 10);
+                    } else if (step.rfind("RUNDUST=", 0) == 0) {
+                        g_RunStardust = std::atoll(step.c_str() + 8);   // this play's stardust
                     } else if (step.rfind("COINS=", 0) == 0) {
                         g_Coins = std::atoll(step.c_str() + 6);   // stardust for shop captures
                     } else if (step == "TUTVANISH") {
@@ -4842,6 +4880,11 @@ int main() {
                         ready_launch::g_TutorialMode = true;
                         ready_launch::BeginTutorial();
                         Ready_SmokeCompleteSteps(std::atoi(step.c_str() + 8));
+                    } else if (step == "TUTGUIDE=hp" || step == "TUTGUIDE=xp") {
+                        // The tutorial's HUD guide card, settled (after TUTSTEP=0).
+                        const bool xp = step == "TUTGUIDE=xp";
+                        ready_launch::g_HudGuide = xp ? ready_launch::HudGuide::Xp : ready_launch::HudGuide::Hp;
+                        ready_launch::g_HudGuideT = xp ? 1.7f : ready_launch::kHudGuideDelay + 1.3f;
                     } else if (step.rfind("READYSTEP=", 0) == 0) {
                         // READY with the first N practice objectives done.
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
@@ -6053,6 +6096,13 @@ int main() {
                 playerWin.x = pCX - playerWin.width * 0.5f;
                 playerWin.y = pCY - playerWin.height * 0.5f;
 
+                {   // 레이저: new laser shots become still beam segments (the arena = what the zoomed-out view shows)
+                    const float lz = std::max(g_ViewZoom, 0.01f);
+                    const float exX = (float)screenWidth * 0.5f * (1.0f / lz - 1.0f);
+                    const float exY = (float)screenHeight * 0.5f * (1.0f / lz - 1.0f);
+                    laser_fx::Step(g_Bullets, FIXED_DT,
+                                   { -exX, (float)screenWidth + exX, -exY, (float)screenHeight + exY });
+                }
                 UpdateProjectiles(g_Bullets, g_MonsterManager, playerWin,
                                   FIXED_DT, (float)screenWidth, (float)screenHeight,
                                   g_ViewZoom);
@@ -6467,7 +6517,7 @@ CollisionSystem::Update(pCX, pCY,
                     const float dx = pCX - dust.x, dy = pCY - dust.y;
                     const float dist = sqrtf(dx * dx + dy * dy);
                     if (!dust.homing &&
-                        (g_StardustCollectAll || dist <= kStardustCollectRadius))
+                        (g_StardustCollectAll || dist <= kStardustCollectRadius * MetaStardustPullMult()))
                         dust.homing = true;
                     if (dust.homing) {
                         dust.homeTime += delta;
@@ -6502,8 +6552,7 @@ CollisionSystem::Update(pCX, pCY,
                         AddSaveValue(g_Coins, dust.value);
                         AddSaveValue(g_RunStardust, dust.value);
                         // The first stardust ever picked up opens the lobby shop.
-                        if (!g_ShopUnlocked) Audio::Play(Audio::Cue::ShopUnlock);
-                        g_ShopUnlocked = true;
+                        UnlockShop();
                     }
                     g_StardustHudPulse = 1.0f;
                     SpawnSparks(dust.x, dust.y, dust.value >= 5 ? 6 : 3,
@@ -6592,13 +6641,40 @@ CollisionSystem::Update(pCX, pCY,
                 gamelog::Shot();
             };
 
+            // TOGGLE: a fresh click flips firing; clicks during the post-pick grace don't count.
+            const bool fireInput = g_SmokeFire
+                ? lmb
+                : ResolveFireInput(lmb, g_LmbPrev, g_PlayerRuntime.postPickGrace <= 0.0f);
             auto aimTarget = [&](float& tx, float& ty) -> bool {
-                if (lmb && !g_SmokeFire) { tx = wmx; ty = wmy; return true; }
+                if (fireInput && !g_SmokeFire) { tx = wmx; ty = wmy; return true; }
                 return g_MonsterManager.FindNearestEnemy(pCX, pCY, tx, ty);
             };
 
-            bool fireHeld = lmb && (g_PlayerRuntime.postPickGrace <= 0.0f);
-            if (fireHeld && fireTimer >= effInterval) {
+            bool fireHeld = fireInput && (g_PlayerRuntime.postPickGrace <= 0.0f);
+            if (syn::LaserFrame()) {
+                // 레이저: hold to charge, then the beam stands and ticks at the gun's interval.
+                float tx = 0.0f, ty = 0.0f;
+                const bool aimed = fireHeld && aimTarget(tx, ty);
+                if (laser_fx::Hold(aimed, pCX, pCY, tx, ty, delta, syn::LaserTier()) &&
+                    fireTimer >= effInterval) {
+                    // A tick of the standing beam: no gun shot sound or kick (the beam hums, LaserLoop).
+                    laser_fx::BeginTick();
+                    spawnOne(tx, ty);
+                    passive::OnShot();
+                    gamelog::Shot();
+                    fireTimer = 0.0f;
+                }
+                laser_fx::Main& lm = laser_fx::g_Main;
+                if (lm.evCharge) Audio::Play(Audio::Cue::LaserCharge);
+                if (lm.evOpen) { Audio::Play(Audio::Cue::LaserOpen); TriggerShotKick(); }
+                lm.evCharge = lm.evOpen = false;
+                // 과부하 레이저: letting go releases the heat as one thick beam.
+                if (const float heat = laser_fx::FireRelease(g_Bullets); heat > 0.0f) {
+                    Audio::Play(Audio::Cue::LaserRelease);
+                    Shake(0.16f + 0.14f * heat, 3.0f + 7.0f * heat);
+                    TriggerShotKick();
+                }
+            } else if (fireHeld && fireTimer >= effInterval) {
                 float tx, ty;
                 if (aimTarget(tx, ty)) {
                     spawnAimed(tx, ty);
@@ -6810,6 +6886,7 @@ CollisionSystem::Update(pCX, pCY,
         }
         g_BatchAlpha = spaceBaseAlpha;
         caelum_draw::DrawOverlay(g_GameTime);
+        DrawPlayerLasers();
         DrawBulletHalos(g_Bullets);
         for (auto& b : g_Bullets) {
             if (b.active) drawBullet(b);
@@ -7212,6 +7289,9 @@ CollisionSystem::Update(pCX, pCY,
                                   g_GameManager.currentState);
 
         const GameState crosshairState = g_GameManager.currentState;
+        // A toggled burst ends with combat: pause, card picks, death and menus all stop it.
+        if (crosshairState != GameState::RUNNING && crosshairState != GameState::READY)
+            g_FireLatched = false;
         if (g_ShowCrosshair && !g_DebugToolkit.IsVisible() &&
             (crosshairState == GameState::RUNNING ||
              crosshairState == GameState::DYING) &&

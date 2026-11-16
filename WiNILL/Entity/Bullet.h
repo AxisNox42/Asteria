@@ -14,6 +14,10 @@ inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover 
     // a mythic echo of an earlier volley, a mythic halo orbiter.
     FrameSniper = 1u << 18, FrameCrossbow = 1u << 19, FrameWave = 1u << 20,
     Echo = 1u << 21, Halo = 1u << 22,
+    // 레이저 (LaserFx.h): a laser shot, and the still segment of a beam it turns into
+    // (lies from prev to x, hits what is on it, does not move).
+    FrameLaser = 1u << 23, Hitscan = 1u << 24,
+    LaserBlast = 1u << 25,   // 과부하 레이저's released beam: wider than the shot size cap
     CritEchoShot = 1u << 26, // 치명 반응's extra shot: its own crits set off no further echo
     Grazed = 1u << 27;       // an enemy shot already counted by 스침 (T_GRAZE); Bullet::grazed is Graze Recovery's
 }
@@ -89,8 +93,9 @@ public:
     int   synBounces = 0;              // arena-edge bounces so far
     int   synRicochet = 0;             // enemy-to-enemy bounces left
     int   synPierced = 0;              // enemies passed so far
+    int   hitscanLeft = 0;             // Hitscan: steps it keeps hitting (one enemy per step)
     // Targets a piercing shot already hit, so it hits each one once.
-    static constexpr int kHitMemory = 8;
+    static constexpr int kHitMemory = 24;   // a laser release hits up to 23 enemies once each
     const void* recentHits[kHitMemory] = {};
     int recentHitNext = 0;
     bool HasHit(const void* target) const {
@@ -155,6 +160,10 @@ public:
     }
 
     void Update(float dt) {
+        if (synFlags & synf::Hitscan) {   // a beam segment stays where it lies
+            if (--hitscanLeft <= 0) active = false;
+            return;
+        }
         prevX = x;  prevY = y;          // 이동 전 위치 저장 (스윕 판정)
         if (launchAccel > 0.0f && launchRamp < 1.0f) {   // SAM 미사일식 발사 가속
             launchRamp += launchAccel * dt;
@@ -174,7 +183,9 @@ public:
 inline constexpr float kPlayerBulletMaxSizeScale = 4.0f;
 
 inline void ClampPlayerBulletSize(Bullet& bullet) {
-    if (bullet.isEnemy || bullet.skillShot) return;
+    // Laser shots and beams have their own cap (LaserFx.h kMaxLaserScale): the tiers widen them past this one.
+    if (bullet.isEnemy || bullet.skillShot ||
+        (bullet.synFlags & (synf::LaserBlast | synf::FrameLaser | synf::Hitscan))) return;
     if (bullet.sizeScale > kPlayerBulletMaxSizeScale) bullet.sizeScale = kPlayerBulletMaxSizeScale;
 }
 

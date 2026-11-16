@@ -45,7 +45,8 @@ try {
         g_AudioEngineEnabled='audioenabled'; g_AutoSkill='autoskill'
         g_ShowCrosshair='crosshair'; g_DebugMode='debugmode'; g_Language='lang'
         g_BgmVol='bgmvol'; g_SfxVol='sfxvol'; g_KeyBinds='keybind'
-        g_PanePhotos='panephotos'; g_MenuDim='menudim' }
+        g_PanePhotos='panephotos'; g_MenuDim='menudim'
+        g_FireToggle='firetoggle'; g_CrosshairSize='xhairsize'; g_CrosshairColor='xhaircolor' }
     $save = Get-Content 'WiNILL\System\SaveSystem.h' -Raw
     foreach ($g in $captured) {
         $key = $saveKey[$g]

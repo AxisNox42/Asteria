@@ -215,8 +215,8 @@ void CastChainLightning() {
         if (!target) break;
         visited.push_back(target);
         Audio::Play(Audio::Cue::SfxChainZap);
-        if (ranged) HitOne(*(RangedMob*)target, 350.0f);
-        else        HitOne(*(Monster*)target, 350.0f);
+        if (ranged) HitOne(*(RangedMob*)target, 350.0f * passive::MultiHitMult());
+        else        HitOne(*(Monster*)target, 350.0f * passive::MultiHitMult());
         pts.push_back(tx); pts.push_back(ty);
         fromX = tx; fromY = ty;
         reach = 320.0f;
@@ -408,7 +408,7 @@ void Cast(int aug) {
     case AugType::A_SHADOW_SHARD_VOLLEY:
         for (int i = 0; i < 8; ++i) {
             const float a = kTwoPi * (float)i / 8.0f;
-            g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 300.0f,
+            g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 300.0f * passive::MultiHitMult(),
                                           TAG_KNIFE, 950.0f, { 0.60f, 0.50f, 0.95f }));
         }
         Audio::Play(Audio::Cue::SkillProjMulti);
@@ -421,7 +421,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_STONE_GRAVITY_SLAM:
-        passive::DamageRadius(px, py, Rings(5), 1000.0f, 0.85f, 0.70f, 0.50f, extra, strike_fx::BlastStyle::Gravity);
+        passive::DamageRadius(px, py, Rings(5), 800.0f, 0.85f, 0.70f, 0.50f, extra, strike_fx::BlastStyle::Gravity);
         passive::ClearEnemyBullets(px, py, Rings(5));
         Audio::Play(Audio::Cue::SkillSlam);
         break;
@@ -480,14 +480,14 @@ void Cast(int aug) {
     }
     case AugType::A_LUCK_DICE_OF_FATE: CastBookOfCheats(); break;
     case AugType::A_LIFE_STARLIGHT_MEND:
-        g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 12.0f);
+        g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 20.0f);
         passive::ClearEnemyBullets(px, py, Rings(3));
         Audio::Play(Audio::Cue::SfxHealBig);
         // The cleared reach rings out; the heal gathers into the ship.
         strike_fx::Implode(px, py, 90.0f, { 0.70f, 1.0f, 0.75f }, 0.10f, 0.30f);
         break;
     case AugType::A_ABYSS_TIDAL_SURGE:
-        passive::DamageRadius(px, py, Rings(5), 600.0f, 0.30f, 0.60f, 1.0f, extra, strike_fx::BlastStyle::Gravity);
+        passive::DamageRadius(px, py, Rings(5), 1000.0f, 0.30f, 0.60f, 1.0f, extra, strike_fx::BlastStyle::Gravity);
         Audio::Play(Audio::Cue::SkillWave);
         break;
     case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
@@ -511,10 +511,10 @@ void Cast(int aug) {
         Audio::StartLoop(Audio::Cue::SkillChargeLoop);
         break;
     case AugType::A_HERESY_LIFE_BURN_BLAST: {
-        const float spent = g_GameManager.playerHP * 0.30f;
+        const float spent = g_GameManager.playerHP * 0.25f;
         g_GameManager.playerHP -= spent;
         Audio::Play(Audio::Cue::SkillHpCost);
-        passive::DamageAll(70.0f * spent, 0.85f, 0.20f, 0.30f, false, extra, passive::ScreenFx::Nova);
+        passive::DamageAll(110.0f * spent, 0.85f, 0.20f, 0.30f, false, extra, passive::ScreenFx::Nova);
         Audio::Play(Audio::Cue::SkillScreenwide);
         break;
     }
@@ -572,7 +572,7 @@ void Cast(int aug) {
     case AugType::A_NOVA_STARLIGHT_SCATTER:
         for (int i = 0; i < 12; ++i) {
             const float a = kTwoPi * (float)i / 12.0f;
-            g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 150.0f,
+            g_Bullets.push_back(SkillShot(px, py, std::cos(a), std::sin(a), 150.0f * passive::MultiHitMult(),
                                           TAG_STAR, 850.0f, { 1.0f, 0.95f, 0.60f }));
         }
         Audio::Play(Audio::Cue::SkillProjMulti);
@@ -601,9 +601,9 @@ void AfterUse(int aug, int slot) {
     }
     if (Has(AugType::P_ABYSS_SINGULARITY_CASCADE) && cd >= 10.0f) {
         const int n = std::min(4, 1 + (int)((cd - 10.0f) / 10.0f));   // the card says "up to 4"
-        passive::DamageAll(200.0f, 0.55f, 0.35f, 0.95f, false, 1.0f, passive::ScreenFx::Nova);
+        passive::DamageAll(400.0f, 0.55f, 0.35f, 0.95f, false, 1.0f, passive::ScreenFx::Nova);
         for (int i = 1; i < n; ++i) {
-            passive::DamageAll(200.0f, 0.55f, 0.35f, 0.95f);
+            passive::DamageAll(400.0f, 0.55f, 0.35f, 0.95f);
             strike_fx::Nova(s.in.px, s.in.py, 1400.0f, { 0.55f, 0.35f, 0.95f }, 0.14f * (float)i);
         }
     }
@@ -701,7 +701,7 @@ void StepObjects(float dt) {
             }
             if (o.t >= o.life) {
                 Audio::StopLoop(Audio::Cue::SkillVortexLoop);
-                passive::DamageRadius(o.x, o.y, Rings(3.5f), 1000.0f + 50.0f * (float)o.count,
+                passive::DamageRadius(o.x, o.y, Rings(3.5f), 1500.0f + 50.0f * (float)o.count,
                                       0.55f, 0.35f, 0.95f, DamageMult(), strike_fx::BlastStyle::Gravity);
             }
             break;
@@ -726,14 +726,14 @@ void StepObjects(float dt) {
         case ObjKind::Turret:
             o.timer += dt;
             if (o.t >= o.life) Audio::Play(Audio::Cue::SkillSummonEnd);
-            if (o.timer >= 0.4f) {
+            if (o.timer >= 0.6f) {
                 float tx, ty;
                 if (g_MonsterManager.FindNearestEnemy(o.x, o.y, tx, ty)) {
                     o.timer = 0.0f;
                     float ex = tx - o.x, ey = ty - o.y;
                     const float d = std::max(0.001f, std::sqrt(ex * ex + ey * ey));
                     o.dirX = ex / d; o.dirY = ey / d;
-                    g_Bullets.push_back(SkillShot(o.x, o.y, ex / d, ey / d, 100.0f, TAG_TURRET,
+                    g_Bullets.push_back(SkillShot(o.x, o.y, ex / d, ey / d, 100.0f * passive::MultiHitMult(), TAG_TURRET,
                                                   1100.0f, { 0.60f, 0.95f, 0.80f }));
                     Audio::Play(Audio::Cue::SkillTurretShot);
                 }
@@ -769,9 +769,7 @@ void StepObjects(float dt) {
                 if ((x - hx) * (x - hx) + (y - hy) * (y - hy) > 36.0f * 36.0f) return;
                 if (std::find(o.hits.begin(), o.hits.end(), (const void*)&e) != o.hits.end()) return;
                 o.hits.push_back(&e);
-                float dmg = 300.0f;
-                if (Has(AugType::P_SHADOW_MULTI_HIT_AMP)) dmg *= 1.30f;
-                HitOne(e, dmg);
+                HitOne(e, 200.0f * passive::MultiHitMult());
                 passive::CountHit();
             });
             break;
@@ -867,11 +865,11 @@ void ReduceAllCooldowns(float seconds) {
     for (Slot& o : s.slots) o.cd = std::max(0.0f, o.cd - seconds);
 }
 
-void ResetLongestCooldown() {
+void HalveLongestCooldown() {
     Slot* longest = nullptr;
     for (Slot& o : s.slots)
         if (o.aug >= 0 && o.cd > 0.0f && (!longest || o.cd > longest->cd)) longest = &o;
-    if (longest) longest->cd = 0.0f;
+    if (longest) longest->cd *= 0.5f;
 }
 
 void RecordDamage(float dmg) { s.damage.push_back({ s.clock, dmg }); }
@@ -886,7 +884,7 @@ void OnPlayerBullet(const Bullet& shot) {
         Bullet b = shot;
         const float offX = o.x - s.in.px, offY = o.y - s.in.py;
         b.x += offX; b.y += offY; b.prevX = b.x; b.prevY = b.y;
-        b.dmgMult *= 0.5f * (Has(AugType::P_SHADOW_MULTI_HIT_AMP) ? 1.30f : 1.0f);
+        b.dmgMult *= passive::MultiHitMult();   // the clone's copy hits as hard as the ship's shot
         b.color = glm::vec3(0.60f, 0.50f, 0.95f);
         b.blastOnHit = false;
         g_Bullets.push_back(b);
@@ -909,7 +907,7 @@ void OnSkillBulletHit(const Bullet& bullet, float x, float y, bool killed) {
         if (killed) {
             for (int i = 0; i < 2; ++i) {
                 const float a = kTwoPi * passive::Rand01();
-                g_Bullets.push_back(SkillShot(x, y, std::cos(a), std::sin(a), 150.0f,
+                g_Bullets.push_back(SkillShot(x, y, std::cos(a), std::sin(a), 150.0f * passive::MultiHitMult(),
                                               TAG_STAR_CHILD, 850.0f, { 1.0f, 0.95f, 0.60f }));
             }
         }
@@ -963,7 +961,7 @@ void Step(const StepInput& in) {
             Audio::Play(Audio::Cue::SkillSnipe);
             float dx, dy;
             AimDir(dx, dy);
-            Bullet b = SkillShot(in.px, in.py, dx, dy, 1000.0f, TAG_SNIPE, 3200.0f,
+            Bullet b = SkillShot(in.px, in.py, dx, dy, 750.0f, TAG_SNIPE, 3200.0f,
                                  { 1.0f, 0.95f, 0.85f }, 1.4f);
             b.piercing = true;
             b.forceCrit = true;

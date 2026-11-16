@@ -27,6 +27,9 @@ struct SettingsSnapshot {
     KeyBindSet keyBinds = kDefaultKeyBinds;
     bool panePhotos = false;
     int menuDim = kMenuDimDefault;
+    bool fireToggle = false;
+    int crosshairSize = 1;
+    int crosshairColor = 0;
 };
 
 inline SettingsSnapshot CaptureSettingsSnapshot() {
@@ -36,7 +39,7 @@ inline SettingsSnapshot CaptureSettingsSnapshot() {
              g_AudioMonoOutput, g_AudioEngineEnabled,
              g_AutoSkill, g_ShowCrosshair, g_DebugMode,
              g_Language, g_BgmVol, g_SfxVol, g_KeyBinds, g_PanePhotos,
-             g_MenuDim };
+             g_MenuDim, g_FireToggle, g_CrosshairSize, g_CrosshairColor };
 }
 
 // Puts every snapshot value back and re-applies the audio device state.
@@ -68,6 +71,9 @@ inline void RestoreSettingsSnapshot(const SettingsSnapshot& saved) {
     g_KeyBinds = saved.keyBinds;
     g_PanePhotos = saved.panePhotos;
     g_MenuDim = saved.menuDim;
+    g_FireToggle = saved.fireToggle;
+    g_CrosshairSize = saved.crosshairSize;
+    g_CrosshairColor = saved.crosshairColor;
 }
 
 inline bool SettingsSnapshotChanged(const SettingsSnapshot& saved) {
@@ -89,5 +95,8 @@ inline bool SettingsSnapshotChanged(const SettingsSnapshot& saved) {
         || g_SfxVol != saved.sfxVol
         || g_KeyBinds != saved.keyBinds
         || g_PanePhotos != saved.panePhotos
-        || g_MenuDim != saved.menuDim;
+        || g_MenuDim != saved.menuDim
+        || g_FireToggle != saved.fireToggle
+        || g_CrosshairSize != saved.crosshairSize
+        || g_CrosshairColor != saved.crosshairColor;
 }

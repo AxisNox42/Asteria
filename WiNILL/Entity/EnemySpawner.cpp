@@ -163,6 +163,11 @@ static void TrackScheduledElite(const MonsterManager& monsters) {
         if (AntaresStanding(mob)) { g_EnemySpawnState.eliteMob = mob; return; }
 }
 
+// A mid-run boss (Nightmare wave 12) meets a player with about a Normal run's
+// end build, so it takes this share of the difficulty's boss HP (~1.1x the
+// Normal final boss) instead of the full final-boss value.
+static constexpr float kMidBossHpShare = 0.70f;
+
 // A boss enters once per boss wave, at its start, from above the middle of
 // the screen. A mid-run boss's fall ends its wave; only the final wave's
 // boss decides the run.
@@ -174,7 +179,8 @@ static void PlaceNormaBoss(MonsterManager& monsters, int screenWidth,
         for (Monster* mob : monsters.monsters)
             if (IsBossMob(mob->kind) && mob->alive) { mob->alive = false; mob->scored = true; passive_hooks::EnemyRemoved(mob); }
     Monster* boss = new Monster((float)screenWidth * 0.5f, -160.0f,
-                                hpMultiplier * BalanceFor((int)difficulty).bossHp);
+                                hpMultiplier * BalanceFor((int)difficulty).bossHp *
+                                (finalBoss ? 1.0f : kMidBossHpShare));
     boss->MakeKind(kind);
     if (kind == MobKind::CAELUM) caelum::SetDifficulty((int)difficulty);
     monsters.monsters.push_back(boss);

@@ -48,7 +48,7 @@ void RequestTeleport(float x, float y);   // a card moves the player (swap shot)
 
 float DamageMult();                   // active skill damage multiplier
 void ReduceAllCooldowns(float seconds);
-void ResetLongestCooldown();
+void HalveLongestCooldown();          // Quiet Orbit: halves the longest cooldown left
 
 // Events from the passive layer and the main loop.
 void RecordDamage(float dmg);         // Orbital Return

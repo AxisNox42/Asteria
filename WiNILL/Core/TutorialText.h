@@ -65,6 +65,35 @@ inline const wchar_t* kReadyRingNote[LANG_COUNT] = {
     L"= health ring radius (the unit for augment ranges)",
     L"= 体力リングの半径 (強化の範囲の単位)",
 };
+// After the XP line along the bottom of the practice field (same look as in a run).
+inline const wchar_t* kReadyXpNote[LANG_COUNT] = {
+    L"경험치 — 적을 처치하면 차고, 꽉 차면 레벨 업",
+    L"XP — fills with each kill; when full, you level up",
+    L"経験値 — 撃破で溜まり、満タンでレベルアップ",
+};
+// HUD guide cards shown when the tutorial opens (ready_launch::HudGuide order):
+// title, body. The footer names the key that moves on.
+inline constexpr int READY_HUD_GUIDE_COUNT = 2;
+inline const wchar_t* kReadyHudGuide[LANG_COUNT][READY_HUD_GUIDE_COUNT][2] = {
+    { { L"체력 링", L"함선 둘레의 파란 링이 체력이에요. 맞으면 줄어들고, 다 닳으면 판이 끝납니다." },
+      { L"경험치 줄", L"적을 처치하면 이 줄이 차요. 꽉 차면 레벨 업하고 능력치 카드를 고릅니다. 실전에선 화면 맨 아래에 있어요." } },
+    { { L"HEALTH RING", L"The blue ring around your ship is your health. Hits shrink it; when it runs out, the run ends." },
+      { L"XP LINE", L"Each kill fills this line. When it is full you level up and pick a stat card. In a run it sits along the bottom of the screen." } },
+    { { L"体力リング", L"艦の周りの青いリングが体力です。被弾で減り、尽きるとプレイ終了です。" },
+      { L"経験値ライン", L"敵を撃破するとこのラインが溜まります。満タンでレベルアップし能力値カードを選びます。実戦では画面のいちばん下にあります。" } },
+};
+inline const wchar_t* kReadyHudGuideNext[LANG_COUNT] = {
+    L"{START} · 클릭  다음", L"{START} · click  next", L"{START} · クリック  次へ",
+};
+inline const wchar_t* ReadyHudGuide(int card, int line) {
+    if (card < 0 || card >= READY_HUD_GUIDE_COUNT || line < 0 || line >= 2) return L"";
+    return kReadyHudGuide[LangIndexTutorial()][card][line];
+}
+inline const wchar_t* ReadyHudGuideNext() {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyHudGuideNext[LangIndexTutorial()], expanded);
+}
+
 inline constexpr int READY_OBJECTIVE_COUNT = 4;   // ready_practice::Objective order
 inline const wchar_t* kReadyObjective[LANG_COUNT][READY_OBJECTIVE_COUNT] = {
     { L"이동하기", L"사격하기", L"대시하기", L"스웜 처치" },
@@ -121,17 +150,17 @@ inline const wchar_t* kReadyStepHint[LANG_COUNT][READY_STEP_HINT_COUNT] = {
     { L"{MOVE} 키로 함선을 움직여 보세요",
       L"마우스로 조준하고, 왼쪽 버튼을 누르고 있으면 사격합니다",
       L"{DASH} 키로 대시 — 순간 무적과 함께 빠르게 피합니다",
-      L"스웜 4마리를 처치하세요 — 4번째 처치로 레벨 업하고 능력치 카드를 고릅니다",
+      L"스웜 4마리를 처치하세요 — 경험치 줄이 꽉 차면 레벨 업하고 능력치 카드를 고릅니다",
       L"준비 완료! {START} 키로 쉬움 난이도에 출격하세요" },
     { L"Move your ship with {MOVE}",
       L"Aim with the mouse — hold the left button to fire",
       L"Press {DASH} to dash — a quick dodge with brief invulnerability",
-      L"Defeat 4 Swarms — the fourth kill levels you up for a stat card",
+      L"Defeat 4 Swarms — a full XP line levels you up for a stat card",
       L"Ready! Press {START} to launch on Easy" },
     { L"{MOVE}で艦を動かしてみましょう",
       L"マウスで照準 — 左ボタン長押しで射撃",
       L"{DASH}でダッシュ — 一瞬の無敵で素早く回避",
-      L"スウォームを4体撃破 — 4体目でレベルアップし能力値カードを選びます",
+      L"スウォームを4体撃破 — 経験値ラインが満タンでレベルアップし能力値カードを選びます",
       L"準備完了！{START}でイージー出撃" },
 };
 // Step counter above the instruction ("STEP 2 / 4").
@@ -179,6 +208,7 @@ inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
 inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }
 inline const wchar_t* ReadyKills()     { return kReadyKills[LangIndexTutorial()]; }
 inline const wchar_t* ReadyRingNote()  { return kReadyRingNote[LangIndexTutorial()]; }
+inline const wchar_t* ReadyXpNote()    { return kReadyXpNote[LangIndexTutorial()]; }
 inline const wchar_t* ReadyAim()       { return kReadyAim[LangIndexTutorial()]; }
 inline const wchar_t* ReadyLaunchLocked() { return kReadyLaunchLocked[LangIndexTutorial()]; }
 inline const wchar_t* ReadyObjective(int i) {

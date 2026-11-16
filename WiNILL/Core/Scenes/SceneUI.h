@@ -91,6 +91,7 @@ struct ConfirmText {
 const ConfirmText& ConfirmTextQuit();
 const ConfirmText& ConfirmTextRestart();
 const ConfirmText& ConfirmTextAbandon();
+const ConfirmText& ConfirmTextEndShopGuide();
 ConfirmChoice DrawConfirmDialog(bool open, const ConfirmText& text,
                                 float sw, float sh, double mx, double my,
                                 bool lmb, bool lmbPrev, float dt);

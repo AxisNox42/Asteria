@@ -81,6 +81,9 @@ constexpr PlayRGB kPlayDifficultyColor[kPlayDifficultyCount] = {
     { 0.38f, 0.95f, 0.62f }, { 0.48f, 0.82f, 1.00f }, { 1.00f, 0.42f, 0.30f },
     { 0.80f, 0.34f, 1.00f },
 };
+// Difficulty glow behind the page: how strong, and how far up from the bottom edge (share of height).
+constexpr float kPlayDiffGlowAlpha = 0.16f;
+constexpr float kPlayDiffGlowReach = 0.42f;
 
 // ── PLAY 패널 문구 (KR, EN, JP) ──
 const LStr kTxtPlay        = { { L"플레이", L"PLAY", L"プレイ" } };
@@ -389,6 +392,27 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     BatchFlush();
     DrawPersistentSceneSideVignettes(sw, sh,
                                      kWideSceneLinearAlpha * contentA);
+    // The chosen difficulty tints the scene: a faint glow of its colour rises
+    // from the bottom edge (light, not a plate), crossfading with the 0.3 s
+    // selection fade so switching difficulty shifts the hue rather than flashing.
+    {
+        float wr = 0.0f, wg = 0.0f, wb = 0.0f, wsum = 0.0f;
+        for (int i = 0; i < kPlayDifficultyCount; ++i) {
+            const float w = s_RcDiffSelInit ? diffSelT[i] : (s_RcDifficulty == i ? 1.0f : 0.0f);
+            const float ws = w * w * (3.0f - 2.0f * w);
+            wr += kPlayDifficultyColor[i].r * ws;
+            wg += kPlayDifficultyColor[i].g * ws;
+            wb += kPlayDifficultyColor[i].b * ws;
+            wsum += ws;
+        }
+        if (wsum > 0.001f) {
+            wr /= wsum; wg /= wsum; wb /= wsum;
+            const float glowA = kPlayDiffGlowAlpha * std::min(1.0f, wsum) * contentA;
+            DrawRadialGradientRect(-sw * 0.25f, sh * (1.0f - kPlayDiffGlowReach),
+                                   sw * 1.5f, sh * kPlayDiffGlowReach * 2.0f,
+                                   wr, wg, wb, glowA);
+        }
+    }
     // 직업을 바꾸면 새 외형이 짧게 페이드 인한다. 회전 시계는 패널을 다시 열어도 이어서 돈다.
     // 패널을 여는 순간의 프레임 지연이 애니메이션 점프로 보이지 않게 한 프레임에 최대 1/30초만 진행한다.
     const float heroDt = std::min(dt, 1.0f / 30.0f);

@@ -38,12 +38,16 @@ struct StepInput {
 void Step(const StepInput& in);       // once per fixed step while playing
 
 float FireInterval(float base);       // seconds between shots
+// What the stats panels show: one plain shot's damage and the gun's real interval,
+// with every augment and synergy frame applied (g_Stats alone misses e.g. Minigun).
+float ShotDamageNow();
+float FireIntervalNow();
 void  ModifyShot(Bullet& bullet);     // each bullet the gun fires
 void  OnShot();                       // one shot (trigger pull) fired
 bool  DashSealed();
 float PlateShieldLeft();              // Buffer Plating damage still blockable (0 if not owned)
 void  OnDashStarted();                // right after BeginPlayerDash
-void  OnWaveCleared();
+void  OnWaveCleared(bool specialWave);   // specialWave: a boss or elite wave
 bool  TryPhoenix();                   // lethal hit: true when it revives
 
 }  // namespace passive

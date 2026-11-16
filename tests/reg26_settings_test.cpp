@@ -3,8 +3,8 @@
 // wanted values and the audio device state). Run with
 // scripts/test_reg26_settings.ps1 from an empty temporary folder — the save
 // path is relative, so the real save is never near.
-// Damaged values are rejected or clamped on load (theme index and records
-// since 2026-10-13).
+// Damaged values are rejected or clamped on load (records since 2026-10-13).
+// Screen profiles bought before 2026-11-14 come back as stardust.
 #include "SaveSystem.h"
 #include "SettingsSnapshot.h"
 #include <cassert>
@@ -102,7 +102,6 @@ static void CheckRoundTrip() {
     g_WeaponBestScore[1] = 77; g_WeaponRunCount[0] = 8;
     g_MetaLv[META_HP] = 2; g_AchUnlocked[0] = true; g_AugSeen[3] = true;
     g_MobSeen[CM_SWARM] = true; g_MobKillCounts[CM_ROTOR] = 99; g_JobBought[1] = true;
-    g_ThemeOwned = 5; g_ThemeSel = 2;
     SaveGame();
 
     // On disk: the obfuscated format (magic first, no plain keys).
@@ -119,7 +118,6 @@ static void CheckRoundTrip() {
     g_WeaponBestScore[1] = 0; g_WeaponRunCount[0] = 0;
     g_MetaLv[META_HP] = 0; g_AchUnlocked[0] = false; g_AugSeen[3] = false;
     g_MobSeen[CM_SWARM] = false; g_MobKillCounts[CM_ROTOR] = 0; g_JobBought[1] = false;
-    g_ThemeOwned = 1; g_ThemeSel = 0;
     LoadGame();
     assert(Read() == edited);
     assert(g_BestScore[0] == 11 && g_BestScore[1] == 22 && g_BestScore[2] == 33);
@@ -127,7 +125,6 @@ static void CheckRoundTrip() {
     assert(g_WeaponBestScore[1] == 77 && g_WeaponRunCount[0] == 8);
     assert(g_MetaLv[META_HP] == 2 && g_AchUnlocked[0] && g_AugSeen[3] && g_MobSeen[CM_SWARM]);
     assert(g_MobKillCounts[CM_ROTOR] == 99 && g_JobBought[1]);
-    assert(g_ThemeOwned == 5 && g_ThemeSel == 2);
     std::printf("round trip: 18 options + progress survive save -> reload\n");
 }
 
@@ -154,32 +151,31 @@ static void CheckRanges() {
     want.soundVol = 100;                                    // clamped to 0..100
     assert(Read() == want);                                 // fps/lang/hz/style/density rejected
     assert(g_MetaLv[0] == META_DEFS[0].maxLv && g_Coins == 0 && g_MobKillCounts[0] == 0);
-    assert(g_ThemeSel == 0);                                // index outside ACCENT_THEMES rejected
     assert(g_BestScore[0] == 0 && g_BestScore[1] == 0 && g_BestScore[2] == 0);
     assert(g_TotalKills == 0 && g_TotalGames == 0);         // records never negative
     assert(g_WeaponBestScore[0] == 0 && g_WeaponBestKills[1] == 0 &&
            g_WeaponTotalKills[0] == 0 && g_WeaponRunCount[1] == 0);
 
-    // A valid theme index loads; an index the save does not own is then put
-    // back to the default by ApplyAccentTheme (ownership may load later).
+    // Removed screen profiles: owned ones (bits 1..6) are refunded once, the
+    // default bit 0 and unknown bits are worth nothing, and the keys are dropped.
     ResetAll();
-    WriteRawSave("themesel=1\n");
+    WriteRawSave("coins=100\nthemeowned=7\nthemesel=2\n");   // bits 1, 2: 300 + 300
     LoadGame();
-    assert(ACCENT_COUNT > 1 && g_ThemeSel == 1);
-    ApplyAccentTheme();
-    assert(g_ThemeSel == 0);                                // theme 1 not owned
+    assert(g_Coins == 700);
+    SaveGame();
+    LoadGame();
+    assert(g_Coins == 700);                                  // not refunded twice
     ResetAll();
-    WriteRawSave("themeowned=3\nthemesel=1\n");
+    WriteRawSave("themeowned=1\n");
     LoadGame();
-    ApplyAccentTheme();
-    assert(g_ThemeSel == 1);
+    assert(g_Coins == 0 && RemovedProfileRefund(1LL << 40) == 0);
 
     ResetAll();
     WriteRawSave("soundvol=-5\n");
     LoadGame();
     assert(g_SoundVol == 0);
     std::printf("ranges: invalid choices rejected; volume/meta/coins/records clamped; "
-                "theme index range-checked on load, ownership on apply\n");
+                "removed screen profiles refunded once\n");
 }
 
 // Hand-edited, tampered or junk files are refused; the previous save (the
@@ -286,7 +282,7 @@ static void CheckSnapshot() {
     assert(Audio::s_volume == before.soundVol / 100.0f && Audio::s_mono == before.mono);
 
     // Each edited field alone lights the save button.
-    for (int field = 0; field < 14; ++field) {
+    for (int field = 0; field < 17; ++field) {
         RestoreSettingsSnapshot(snap);
         switch (field) {
         case 0: g_FpsCap = 30; break;               case 1: g_VfxDensity = VfxDensity::MEDIUM; break;
@@ -297,9 +293,12 @@ static void CheckSnapshot() {
         case 9: g_AudioEngineEnabled = !g_AudioEngineEnabled; break;
         case 10: g_AutoSkill = !g_AutoSkill; break; case 11: g_ShowCrosshair = !g_ShowCrosshair; break;
         case 12: g_DebugMode = !g_DebugMode; break; case 13: g_Language = Language::JP; break;
+        case 14: g_FireToggle = !g_FireToggle; break;
+        case 15: g_CrosshairSize = (g_CrosshairSize + 1) % kCrosshairSizeCount; break;
+        case 16: g_CrosshairColor = (g_CrosshairColor + 1) % kCrosshairColorCount; break;
         }
         if (field == 1 && snap.density == VfxDensity::MEDIUM) g_VfxDensity = VfxDensity::FULL;
-        if (field == 15 && snap.language == Language::JP) g_Language = Language::EN;
+        if (field == 13 && snap.language == Language::JP) g_Language = Language::EN;
         assert(SettingsSnapshotChanged(snap));
     }
     RestoreSettingsSnapshot(snap);

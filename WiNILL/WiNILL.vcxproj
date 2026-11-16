@@ -188,6 +188,7 @@
     <ClCompile Include="Core\Scenes\SceneReady.cpp" />
     <ClCompile Include="Core\Scenes\ScenePause.cpp" />
     <ClCompile Include="Core\Scenes\SceneRunEnd.cpp" />
+    <ClCompile Include="Core\Scenes\RunBuildPanel.cpp" />
     <ClCompile Include="Core\Scenes\SceneAugment.cpp" />
     <ClCompile Include="Core\Scenes\SceneMenus.cpp" />
     <ClCompile Include="Core\Scenes\WindowChrome.cpp" />
@@ -228,6 +229,7 @@
     <ClInclude Include="Core\Scenes\SceneContext.h" />
     <ClInclude Include="Core\Scenes\ScenePause.h" />
     <ClInclude Include="Core\Scenes\SceneRunEnd.h" />
+    <ClInclude Include="Core\Scenes\RunBuildPanel.h" />
     <ClInclude Include="Core\Scenes\SceneStart.h" />
     <ClInclude Include="Core\Scenes\SceneTextContext.h" />
     <ClInclude Include="Core\Scenes\SceneInternal.h" />
