@@ -20,7 +20,7 @@ LOC = {
     "V_BLAST": ("Impact Burst Rounds", "着弾破裂弾", "Hits make a small burst within 1○ of where they land (30% attack)", "命中した場所の周囲1○以内で小爆発 (攻撃力30%)"),
     "V_ORBIT": ("Orbiting Rounds", "周回弾", "Every 5th volley adds a shot that circles the player for 4.5s and hurts on contact (max 2)", "5回目の射撃ごとに1発追加され、4.5秒間プレイヤーの周囲を回り接触ダメージ (最大2個)"),
     "V_CHAIN": ("Lightning Chain Rounds", "稲妻連鎖弾", "Kills send lightning to 3 enemies within 3.5○ (80% attack)", "撃破時に3.5○以内の敵3体へ稲妻 (攻撃力80%)"),
-    "V_TRAIL": ("Afterimage Trail Rounds", "残像軌跡弾", "Shots leave an afterimage along their path for 1.2s that deals 40% attack per second", "弾が通った道に残像が1.2秒残り、触れた敵に毎秒攻撃力40%"),
+    "V_TRAIL": ("Afterimage Trail Rounds", "残像軌跡弾", "Shots leave an afterimage along their path for 1.2s that deals 40% attack per second · with Ember Igniting Rounds, enemies it touches burn", "弾が通った道に残像が1.2秒残り、触れた敵に毎秒攻撃力40% · 火種点火弾があれば残像に触れた敵が燃える"),
     "V_HOVER": ("Hovering Rounds", "空中静止弾", "Damage +70%, fire rate -10%. After flying 4○, shots pause for 0.8s, then fly on", "ダメージ+70%、連射-10%。4○飛ぶと0.8秒止まり、再び飛ぶ"),
     "V_RETURN": ("Boomerang Rounds", "往復ブーメラン弾", "After flying 6.5○, shots turn back to you (they hit on the way back too) · removes the Shotgun/Laser range limit", "6.5○飛ぶとプレイヤーへ戻る (戻る途中も命中する) · ショットガン・レーザーの射程制限がなくなる"),
     # ── triggers ──

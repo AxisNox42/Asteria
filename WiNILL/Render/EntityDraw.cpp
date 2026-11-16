@@ -1,4 +1,5 @@
 ﻿#include "EntityDraw.h"
+#include "DiscUnion.h"
 #include "MiterStroke.h"
 #include "LineFx.h"
 #include "LaserFx.h"
@@ -1757,92 +1758,24 @@ static void DrawMiraRing(float x, float y, float radius, float width, float r, f
     }
 }
 
-// Joined trail puddles are drawn as one ribbon whose width follows each puddle's
-// shrinking radius, with a rounded cap on each end. No overlapping discs, so the
-// film stays evenly tinted.
-struct MiraDisc { float x, y, r; };
+// MIRA's zones: joined trail puddles become one ribbon (a dense run of discs
+// along a smooth curve, disc_union::ChainDiscs), and every zone on screen is
+// drawn as ONE shape, the exact union of all the discs, filled and outlined with
+// marching squares. A union, not overlapping discs, so zones that touch fuse into
+// one puddle: an even tint, no inner outlines, nothing that folds.
+using MiraDisc = disc_union::Disc;
 
-// One chain of joined puddles (and the walking MIRA's own zone as its head) as a
-// dense run of discs along a smooth curve through them.
-static void MiraChainDiscs(const std::vector<MiraDisc>& ctl, std::vector<MiraDisc>& out) {
-    const int m = (int)ctl.size();
-    if (m == 1) { out.push_back(ctl[0]); return; }
-    constexpr int kSub = 6;
-    const auto cr = [](float p0, float p1, float p2, float p3, float u) {
-        return 0.5f * ((2.0f * p1) + (-p0 + p2) * u + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * u * u +
-                       (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * u * u * u);
-    };
-    for (int i = 0; i + 1 < m; ++i) {
-        const MiraDisc& p0 = ctl[std::max(0, i - 1)]; const MiraDisc& p1 = ctl[i];
-        const MiraDisc& p2 = ctl[i + 1]; const MiraDisc& p3 = ctl[std::min(m - 1, i + 2)];
-        for (int k = 0; k < kSub; ++k) {
-            const float u = (float)k / (float)kSub;
-            // the radius follows the straight blend between the two puddles (a
-            // spline can overshoot negative); the centre follows the curve
-            out.push_back({ cr(p0.x, p1.x, p2.x, p3.x, u), cr(p0.y, p1.y, p2.y, p3.y, u),
-                            std::max(0.0f, p1.r + (p2.r - p1.r) * u) });
-        }
-    }
-    out.push_back(ctl[m - 1]);
-}
-
-// Every MIRA zone on screen (trail ribbons, walking bodies, dead zones) as ONE
-// shape: the exact union of all the discs, filled and outlined with marching
-// squares. A union, not overlapping discs, so zones that touch fuse into one
-// puddle: an even tint, no inner outlines, nothing that folds.
 static void DrawMiraUnion(const std::vector<MiraDisc>& d) {
     constexpr float kR = 1.0f, kG = 0.82f, kB = 0.50f;
-    if (d.empty()) return;
-    float minX = 1e30f, minY = 1e30f, maxX = -1e30f, maxY = -1e30f;
-    for (const MiraDisc& q : d) {
-        if (q.r < 0.5f) continue;
-        minX = std::min(minX, q.x - q.r); maxX = std::max(maxX, q.x + q.r);
-        minY = std::min(minY, q.y - q.r); maxY = std::max(maxY, q.y + q.r);
-    }
-    if (minX > maxX) return;
-    float step = 6.0f;
-    while (((maxX - minX) / step + 3.0f) * ((maxY - minY) / step + 3.0f) > 60000.0f) step *= 1.5f;
-    minX -= step; minY -= step;
-    const int nx = (int)((maxX - minX) / step) + 3, ny = (int)((maxY - minY) / step) + 3;
-    std::vector<float> v((size_t)nx * ny, -1.0f);
-    // splat each disc into the cells it can reach: value = (radius - distance), max over discs
-    for (const MiraDisc& q : d) {
-        if (q.r < 0.5f) continue;
-        const int i0 = std::max(0, (int)floorf((q.x - q.r - minX) / step));
-        const int i1 = std::min(nx - 1, (int)ceilf((q.x + q.r - minX) / step));
-        const int j0 = std::max(0, (int)floorf((q.y - q.r - minY) / step));
-        const int j1 = std::min(ny - 1, (int)ceilf((q.y + q.r - minY) / step));
-        for (int j = j0; j <= j1; ++j)
-            for (int i = i0; i <= i1; ++i) {
-                const float dx = minX + (float)i * step - q.x, dy = minY + (float)j * step - q.y;
-                const float val = q.r - sqrtf(dx * dx + dy * dy);
-                float& cell = v[(size_t)j * nx + i];
-                if (val > cell) cell = val;
-            }
-    }
-    static const int ci[4] = { 0, 1, 1, 0 }, cj[4] = { 0, 0, 1, 1 };
-    for (int j = 0; j + 1 < ny; ++j)
-        for (int i = 0; i + 1 < nx; ++i) {
-            float px[8], py[8], cx[4], cy[4];
-            int np = 0, nc = 0;
-            for (int k = 0; k < 4; ++k) {
-                const int n = (k + 1) & 3;
-                const float va = v[(size_t)(j + cj[k]) * nx + (i + ci[k])];
-                const float vb = v[(size_t)(j + cj[n]) * nx + (i + ci[n])];
-                const float ax = minX + (float)(i + ci[k]) * step, ay = minY + (float)(j + cj[k]) * step;
-                const float bx = minX + (float)(i + ci[n]) * step, by = minY + (float)(j + cj[n]) * step;
-                if (va >= 0.0f) { px[np] = ax; py[np] = ay; ++np; }
-                if ((va >= 0.0f) != (vb >= 0.0f)) {
-                    const float u = (0.0f - va) / (vb - va);
-                    px[np] = ax + (bx - ax) * u; py[np] = ay + (by - ay) * u;
-                    cx[nc] = px[np]; cy[nc] = py[np]; ++nc; ++np;
-                }
-            }
-            for (int k = 1; k + 1 < np; ++k)
-                BatchTri(px[0], py[0], px[k], py[k], px[k + 1], py[k + 1], kR, kG, kB, 0.20f);
-            for (int k = 0; k + 1 < nc; k += 2)
-                drawLineQuad(cx[k], cy[k], cx[k + 1], cy[k + 1], 1.7f, kR, kG, kB, 0.80f);
-        }
+    disc_union::Field f;
+    if (!disc_union::Build(d, f)) return;
+    disc_union::March(f,
+        [&](float x0, float y0, float x1, float y1, float x2, float y2) {
+            BatchTri(x0, y0, x1, y1, x2, y2, kR, kG, kB, 0.20f);
+        },
+        [&](float x0, float y0, float x1, float y1) {
+            drawLineQuad(x0, y0, x1, y1, 1.7f, kR, kG, kB, 0.80f);
+        });
 }
 
 // The zones are all drawn by DrawMiraZones (one union); a MIRA itself is only
@@ -2005,7 +1938,7 @@ void DrawMiraZones() {
             if (o.chain == z.chain) ctl.push_back({ o.x, o.y, wob(mira::ZoneRadius(o), (float)ctl.size()) });
         if (const mira::Head* h = mira::HeadOf(z.chain))
             ctl.push_back({ h->x, h->y, wob(mira::kZoneRadius, (float)ctl.size()) });
-        MiraChainDiscs(ctl, discs);
+        disc_union::ChainDiscs(ctl, discs);
     }
     // A walking MIRA that has dropped nothing yet: just its own zone.
     for (const mira::Head& h : mira::g_heads) {

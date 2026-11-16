@@ -154,7 +154,7 @@ inline const std::vector<Aug>& Table() {
         T_ORBIT, 0, false, Fx{}.orbit_(0.60f)},
     {"V_CHAIN",   "번개 연쇄탄",     "처치 시 3.5○ 안의 적 3명에게 번개 (공격력 80%)", Rar::Epic, Role::Verb,
         T_CHAIN | T_ON_KILL, 0, false, Fx{}.chain_(0.3f)},
-    {"V_TRAIL",   "잔상 궤적탄",     "탄이 지나간 길에 잔상이 1.2초간 남아, 닿은 적에게 초당 공격력 40%", Rar::Rare, Role::Verb,
+    {"V_TRAIL",   "잔상 궤적탄",     "탄이 지나간 길에 잔상이 1.2초간 남아, 닿은 적에게 초당 공격력 40% · 불씨 점화탄이 있으면 잔상에 닿은 적이 불탐", Rar::Rare, Role::Verb,
         T_TRAIL, 0, false, Fx{}.proc_(0.35f)},
     {"V_HOVER",   "공중 정지탄",     "피해 +70%, 연사 -10% — 4○ 날아가면 0.8초 멈췄다가 다시 날아감", Rar::Epic, Role::Verb,
         T_HOVER, 0, false, Fx{}.rate_(0.9f).dmg_(1.7f)},

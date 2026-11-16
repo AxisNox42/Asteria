@@ -17,6 +17,7 @@
 #include "GameManager.h"
 #include "Juice.h"
 #include "LineFx.h"
+#include "DiscUnion.h"
 #include "StrikeFx.h"
 #include "MonsterManager.h"
 #include "PassiveHooks.h"
@@ -42,7 +43,17 @@ struct Flags {
 constexpr int kCards = (int)(sizeof(Flags) / sizeof(bool));
 static_assert(sizeof(Flags) == kCards * sizeof(bool), "Flags must be a plain bool array");
 
-struct Zone  { float x, y, r, life, pct, tick, blastAtEnd, cr, cg, cb; };   // pct: % of attack per second
+struct Zone  { float x, y, r, life, pct, tick, blastAtEnd, cr, cg, cb;   // pct: % of attack per second
+               int chain = 0;            // Afterimage Trail: the ribbon it belongs to (0 = a plain zone)
+               bool burns = false;       // Afterimage Trail dropped by a burning shot: sets enemies alight
+               bool broke = false;       // Afterimage Trail: its tail end has shattered (no longer hurts)
+               float age = 0.0f; };
+// Afterimage Trail: the ribbon hurts and shows for kTrailShow s, then the tail
+// end shatters into square fragments over the last kTrailBreak s.
+constexpr float kTrailShow = 1.2f, kTrailBreak = 0.4f;
+constexpr float kTrailR = 0.36f, kTrailG = 0.79f, kTrailB = 0.65f;   // teal, apart from ERIDANUS's amber
+struct Shard { float x, y, vx, vy, size, life, maxLife, spin; };
+constexpr int kMaxShards = 120;
 struct Mine  { float x, y, life, pct, pulse; };
 struct Burn  { float t, tick; };
 // 과부하 레이저: stacking burn. t = time left at this stack count, gain = cooldown to the next stack,
@@ -103,6 +114,8 @@ struct State {
           lastWallSaved = false;   // 최후의 방벽: the one lethal hit it blocks this run
     float dashDropped = 0, dashLastX = 0, dashLastY = 0;
     std::vector<Zone>  zones;
+    std::vector<Shard> shards;                            // Afterimage Trail tail fragments
+    int   trailChains = 0;
     std::vector<Mine>  mines;
     std::vector<Echo>  echoes;
     std::vector<Bullet> pending;                          // spawned during a collision pass
@@ -165,6 +178,33 @@ void AddZone(float x, float y, float r, float life, float pct, float blastAtEnd 
     if (s.zones.size() > 300) return;
     s.zones.push_back({ x, y, r, life, pct, 0.0f, blastAtEnd, cr, cg, cb });
     Pulse(x, y, r, 0.45f, cr, cg, cb);
+}
+
+// Afterimage Trail: one piece of a shot's ribbon. No opening ring: the ribbon
+// itself shows it, and a fast gun would fill the screen with rings.
+void AddTrailZone(float x, float y, float r, float pct, int chain, bool burns) {
+    if (s.zones.size() > 300) return;
+    Zone z{ x, y, r, kTrailShow + kTrailBreak, pct, 0.0f, 0.0f, kTrailR, kTrailG, kTrailB };
+    z.chain = chain;
+    z.burns = burns;
+    s.zones.push_back(z);
+}
+
+// The tail end of a ribbon breaking: a few square outlines thrown off along the
+// shot's way, fading out.
+void ShatterTrail(const Zone& z, float dirX, float dirY) {
+    for (int i = 0; i < 3 && (int)s.shards.size() < kMaxShards; ++i) {
+        const float a = Rand01() * 6.2831853f, sp = 20.0f + 50.0f * Rand01();
+        Shard sh;
+        sh.x = z.x + (Rand01() - 0.5f) * z.r * 1.2f;
+        sh.y = z.y + (Rand01() - 0.5f) * z.r * 1.2f;
+        sh.vx = std::cos(a) * sp + dirX * 40.0f;
+        sh.vy = std::sin(a) * sp + dirY * 40.0f;
+        sh.size = 4.0f + 7.0f * Rand01();
+        sh.maxLife = sh.life = 0.5f + 0.4f * Rand01();
+        sh.spin = (Rand01() - 0.5f) * 3.0f;
+        s.shards.push_back(sh);
+    }
 }
 
 bool IsBoss(const Monster& m) { return IsBossMob(m.kind) || IsEliteMob(m.kind); }
@@ -475,6 +515,66 @@ void ForgetEnemy(const void* enemy) {
     s.laserBurns.erase(enemy);
 }
 
+// Afterimage Trail: every shot's zones (and the shot itself, as the live head)
+// joined into one ribbon, all ribbons drawn as one union like ERIDANUS's
+// corruption: an outline, scanlines inside, a few flickering square pixels,
+// lines only. The broken tail end is drawn as its square fragments.
+void DrawTrailRibbons() {
+    namespace lf = line_fx;
+    using disc_union::Disc;
+    const lf::Rgb col{ kTrailR, kTrailG, kTrailB };
+    const lf::Rgb lit{ kTrailR + (1.0f - kTrailR) * 0.5f, kTrailG + (1.0f - kTrailG) * 0.5f,
+                       kTrailB + (1.0f - kTrailB) * 0.5f };
+    std::vector<Disc> discs;
+    std::vector<int> done;
+    for (const Zone& z : s.zones) {
+        if (z.chain == 0 || z.broke) continue;
+        if (std::find(done.begin(), done.end(), z.chain) != done.end()) continue;
+        done.push_back(z.chain);
+        std::vector<Disc> ctl;
+        for (const Zone& o : s.zones)
+            if (o.chain == z.chain && !o.broke)
+                ctl.push_back({ o.x, o.y, o.r * std::min(1.0f, o.age / 0.12f) });
+        for (const Bullet& b : g_Bullets)
+            if (b.active && b.synTrailChain == z.chain) { ctl.push_back({ b.x, b.y, z.r * 0.6f }); break; }
+        disc_union::ChainDiscs(ctl, discs, 5);
+    }
+    disc_union::Field f;
+    if (disc_union::Build(discs, f, 6.0f, 40000.0f)) {
+        disc_union::Rows(f, 2, 3.0f, [&](float x0, float y, float x1, float) {
+            lf::Line(x0 + 2.0f, y, x1 - 2.0f, y, 1.0f, col, 0.30f);
+        });
+        disc_union::March(f, [](float, float, float, float, float, float) {},
+            [&](float x0, float y0, float x1, float y1) { lf::Line(x0, y0, x1, y1, 1.4f, col, 0.9f); });
+    }
+    // Glitch pixels: a small square flickers on now and then inside the ribbon.
+    const unsigned frame = (unsigned)(s.clock * 12.0f);
+    for (const Zone& z : s.zones) {
+        if (z.chain == 0 || z.broke || z.age < 0.12f) continue;
+        const unsigned h = ((unsigned)(int)(z.x * 7.0f) * 73856093u) ^ (frame * 19349663u) ^ ((unsigned)z.chain * 83492791u);
+        if (h % 11u != 0u) continue;
+        const float px = z.x + (float)((int)((h >> 8) % 21u) - 10), py = z.y + (float)((int)((h >> 16) % 17u) - 8);
+        const float hs = 2.0f;
+        lf::Line(px - hs, py - hs, px + hs, py - hs, 1.0f, lit, 0.85f);
+        lf::Line(px + hs, py - hs, px + hs, py + hs, 1.0f, lit, 0.85f);
+        lf::Line(px + hs, py + hs, px - hs, py + hs, 1.0f, lit, 0.85f);
+        lf::Line(px - hs, py + hs, px - hs, py - hs, 1.0f, lit, 0.85f);
+    }
+    // The broken tail: square outlines that drift, turn a little and fade.
+    for (const Shard& sh : s.shards) {
+        const float k = std::clamp(sh.life / 0.3f, 0.0f, 1.0f);
+        const float hs = 0.5f * sh.size * (0.6f + 0.4f * k);
+        const float a = sh.spin * (sh.maxLife - sh.life);
+        const float ca = std::cos(a) * hs, sa = std::sin(a) * hs;
+        const float cx[4] = { -ca + sa, ca + sa, ca - sa, -ca - sa };
+        const float cy[4] = { -sa - ca, sa - ca, sa + ca, -sa + ca };
+        for (int i = 0; i < 4; ++i) {
+            const int n = (i + 1) & 3;
+            lf::Line(sh.x + cx[i], sh.y + cy[i], sh.x + cx[n], sh.y + cy[n], 1.2f, col, 0.9f * k);
+        }
+    }
+}
+
 void DrawWorld() {
     namespace lf = line_fx;
     // Ring pulses: a line that widens a little as it fades.
@@ -501,7 +601,9 @@ void DrawWorld() {
     }
     // Zones: a steady circle for as long as the zone lasts, fading out at the end.
     for (const Zone& z : s.zones)
-        lf::Circle(z.x, z.y, z.r, 1.2f, { z.cr, z.cg, z.cb }, 0.45f * std::min(1.0f, z.life / 0.3f));
+        if (z.chain == 0)
+            lf::Circle(z.x, z.y, z.r, 1.2f, { z.cr, z.cg, z.cb }, 0.45f * std::min(1.0f, z.life / 0.3f));
+    DrawTrailRibbons();
     // Mines: a small diamond in a diamond.
     for (const Mine& m : s.mines) {
         lf::Diamond(m.x, m.y, 9.0f, 1.5f, { 1.0f, 0.45f, 0.35f }, 0.95f);
@@ -1110,12 +1212,38 @@ void Step(const passive::StepInput& in) {
 
     // Zones (trails, wall clouds, dash afterimages).
     for (Zone& z : s.zones) {
-        z.life -= dt; z.tick -= dt;
+        z.life -= dt; z.tick -= dt; z.age += dt;
+        if (z.chain > 0 && !z.broke && z.life <= kTrailBreak) {
+            // The tail end shatters; the fragments drift along the ribbon's way.
+            float dx = 0.0f, dy = 0.0f;
+            for (const Zone& o : s.zones)
+                if (&o != &z && o.chain == z.chain && o.age < z.age) {
+                    const float l = std::hypot(o.x - z.x, o.y - z.y);
+                    if (l > 1.0f) { dx = (o.x - z.x) / l; dy = (o.y - z.y) / l; }
+                    break;
+                }
+            z.broke = true;
+            // Only where the ribbon really ends: a spot another live piece still
+            // covers (a later shot along the same line) stays whole.
+            bool covered = false;
+            for (const Zone& o : s.zones)
+                if (&o != &z && o.chain > 0 && !o.broke && o.life > kTrailBreak &&
+                    (o.x - z.x) * (o.x - z.x) + (o.y - z.y) * (o.y - z.y) < (o.r * 0.8f) * (o.r * 0.8f)) {
+                    covered = true;
+                    break;
+                }
+            if (!covered) ShatterTrail(z, dx, dy);
+        }
+        if (z.broke) continue;
         if (z.tick <= 0.0f) {
             z.tick += 0.3f;
             const float dmg = passive::AttackPower() * z.pct * 0.3f / 100.0f * passive::AllDamageMult();
             ForEachEnemy([&](auto& e, float ex, float ey) {
                 if ((ex - z.x) * (ex - z.x) + (ey - z.y) * (ey - z.y) > z.r * z.r) return;
+                if (z.burns) {   // keep it burning (3s from now) without resetting its tick
+                    auto [it, fresh] = s.burns.try_emplace(&e, Burn{ 3.0f, 0.5f });
+                    if (!fresh) it->second.t = 3.0f;
+                }
                 const float dealt = g_MonsterManager.ApplyDamage(e, dmg);
                 if (dealt > 0.0f) SpawnDamageNumber(ex, ey, dealt, false);
             });
@@ -1123,6 +1251,13 @@ void Step(const passive::StepInput& in) {
         if (z.life <= 0.0f && z.blastAtEnd > 0.0f) Burst(z.x, z.y, z.r * 1.4f, z.blastAtEnd);
     }
     s.zones.erase(std::remove_if(s.zones.begin(), s.zones.end(), [](const Zone& z) { return z.life <= 0.0f; }), s.zones.end());
+    for (Shard& sh : s.shards) {
+        sh.life -= dt;
+        sh.x += sh.vx * dt; sh.y += sh.vy * dt;
+        const float drag = std::pow(0.08f, dt);
+        sh.vx *= drag; sh.vy *= drag;
+    }
+    s.shards.erase(std::remove_if(s.shards.begin(), s.shards.end(), [](const Shard& sh) { return sh.life <= 0.0f; }), s.shards.end());
 
     // Mines.
     for (size_t i = 0; i < s.mines.size(); ++i) {
@@ -1181,7 +1316,9 @@ void Step(const passive::StepInput& in) {
         }
         if ((f & synf::Trail) && b.traveled - b.synTrailAt >= 60.0f) {
             b.synTrailAt = b.traveled;
-            AddZone(b.x, b.y, 26.0f, 1.2f, 40.0f, 0.0f);
+            if (b.synTrailChain == 0) b.synTrailChain = ++s.trailChains;
+            // With Ember Rounds (a burning shot) the afterimage sets enemies alight too.
+            AddTrailZone(b.x, b.y, 26.0f, 40.0f, b.synTrailChain, (f & synf::Burn) != 0);
         }
         if ((f & synf::Hover) && !(f & synf::Hovered)) {
             if (!(f & synf::Hovering) && b.traveled >= Rings(4)) {

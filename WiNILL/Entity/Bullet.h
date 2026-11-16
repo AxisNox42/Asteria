@@ -88,6 +88,7 @@ public:
     // and a shared field let Hover's stored speed become Grow's base size.
     float synGrowBase  = 0.0f;         // Grow: sizeScale when fired
     float synTrailAt   = 0.0f;         // Trail: distance of the last dropped zone
+    int   synTrailChain = 0;           // Trail: which ribbon its zones join (0 = none dropped yet)
     float synHoverSpeed = 0.0f;        // Hover: speed to restore after the stop
     float synHoverLeft = 0.0f;         // Hover: seconds of stop left
     float synOrbitAngle = 0.0f;        // Orbit: angle around the player
