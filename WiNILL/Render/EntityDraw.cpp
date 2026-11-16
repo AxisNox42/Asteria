@@ -182,16 +182,30 @@ static bool DrawSkillShot(const Bullet& b) {
     auto P = [&](float f, float s, float& x, float& y) { x = b.x + ux * f + nx * s; y = b.y + uy * f + ny * s; };
     switch (b.skillTag) {
     case TAG_ARROW: {   // 유성 관통창: a long lance head, a spine and two streaming tails
+        // Flight phase (ActiveSkills.cpp StepLanceFlight): the stall pulls the tails in and
+        // lights the head up as it gathers; the burst stretches the tails out long.
+        float tail = 4.2f, tailA = 0.55f, headW = 2.2f;
+        glm::vec3 head = c;
+        if (b.lancePhase == 1) {
+            const float k = std::min(1.0f, b.lanceTimer / 0.25f);
+            tail = 4.2f - 2.4f * k;
+            headW = 2.2f + 1.2f * k;
+            head = c + (lit - c) * k;
+        } else if (b.lancePhase == 2) {
+            const float k = std::min(1.0f, b.lanceTimer / 0.08f);
+            tail = 1.8f + 7.2f * k;
+            tailA = 0.55f + 0.25f * k;
+        }
         float px[4], py[4];
         P(r * 2.6f, 0.0f, px[0], py[0]); P(0.0f, r * 0.60f, px[1], py[1]);
         P(-r * 1.4f, 0.0f, px[2], py[2]); P(0.0f, -r * 0.60f, px[3], py[3]);
-        SkillLoop(px, py, 4, 2.2f, c, 1.0f);
+        SkillLoop(px, py, 4, headW, head, 1.0f);
         float ax, ay, bx, by;
         P(r * 2.2f, 0.0f, ax, ay); P(-r * 1.0f, 0.0f, bx, by);
         SkillStroke(ax, ay, bx, by, 1.4f, lit, 1.0f);
         for (int k = -1; k <= 1; k += 2) {
-            P(-r * 1.2f, r * 0.30f * (float)k, ax, ay); P(-r * 4.2f, r * 0.45f * (float)k, bx, by);
-            SkillStroke(ax, ay, bx, by, 1.2f, c, 0.55f);
+            P(-r * 1.2f, r * 0.30f * (float)k, ax, ay); P(-r * tail, r * 0.45f * (float)k, bx, by);
+            SkillStroke(ax, ay, bx, by, 1.2f, c, tailA);
         }
         return true;
     }

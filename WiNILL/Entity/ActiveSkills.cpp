@@ -919,14 +919,54 @@ void OnSkillBulletHit(const Bullet& bullet, float x, float y, bool killed) {
     }
 }
 
+// Meteor Lance flight: cruise for 200 px, stall (nearly stopped) for 0.25 s,
+// then burst to 2400 px/s over 0.08 s.
+constexpr float kLanceCruiseSpeed = 420.0f;
+constexpr float kLanceCruiseDist  = 200.0f;
+constexpr float kLanceStallSpeed  = 60.0f;
+constexpr float kLanceStallTime   = 0.25f;
+constexpr float kLanceBurstSpeed  = 2400.0f;
+constexpr float kLanceBurstRise   = 0.08f;
+
+static void StepLanceFlight(Bullet& lance, float dt) {
+    lance.lanceTimer += dt;
+    if (lance.lancePhase == 0 && lance.traveled >= kLanceCruiseDist) {
+        lance.lancePhase = 1;
+        lance.lanceTimer = 0.0f;
+    } else if (lance.lancePhase == 1 && lance.lanceTimer >= kLanceStallTime) {
+        lance.lancePhase = 2;
+        lance.lanceTimer = 0.0f;
+        Audio::Play(Audio::Cue::SkillProjLaunch);
+    }
+    switch (lance.lancePhase) {
+    case 0: lance.speed = kLanceCruiseSpeed; break;
+    case 1: lance.speed = kLanceStallSpeed; break;
+    default: {
+        const float k = std::min(1.0f, lance.lanceTimer / kLanceBurstRise);
+        lance.speed = kLanceStallSpeed + (kLanceBurstSpeed - kLanceStallSpeed) * k;
+        break;
+    }
+    }
+}
+
 void StepSkillBullets() {
+    const float dt = s.in.dt;
     for (Bullet& arrow : g_Bullets) {
         if (!arrow.active || !arrow.skillShot || arrow.skillTag != TAG_ARROW) continue;
+        StepLanceFlight(arrow, dt);
+        // Erase along the whole stretch flown this step: in the burst one step
+        // covers about 40 px, more than the lance's own radius.
         const float r = 14.0f * arrow.sizeScale;
-        for (Bullet& b : g_Bullets)
-            if (b.active && b.isEnemy &&
-                (b.x - arrow.x) * (b.x - arrow.x) + (b.y - arrow.y) * (b.y - arrow.y) < r * r)
-                b.active = false;
+        const float ax = arrow.prevX, ay = arrow.prevY;
+        const float sx = arrow.x - ax, sy = arrow.y - ay;
+        const float len2 = sx * sx + sy * sy;
+        for (Bullet& b : g_Bullets) {
+            if (!b.active || !b.isEnemy) continue;
+            float t = len2 > 0.0f ? ((b.x - ax) * sx + (b.y - ay) * sy) / len2 : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
+            const float qx = ax + sx * t - b.x, qy = ay + sy * t - b.y;
+            if (qx * qx + qy * qy < r * r) b.active = false;
+        }
     }
 }
 

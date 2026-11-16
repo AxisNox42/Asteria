@@ -68,6 +68,10 @@ public:
     bool  skillShot  = false;
     bool  forceCrit  = false;
     int   skillTag   = 0;
+    // Meteor Lance flight (ActiveSkills.cpp StepSkillBullets): 0 = cruise,
+    // 1 = the stall after 200 px, 2 = the burst. lanceTimer = seconds in the phase.
+    int   lancePhase = 0;
+    float lanceTimer = 0.0f;
     // Gun verbs (Docs/Design/Augment_Synergy_Redesign.md, 동사): a shot
     // that survives pierceLeft hits, turns back at the arena edge bouncesLeft
     // times, splits into splitCount children on its first hit, and bursts for
