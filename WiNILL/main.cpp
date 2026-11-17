@@ -6844,11 +6844,16 @@ CollisionSystem::Update(pCX, pCY,
                         (float)(dimNow - s_dimLastT));
             s_dimLastT = dimNow;
         }
+        memcpy(g_SteadyOrtho, orthoShake, sizeof(orthoShake));
+        g_UiShakeActive = g_UiShakePx > 0.0f;
+        g_UiShakeNdcX = g_UiShakeNdcY = 0.0f;
         if (g_UiShakePx > 0.0f) {
             const float ux = ((float)(rand() % 200) - 100.0f) / 100.0f * g_UiShakePx;
             const float uy = ((float)(rand() % 200) - 100.0f) / 100.0f * g_UiShakePx;
-            orthoShake[12] -= 2.0f * ux / (float)screenWidth;
-            orthoShake[13] += 2.0f * uy / (float)screenHeight;
+            g_UiShakeNdcX = -2.0f * ux / (float)screenWidth;
+            g_UiShakeNdcY =  2.0f * uy / (float)screenHeight;
+            orthoShake[12] += g_UiShakeNdcX;
+            orthoShake[13] += g_UiShakeNdcY;
             g_UiShakePx = 0.0f;   // the page asks again next frame while it still needs it
         }
         BatchFlush();   // ortho(�? 바꾸�??????�전 매트�?���??�인 ?�형 먼�? 그림

@@ -504,7 +504,7 @@ inline void TextRenderer::Draw(const wchar_t* text, float x, float y, float scal
          2.0f / screenW_,  0,               0, 0,
          0,               -2.0f / screenH_, 0, 0,
          0,                0,              -1, 0,
-        -1,                1,               0, 1
+        -1 + g_UiShakeNdcX, 1 + g_UiShakeNdcY, 0, 1   // page UI jitter
     };
     glEnable(GL_BLEND);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -582,7 +582,7 @@ inline void TextRenderer::DrawRotated(const wchar_t* text, float x, float y,
          2.0f / screenW_,  0,               0, 0,
          0,               -2.0f / screenH_, 0, 0,
          0,                0,              -1, 0,
-        -1,                1,               0, 1
+        -1 + g_UiShakeNdcX, 1 + g_UiShakeNdcY, 0, 1   // page UI jitter
     };
     glEnable(GL_BLEND);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);

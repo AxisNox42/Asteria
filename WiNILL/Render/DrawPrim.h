@@ -3,6 +3,7 @@
 #include <cmath>
 #include <vector>
 #include <cstdint>
+#include <cstring>
 #include "Settings.h"
 
 #ifndef M_PI
@@ -25,6 +26,14 @@ inline GLuint g_MainShader  = 0;
 inline GLuint g_MainVAO     = 0;
 inline GLint  g_MainProjLoc = -1;
 inline float  g_MainOrtho[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+// g_MainOrtho before the out-of-game UI jitter (g_UiShakePx) is added. Layers
+// that cover the whole screen draw with it, so a shaking page never pulls the
+// backdrop off an edge and lets the desktop show through the window.
+inline float  g_SteadyOrtho[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+inline bool   g_UiShakeActive = false;
+// The same UI jitter in clip space, for the text pass (it has its own
+// projection, so it would otherwise stand still while the page shakes).
+inline float  g_UiShakeNdcX = 0.0f, g_UiShakeNdcY = 0.0f;
 
 inline std::vector<float> g_Batch;   // [x,y,r,g,b,a] × n
 inline float g_BatchAlpha = 1.0f;   // 씬 전역 알파 배율 (1.0 = 정상)
@@ -60,6 +69,27 @@ inline void BatchFlush() {
     g_Batch.clear();
     g_GfxPass = GfxPass::Main;
 }
+
+// Draws the enclosed full-screen layers with g_SteadyOrtho while a page jitters
+// the UI, then puts the shaken projection back. No-op when nothing shakes.
+struct SteadyOrthoScope {
+    bool on = false;
+    float saved[16];
+    SteadyOrthoScope() {
+        if (!g_UiShakeActive) return;
+        on = true;
+        BatchFlush();
+        memcpy(saved, g_MainOrtho, sizeof(saved));
+        memcpy(g_MainOrtho, g_SteadyOrtho, sizeof(saved));
+        BindMainShader();
+    }
+    ~SteadyOrthoScope() {
+        if (!on) return;
+        BatchFlush();
+        memcpy(g_MainOrtho, saved, sizeof(saved));
+        BindMainShader();
+    }
+};
 
 inline bool GfxVertOk(float x, float y) {
     return (x == x && y == y && x > -1e6f && x < 1e6f && y > -1e6f && y < 1e6f);

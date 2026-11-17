@@ -117,6 +117,8 @@ void DrawMenuBackground(float sw, float sh, float delta, float darkenAmount,
                         float skyStrength) {
     float dtp = delta; if (dtp > 0.05f) dtp = 0.05f;
     BindMainShader();
+    // The backdrop covers the whole window: keep it still while a page shakes.
+    SteadyOrthoScope steady;
     if (darkenAmount < 0.0f) darkenAmount = 0.0f;
     if (darkenAmount > 1.0f) darkenAmount = 1.0f;
     const float dim = MenuDimScale();
@@ -187,6 +189,7 @@ void DrawGuideCorners(float x, float y, float w, float h, float arm, float th, f
 
 void DrawSceneLeftVignette(float sw, float sh, float alpha) {
     if (alpha <= 0.001f) return;
+    SteadyOrthoScope steady;
     const UiThemePalette& theme = GetUiTheme();
     DrawLinearGradient(0.0f, 0.0f, sw * 0.60f, sh,
                        theme.Dim.r, theme.Dim.g, theme.Dim.b,
@@ -207,6 +210,7 @@ static void DrawPersistentSceneLeftVignette(float sw, float sh, float alpha) {
 
 void DrawPersistentSceneSideVignettes(float sw, float sh, float alpha) {
     if (alpha <= 0.001f) return;
+    SteadyOrthoScope steady;   // full-height edge layers stay put under a shake
     const UiThemePalette& theme = GetUiTheme();
     const float fieldW = sw * kWideSceneLinearWidth;
     // bg_linear is already a darkening mask; applying the theme alpha again
