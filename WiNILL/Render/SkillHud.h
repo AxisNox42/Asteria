@@ -213,9 +213,11 @@ inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
         const SkillSlotView& s = view.slots[i];
         const float cx = keyX(i);
         if (s.empty) {
-            hud_lines::Ring(cx, cy, radius, 1.0f * hs, kEmptyCol, 0.35f, keyline);
+            // Faint on a dark desktop, but its keyline must still carry it on a
+            // bright one (beta: the empty slots vanished on light wallpapers).
+            hud_lines::Ring(cx, cy, radius, 1.0f * hs, kEmptyCol, 0.55f, keyline);
             for (int pass = keyline > 0.0f ? 0 : 1; pass < 2; ++pass) {
-                const Pen mark{ kEmptyCol, 0.55f, 1.2f * hs, keyline, pass == 0 };
+                const Pen mark{ kEmptyCol, 0.75f, 1.2f * hs, keyline, pass == 0 };
                 if (s.sealed) {   // a sealed slot: an X
                     mark.Line(cx - 7.0f * hs, cy - 7.0f * hs, cx + 7.0f * hs, cy + 7.0f * hs);
                     mark.Line(cx - 7.0f * hs, cy + 7.0f * hs, cx + 7.0f * hs, cy - 7.0f * hs);
@@ -251,7 +253,7 @@ inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
         const bool ready = !s.empty && s.elapsedFrac >= 1.0f;
         const float kw = g_TextS.Width(s.key, keySc);
         g_TextS.Draw(s.key, cx - kw * 0.5f, keyTop, keySc,
-                     kKeyText.r, kKeyText.g, kKeyText.b, ready ? 0.95f : 0.55f);
+                     kKeyText.r, kKeyText.g, kKeyText.b, ready ? 0.95f : 0.78f);
         if (s.showSeconds) {
             wchar_t buf[8];
             swprintf_s(buf, L"%d", (int)std::ceil(s.cdRemain));

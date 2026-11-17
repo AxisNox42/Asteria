@@ -20,6 +20,8 @@
 #include "../../Render/Juice.h"
 #include "../../Render/StatIcons.h"
 #include "Glossary.h"
+#include "TutorialText.h"
+#include "../ReadyLaunch.h"
 #include <algorithm>
 #include <vector>
 #include <string>
@@ -305,6 +307,8 @@ constexpr float kDeg = 3.14159265f / 180.0f;
 // Card-local layout, top to bottom: rarity marks, augment icon, title,
 // divider, kind line, description (card spans -205..205).
 constexpr float kRarityY = -187.0f;
+// The pick guide's "rarity & text" page: the middle card's marks, large.
+constexpr float kGuideMarkR = 8.5f, kGuideMarkGap = 24.0f;
 constexpr float kIconY = -134.0f, kIconSize = 66.0f;
 constexpr float kTitleY = -84.0f, kDivY = -58.0f;
 constexpr float kMetaY = -48.0f, kDescY = -24.0f, kDescBottom = 160.0f;
@@ -904,8 +908,12 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const bool inExit = g_AugExitT >= 0.0f;
     const float exitT = inExit ? g_AugExitT : 0.0f;
     const float now = (float)glfwGetTime();
-    const ac::Layout L = ac::MakeLayout(sw, sh, count);
+    const ac::Layout L = ac::MakeLayout(sw, sh, count, ready_launch::g_SelectionUp);
     const float ui = L.s;
+    // The tutorial draws its cards larger (kTutorialBoost); words that are not
+    // on a card (the guide's caption, the key line) keep the plain size.
+    const bool tutorialPick = ready_launch::g_SelectionUp;
+    const float baseUi = tutorialPick ? ac::MakeLayout(sw, sh, count).s : ui;
     const float key = 2.6f * ui;
 
     int rarity[ac::kMaxCards] = {};
@@ -977,6 +985,11 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const bool lmbClick = c.lmb && !g_LmbPrev;
     const bool inputReady = !inExit && t >= T.InputReady();
     if (!inExit && !inputReady && lmbClick) t = T.end;   // click skips the deal
+    // Tutorial card pick: its guide cards come up once the cards are dealt and
+    // hold the pick until they are read (ReadyLaunch.h PickGuide).
+    const bool pickGuide = ready_launch::PickGuideActive() && !inExit;
+    const bool pickGuideUp = pickGuide && inputReady;
+    if (pickGuideUp) ready_launch::g_PickGuideT += delta;
     if (t >= T.end) for (int i = 0; i < count; ++i) burst[i] = true;
     // Deal and flip sounds follow the same timeline as the drawing; a skipped
     // deal fires them together and the cue throttle thins them out.
@@ -1016,11 +1029,16 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     previousMx = c.mx;
     previousMy = c.my;
     // Leaving the cards keeps the last focus, so hover-then-Space still works.
-    if (inputReady && pointerMoved && !g_GameManager.augmentKeyboardFocus) {
+    if (inputReady && !pickGuide && pointerMoved && !g_GameManager.augmentKeyboardFocus) {
         const int hovered = ac::HitTest(L, lift, (float)c.mx, (float)c.my);
         if (hovered >= 0) g_HoveredAug = hovered;
     }
-    if (inputReady && lmbClick) {
+    if (pickGuideUp && lmbClick) {
+        // A click moves the guide on; it never takes a card.
+        const ready_launch::PickGuide before = ready_launch::g_PickGuide;
+        if (ready_launch::PickGuideConfirm() && ready_launch::g_PickGuide != before)
+            Audio::Play(Audio::Cue::UiConfirm);
+    } else if (inputReady && !pickGuide && lmbClick) {
         const int clicked = ac::HitTest(L, lift, (float)c.mx, (float)c.my);
         if (clicked >= 0) {
             g_HoveredAug = clicked;
@@ -1041,6 +1059,22 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     for (int i = 0; i < count; ++i) {
         lift[i] = 14.0f * ui * focusT[i];
         focusMax = std::max(focusMax, focusT[i]);
+    }
+    // Tutorial guide highlight on the cards themselves: on "pick a card" they
+    // rise and brighten one after another in a slow wave; on "rarity & text"
+    // the middle card stays lit.
+    float guideGlow[ac::kMaxCards] = {};
+    const float guideIn = pickGuideUp ? ac::Clamp01(ready_launch::g_PickGuideT / 0.3f) : 0.0f;
+    if (pickGuideUp) {
+        for (int i = 0; i < count; ++i) {
+            if (ready_launch::g_PickGuide == ready_launch::PickGuide::Cards) {
+                const float w = 0.5f + 0.5f * std::sin(now * 2.4f - 1.1f * (float)i);
+                guideGlow[i] = w * guideIn;
+                lift[i] += 10.0f * ui * w * guideIn;
+            } else if (ready_launch::g_PickGuide == ready_launch::PickGuide::Detail && i == count / 2) {
+                guideGlow[i] = 0.8f * guideIn;
+            }
+        }
     }
 
     const int pick = inExit ? std::max(0, std::min(count - 1, g_AugExitSlot)) : -1;
@@ -1065,7 +1099,8 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     // ── deck ──
     BindMainShader();
     const float frameA0 = frameA;
-    if (!inExit && g_GlossaryOpenA < 0.99f) {
+    // (The tutorial's single level-up pick has no deck: the key line sits there.)
+    if (!inExit && !pickGuideUp && !tutorialPick && g_GlossaryOpenA < 0.99f) {   // the guide's caption takes the deck's place
         const float frameA = frameA0 * (1.0f - g_GlossaryOpenA);   // the deck steps back for a definition
         for (int k = 3; k >= 0; --k) {
             const Xf X = MakeXf(L.deckX + k * 2.5f * ui, L.deckY - k * 2.5f * ui, L.deckS * ui, L.deckS * ui, 0.0f);
@@ -1098,8 +1133,15 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         const float scale = Lerp(L.deckS, 1.0f, e) * ui;
         const float rot = Lerp(-8.0f, 0.0f, e) * kDeg;
         d.alpha = sceneA * ac::Clamp01(1.0f - 0.45f * (focusMax - focusT[i]));
+        // The guide's rarity-and-text card is about the middle card: the
+        // others step back (alpha, no veil).
+        if (pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Detail && i != count / 2)
+            d.alpha *= 1.0f - 0.7f * ac::Clamp01(ready_launch::g_PickGuideT / 0.3f);
         d.textA = d.alpha;
         d.conA = d.alpha;
+        // "Choose": the card faces step back so the [n] keys read first.
+        if (pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Keys)
+            d.textA *= 1.0f - 0.55f * guideIn;
         if (inExit && i == pick) {
             if (exitT < ac::kPickPulse) d.alpha *= std::sin(2.0f * 3.14159265f * 18.0f * exitT) > 0.0f ? 1.0f : 0.55f;
             else d.alpha *= 1.0f - ac::Smooth01((exitT - ac::kPickPulse) / ac::kPickFade);
@@ -1118,7 +1160,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             DrawBack(X, d.col, d.alpha, d.P.charge, ui, key);
             continue;
         }
-        const float h = focusT[i];
+        const float h = std::max(focusT[i], guideGlow[i]);
         if (!inExit || i == pick) {
             // A dissolving card's frame is drawn as fragments instead.
             // The frame itself stays a quiet hairline; the corner brackets carry it.
@@ -1128,9 +1170,12 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         }
         if (d.P.flip < 1.0f) continue;
 
-        // Rarity marks (1~5 diamonds).
+        // Rarity marks (1~5 diamonds). On the pick guide's "rarity & text"
+        // page the middle card's marks are drawn large in gold further down.
         const int n = rarity[i] + 1;
-        for (int k = 0; k < n; ++k)
+        const bool guideMarks = pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Detail &&
+                                i == count / 2;
+        for (int k = 0; k < n && !guideMarks; ++k)
             SDiamond(d.x + (k - (n - 1) * 0.5f) * 14.0f * ui, d.y + kRarityY * ui, 4.0f * ui, d.col,
                      d.textA * 0.9f * d.P.title, 1.2f * ui, key, true);
 
@@ -1155,7 +1200,8 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         SDiamond(d.x, d.y + kDivY * ui, 3.2f * ui, d.col, d.textA * 0.6f * dv, 1.0f * ui, key, true);
 
         // Hover: a pair of slide bars under the card with end diamonds.
-        if (!inExit && h > 0.02f) {
+        if (!inExit && focusT[i] > 0.02f) {   // hover only, not the guide's glow
+            const float h = focusT[i];
             const float by = d.y + (ac::kCardH * 0.5f + 22.0f) * ui, ext = (18.0f + 66.0f * h) * ui;
             SLine(d.x - 14.0f * ui, by, d.x - ext, by, 1.4f * ui, d.col, 0.8f * h * d.alpha, key);
             SLine(d.x + 14.0f * ui, by, d.x + ext, by, 1.4f * ui, d.col, 0.8f * h * d.alpha, key);
@@ -1238,15 +1284,16 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         for (int i = 0; i < count; ++i) { cardX[i] = cd[i].x; cardY[i] = cd[i].y; cardCol[i] = cd[i].col; }
         static bool glossaryHeld = false;
         const bool held = ActionBound(GameAction::Glossary) && ActionHeld(GameAction::Glossary);
-        bool glossaryPress = held && !glossaryHeld;
+        bool glossaryPress = held && !glossaryHeld && !pickGuide;
         if (g_SmokeCapture && inputReady && g_SmokeGlossKeyPresses > 0) { --g_SmokeGlossKeyPresses; glossaryPress = true; }
         glossaryHeld = held;
-        DrawGlossaryTips(linkBoxes, cardX, cardY, cardCol, count, inputReady && !inExit,
+        DrawGlossaryTips(linkBoxes, cardX, cardY, cardCol, count, inputReady && !inExit && !pickGuide,
                          (float)c.mx, (float)c.my, delta, focus, glossaryPress, pointerMoved && c.mx >= 0.0, sw, sh, ui);
     }
 
-    // Guide line, only once the cards can be picked.
-    if (inputReady) {
+    // Guide line, only once the cards can be picked (the tutorial's guide
+    // cards say it while they are up).
+    if (inputReady && !pickGuide) {
         // The card and confirm keys follow the bindings (KeyBindings.h); unbound
         // card keys drop out, leaving the click.
         static const GameAction kCardKeys[3] = {
@@ -1276,9 +1323,12 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                                  : L" · " + termKey + L" FOR TERMS";
         }
         const wchar_t* guide = guideText.c_str();
-        const float gs = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
+        // In the tutorial the line goes under the cards (the field's title sits above them).
+        const float gs = UiTextScale(g_TextS, UiTextLevel::Supporting, baseUi);
         const float gw = g_TextS.Width(guide, gs);
-        DrawShadowedText(g_TextS, guide, sw * 0.5f - gw * 0.5f, L.cy - L.cardH * 0.5f - 64.0f * ui, gs,
+        const float gy = tutorialPick ? L.cy + L.cardH * 0.5f + 34.0f * baseUi
+                                      : L.cy - L.cardH * 0.5f - 64.0f * ui;
+        DrawShadowedText(g_TextS, guide, sw * 0.5f - gw * 0.5f, gy, gs,
                          0.58f, 0.70f, 0.84f, 0.80f, 0.70f);
     }
 
@@ -1383,6 +1433,152 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                            0.9f * (1.0f - ac::Smooth01((u - 0.55f) / 0.45f)) * sceneA);
             }
         }
+    }
+
+    // ── tutorial guide cards (the practice field's look: gold corners on the
+    //    part in focus, "n / 3", title, text, the key to go on) ──
+    if (pickGuideUp && count > 0) {
+        using ready_launch::PickGuide;
+        const PickGuide g = ready_launch::g_PickGuide;
+        const int idx = (int)g;
+        float in = ac::Clamp01(ready_launch::g_PickGuideT / 0.30f);
+        in = in * in * (3.0f - 2.0f * in);
+        const float pulse = 0.5f + 0.5f * std::sin(now * 3.0f);
+        const Rgb gold{ 1.00f, 0.86f, 0.40f };
+        const float halfW = ac::kCardW * 0.5f * ui, halfH = ac::kCardH * 0.5f * ui;
+        auto corners = [&](float x0, float y0, float x1, float y1, float pad = 8.0f) {
+            const float grow = (1.0f - in) * 14.0f * ui + pad * ui;
+            const float rw = x1 - x0 + 2.0f * grow, rh = y1 - y0 + 2.0f * grow;
+            DrawGuideCorners(x0 - grow, y0 - grow, rw, rh, std::min(26.0f * ui, std::min(rw, rh) * 0.3f),
+                             1.8f * ui, (0.70f + 0.30f * pulse) * in);
+        };
+        BindMainShader();
+        const CardDraw& first = cd[0];
+        const CardDraw& last = cd[count - 1];
+        const CardDraw& mid = cd[count / 2];
+        if (g == PickGuide::Cards) {
+            corners(first.x - halfW, L.cy - halfH, last.x + halfW, L.cy + halfH);
+        } else if (g == PickGuide::Detail) {
+            const int n = rarity[count / 2] + 1;
+            const float ry = mid.y + kRarityY * ui;
+            const float half = ((n - 1) * kGuideMarkGap * 0.5f + kGuideMarkR + 6.0f) * ui;
+            corners(mid.x - half, ry - (kGuideMarkR + 4.0f) * ui, mid.x + half, ry + (kGuideMarkR + 4.0f) * ui);
+            // Around the words themselves (the meta line and the description
+            // lines), well inside the card's own corner brackets and above [n].
+            // Across the card's text column (icons and term marks make the
+            // measured width unreliable), down to the last description line.
+            const CardText& tx = texts[count / 2];
+            const float textL = mid.x - (ac::kCardW * 0.5f - 22.0f) * ui;
+            const float textR = mid.x + (ac::kCardW * 0.5f - 22.0f) * ui;
+            float textB = mid.y + kDescY * ui;
+            for (const DescLine& l : tx.desc.lines)
+                textB += g_TextS.Height(l.text.c_str(), tx.descScale) + 4.0f * ui;
+            textB = std::min(textB, mid.y + 150.0f * ui);
+            corners(textL - 4.0f * ui, mid.y + kMetaY * ui - 8.0f * ui, textR + 4.0f * ui, textB + 2.0f * ui, 4.0f);
+        } else {
+            const float ky = first.y + 182.0f * ui;
+            corners(first.x - 30.0f * ui, ky - 14.0f * ui, last.x + 30.0f * ui, ky + 14.0f * ui);
+        }
+        if (g == PickGuide::Detail) {
+            // The rarity diamonds and the glossary words of the middle card
+            // pulse in gold: the two things this card talks about.
+            // The marks grow from their card size to about twice it.
+            const int n = rarity[count / 2] + 1;
+            const float ry = mid.y + kRarityY * ui;
+            const float gap = 14.0f + (kGuideMarkGap - 14.0f) * in;
+            const float r = 4.0f + (kGuideMarkR - 4.0f + 1.2f * pulse) * in;
+            for (int k = 0; k < n; ++k) {
+                SDiamond(mid.x + (k - (n - 1) * 0.5f) * gap * ui, ry, r * ui, gold,
+                         0.65f + 0.35f * pulse, 1.6f * ui, key);
+                SDiamond(mid.x + (k - (n - 1) * 0.5f) * gap * ui, ry, r * 0.45f * ui, gold,
+                         0.55f + 0.35f * pulse, 1.2f * ui, key, true);
+            }
+            for (const LinkBox& b : linkBoxes) {
+                if (b.owner != count / 2) continue;
+                SLine(b.x0, b.y1 + 2.0f * ui, b.x1, b.y1 + 2.0f * ui, 2.2f * ui, gold,
+                      (0.55f + 0.40f * pulse) * in, key);
+            }
+        }
+        BatchFlush();
+        if (g == PickGuide::Keys) {
+            // The [n] keys, in gold and larger, breathing.
+            const float ks = UiTextScale(g_TextS, UiTextLevel::Description, ui) * (1.25f + 0.08f * pulse);
+            for (int i = 0; i < count; ++i) {
+                wchar_t keyLabel[8];
+                swprintf_s(keyLabel, L"[%d]", i + 1);
+                const float kw = g_TextS.Width(keyLabel, ks), kh = g_TextS.Height(keyLabel, ks);
+                DrawShadowedText(g_TextS, keyLabel, cd[i].x - kw * 0.5f, cd[i].y + 182.0f * ui - kh * 0.5f, ks,
+                                 gold.r, gold.g, gold.b, (0.75f + 0.25f * pulse) * in, 0.70f);
+            }
+        }
+
+        // Caption above the cards (below them if there is no room).
+        const wchar_t* title = ReadyPickGuide(idx, 0);
+        // "Rarity & text" talks about underlined words only if the middle card has one.
+        bool midTerms = false;
+        for (const LinkBox& lb : linkBoxes) midTerms = midTerms || lb.owner == count / 2;
+        const wchar_t* body = ReadyPickGuide(idx, 1, midTerms);
+        const wchar_t* footer = ReadyPickGuideGo(g == PickGuide::Keys);
+        // The tutorial draws this screen shrunk into the practice field
+        // (kCardScreenScale); the words keep a readable size on the real screen.
+        const float toScreen = ready_launch::g_SelectionUp ? ready_launch::kCardScreenScale : 1.0f;
+        auto atLeast = [&](TextRenderer& tr, float scale, float screenPx) {
+            return std::max(scale, screenPx / toScreen / std::max(1.0f, tr.LineHeightPixels()));
+        };
+        // Larger than the screen's own text levels: these are the words to read.
+        const float titleS = atLeast(g_TextL, 1.25f * UiTextScale(g_TextL, UiTextLevel::Subtitle, baseUi), 32.0f);
+        const float bodyS = atLeast(g_TextS, 1.45f * UiTextScale(g_TextS, UiTextLevel::Description, baseUi), 24.0f);
+        const float smallS = atLeast(g_TextS, 1.30f * UiTextScale(g_TextS, UiTextLevel::Supporting, baseUi), 19.0f);
+        const float wrapW = std::min(sw * 0.92f, 900.0f * baseUi);
+        std::vector<std::wstring> lines;
+        {   // Greedy wrap at spaces (between characters when a word runs long).
+            std::wstring cur;
+            size_t lastSpace = std::wstring::npos;
+            for (const wchar_t* p = body; *p && lines.size() < 3; ++p) {
+                if (*p == L' ') lastSpace = cur.size();
+                cur += *p;
+                if (cur.size() > 1 && g_TextS.Width(cur.c_str(), bodyS) > wrapW) {
+                    std::wstring rest;
+                    if (lastSpace != std::wstring::npos && lastSpace > 0) { rest = cur.substr(lastSpace + 1); cur.resize(lastSpace); }
+                    else { rest = cur.substr(cur.size() - 1); cur.pop_back(); }
+                    lines.push_back(cur);
+                    cur = rest;
+                    lastSpace = cur.find_last_of(L' ');
+                }
+            }
+            if (!cur.empty() && lines.size() < 3) lines.push_back(cur);
+        }
+        const float titleH = g_TextL.Height(title, titleS) * 1.35f;
+        const float lineH = g_TextS.Height(L"가A", bodyS) * 1.55f;
+        const float footH = g_TextS.Height(footer, smallS) * 1.6f;
+        const float blockH = titleH + 8.0f * ui + lines.size() * lineH + 6.0f * ui + footH;
+        // Under the cards, where the deck sits (it steps aside while the guide is up).
+        float top = L.cy + halfH + 16.0f * ui;
+        top = std::min(top, sh - 14.0f * ui - blockH);
+        top += (1.0f - in) * 8.0f * ui;
+        const float cx = sw * 0.5f;
+        // Row 1: "n / 3" and the title, centred together.
+        wchar_t stepBuf[16];
+        swprintf_s(stepBuf, L"%d / %d", idx + 1, ready_launch::kPickGuideCards);
+        const float stepW = g_TextS.Width(stepBuf, smallS), gap = 14.0f * ui;
+        const float tW = g_TextL.Width(title, titleS);
+        float x = cx - (stepW + gap + tW) * 0.5f;
+        const float rowY = top + titleH * 0.5f;
+        DrawShadowedText(g_TextS, stepBuf, x, rowY - g_TextS.Height(stepBuf, smallS) * 0.5f, smallS,
+                         gold.r, gold.g, gold.b, 0.90f * in, 0.70f);
+        x += stepW + gap;
+        DrawShadowedText(g_TextL, title, x, rowY - g_TextL.Height(title, titleS) * 0.5f, titleS,
+                         gold.r, gold.g, gold.b, in, 0.70f);
+        float y = top + titleH + 8.0f * ui;
+        for (const std::wstring& l : lines) {
+            const float w = g_TextS.Width(l.c_str(), bodyS);
+            DrawShadowedText(g_TextS, l.c_str(), cx - w * 0.5f, y, bodyS, 1.0f, 1.0f, 1.0f, in, 0.70f);
+            y += lineH;
+        }
+        y += 6.0f * ui;
+        const float fw = g_TextS.Width(footer, smallS);
+        DrawShadowedText(g_TextS, footer, cx - fw * 0.5f, y, smallS, gold.r, gold.g, gold.b,
+                         (0.72f + 0.25f * pulse) * in, 0.70f);
     }
     BatchFlush();
 }

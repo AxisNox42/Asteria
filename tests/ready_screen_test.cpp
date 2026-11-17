@@ -5,6 +5,7 @@
 #include "ReadyPractice.h"
 #include "KeyboardPanelModel.h"
 #include "TutorialText.h"
+#include "ReadyLaunch.h"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -281,7 +282,7 @@ static void CheckLabels() {
             assert(std::wstring(ReadyLegend(i)).find(L'{') == std::wstring::npos);
         for (int i = 0; i < READY_STEP_HINT_COUNT; ++i)
             assert(std::wstring(ReadyStepHint(i)).find(L'{') == std::wstring::npos);
-        assert(std::wstring(ReadyBrief()).find(L"SPACE") != std::wstring::npos);
+        assert(std::wstring(ReadyStepCard(4, 1)).find(L"SPACE") != std::wstring::npos);
     }
     g_Language = Language::EN;
     assert(std::wstring(ReadyLegend(1)) == L"SHIFT  dash");
@@ -291,6 +292,87 @@ static void CheckLabels() {
     assert(std::wstring(ReadyLegend(4)) == L"ESC  pause");   // ESC opens the tutorial pause menu
     ResetKeyBindings();
     g_Language = Language::KR;
+}
+
+// Step cards: each opens once per tutorial, only after the HUD cards, and a
+// confirm closes it.
+static void CheckStepCards() {
+    namespace rl = ready_launch;
+    using rl::HudGuide;
+    rl::g_TutorialMode = true;
+    rl::BeginTutorial();
+    assert(!rl::OpenStepCard(HudGuide::Move));        // HUD cards first
+    rl::g_HudGuideT = rl::kHudGuideDelay + rl::kHudGuideReady;
+    assert(rl::HudGuideConfirm() && rl::g_HudGuide == HudGuide::Xp);
+    rl::g_HudGuideT = rl::kHudGuideReady;
+    assert(rl::HudGuideConfirm() && rl::g_HudGuide == HudGuide::Done);
+    assert(rl::OpenStepCard(HudGuide::Move) && rl::g_HudGuide == HudGuide::Move);
+    assert(rl::HudGuideActive() && rl::HudGuideShown());
+    rl::g_HudGuideT = 0.1f;
+    assert(rl::HudGuideConfirm() && rl::g_HudGuide == HudGuide::Move);   // too early to close
+    rl::g_HudGuideT = rl::kHudGuideReady;
+    assert(rl::HudGuideConfirm() && rl::g_HudGuide == HudGuide::Done);
+    assert(!rl::OpenStepCard(HudGuide::Move));        // once per tutorial
+    assert(rl::OpenStepCard(HudGuide::Shoot));
+    assert(!rl::OpenStepCard(HudGuide::Dash));        // one card at a time
+    assert(!rl::OpenStepCard(HudGuide::Hp));          // not a step card
+    rl::BeginTutorial();                              // a new tutorial shows them again
+    rl::g_HudGuide = HudGuide::Done;
+    assert(rl::OpenStepCard(HudGuide::Move));
+    rl::g_TutorialMode = false;
+    rl::g_HudGuide = HudGuide::Done;
+    assert(!rl::OpenStepCard(HudGuide::Shoot));       // outside the tutorial: none
+
+    for (int lang = 0; lang < LANG_COUNT; ++lang) {
+        g_Language = (Language)lang;
+        for (int c = 0; c < READY_STEP_CARD_COUNT; ++c)
+            for (int l = 0; l < 2; ++l) {
+                const std::wstring s = ReadyStepCard(c, l);
+                assert(!s.empty() && s.find(L'{') == std::wstring::npos);
+            }
+        for (int i = 0; i < READY_OBJECTIVE_COUNT; ++i)
+            assert(std::wstring(ReadyStepShort(i, 2)).find(L'{') == std::wstring::npos);
+        assert(std::wstring(ReadyStepCardGo(false)).find(L'{') == std::wstring::npos);
+        assert(ReadySwarmTag()[0] != 0);
+    }
+    // Card pick guide: three cards in order, each closable after the ready time.
+    rl::g_TutorialMode = true;
+    rl::BeginTutorial();
+    assert(!rl::PickGuideActive());
+    rl::OpenPickGuide();
+    assert(rl::PickGuideActive() && rl::g_PickGuide == rl::PickGuide::Cards);
+    assert(rl::PickGuideConfirm() && rl::g_PickGuide == rl::PickGuide::Cards);   // too early
+    for (int k = 0; k < rl::kPickGuideCards; ++k) {
+        rl::g_PickGuideT = rl::kHudGuideReady;
+        assert(rl::PickGuideConfirm());
+    }
+    assert(!rl::PickGuideActive() && !rl::PickGuideConfirm());
+    rl::g_TutorialMode = false;
+    for (int lang = 0; lang < LANG_COUNT; ++lang) {
+        g_Language = (Language)lang;
+        for (int c = 0; c < READY_PICK_GUIDE_COUNT; ++c)
+            for (int l = 0; l < 2; ++l) {
+                const std::wstring s = ReadyPickGuide(c, l);
+                assert(!s.empty() && s.find(L'{') == std::wstring::npos);
+            }
+        assert(std::wstring(ReadyPickGuideGo(true)).find(L'{') == std::wstring::npos);
+        // Without an underlined word on the card the text says so, still naming the key.
+        const std::wstring noTerms = ReadyPickGuide(1, 1, false);
+        assert(!noTerms.empty() && noTerms.find(L'{') == std::wstring::npos);
+        assert(noTerms != ReadyPickGuide(1, 1, true));
+        assert(std::wstring(ReadyPickGuide(0, 1, false)) == ReadyPickGuide(0, 1, true));
+        const std::wstring confirm = ReadyConfirmCap();
+        assert(!confirm.empty() && confirm.find(L'{') == std::wstring::npos);
+    }
+    g_Language = Language::EN;
+    assert(std::wstring(ReadyPickGuide(1, 1)).find(L"TAB") != std::wstring::npos);
+    assert(std::wstring(ReadyPickGuide(1, 1, false)).find(L"TAB") != std::wstring::npos);
+    assert(std::wstring(ReadyConfirmCap()).find(L"SPACE") != std::wstring::npos);
+    assert(std::wstring(ReadyPickGuide(2, 1)).find(L"1/2/3") != std::wstring::npos);
+
+    g_Language = Language::KR;
+    assert(std::wstring(ReadyStepShort(3, 2)).find(L"2 / 4") != std::wstring::npos);
+    assert(std::wstring(ReadyStepShort(3, 9)).find(L"4 / 4") != std::wstring::npos);
 }
 
 int main() {
@@ -303,6 +385,7 @@ int main() {
     CheckLayout();
     CheckRolesFollowBindings();
     CheckLabels();
+    CheckStepCards();
     std::puts("ready screen tests passed");
     return 0;
 }

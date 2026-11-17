@@ -132,7 +132,7 @@ static void CheckTutorialTokens() {
     ResetKeyBindings();
     for (int lang = 0; lang < LANG_COUNT; ++lang) {
         g_Language = (Language)lang;
-        std::wstring all = ReadyBrief();
+        std::wstring all = ReadyStepCard(4, 1);   // the launch card names the start key
         all += TutorialControls();
         for (int page = 0; page < TUTORIAL_PAGE_COUNT; ++page) all += TutorialPageBody(page);
         assert(all.find(L'{') == std::wstring::npos);   // every token expanded

@@ -51,20 +51,45 @@ inline bool LaunchUnlocked() { return !g_TutorialMode || g_Stage == TutorialStag
 inline constexpr float kLaunchLockedSec = 1.8f;
 inline float g_LaunchLockedT = 0.0f;
 
-// HUD guide: when the tutorial opens, two cards point at the health ring and
-// then the XP line before the practice starts. The field stands still while a
-// card is up; the Confirm key (Space) or a left click moves on. Not saved: every tutorial
-// entry shows it again.
-enum class HudGuide { Hp, Xp, Done };
-inline constexpr int kHudGuideCards = 2;
+// Guide cards: when the tutorial opens, two cards point at the health ring and
+// then the XP line. After that every step opens with its own card (move, shoot,
+// dash, defeat, and the launch once the card pick is done) with the same look:
+// gold corners on what it is about, the rest of the page faint, and a picture
+// of the key or the enemy on the card. The field stands still while a card is
+// up; the Confirm key (Space) or a left click moves on. Not saved: every
+// tutorial entry shows them again.
+enum class HudGuide { Hp, Xp, Move, Shoot, Dash, Kill, Launch, Done };
+inline constexpr int kHudGuideCards = 2;         // the opening HUD cards (Hp, Xp)
 inline HudGuide g_HudGuide = HudGuide::Done;
 inline float g_HudGuideT = 0.0f;                 // seconds on the current card
 inline constexpr float kHudGuideDelay = 0.50f;   // the first card waits for the page to settle
 inline constexpr float kHudGuideReady = 0.35f;   // a card can be closed this long after it shows
+// The pause before each step card, in seconds (Move, Shoot, Dash, Kill,
+// Launch): after the step before it is cleared (the HUD cards, for Move) the
+// field keeps running this long, so the move that cleared it is seen to land
+// and the player gets a breath before the next card stops the field. Tune
+// the tutorial's pacing here.
+inline constexpr float kStepGap[] = { 0.6f, 1.2f, 1.2f, 1.2f, 0.5f };
+// Step cards already shown this tutorial (bit per HudGuide value).
+inline unsigned g_StepCardsShown = 0;
+inline bool IsStepCard(HudGuide g) { return g >= HudGuide::Move && g <= HudGuide::Launch; }
+static_assert(sizeof(kStepGap) / sizeof(kStepGap[0]) == (int)HudGuide::Launch - (int)HudGuide::Move + 1,
+              "a gap per step card");
+inline float StepGap(HudGuide g) { return IsStepCard(g) ? kStepGap[(int)g - (int)HudGuide::Move] : 0.0f; }
 inline bool HudGuideActive() { return g_TutorialMode && g_HudGuide != HudGuide::Done; }
 // The card is drawn (past the first card's opening delay).
 inline bool HudGuideShown() {
     return HudGuideActive() && (g_HudGuide != HudGuide::Hp || g_HudGuideT >= kHudGuideDelay);
+}
+// Opens a step's card once per tutorial. Returns true when it opened.
+inline bool OpenStepCard(HudGuide card) {
+    if (!g_TutorialMode || !IsStepCard(card) || g_HudGuide != HudGuide::Done) return false;
+    const unsigned bit = 1u << (unsigned)card;
+    if (g_StepCardsShown & bit) return false;
+    g_StepCardsShown |= bit;
+    g_HudGuide = card;
+    g_HudGuideT = 0.0f;
+    return true;
 }
 // Confirm pressed while the guide is up. Returns true when the press was the
 // guide's (a card closed, or it was too early to close one).
@@ -77,9 +102,31 @@ inline bool HudGuideConfirm() {
     return true;
 }
 
+// Card pick guide (step 5): three cards over the real card screen, same look
+// as the others: the cards (pick 1 of 3), one card's rarity and text (glossary
+// words), then how to choose. No card can be taken while it is up; Space or a
+// click moves it on. Not saved: every tutorial shows it.
+enum class PickGuide { Cards, Detail, Keys, Done };
+inline constexpr int kPickGuideCards = 3;
+inline PickGuide g_PickGuide = PickGuide::Done;
+inline float g_PickGuideT = 0.0f;   // seconds on the current card, once the cards are dealt
+inline bool PickGuideActive() { return g_TutorialMode && g_PickGuide != PickGuide::Done; }
+inline void OpenPickGuide() { g_PickGuide = PickGuide::Cards; g_PickGuideT = 0.0f; }
+// Confirm (Space or a click) while it is up. True when the press was the guide's.
+inline bool PickGuideConfirm() {
+    if (!PickGuideActive()) return false;
+    if (g_PickGuideT < kHudGuideReady) return true;
+    g_PickGuide = (PickGuide)((int)g_PickGuide + 1);
+    g_PickGuideT = 0.0f;
+    return true;
+}
+
 inline void BeginTutorial() {
     g_HudGuide = HudGuide::Hp;
     g_HudGuideT = 0.0f;
+    g_StepCardsShown = 0;
+    g_PickGuide = PickGuide::Done;
+    g_PickGuideT = 0.0f;
     g_LaunchT = -1.0f;
     g_Stage = TutorialStage::Practice;
     g_PicksTaken = false;

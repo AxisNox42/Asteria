@@ -58,19 +58,21 @@ using hud_lines::Rgb;
 using ready_launch::kCanvasW;
 using ready_launch::kCanvasH;
 constexpr float kTitleY = 56.0f, kTitlePx = 56.0f;
-constexpr float kBriefY = 108.0f, kBriefPx = 24.0f;
 using ready_launch::kFieldW;
 using ready_launch::kFieldH;
 using ready_launch::kFieldX;
 using ready_launch::kFieldY;
-constexpr float kFieldLabelPx = 20.0f, kFieldLabelGap = 18.0f;
 constexpr float kFieldCorner = 26.0f;
-constexpr float kStepLabelY = 26.0f, kStepLabelPx = 16.0f;   // inside the field, from its top
-constexpr float kStepHintY = 54.0f, kStepHintPx = 25.0f;
+constexpr float kStepLabelY = 28.0f;   // top margin inside the field
+constexpr float kStepHintY = 60.0f, kStepHintPx = 30.0f;
 constexpr float kStepFadeIn = 0.35f, kStepRise = 10.0f;
 constexpr float kObjectivesX = kFieldX + kFieldW + 40.0f;
-constexpr float kObjectiveRowH = 44.0f, kObjectivePx = 23.0f, kCheckSize = 26.0f;
-constexpr float kObjectiveNotePx = 16.0f;
+constexpr float kObjectiveRowH = 48.0f, kObjectivePx = 26.0f, kCheckSize = 26.0f;
+constexpr float kObjectiveNotePx = 18.0f;
+constexpr float kNotePx = 21.0f;   // the ring and XP notes inside the field
+// Beta testers on small windows could not read the page: the canvas shrinks
+// with the window, but text never goes below these on-screen sizes.
+constexpr float kMinTextPx = 16.0f, kMinSmallPx = 14.0f;
 constexpr float kKeyPitch = 44.0f, kKeyGap = 5.0f;
 // Legend right of the keyboard: the mouse, and beside it the aim line and one
 // line per key role.
@@ -79,14 +81,19 @@ constexpr float kLegendGap = 110.0f, kLegendW = kMouseW;
 constexpr float kKeyboardX = (kCanvasW - (kb::kLayoutW * kKeyPitch + kLegendGap + kLegendW)) * 0.5f;
 constexpr float kKeyboardY = 780.0f;
 constexpr float kCaptionMinW = 1.5f;   // key units
-constexpr float kKeyPx = 19.0f, kKeyLongPx = 14.0f, kKeyCaptionPx = 13.0f, kSpacePx = 20.0f;
-constexpr float kLegendRowH = 34.0f, kLegendPx = 20.0f, kLegendMark = 16.0f;
-constexpr float kLegendBlockY = kFieldY + 350.0f;   // key legend, under the objectives
+constexpr float kKeyPx = 19.0f, kKeyLongPx = 14.0f, kKeyCaptionPx = 15.0f, kSpacePx = 20.0f;
 
 // The arena in world px. At 1:1 on the 1920x1080 canvas the ship, Swarms,
 // bullets, dash and field radius are exactly the size they are in a run.
 constexpr float kViewScale = 1.0f;
 constexpr float kWorldW = kFieldW / kViewScale, kWorldH = kFieldH / kViewScale;
+
+// How far the ship's picture (DrawPlayerWeaponShell) reaches from its centre,
+// in ship sizes: the field keeps the ship's centre this far inside.
+constexpr float kShipDrawReach = 1.8f;
+// The HP ring fades to this alpha once it crosses the field's frame.
+constexpr float kRingOutA = 0.35f;
+constexpr float kRingFadePx = 10.0f;           // canvas px over which it fades
 
 constexpr float kRespawnRing = 40.0f;          // world px
 constexpr float kBob = 5.0f;                   // world px
@@ -104,8 +111,7 @@ constexpr float kGlowCurrent = 1.0f;    // the step being taught (pulses)
 constexpr float kGlowEase    = 5.0f;    // per second
 constexpr float kPulseSpeed  = 5.0f;
 constexpr float kCurrentFillA = 0.42f;  // colour fill of the keys to press now
-constexpr float kIdleKeyA    = 0.24f;   // caps with no role
-constexpr float kIdleLabelA  = 0.55f;
+constexpr float kGhostKeyA   = 0.10f;   // caps with no role: outline only, no label
 
 // ── Colours ──
 constexpr Rgb kCyan   { 0.55f, 0.90f, 1.00f };
@@ -115,6 +121,7 @@ constexpr Rgb kDone   { 0.59f, 0.94f, 0.67f };
 constexpr Rgb kAmber  { 1.00f, 0.82f, 0.47f };
 constexpr Rgb kPurple { 0.71f, 0.63f, 1.00f };
 constexpr Rgb kGrey   { 0.80f, 0.80f, 0.80f };
+constexpr Rgb kGold   { 1.00f, 0.86f, 0.40f };   // guide highlight (the shop tour's look)
 
 Rgb RoleColor(kb::KeyRole role) {
     switch (role) {
@@ -133,6 +140,8 @@ static_assert(kRoleCount == (int)kb::KeyRole::Quit + 1, "caption per key role");
 static_assert(READY_LEGEND_COUNT == kRoleCount - 1, "legend line per role except None");
 static_assert(READY_OBJECTIVE_COUNT == rp::kObjectiveCount, "label per objective");
 static_assert(READY_STEP_HINT_COUNT == rp::kObjectiveCount + 1, "hint per step plus done");
+static_assert(READY_STEP_CARD_COUNT ==
+              (int)ready_launch::HudGuide::Launch - (int)ready_launch::HudGuide::Move + 1, "text per step card");
 
 // What the lesson lights up: the key groups and the mouse.
 enum class Guide { Move, Mouse, Dash, Start, Count };
@@ -143,6 +152,8 @@ struct Canvas {
     float X(float x) const { return ox + x * k; }
     float Y(float y) const { return oy + y * k; }
     float S(float v) const { return v * k; }
+    // Text size: scaled like the layout, but never under the readable floor.
+    float T(float v, float floor = kMinTextPx) const { return std::max(v * k, std::min(v, floor)); }
 };
 
 Canvas FitCanvas(float sw, float sh) {
@@ -228,7 +239,12 @@ struct PracticeView {
     // and the screen rectangle of the part the current card points at.
     float guideDim = 0.0f;
     float focusX = 0.0f, focusY = 0.0f, focusW = 0.0f, focusH = 0.0f;
+    // The step whose card is waiting to open, and for how long it has waited
+    // (the move that cleared the last step plays out first).
+    ready_launch::HudGuide cardPending = ready_launch::HudGuide::Done;
+    float cardWait = 0.0f;
 };
+
 
 // HUD guide look.
 constexpr float kGuideRestA = 0.28f;      // alpha of everything but the part in focus
@@ -265,7 +281,9 @@ rp::Rules LiveRules(const PracticeView& v, bool firing) {
     rp::Rules r;
     r.worldW = kWorldW;
     r.worldH = kWorldH;
-    r.playerRadius = PLAYER_SIZE_PX * g_Stats.playerSizeMult * 0.5f;
+    // The whole ship picture (hull and its orbit marks) stays inside the
+    // field's frame, not only its hit circle; the HP ring may still cross it.
+    r.playerRadius = PLAYER_SIZE_PX * g_Stats.playerSizeMult * kShipDrawReach;
     r.moveSpeed = PLAYER_MOVE_SPEED * g_Stats.moveSpeedMult;
     r.dashDist = DASH_DIST;
     r.dashDur = DASH_DUR;
@@ -305,6 +323,8 @@ void ResetView(PracticeView& v) {
     v.pulseFlash = 0.0f;
     v.shownStep = rp::Objective::Count;
     v.stepAge = 0.0f;
+    v.cardPending = ready_launch::HudGuide::Done;
+    v.cardWait = 0.0f;
 }
 
 void TouchView(PracticeView& v) {
@@ -362,6 +382,37 @@ GuideLook LookOf(const PracticeView& v, int guide, rp::Objective current, float 
     if (guide < 0) return { kGlowWaiting, false };   // outside the lesson: stays quiet
     const bool isCurrent = IsCurrent(guide, current);
     return { isCurrent ? v.glow[guide] * pulse : v.glow[guide], isCurrent };
+}
+
+// The defeat card's lock-on: each Swarm's brackets close in over kLockTime,
+// one after another kLockStagger apart.
+constexpr float kLockTime = 0.45f, kLockStagger = 0.09f;
+
+// The step's card has been shown (outside the tutorial there are none, so
+// everything about a step shows at once).
+bool StepCardSeen(rp::Objective o) {
+    using ready_launch::HudGuide;
+    if (!ready_launch::g_TutorialMode) return true;
+    HudGuide card = HudGuide::Done;
+    switch (o) {
+    case rp::Objective::Move:  card = HudGuide::Move;  break;
+    case rp::Objective::Shoot: card = HudGuide::Shoot; break;
+    case rp::Objective::Dash:  card = HudGuide::Dash;  break;
+    case rp::Objective::Kill:  card = HudGuide::Kill;  break;
+    default:                   return true;
+    }
+    return (ready_launch::g_StepCardsShown & (1u << (unsigned)card)) != 0;
+}
+
+// Four corner brackets around (cx, cy), r from the centre to each corner's
+// side: a target lock, drawn with solid lines only.
+void TargetBrackets(float cx, float cy, float r, float arm, float th, Rgb c, float a, float key) {
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2) {
+            const float x = cx + sx * r, y = cy + sy * r;
+            Line(x, y, x - sx * arm, y, th, c, a, key);
+            Line(x, y, x, y - sy * arm, th, c, a, key);
+        }
 }
 
 void SpawnShards(PracticeView& v, float x, float y, float k) {
@@ -422,16 +473,10 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         hud_lines::DiamondOutline(fx, fy + fh * 0.5f, nr, cv.S(1.5f), kCyan, 0.7f, key);
         hud_lines::DiamondOutline(fx + fw, fy + fh * 0.5f, nr, cv.S(1.5f), kCyan, 0.7f, key);
     }
-    const float labelY = fy - cv.S(kFieldLabelGap);
-    const float labelPx = cv.S(kFieldLabelPx);
-    Text(body, kReadyFieldTitle, fx, labelY, labelPx, kCyan, 0.85f);
-    const float titleW = body.Width(kReadyFieldTitle, labelPx / body.LineHeightPixels());
-    Text(body, ReadyFieldNote(), fx + titleW + cv.S(20.0f), labelY, labelPx, kText, 0.72f);
-
+    // No label over the field: the cards, the line above the ship and the
+    // objectives say everything (beta: the page had too much to read).
     const Rgb swarm{ v.mobs[0]->color.r, v.mobs[0]->color.g, v.mobs[0]->color.b };
     const Rgb swarmText = Lighten(swarm, 0.45f);
-    const std::wstring kills = std::wstring(ReadyKills()) + L" " + std::to_wstring(v.field.kills);
-    Text(body, kills.c_str(), fx + fw, labelY, labelPx + cv.S(2.0f), swarmText, 0.95f, Align::Right);
     g_BatchAlpha = restA;
 
     // The field stays empty while a tutorial card screen is drawn over it.
@@ -451,6 +496,7 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         // Dummies: base tick, Swarm body (gameplay renderer), hp bar, respawn ring.
         const bool wasSuppressed = g_SuppressMobSeen;
         g_SuppressMobSeen = true;   // practice dummies are not Codex discoveries
+        g_BatchAlpha = partAlpha(HudGuide::Kill);   // the defeat card is about them
         for (int i = 0; i < rp::kDummyCount; ++i) {
             const rp::Dummy& d = v.field.dummies[i];
             const float hx = toX(d.homeX), hy = toY(d.homeY);
@@ -509,6 +555,67 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         v.shards.erase(std::remove_if(v.shards.begin(), v.shards.end(),
             [](const Shard& s) { return s.life <= 0.0f; }), v.shards.end());
 
+        // Defeat step: gold target brackets on every Swarm and a name tag on one,
+        // so the step's word points at the thing on the field. They do not pop
+        // in when the dash clears the step before: they lock on with the defeat
+        // card (wide and faint, closing in on each Swarm one after another,
+        // a flash as each locks, then the tag), and stay for the whole step; a
+        // kill breaks them apart, a respawn locks on again.
+        const bool killCard = focus == HudGuide::Kill;
+        if (killCard || (current == rp::Objective::Kill && StepCardSeen(rp::Objective::Kill))) {
+            const float baseA = killCard ? 1.0f : 0.80f;
+            const float breathe = 0.5f + 0.5f * std::sin(now * 3.0f);
+            const float lockT = killCard ? ready_launch::g_HudGuideT : 1e3f;   // seconds into the lock-on
+            int tagged = -1;
+            float tagX = 0.0f, tagY = 0.0f, tagR = 0.0f;
+            for (int i = 0; i < rp::kDummyCount; ++i) {
+                const rp::Dummy& d = v.field.dummies[i];
+                float a = baseA, open = 0.0f;
+                if (!d.Alive()) {
+                    const float p = std::min(1.0f, rp::RespawnProgress(d) * 6.0f);
+                    if (p >= 1.0f) continue;
+                    a *= 1.0f - p;
+                    open = p;
+                }
+                // Lock-on: from 2.6x wide and clear to the Swarm, eased out.
+                const float since = lockT - kLockStagger * (float)i;
+                const float p = std::clamp(since / kLockTime, 0.0f, 1.0f);
+                if (p <= 0.0f) continue;
+                const float e = 1.0f - (1.0f - p) * (1.0f - p) * (1.0f - p);
+                const float flash = std::clamp(1.0f - (since - kLockTime) / 0.22f, 0.0f, 1.0f) * (p >= 1.0f ? 1.0f : 0.0f);
+                const float bob = d.Alive() ? std::sin(now * kBobSpeed + 1.9f * (float)i) * kBob : 0.0f;
+                const float cx = toX(rp::DummyX(d)), cy = toY(rp::DummyY(d) + bob);
+                const float hit = std::clamp(d.hitFlash / rp::kHitFlash, 0.0f, 1.0f);
+                const float r = (rules.dummyHitRadius + 14.0f + 3.0f * breathe - 5.0f * hit + 30.0f * open) *
+                                ws * (1.0f + 1.6f * (1.0f - e));
+                TargetBrackets(cx, cy, r, r * 0.45f, cv.S(2.2f + 1.6f * flash), kGold,
+                               std::min(1.0f, a * (0.78f + 0.22f * breathe) * e + 0.4f * flash), key);
+                if (d.Alive() && tagged < 0 && p >= 1.0f) { tagged = i; tagX = cx; tagY = cy; tagR = r; }
+            }
+            // The name tag follows once every Swarm is locked: the leader draws
+            // out from the corner, then the word fades in.
+            const float tagIn = std::clamp((lockT - kLockStagger * (rp::kDummyCount - 1) - kLockTime) / 0.3f,
+                                           0.0f, 1.0f);
+            if (tagged >= 0 && tagIn > 0.0f) {
+                const wchar_t* tag = ReadySwarmTag();
+                const float tagPx = cv.T(22.0f);
+                const float tw = body.Width(tag, tagPx / std::max(1.0f, body.LineHeightPixels()));
+                const float lead = cv.S(16.0f), run = cv.S(14.0f);
+                const bool left = tagX + tagR + lead + run + tw + cv.S(12.0f) > fx + fw;
+                const float side = left ? -1.0f : 1.0f;
+                const float x0 = tagX + side * tagR, y0 = tagY - tagR;
+                const float grow = std::min(1.0f, tagIn * 2.0f);
+                const float x1 = x0 + side * lead * grow, y1 = y0 - lead * grow;
+                const float x2 = x1 + side * run * grow;
+                Line(x0, y0, x1, y1, cv.S(1.6f), kGold, 0.9f * baseA, key);
+                Line(x1, y1, x2, y1, cv.S(1.6f), kGold, 0.9f * baseA, key);
+                const float textA = std::clamp(tagIn * 2.0f - 1.0f, 0.0f, 1.0f);
+                Text(body, tag, left ? x2 - cv.S(6.0f) : x2 + cv.S(6.0f), y1, tagPx, kGold, baseA * textA,
+                     left ? Align::Right : Align::Left);
+            }
+        }
+        g_BatchAlpha = restA;
+
         // Bullets and ship with the gameplay renderers, at the view scale.
         for (const rp::Bullet& b : v.field.bullets) {
             ::Bullet shot(toX(b.x), toY(b.y), toX(b.x) + b.dirX, toY(b.y) + b.dirY);
@@ -518,9 +625,14 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
         }
         // The ship at its spot in the field, at the run's size scaled by the view.
         const float shipRunSize = PLAYER_SIZE_PX * g_Stats.playerSizeMult;
-        g_BatchAlpha = partAlpha(HudGuide::Hp);
+        // The ship stays bright on the cards about it (health, and the move,
+        // shoot and dash steps).
+        const bool shipFocus = focus == HudGuide::Hp || focus == HudGuide::Move ||
+                               focus == HudGuide::Shoot || focus == HudGuide::Dash;
+        g_BatchAlpha = shipFocus ? batchAlpha : restA;
         DrawPlayerWeaponShell(toX(v.field.playerX), toY(v.field.playerY),
                               shipRunSize * ws, v.field.aim, now);
+        g_BatchAlpha = partAlpha(HudGuide::Hp);
 
         // The health ring, full as in a fresh run, and what it measures: one
         // ring is the range unit augment cards count in ("4○", Entity/RangeUnit.h).
@@ -532,20 +644,23 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
             const float hpFrac = focus == HudGuide::Hp ? HpDemoFrac(ready_launch::g_HudGuideT) : 1.0f;
             const float a0 = vitals_hud::kArcStart, sweep = vitals_hud::kArcSweep;
             const Rgb trackC{ vitals_hud::kTrackCol.r, vitals_hud::kTrackCol.g, vitals_hud::kTrackCol.b };
-            // The ring is wider than the ship, so near a wall it is cut at the
-            // field's edge (as the run's screen edge cuts it), never drawn outside.
-            BatchFlush();
-            glEnable(GL_SCISSOR_TEST);
-            ScissorUnits(fx, fy, fw, fh);
+            // The ring is wider than the ship, so near a wall it crosses the
+            // field's frame: it is drawn whole, but turns see-through as it
+            // goes out, so the frame still reads as the field's edge.
+            const float inside = std::min(std::min(px - fx, fx + fw - px), std::min(py - fy, fy + fh - py));
+            const float over = std::clamp((R + thick - inside) / cv.S(kRingFadePx), 0.0f, 1.0f);
+            const float ringA = 1.0f - (1.0f - kRingOutA) * over;
             hud_lines::Arc(px, py, R, thick + cv.S(3.0f), a0, sweep,
-                           hud_lines::KeyCol(hp), hud_lines::kKeyA * 0.85f);
+                           hud_lines::KeyCol(hp), hud_lines::kKeyA * 0.85f * ringA);
             if (hpFrac < 1.0f)
-                hud_lines::Arc(px, py, R, thick, a0 + sweep * hpFrac, sweep * (1.0f - hpFrac), trackC, 0.40f);
-            hud_lines::Arc(px, py, R, thick, a0, sweep * hpFrac, hp, 0.85f);
-            BatchFlush();
-            glDisable(GL_SCISSOR_TEST);
+                hud_lines::Arc(px, py, R, thick, a0 + sweep * hpFrac, sweep * (1.0f - hpFrac), trackC, 0.40f * ringA);
+            hud_lines::Arc(px, py, R, thick, a0, sweep * hpFrac, hp, 0.85f * ringA);
 
-            const float notePx = cv.S(18.0f);
+            // In the tutorial the note is the HP card's: it goes with the card
+            // (beta: it followed the ship through every step).
+            const float noteIn = !ready_launch::g_TutorialMode ? 1.0f
+                               : focus == HudGuide::Hp ? std::clamp(ready_launch::g_HudGuideT / 0.3f, 0.0f, 1.0f) : 0.0f;
+            const float notePx = cv.T(kNotePx);
             const float scale = notePx / std::max(1.0f, body.LineHeightPixels());
             const wchar_t* note = ReadyRingNote();
             const float oneW = body.Width(L"1", scale), glyph = notePx * 0.80f, gap = cv.S(6.0f);
@@ -555,17 +670,20 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
             const bool left = px + R + cv.S(12.0f) + labelW > fx + fw - cv.S(8.0f);
             const float dir = left ? -1.0f : 1.0f;
             const float a = 0.85f;
-            Line(px + dir * cv.S(16.0f), py, px + dir * R, py, cv.S(1.3f), hp, 0.75f, key);
-            Line(px + dir * R, py - cv.S(5.0f), px + dir * R, py + cv.S(5.0f), cv.S(1.3f), hp, 0.75f, key);
-            float tx = left ? px - R - cv.S(12.0f) - labelW : px + R + cv.S(12.0f);
-            const Rgb noteCol = Lighten(hp, 0.35f);
-            Text(body, L"1", tx, py, notePx, noteCol, a);
-            tx += oneW;
-            const float gx = tx + glyph * 0.5f, gr = notePx * 0.30f;
-            hud_lines::Arc(gx, py, gr, cv.S(1.3f), 0.0f, 6.2831853f, noteCol, a);
-            drawCircle(gx, py, std::max(1.0f, gr * 0.26f), noteCol.r, noteCol.g, noteCol.b, a);
-            tx += glyph + gap;
-            Text(body, note, tx, py, notePx, kText, 0.80f);
+            g_BatchAlpha *= noteIn;
+            if (noteIn > 0.004f) {
+                Line(px + dir * cv.S(16.0f), py, px + dir * R, py, cv.S(1.3f), hp, 0.75f, key);
+                Line(px + dir * R, py - cv.S(5.0f), px + dir * R, py + cv.S(5.0f), cv.S(1.3f), hp, 0.75f, key);
+                float tx = left ? px - R - cv.S(12.0f) - labelW : px + R + cv.S(12.0f);
+                const Rgb noteCol = Lighten(hp, 0.35f);
+                Text(body, L"1", tx, py, notePx, noteCol, a);
+                tx += oneW;
+                const float gx = tx + glyph * 0.5f, gr = notePx * 0.30f;
+                hud_lines::Arc(gx, py, gr, cv.S(1.3f), 0.0f, 6.2831853f, noteCol, a);
+                drawCircle(gx, py, std::max(1.0f, gr * 0.26f), noteCol.r, noteCol.g, noteCol.b, a);
+                tx += glyph + gap;
+                Text(body, note, tx, py, notePx, kText, 0.92f);
+            }
             g_BatchAlpha = restA;
             if (focus == HudGuide::Hp) {
                 // Focus: the ring and its note.
@@ -607,13 +725,15 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
             const Rgb xp{ vitals_hud::kXpCol.r, vitals_hud::kXpCol.g, vitals_hud::kXpCol.b };
             const Rgb track{ vitals_hud::kTrackCol.r, vitals_hud::kTrackCol.g, vitals_hud::kTrackCol.b };
 
-            const float notePx = cv.S(18.0f);
+            const float notePx = cv.T(kNotePx);
             const float scale = notePx / std::max(1.0f, body.LineHeightPixels());
-            const float y = fy + fh - cv.S(26.0f);
+            const float y = fy + fh - cv.S(28.0f);
             const float x0 = fx + cv.S(22.0f);
+            // Words stay readable while the line waits; only the line itself dims.
+            const float textA = std::max(0.62f, a);
             wchar_t lv[24];
             swprintf_s(lv, L"%ls%d", T(StrId::LV_PREFIX), leveled ? 2 : 1);
-            Text(body, lv, x0, y, notePx, xp, std::min(1.0f, a + 0.15f * flash));
+            Text(body, lv, x0, y, notePx, xp, std::min(1.0f, textA + 0.15f * flash));
             const float lx = x0 + body.Width(lv, scale) + cv.S(10.0f);
             const float rx = fx + fw * 0.46f;
             const float fillX = lx + (rx - lx) * std::min(1.0f, shownFrac);
@@ -627,7 +747,10 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
             const float maxW = std::max(1.0f, fx + fw - cv.S(18.0f) - nx);
             const float noteW = body.Width(note, scale);
             const float px = noteW > maxW ? notePx * maxW / noteW : notePx;
-            Text(body, note, nx, y, px, kText, 0.80f * a);
+            // In the tutorial the note is the XP card's (as the ring's is the HP card's).
+            const float xpNoteIn = !ready_launch::g_TutorialMode ? 1.0f
+                                 : focus == HudGuide::Xp ? std::clamp(ready_launch::g_HudGuideT / 0.3f, 0.0f, 1.0f) : 0.0f;
+            if (xpNoteIn > 0.004f) Text(body, note, nx, y, px, kText, 0.92f * textA * xpNoteIn);
             g_BatchAlpha = restA;
             if (focus == HudGuide::Xp) {
                 // Focus: Lv, the line and its note.
@@ -646,31 +769,52 @@ void DrawField(PracticeView& v, const rp::Rules& rules, rp::Objective current, b
     if (current != v.shownStep) { v.shownStep = current; v.stepAge = 0.0f; }
     v.stepAge += dt;
     const float in = std::clamp(v.stepAge / kStepFadeIn, 0.0f, 1.0f);
+    float topIn = in;   // the label and hint along the field's top
     const float rise = cv.S(kStepRise) * (1.0f - in);
     const float mid = fx + fw * 0.5f;
     using Stage = ready_launch::TutorialStage;
     const Stage stage = ready_launch::g_TutorialMode ? ready_launch::g_Stage : Stage::Practice;
+    // Along the top: the card pick's title only. The step number lives on the
+    // cards and the objectives, and the launch card says "ready" (beta: the
+    // page repeated itself).
     const wchar_t* hint = ReadyStepHint((int)current);
-    if (stage != Stage::Practice && stage != Stage::Done) {
-        // Step 5: the label follows the practice steps.
-        int index = 0, total = 0;
-        StepNumber(rp::Objective::Count, dashOk, index, total);
-        const int step5 = total - READY_EXTRA_OBJECTIVE_COUNT + 1;
-        const std::wstring label = std::wstring(kReadyStepLabel) + L" " +
-            std::to_wstring(step5) + L" / " + std::to_wstring(total);
-        Text(body, label.c_str(), mid, fy + cv.S(kStepLabelY) + rise, cv.S(kStepLabelPx), kCyan, 0.9f * in,
-             Align::Center);
-        hint = ReadyExtraHint(0);
-    } else if (stage == Stage::Practice && current != rp::Objective::Count) {
-        int index = 0, total = 0;
-        StepNumber(current, dashOk, index, total);
-        const std::wstring step = std::wstring(kReadyStepLabel) + L" " + std::to_wstring(index) +
-                                  L" / " + std::to_wstring(total);
-        Text(body, step.c_str(), mid, fy + cv.S(kStepLabelY) + rise, cv.S(kStepLabelPx), kCyan, 0.9f * in,
-             Align::Center);
+    if (stage != Stage::Practice && stage != Stage::Done) hint = ReadyExtraHint(0);
+    else if (ready_launch::g_TutorialMode) hint = L"";
+    // The top line steps back while the ship (and its ring) flies under it.
+    {
+        const float sx = toX(v.field.playerX), sy = toY(v.field.playerY);
+        const float R = kRangeUnit * ws;
+        const float gapY = (sy - R) - (fy + cv.S(kStepHintY + 14.0f));
+        const bool under = std::fabs(sx - mid) < R + cv.S(200.0f);
+        if (under) topIn *= std::clamp(gapY / cv.S(30.0f), 0.2f, 1.0f);
     }
-    Text(body, hint, mid, fy + cv.S(kStepHintY) + rise, cv.S(kStepHintPx),
-         kWhite, in, Align::Center);
+    (void)dashOk;
+    const bool tutorialPractice = ready_launch::g_TutorialMode && stage == Stage::Practice &&
+                                  current != rp::Objective::Count;
+    if (tutorialPractice) {
+        // Nothing new appears in the pause before a step's card: its line
+        // comes in with the card (and shows once the card is closed).
+        // While a card is up it stays off too (it would blink on for the card's
+        // first frame), and it fades back in as the card closes.
+        if (!StepCardSeen(current) || ready_launch::HudGuideActive()) { g_BatchAlpha = batchAlpha; return; }
+        // The step's card said it in full; while practising, a short reminder
+        // rides above the ship where the eyes are (below it near the top edge).
+        const float px = toX(v.field.playerX), py = toY(v.field.playerY);
+        const float R = kRangeUnit * ws;
+        const float linePx = cv.T(24.0f);
+        const wchar_t* s = ReadyStepShort((int)current, v.field.kills);
+        float y = py - R - cv.S(22.0f);
+        if (y - linePx < fy + cv.S(kStepLabelY) + cv.S(14.0f)) y = py + R + cv.S(22.0f);
+        const float sw = body.Width(s, linePx / std::max(1.0f, body.LineHeightPixels()));
+        const float x = std::clamp(px, fx + sw * 0.5f + cv.S(12.0f), fx + fw - sw * 0.5f - cv.S(12.0f));
+        Text(body, s, x, y + rise, linePx, kWhite, in, Align::Center);
+    } else {   // Shrunk if a language runs wider than the field.
+        float px = cv.T(kStepHintPx);
+        const float w = body.Width(hint, px / std::max(1.0f, body.LineHeightPixels()));
+        const float room = fw - cv.S(40.0f);
+        if (w > room && w > 0.0f) px *= room / w;
+        Text(body, hint, mid, fy + cv.S(kStepHintY) + rise, px, kWhite, topIn, Align::Center);
+    }
     g_BatchAlpha = batchAlpha;
 }
 
@@ -678,8 +822,7 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
                     const Canvas& cv, TextRenderer& body, float pulse) {
     const float x = cv.X(kObjectivesX), y0 = cv.Y(kFieldY + 10.0f);
     const float key = cv.S(1.5f);
-    Text(body, kReadyObjectivesTitle, x, y0, cv.S(20.0f), kCyan, 0.85f);
-    float y = y0 + cv.S(46.0f);
+    float y = y0 + cv.S(14.0f);   // no "OBJECTIVES" heading: the list reads as one
     // Steps are nodes on one constellation line; finished ones fill and light the
     // line up to them, the current one pulses.
     const float nodeX = x + cv.S(kCheckSize) * 0.5f, nodeR = cv.S(kCheckSize) * 0.36f;
@@ -712,18 +855,19 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
         const float s = cv.S(kCheckSize);
         (void)boxA;
         node(y, done, isCurrent, skipped, c);
-        const float textA = done ? 0.95f : isCurrent ? 1.0f : skipped ? 0.4f : 0.6f;
-        Text(body, ReadyObjective(i), x + s + cv.S(14.0f), y, cv.S(kObjectivePx),
+        const float textA = done ? 0.95f : isCurrent ? 1.0f : skipped ? 0.55f : 0.78f;
+        Text(body, ReadyObjective(i), x + s + cv.S(14.0f), y, cv.T(kObjectivePx),
              done ? c : isCurrent ? kWhite : kText, textA);
         if (o == rp::Objective::Kill) {
             const std::wstring prog = std::to_wstring(std::min(f.kills, rp::kKillGoal)) + L"/" +
                                       std::to_wstring(rp::kKillGoal);
-            Text(body, prog.c_str(), x + cv.S(280.0f), y, cv.S(21.0f), c,
-                 done || isCurrent ? 0.95f : 0.6f, Align::Right);
+            Text(body, prog.c_str(), x + cv.S(300.0f), y, cv.T(23.0f), c,
+                 done || isCurrent ? 0.95f : 0.75f, Align::Right);
         }
         if (skipped) {
-            y += cv.S(24.0f);
-            Text(body, ReadyDashOnStart(), x + s + cv.S(14.0f), y, cv.S(kObjectiveNotePx), kAmber, 0.8f);
+            y += cv.S(26.0f);
+            Text(body, ReadyDashOnStart(), x + s + cv.S(14.0f), y, cv.T(kObjectiveNotePx, kMinSmallPx),
+                 kAmber, 0.9f);
         }
         y += cv.S(kObjectiveRowH);
     }
@@ -740,22 +884,21 @@ void DrawObjectives(const rp::Field& f, rp::Objective current, bool dashOk,
             const float s = cv.S(kCheckSize);
             (void)boxA;
             node(y, done, isCurrent, false, c);
-            const float textA = done ? 0.95f : isCurrent ? 1.0f : 0.6f;
-            Text(body, ReadyExtraObjective(i), x + s + cv.S(14.0f), y, cv.S(kObjectivePx),
+            const float textA = done ? 0.95f : isCurrent ? 1.0f : 0.78f;
+            Text(body, ReadyExtraObjective(i), x + s + cv.S(14.0f), y, cv.T(kObjectivePx),
                  done ? c : isCurrent ? kWhite : kText, textA);
             y += cv.S(kObjectiveRowH);
         }
     }
-    if (tutorial ? stage == Stage::Done : current == rp::Objective::Count)
-        Text(body, ReadyAllDone(), x, y + cv.S(4.0f), cv.S(kObjectivePx), kWhite, pulse);
 }
 
 // ── Keyboard panel ──
 bool CapHeld(int glfwKey) { return glfwKey >= 0 && glfwKey < 1024 && keys[glfwKey]; }
 
-void DrawMouse(float x, float y, const Canvas& cv, const GuideLook& look, bool lmb, float now) {
+void DrawMouse(float x, float y, const Canvas& cv, const GuideLook& look, bool lmb, float now,
+               float scale = 1.0f) {
     const float key = cv.S(1.5f);
-    const float w = cv.S(kMouseW), h = cv.S(kMouseH), split = h * kMouseSplit;
+    const float w = cv.S(kMouseW) * scale, h = cv.S(kMouseH) * scale, split = h * kMouseSplit;
     const float a = lmb ? 1.0f : look.a * 0.7f;
     // The left button fires: always tinted cyan like the move keys, filled
     // while it is the step and solid while held.
@@ -769,109 +912,284 @@ void DrawMouse(float x, float y, const Canvas& cv, const GuideLook& look, bool l
         const float t = std::fmod(now * 1.4f, 1.0f);
         const float bx = x + w * 0.25f;
         for (int i = 0; i < 2; ++i) {
-            const float r = cv.S(22.0f + 18.0f * i) + cv.S(14.0f) * t;
+            const float r = (cv.S(22.0f + 18.0f * i) + cv.S(14.0f) * t) * scale;
             hud_lines::Arc(bx, y, r, cv.S(2.4f), -2.5f, 1.4f, kCyan, (1.0f - t) * (i ? 0.55f : 0.95f));
         }
     }
 }
 
+// The start key's cap reads "confirm" while drawn on the card pick.
+bool g_CapConfirm = false;
+
+// How one key cap is drawn.
+struct CapLook {
+    Rgb   c;          // outline / fill colour
+    float a;          // outline alpha
+    float ta;         // label alpha
+    bool  filled;     // filled with its colour (to press now, or held)
+    float fillA;
+    bool  strong;     // thick outline, white label
+    bool  active;     // has a role on this screen
+};
+
+// One key cap at (x, y, w, h) in screen px. ts scales the label, the caption,
+// the arrow and the outline (1 on the keyboard panel, larger on a guide card),
+// so the card's picture is the panel's own cap, only bigger.
+void DrawCap(const kb::KeyCap& cap, float x, float y, float w, float h, float ts,
+             const CapLook& L, const Canvas& cv, TextRenderer& body) {
+    const float key = cv.S(1.5f) * ts;
+    const kb::KeyRole role = kb::RoleOf(cap.key);
+    if (L.filled) Fill(x, y, w, h, L.c, L.fillA);
+    Box(x, y, w, h, cv.S(L.strong ? 2.6f : L.active ? 2.0f : 1.4f) * ts, L.c, L.a, key);
+
+    const Rgb tc = L.strong ? kWhite : L.c;
+    const float mx = x + w * 0.5f, my = y + h * 0.5f;
+    // Shrink text that would touch the cap's outline.
+    auto fitPx = [&](const wchar_t* s, float px) {
+        const float room = w - cv.S(8.0f) * ts;
+        const float tw = body.Width(s, px / body.LineHeightPixels());
+        return tw > room && tw > 0.0f ? px * room / tw : px;
+    };
+    if (role == kb::KeyRole::Start) {
+        const wchar_t* s = g_CapConfirm ? ReadyConfirmCap() : ReadyLegend((int)role - 1);
+        Text(body, s, mx, my, fitPx(s, cv.S(kSpacePx) * ts), tc, L.ta, Align::Center);
+        return;
+    }
+    const kb::ArrowDir dir = kb::CapArrow(cap.key);
+    if (dir.x != 0.0f || dir.y != 0.0f) {
+        const float r = cv.S(9.0f) * ts, px = -dir.y, py = dir.x;
+        const float tx = mx + dir.x * r, ty = my + dir.y * r;
+        const float lw = cv.S(2.0f) * ts;
+        Line(mx - dir.x * r, my - dir.y * r, tx, ty, lw, tc, L.ta, key);
+        Line(tx, ty, tx - dir.x * r * 0.6f + px * r * 0.6f, ty - dir.y * r * 0.6f + py * r * 0.6f, lw, tc, L.ta, key);
+        Line(tx, ty, tx - dir.x * r * 0.6f - px * r * 0.6f, ty - dir.y * r * 0.6f - py * r * 0.6f, lw, tc, L.ta, key);
+        return;
+    }
+    const std::wstring label = kb::CapLabel(cap.key);
+    // Captions only on wide caps; a 1-unit cap has no room and the
+    // legend already names every role.
+    const wchar_t* caption = ReadyKeyCaption((int)role);
+    const bool hasCaption = caption[0] != 0 && cap.w >= kCaptionMinW;
+    const float labelPx = cv.S(label.size() > 2 ? kKeyLongPx : kKeyPx) * ts;
+    Text(body, label.c_str(), mx, my - (hasCaption ? cv.S(8.0f) * ts : 0.0f),
+         fitPx(label.c_str(), labelPx), tc, L.ta, Align::Center);
+    if (hasCaption)
+        Text(body, caption, mx, my + cv.S(9.0f) * ts, fitPx(caption, cv.S(kKeyCaptionPx) * ts),
+             tc, L.ta, Align::Center);
+}
+
+// The caps on the panel that do `role`, one per bound key (both Shift caps
+// can map to one binding; the first one stands for it).
+std::vector<const kb::KeyCap*> RoleCaps(kb::KeyRole role) {
+    std::vector<const kb::KeyCap*> out;
+    std::vector<int> seen;
+    for (const kb::KeyCap& cap : kb::Layout()) {
+        if (kb::RoleOf(cap.key) != role) continue;
+        const int k = NormalizeBindKey(cap.key);
+        if (std::find(seen.begin(), seen.end(), k) != seen.end()) continue;
+        seen.push_back(k);
+        out.push_back(&cap);
+    }
+    return out;
+}
+
+// Screen rectangle of a cap on the keyboard panel.
+void PanelCapRect(const kb::KeyCap& cap, const Canvas& cv, float& x, float& y, float& w, float& h) {
+    x = cv.X(kKeyboardX + cap.x * kKeyPitch);
+    y = cv.Y(kKeyboardY + cap.y * kKeyPitch);
+    w = cv.S(cap.w * kKeyPitch - kKeyGap);
+    h = cv.S(cap.h * kKeyPitch - kKeyGap);
+}
+
+void MousePanelRect(const Canvas& cv, float& x, float& y, float& w, float& h) {
+    x = cv.X(kKeyboardX + kb::kLayoutW * kKeyPitch + kLegendGap);
+    y = cv.Y(kKeyboardY + (kb::kLayoutH * kKeyPitch - kKeyGap - kMouseH) * 0.5f);
+    w = cv.S(kMouseW);
+    h = cv.S(kMouseH);
+}
+
+// Screen boxes around the panel caps that pass `keep`; caps that touch
+// (W A S D, 1 2 3) share one box, so one set of corners frames the group.
+struct CapBox { float x0, y0, x1, y1; };
+template <class Keep>
+std::vector<CapBox> CapClusters(const Canvas& cv, Keep keep) {
+    std::vector<CapBox> boxes;
+    const float reach = cv.S(kKeyPitch * 0.5f);
+    for (const kb::KeyCap& cap : kb::Layout()) {
+        if (!keep(cap)) continue;
+        float x, y, w, h;
+        PanelCapRect(cap, cv, x, y, w, h);
+        CapBox b{ x, y, x + w, y + h };
+        bool merged = true;
+        while (merged) {
+            merged = false;
+            for (size_t i = 0; i < boxes.size(); ++i) {
+                const CapBox& o = boxes[i];
+                if (b.x0 - reach < o.x1 && o.x0 - reach < b.x1 && b.y0 - reach < o.y1 && o.y0 - reach < b.y1) {
+                    b = { std::min(b.x0, o.x0), std::min(b.y0, o.y0), std::max(b.x1, o.x1), std::max(b.y1, o.y1) };
+                    boxes.erase(boxes.begin() + (long)i);
+                    merged = true;
+                    break;
+                }
+            }
+        }
+        boxes.push_back(b);
+    }
+    return boxes;
+}
+
+// ── The card pick on the panel ──
+// While the tutorial's level-up cards are up, the start key confirms a card
+// (not "launch") and the card keys pick one, so the panel says that.
+bool IsCardKey(int k) {
+    for (GameAction a : { GameAction::Card1, GameAction::Card2, GameAction::Card3 })
+        if (ActionBound(a) && ActionKey(a) == k) return true;
+    return false;
+}
+bool IsTermsKey(int k) {
+    return ActionBound(GameAction::Glossary) && ActionKey(GameAction::Glossary) == k;
+}
+// Keys the open card-pick guide is about: the glossary key on "rarity & text",
+// the card keys and the start key on "choose".
+bool PickGuideKey(const kb::KeyCap& cap) {
+    if (!ready_launch::g_SelectionUp || !ready_launch::PickGuideActive()) return false;
+    const int k = NormalizeBindKey(cap.key);
+    switch (ready_launch::g_PickGuide) {
+    case ready_launch::PickGuide::Detail: return IsTermsKey(k);
+    case ready_launch::PickGuide::Keys:   return IsCardKey(k) || kb::RoleOf(cap.key) == kb::KeyRole::Start;
+    default:                              return false;
+    }
+}
+
+// ── Quiet keys ──
+// Keys that do nothing here are ghosts: a faint outline, no label (it shows
+// while held). The panel's side blocks (F1~F12, PrtSc/ScrLk/Pause, Ins~PgDn,
+// the arrows) are left out whole while none of their keys does anything, so
+// a first look shows the keys to learn, not a whole keyboard.
+enum class CapBlock { Main, FKeys, System, Nav, Arrows };
+CapBlock BlockOf(const kb::KeyCap& cap) {
+    constexpr float kSide = 15.0f;   // key units: the main block's width
+    if (cap.y < 1.0f) return cap.x >= kSide ? CapBlock::System : cap.x >= 1.5f ? CapBlock::FKeys : CapBlock::Main;
+    if (cap.x < kSide) return CapBlock::Main;
+    return cap.y < 4.0f ? CapBlock::Nav : CapBlock::Arrows;
+}
+// A key in use on this screen: its role, or a card-pick key while cards are up.
+bool CapInUse(const kb::KeyCap& cap, bool picking) {
+    if (kb::RoleOf(cap.key) != kb::KeyRole::None) return true;
+    const int k = NormalizeBindKey(cap.key);
+    return picking && (IsCardKey(k) || IsTermsKey(k));
+}
+
+// focusRole / focusMouse: the guide card is about these, so they stay at full
+// brightness while the rest of the page is faint.
 void DrawKeyboard(const PracticeView& v, rp::Objective current, const Canvas& cv,
-                  TextRenderer& body, float pulse, bool lmb, float now) {
-    const float key = cv.S(1.5f);
-    std::array<bool, kRoleCount> roleHeld{};
+                  TextRenderer& body, float pulse, bool lmb, float now,
+                  kb::KeyRole focusRole = kb::KeyRole::None, bool focusMouse = false) {
+    const float pageA = g_BatchAlpha;
+    const bool picking = ready_launch::g_SelectionUp;
+    g_CapConfirm = picking;
+
+    // Which side blocks have a key in use (a held key shows its block too).
+    bool blockOn[5] = { true, false, false, false, false };
+    for (const kb::KeyCap& cap : kb::Layout())
+        if (CapInUse(cap, picking) || CapHeld(cap.key)) blockOn[(int)BlockOf(cap)] = true;
 
     for (const kb::KeyCap& cap : kb::Layout()) {
-        const float x = cv.X(kKeyboardX + cap.x * kKeyPitch);
-        const float y = cv.Y(kKeyboardY + cap.y * kKeyPitch);
-        const float w = cv.S(cap.w * kKeyPitch - kKeyGap);
-        const float h = cv.S(cap.h * kKeyPitch - kKeyGap);
+        if (!blockOn[(int)BlockOf(cap)]) continue;
+        float x, y, w, h;
+        PanelCapRect(cap, cv, x, y, w, h);
         const kb::KeyRole role = kb::RoleOf(cap.key);
         const bool on = CapHeld(cap.key);
-        const bool active = role != kb::KeyRole::None;
-        if (on) roleHeld[(int)role] = true;
+        const int nk = NormalizeBindKey(cap.key);
+        // On the card pick: the start key and the card keys are the ones in use.
+        const bool pickKey = picking && (role == kb::KeyRole::Start || IsCardKey(nk) || IsTermsKey(nk));
+        const bool active = role != kb::KeyRole::None || pickKey;
+        const bool focused = picking ? PickGuideKey(cap) : role != kb::KeyRole::None && role == focusRole;
 
         const GuideLook look = LookOf(v, GuideOfRole(role), current, pulse);
-        const Rgb c = on && !active ? kWhite : RoleColor(role);
-        const float a = on ? 1.0f : active ? look.a : kIdleKeyA;
-        const float ta = on || look.current ? 1.0f : active ? std::min(1.0f, look.a + 0.2f) : kIdleLabelA;
-        // Keys to press now are filled with their colour; a press fills any key.
-        if (look.current || on)
-            Fill(x, y, w, h, c, on ? 0.6f : kCurrentFillA * look.a + 0.12f);
-        Box(x, y, w, h, cv.S(on || look.current ? 2.6f : active ? 2.0f : 1.4f), c, a, key);
+        CapLook L;
+        L.c = (on && !active) || pickKey ? kWhite : RoleColor(role);
+        L.active = active;
+        if (pickKey && !focused) {
+            // In use, but nothing to press until the guide says so: plain outline.
+            L.a = on ? 1.0f : 0.7f; L.ta = on ? 1.0f : 0.85f;
+            L.filled = on; L.fillA = 0.6f; L.strong = on;
+        } else if (focused) {
+            // The card's key: filled and bright, like the step being taught.
+            L.a = pulse; L.ta = 1.0f; L.filled = true; L.fillA = kCurrentFillA * pulse + 0.12f; L.strong = true;
+        } else {
+            L.a = on ? 1.0f : active ? look.a : kGhostKeyA;
+            L.ta = on || look.current ? 1.0f : active ? std::min(1.0f, look.a + 0.2f) : 0.0f;
+            // Keys to press now are filled with their colour; a press fills any key.
+            L.filled = look.current || on;
+            L.fillA = on ? 0.6f : kCurrentFillA * look.a + 0.12f;
+            L.strong = on || look.current;
+        }
+        g_BatchAlpha = focused ? 1.0f : pageA;
+        DrawCap(cap, x, y, w, h, 1.0f, L, cv, body);
+    }
+    g_BatchAlpha = pageA;
+    g_CapConfirm = false;
 
-        const Rgb tc = on || look.current ? kWhite : c;
-        const float mx = x + w * 0.5f, my = y + h * 0.5f;
-        if (role == kb::KeyRole::Start) {
-            Text(body, ReadyLegend((int)role - 1), mx, my, cv.S(kSpacePx), tc, ta, Align::Center);
-            continue;
+    // The card-pick guide's keys get the guide cards' gold corners, closing
+    // in as its page opens (as on the practice steps' cards).
+    if (picking && ready_launch::PickGuideActive()) {
+        const std::vector<CapBox> boxes = CapClusters(cv, PickGuideKey);
+        const float in = std::min(1.0f, ready_launch::g_PickGuideT / 0.25f);
+        for (const CapBox& b : boxes) {
+            const float grow = (1.0f - in) * cv.S(14.0f) + cv.S(8.0f);
+            const float rx = b.x0 - grow, ry = b.y0 - grow;
+            const float rw = b.x1 - b.x0 + 2.0f * grow, rh = b.y1 - b.y0 + 2.0f * grow;
+            g_BatchAlpha = 1.0f;
+            DrawGuideCorners(rx, ry, rw, rh, std::min(cv.S(22.0f), std::min(rw, rh) * 0.3f), cv.S(1.8f),
+                             (0.70f + 0.30f * pulse) * in);
         }
-        const kb::ArrowDir dir = kb::CapArrow(cap.key);
-        if (dir.x != 0.0f || dir.y != 0.0f) {
-            const float r = cv.S(9.0f), px = -dir.y, py = dir.x;
-            const float tx = mx + dir.x * r, ty = my + dir.y * r;
-            const float lw = cv.S(2.0f);
-            Line(mx - dir.x * r, my - dir.y * r, tx, ty, lw, tc, ta, key);
-            Line(tx, ty, tx - dir.x * r * 0.6f + px * r * 0.6f, ty - dir.y * r * 0.6f + py * r * 0.6f, lw, tc, ta, key);
-            Line(tx, ty, tx - dir.x * r * 0.6f - px * r * 0.6f, ty - dir.y * r * 0.6f - py * r * 0.6f, lw, tc, ta, key);
-            continue;
-        }
-        const std::wstring label = kb::CapLabel(cap.key);
-        // Captions only on wide caps; a 1-unit cap has no room and the
-        // legend already names every role.
-        const wchar_t* caption = ReadyKeyCaption((int)role);
-        const bool hasCaption = caption[0] != 0 && cap.w >= kCaptionMinW;
-        // Shrink text that would touch the cap's outline.
-        auto fitPx = [&](const wchar_t* s, float px) {
-            const float room = w - cv.S(8.0f);
-            const float tw = body.Width(s, px / body.LineHeightPixels());
-            return tw > room && tw > 0.0f ? px * room / tw : px;
-        };
-        const float labelPx = cv.S(label.size() > 2 ? kKeyLongPx : kKeyPx);
-        Text(body, label.c_str(), mx, my - (hasCaption ? cv.S(8.0f) : 0.0f),
-             fitPx(label.c_str(), labelPx), tc, ta, Align::Center);
-        if (hasCaption)
-            Text(body, caption, mx, my + cv.S(9.0f), fitPx(caption, cv.S(kKeyCaptionPx)),
-                 tc, ta, Align::Center);
+        g_BatchAlpha = pageA;
     }
 
-    // The mouse sits right of the keyboard; its legend (aim line and one line per
-    // key role, same colours and levels) lives under the objectives.
-    const float lx = cv.X(kKeyboardX + kb::kLayoutW * kKeyPitch + kLegendGap);
-    const float ly = cv.Y(kKeyboardY + (kb::kLayoutH * kKeyPitch - kKeyGap - kMouseH) * 0.5f);
+    // The mouse sits right of the keyboard. No written legend: the caps name
+    // their keys and the cards say what they do.
+    float lx, ly, lw, lh;
+    MousePanelRect(cv, lx, ly, lw, lh);
     const GuideLook mouse = LookOf(v, (int)Guide::Mouse, current, pulse);
-    DrawMouse(lx, ly, cv, mouse, lmb, now);
-
-    const float tx = cv.X(kObjectivesX);
-    const float by = cv.Y(kLegendBlockY);
-    const float s = cv.S(kLegendMark);
-    const float textX = tx + cv.S(kCheckSize + 14.0f);
-    const float markX = tx + cv.S(kCheckSize) * 0.5f;
-    {
-        const bool lit = mouse.current || lmb;
-        const float a = lit ? 1.0f : mouse.a;
-        if (lit) hud_lines::SectorFill(markX, by, s * 0.5f, hud_lines::FillShape::Diamond, 1.0f, kCyan, 0.75f * a);
-        hud_lines::DiamondOutline(markX, by, s * 0.5f, cv.S(lit ? 2.4f : 1.8f), kCyan, a, key);
-        Text(body, ReadyAim(), textX, by, cv.S(kLegendPx), lit ? kWhite : kCyan,
-             lit ? 1.0f : std::min(1.0f, mouse.a + 0.3f));
-    }
-    for (int role = (int)kb::KeyRole::Move; role < kRoleCount; ++role) {
-        const GuideLook look = LookOf(v, GuideOfRole((kb::KeyRole)role), current, pulse);
-        const Rgb c = RoleColor((kb::KeyRole)role);
-        const float y = by + cv.S(kLegendRowH * role);
-        const float a = roleHeld[role] ? 1.0f : look.a;
-        // A diamond node per role, filled while its keys are held or the step.
-        if (roleHeld[role] || look.current)
-            hud_lines::SectorFill(markX, y, s * 0.5f, hud_lines::FillShape::Diamond, 1.0f, c, 0.75f * a);
-        hud_lines::DiamondOutline(markX, y, s * 0.5f, cv.S(look.current ? 2.4f : 1.8f), c, a, key);
-        Text(body, ReadyLegend(role - 1), textX, y, cv.S(kLegendPx),
-             look.current ? kWhite : kText, look.current ? 1.0f : std::min(1.0f, a + 0.25f));
-    }
+    g_BatchAlpha = focusMouse ? 1.0f : pageA;
+    DrawMouse(lx, ly, cv, focusMouse ? GuideLook{ pulse, true } : mouse, lmb, now);
+    g_BatchAlpha = pageA;
 }
 
 // ── HUD guide card ──
 // Gold corners around the part in focus (the shop tour's look) and one caption
 // block beside it: progress diamonds, "n / 2", title, body, and the key to go on.
-constexpr Rgb kGold { 1.00f, 0.86f, 0.40f };
+constexpr float kCardTitlePx = 30.0f, kCardBodyPx = 23.0f, kCardSmallPx = 18.0f;
+
+// Greedy wrap by measured width (at spaces when it can, else between characters).
+std::vector<std::wstring> WrapLines(TextRenderer& body, const wchar_t* text, float px, float wrapW,
+                                    size_t maxLines) {
+    std::vector<std::wstring> lines;
+    if (!text || body.LineHeightPixels() <= 0.0f) return lines;
+    const float scale = px / body.LineHeightPixels();
+    std::wstring cur;
+    size_t lastSpace = std::wstring::npos;
+    for (const wchar_t* p = text; *p && lines.size() < maxLines; ++p) {
+        if (*p == L' ') lastSpace = cur.size();
+        cur += *p;
+        if (cur.size() > 1 && body.Width(cur.c_str(), scale) > wrapW) {
+            std::wstring rest;
+            if (lastSpace != std::wstring::npos && lastSpace > 0) {
+                rest = cur.substr(lastSpace + 1);
+                cur.resize(lastSpace);
+            } else {
+                rest = cur.substr(cur.size() - 1);
+                cur.pop_back();
+            }
+            lines.push_back(cur);
+            cur = rest;
+            lastSpace = cur.find_last_of(L' ');
+        }
+    }
+    if (!cur.empty() && lines.size() < maxLines) lines.push_back(cur);
+    return lines;
+}
 
 void DrawHudGuideCard(const PracticeView& v, ready_launch::HudGuide card, const Canvas& cv,
                       TextRenderer& body, float now) {
@@ -895,33 +1213,9 @@ void DrawHudGuideCard(const PracticeView& v, ready_launch::HudGuide card, const 
     const wchar_t* title = ReadyHudGuide(idx, 0);
     const wchar_t* text = ReadyHudGuide(idx, 1);
     const wchar_t* footer = ReadyHudGuideNext();
-    const float titlePx = cv.S(25.0f), bodyPx = cv.S(19.0f), smallPx = cv.S(15.0f);
-    const float bodyScale = bodyPx / body.LineHeightPixels();
-    const float wrapW = cv.S(540.0f);
-    // Greedy wrap by measured width (at spaces when it can, else between characters).
-    std::vector<std::wstring> lines;
-    {
-        std::wstring cur;
-        size_t lastSpace = std::wstring::npos;
-        for (const wchar_t* p = text; *p && lines.size() < 4; ++p) {
-            if (*p == L' ') lastSpace = cur.size();
-            cur += *p;
-            if (cur.size() > 1 && body.Width(cur.c_str(), bodyScale) > wrapW) {
-                std::wstring rest;
-                if (lastSpace != std::wstring::npos && lastSpace > 0) {
-                    rest = cur.substr(lastSpace + 1);
-                    cur.resize(lastSpace);
-                } else {
-                    rest = cur.substr(cur.size() - 1);
-                    cur.pop_back();
-                }
-                lines.push_back(cur);
-                cur = rest;
-                lastSpace = cur.find_last_of(L' ');
-            }
-        }
-        if (!cur.empty() && lines.size() < 4) lines.push_back(cur);
-    }
+    const float titlePx = cv.T(kCardTitlePx), bodyPx = cv.T(kCardBodyPx), smallPx = cv.T(kCardSmallPx, kMinSmallPx);
+    const float wrapW = cv.S(600.0f);
+    const std::vector<std::wstring> lines = WrapLines(body, text, bodyPx, wrapW, 4);
     const float headH = titlePx * 1.25f, lineH = bodyPx * 1.45f, footH = smallPx * 1.3f;
     const float blockH = headH + cv.S(10.0f) + (float)lines.size() * lineH + cv.S(8.0f) + footH;
 
@@ -962,14 +1256,190 @@ void DrawHudGuideCard(const PracticeView& v, ready_launch::HudGuide card, const 
     Text(body, footer, x, y, smallPx, kGold, (0.70f + 0.25f * pulse) * in);
 }
 
+// ── Step cards ──
+// The same look as the HUD cards, for every practice step and the launch:
+// gold corners on what the step uses (its keys on the keyboard panel, the
+// mouse; the Swarms get target brackets in the field), and a card in the
+// field with a picture of that thing (the panel's own key caps, bigger),
+// "STEP n / total", the title, the text and the key to begin.
+constexpr float kCardPitch = 66.0f;      // key unit on the card's picture, canvas px
+constexpr float kCardPicMinW = 160.0f, kCardPicMaxW = 420.0f, kCardPicH = 150.0f;
+constexpr float kCardTextW = 440.0f, kCardColGap = 32.0f;
+
+kb::KeyRole CardRole(ready_launch::HudGuide card) {
+    using ready_launch::HudGuide;
+    switch (card) {
+    case HudGuide::Move:   return kb::KeyRole::Move;
+    case HudGuide::Dash:   return kb::KeyRole::Dash;
+    case HudGuide::Launch: return kb::KeyRole::Start;
+    default:               return kb::KeyRole::None;
+    }
+}
+
+rp::Objective CardObjective(ready_launch::HudGuide card) {
+    using ready_launch::HudGuide;
+    switch (card) {
+    case HudGuide::Move:  return rp::Objective::Move;
+    case HudGuide::Shoot: return rp::Objective::Shoot;
+    case HudGuide::Dash:  return rp::Objective::Dash;
+    case HudGuide::Kill:  return rp::Objective::Kill;
+    default:              return rp::Objective::Count;
+    }
+}
+
+// The card for the step the tutorial is on (Done when there is none).
+ready_launch::HudGuide StepCardFor(rp::Objective current) {
+    using ready_launch::HudGuide;
+    using Stage = ready_launch::TutorialStage;
+    if (ready_launch::g_Stage == Stage::Done) return HudGuide::Launch;
+    if (ready_launch::g_Stage != Stage::Practice) return HudGuide::Done;
+    switch (current) {
+    case rp::Objective::Move:  return HudGuide::Move;
+    case rp::Objective::Shoot: return HudGuide::Shoot;
+    case rp::Objective::Dash:  return HudGuide::Dash;
+    case rp::Objective::Kill:  return HudGuide::Kill;
+    default:                   return HudGuide::Done;
+    }
+}
+
+void DrawStepCard(PracticeView& v, ready_launch::HudGuide card, const Canvas& cv,
+                  TextRenderer& body, float now, bool dashOk) {
+    using ready_launch::HudGuide;
+    if (body.LineHeightPixels() <= 0.0f) return;
+    // The defeat card's words come in as the brackets start closing on the Swarms.
+    const float lead = card == HudGuide::Kill ? 0.18f : 0.0f;
+    float in = std::clamp((ready_launch::g_HudGuideT - lead) / 0.30f, 0.0f, 1.0f);
+    in = in * in * (3.0f - 2.0f * in);
+    const float pulse = 0.5f + 0.5f * std::sin(now * 3.0f);
+    const float keyPulse = 0.72f + 0.28f * std::sin(now * kPulseSpeed);
+    const float key = cv.S(1.5f);
+    BindMainShader();
+
+    // Corners on the panel: the step's keys, or the mouse. They close in as
+    // the card opens.
+    const kb::KeyRole role = CardRole(card);
+    const std::vector<const kb::KeyCap*> caps = role != kb::KeyRole::None ? RoleCaps(role)
+                                                                         : std::vector<const kb::KeyCap*>{};
+    auto corners = [&](float x0, float y0, float x1, float y1) {
+        const float grow = (1.0f - in) * cv.S(14.0f) + cv.S(8.0f);
+        const float rx = x0 - grow, ry = y0 - grow;
+        const float rw = x1 - x0 + 2.0f * grow, rh = y1 - y0 + 2.0f * grow;
+        DrawGuideCorners(rx, ry, rw, rh, std::min(cv.S(22.0f), std::min(rw, rh) * 0.3f), cv.S(1.8f),
+                         (0.70f + 0.30f * pulse) * in);
+    };
+    if (!caps.empty()) {
+        // Every cap that does it gets corners (both Shifts dash); caps that
+        // touch (W A S D) share one set.
+        const std::vector<CapBox> boxes =
+            CapClusters(cv, [role](const kb::KeyCap& cap) { return kb::RoleOf(cap.key) == role; });
+        for (const CapBox& b : boxes) corners(b.x0, b.y0, b.x1, b.y1);
+    } else if (card == HudGuide::Shoot) {
+        float x, y, w, h;
+        MousePanelRect(cv, x, y, w, h);
+        corners(x, y, x + w, y + h);
+    }
+
+    // Picture size.
+    float unitsX0 = 1e9f, unitsY0 = 1e9f, unitsX1 = -1e9f, unitsY1 = -1e9f;
+    for (const kb::KeyCap* c : caps) {
+        unitsX0 = std::min(unitsX0, c->x); unitsY0 = std::min(unitsY0, c->y);
+        unitsX1 = std::max(unitsX1, c->x + c->w); unitsY1 = std::max(unitsY1, c->y + c->h);
+    }
+    const float unitsW = caps.empty() ? 0.0f : unitsX1 - unitsX0;
+    const float unitsH = caps.empty() ? 0.0f : unitsY1 - unitsY0;
+    // The defeat card has no picture: the Swarms in the field are lit and
+    // bracketed, and a drawn one on the card would read as a fifth target.
+    const bool hasPic = card != HudGuide::Kill;
+    const float picW = hasPic ? cv.S(std::clamp(unitsW * kCardPitch, kCardPicMinW, kCardPicMaxW)) : 0.0f;
+    const float picH = hasPic ? cv.S(kCardPicH) : 0.0f;
+    const float colGap = hasPic ? cv.S(kCardColGap) : 0.0f;
+
+    // Text.
+    const int idx = (int)card - (int)HudGuide::Move;
+    const wchar_t* title = ReadyStepCard(idx, 0);
+    const wchar_t* text = ReadyStepCard(idx, 1);
+    const wchar_t* footer = ReadyStepCardGo(card == HudGuide::Launch);
+    const float titlePx = cv.T(kCardTitlePx + 2.0f), bodyPx = cv.T(kCardBodyPx);
+    const float smallPx = cv.T(kCardSmallPx, kMinSmallPx);
+    const float textW = cv.S(kCardTextW);
+    const std::vector<std::wstring> lines = WrapLines(body, text, bodyPx, textW, 4);
+    const float headH = titlePx * 1.3f, lineH = bodyPx * 1.45f, footH = smallPx * 1.4f;
+    const float textH = headH + cv.S(10.0f) + (float)lines.size() * lineH + cv.S(10.0f) + footH;
+    const float blockH = std::max(picH, textH);
+    const float blockW = picW + colGap + textW;
+
+    // Place: in the half of the field away from the ship (the defeat card sits
+    // in the band between the two rows of Swarms), centred across.
+    const float fieldT = cv.Y(kFieldY), fieldB = cv.Y(kFieldY + kFieldH);
+    const float fieldMid = cv.Y(kFieldY + kFieldH * 0.5f);
+    const float shipY = cv.Y(kFieldY) + v.field.playerY * kViewScale * cv.k;
+    float top;
+    if (card == HudGuide::Kill) top = fieldMid - blockH * 0.5f;
+    else if (shipY > fieldMid) top = fieldT + cv.S(28.0f);
+    else top = fieldB - cv.S(60.0f) - blockH;
+    top += (1.0f - in) * cv.S(8.0f);
+    const float left = cv.X(kFieldX + kFieldW * 0.5f) - blockW * 0.5f;
+    const float picCx = left + picW * 0.5f, picCy = top + blockH * 0.5f;
+
+    // Picture.
+    if (!caps.empty()) {
+        const float pitch = std::min(cv.S(kCardPitch), picW / std::max(1.0f, unitsW));
+        const float ts = pitch / cv.S(kKeyPitch);
+        const float ox = picCx - unitsW * pitch * 0.5f, oy = picCy - unitsH * pitch * 0.5f;
+        const float gap = cv.S(kKeyGap) * ts;
+        CapLook L;
+        L.c = RoleColor(role);
+        L.a = keyPulse * in; L.ta = in; L.filled = true;
+        L.fillA = (kCurrentFillA * keyPulse + 0.12f) * in; L.strong = true; L.active = true;
+        for (const kb::KeyCap* c : caps)
+            DrawCap(*c, ox + (c->x - unitsX0) * pitch, oy + (c->y - unitsY0) * pitch,
+                    c->w * pitch - gap, c->h * pitch - gap, ts, L, cv, body);
+    } else if (card == HudGuide::Shoot) {
+        const float s = 0.78f;
+        const float mw = cv.S(kMouseW) * s, mh = cv.S(kMouseH) * s;
+        const float saved = g_BatchAlpha;
+        g_BatchAlpha = saved * in;
+        DrawMouse(picCx - mw * 0.5f, picCy - mh * 0.5f, cv, GuideLook{ keyPulse, true }, false, now, s);
+        g_BatchAlpha = saved;
+    }
+    (void)key;
+
+    // Row 1: "STEP n / total", then the title.
+    const float x = left + picW + colGap;
+    float y = top + (blockH - textH) * 0.5f;
+    const float rowY = y + headH * 0.5f;
+    float tx = x;
+    if (card != HudGuide::Launch) {
+        int index = 0, total = 0;
+        StepNumber(CardObjective(card), dashOk, index, total);
+        const std::wstring step = std::wstring(kReadyStepLabel) + L" " + std::to_wstring(index) +
+                                  L" / " + std::to_wstring(total);
+        Text(body, step.c_str(), tx, rowY, smallPx, kGold, 0.90f * in);
+        tx += body.Width(step.c_str(), smallPx / body.LineHeightPixels()) + cv.S(16.0f);
+    }
+    Text(body, title, tx, rowY, titlePx, kGold, in);
+    y += headH + cv.S(10.0f) + lineH * 0.5f;
+    for (const std::wstring& l : lines) {
+        Text(body, l.c_str(), x, y, bodyPx, kWhite, in);
+        y += lineH;
+    }
+    // Footer: the key to begin, breathing a little so it reads as the action.
+    y += cv.S(10.0f) - lineH * 0.5f + footH * 0.5f;
+    Text(body, footer, x, y, smallPx, kGold, (0.72f + 0.25f * pulse) * in);
+}
+
 } // namespace
 
 void Ready_SmokeCompleteSteps(int steps) {
     PracticeView& v = View();
     TouchView(v);
     rp::Field& f = v.field;
-    // Past the first step the HUD guide has been read (TUTGUIDE= shows it again).
-    if (steps > 0) ready_launch::g_HudGuide = ready_launch::HudGuide::Done;
+    // Past the first step the guide cards have been read (TUTGUIDE= shows one again).
+    if (steps > 0) {
+        ready_launch::g_HudGuide = ready_launch::HudGuide::Done;
+        // ...all but the launch card, which follows the card pick still ahead.
+        ready_launch::g_StepCardsShown = ~(1u << (unsigned)ready_launch::HudGuide::Launch);
+    }
     if (steps > 0) f.moved = rp::kMoveGoal * f.worldH;
     if (steps > 1) f.shots = rp::kShotGoal;
     if (steps > 2) f.dashes = rp::kDashGoal;
@@ -1023,8 +1493,8 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     in.left  = mv.left;
     in.right = mv.right;
     in.dashHeld = ActionHeld(GameAction::Dash);
-    // The card screen (and the HUD guide) ends a toggled burst.
-    if (ready_launch::g_SelectionUp || ready_launch::HudGuideActive()) g_FireLatched = false;
+    // The HUD guide ends a toggled burst; a card screen does not (it carries on after the pick).
+    if (ready_launch::HudGuideActive()) g_FireLatched = false;
     // A left click moves the HUD guide on too (same as Space); that click
     // does not shoot or toggle the fire latch.
     static bool s_GuideLmbPrev = false;
@@ -1089,6 +1559,7 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
                 ++gm.playerLevel;
                 gm.xp = 0;
                 gm.OpenTutorialChoice();
+                ready_launch::OpenPickGuide();   // the card screen explains itself first
             }
             break;
         case Stage::AugPick:
@@ -1104,6 +1575,19 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
         case Stage::Done:
             break;
         }
+        // Every step opens with its card, once per tutorial (after the HUD cards).
+        // The first step's card follows the HUD cards at once; a later one waits
+        // until the move that cleared the step before it has played out (a dash
+        // must be seen to land before the field stops).
+        using ready_launch::HudGuide;
+        const HudGuide card = StepCardFor(rp::CurrentObjective(v.field, dashOk));
+        if (card != v.cardPending) { v.cardPending = card; v.cardWait = 0.0f; }
+        if (!ready_launch::HudGuideActive()) v.cardWait += dt;
+        // How long each card waits: ready_launch::kStepGap.
+        const float wait = ready_launch::StepGap(card);
+        if (card != HudGuide::Done && v.cardWait >= wait && !v.field.dashActive &&
+            ready_launch::OpenStepCard(card))
+            Audio::Play(Audio::Cue::UiTab);
     }
     const auto targets = GuideTargets(v.field, current, dashOk);
     const float ease = 1.0f - std::exp(-dt * kGlowEase);
@@ -1132,8 +1616,6 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
             if (alpha <= 0.004f) return;
             g_BatchAlpha = alpha;
             DrawTitle(cv, text.title, 1.0f);
-            Text(text.body, ReadyBrief(), cv.X(kCanvasW * 0.5f), cv.Y(kBriefY), cv.S(kBriefPx),
-                 kText, 0.9f, Align::Center);
             DrawObjectives(v.field, current, dashOk, cv, text.body, pulse);
             DrawKeyboard(v, current, cv, text.body, pulse, false, now);
             BatchFlush();
@@ -1238,8 +1720,6 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     BindMainShader();
     g_BatchAlpha = pageA;
     DrawTitle(cv, text.title, 1.0f);
-    Text(text.body, ReadyBrief(), cv.X(kCanvasW * 0.5f), cv.Y(kBriefY), cv.S(kBriefPx),
-         kText, 0.9f, Align::Center);
     g_BatchAlpha = 1.0f;
 
     BindMainShader();
@@ -1247,33 +1727,21 @@ void Scene_Ready(const SceneCtx& c, const SceneTextContext& text) {
     g_BatchAlpha = pageA;
     DrawObjectives(v.field, current, dashOk, cv, text.body, pulse);
     if (ready_launch::g_TutorialMode) {
-        // Explain the system the current step is about, under the field.
-        using Stage = ready_launch::TutorialStage;
-        const Stage stage = ready_launch::g_Stage;
-        const int block = stage == Stage::AugPick ? 0 : -1;
-        if (block >= 0) {
-            const float maxW = cv.S(kFieldW + 2.0f * 150.0f);
-            const float cx = cv.X(kCanvasW * 0.5f);
-            float y = cv.Y(kFieldY + kFieldH + 26.0f);
-            for (int l = 0; l < 2; ++l) {
-                const wchar_t* t = ReadyPickNote(block, l);
-                float px = cv.S(l == 0 ? 22.0f : 20.0f);
-                const float w = text.body.Width(t, px / text.body.LineHeightPixels());
-                if (w > maxW) px *= maxW / w;
-                Text(text.body, t, cx, y, px, l == 0 ? kWhite : kText, l == 0 ? 0.95f : 0.8f, Align::Center);
-                y += cv.S(28.0f);
-            }
-        } else if (ready_launch::g_LaunchLockedT > 0.0f) {
+        // (The card pick explains itself on its own screen; no note under the field.)
+        if (ready_launch::g_Stage != ready_launch::TutorialStage::AugPick &&
+            ready_launch::g_LaunchLockedT > 0.0f) {
             // Space before every step is cleared: say why nothing happened.
             const float t = ready_launch::g_LaunchLockedT;
             const float a = std::min(1.0f, t / 0.4f) *
                             std::min(1.0f, (ready_launch::kLaunchLockedSec - t) / 0.12f);
             Text(text.body, ReadyLaunchLocked(), cv.X(kCanvasW * 0.5f),
-                 cv.Y(kFieldY + kFieldH + 30.0f), cv.S(22.0f), kAmber, 0.95f * a, Align::Center);
+                 cv.Y(kFieldY + kFieldH + 32.0f), cv.T(26.0f), kAmber, a, Align::Center);
         }
     }
-    DrawKeyboard(v, current, cv, text.body, pulse, c.lmb, now);
+    DrawKeyboard(v, current, cv, text.body, pulse, c.lmb, now,
+                 CardRole(focusCard), focusCard == ready_launch::HudGuide::Shoot);
     g_BatchAlpha = 1.0f;
-    if (focusCard != ready_launch::HudGuide::Done) DrawHudGuideCard(v, focusCard, cv, text.body, now);
+    if (ready_launch::IsStepCard(focusCard)) DrawStepCard(v, focusCard, cv, text.body, now, dashOk);
+    else if (focusCard != ready_launch::HudGuide::Done) DrawHudGuideCard(v, focusCard, cv, text.body, now);
     BatchFlush();
 }

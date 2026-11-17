@@ -138,6 +138,19 @@ void UpdateGameTextHalo(int screenHeight) {
     g_TextXL.SetHalo(strength, radiusPx);
 }
 
+void BeginCombatHudTextHalo(int screenHeight) {
+    const float radiusPx = std::max(2.5f, 3.4f * (float)screenHeight / 1600.0f);
+    for (TextRenderer* t : { &g_TextL, &g_TextS, &g_TextXL }) {
+        t->SetHalo(1.0f, radiusPx);
+        t->SetHaloEmFrac(0.12f);
+    }
+}
+
+void EndCombatHudTextHalo(int screenHeight) {
+    for (TextRenderer* t : { &g_TextL, &g_TextS, &g_TextXL }) t->SetHaloEmFrac(0.07f);
+    UpdateGameTextHalo(screenHeight);
+}
+
 void ShutdownGameFonts() {
     g_TextL.Cleanup();
     g_TextS.Cleanup();

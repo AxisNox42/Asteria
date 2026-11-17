@@ -129,9 +129,15 @@ void GameManager::HandleInput(GLFWwindow* window) {
             // starts the run when that animation ends. Locked until every
             // tutorial step is cleared.
             // While the tutorial's HUD guide is up, the press moves the guide on.
+            // The launch card says "Space: launch", so its press closes it and launches.
             const ready_launch::HudGuide guideBefore = ready_launch::g_HudGuide;
             if (ready_launch::HudGuideConfirm()) {
-                if (ready_launch::g_HudGuide != guideBefore) Audio::Play(Audio::Cue::UiConfirm);
+                if (ready_launch::g_HudGuide != guideBefore) {
+                    if (guideBefore == ready_launch::HudGuide::Launch && ready_launch::LaunchUnlocked())
+                        ready_launch::StartLaunch();
+                    else
+                        Audio::Play(Audio::Cue::UiConfirm);
+                }
             } else if (ready_launch::LaunchUnlocked())
                 ready_launch::StartLaunch();
             else

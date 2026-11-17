@@ -4968,11 +4968,20 @@ int main() {
                         g_ComboTimer = COMBO_WINDOW + g_ComboWindowBonus;
                         g_ComboWindowMax = g_ComboTimer;
                         g_ComboPulse = 0.0f; g_ComboBreakFx = 0.0f;
-                    } else if (step == "TUTGUIDE=hp" || step == "TUTGUIDE=xp") {
-                        // The tutorial's HUD guide card, settled (after TUTSTEP=0).
-                        const bool xp = step == "TUTGUIDE=xp";
-                        ready_launch::g_HudGuide = xp ? ready_launch::HudGuide::Xp : ready_launch::HudGuide::Hp;
-                        ready_launch::g_HudGuideT = xp ? 1.7f : ready_launch::kHudGuideDelay + 1.3f;
+                    } else if (step.rfind("TUTGUIDET=", 0) == 0) {
+                        // Seconds into the guide card now up (its opening animation, frame by frame).
+                        ready_launch::g_HudGuideT = (float)std::atof(step.c_str() + 10);
+                    } else if (step.rfind("TUTGUIDE=", 0) == 0) {
+                        // A tutorial guide card, settled: hp|xp after TUTSTEP=0, a step card
+                        // (move|shoot|dash|kill|launch) after the TUTSTEP that reaches it.
+                        using ready_launch::HudGuide;
+                        const std::string which = step.substr(9);
+                        const HudGuide card = which == "xp" ? HudGuide::Xp
+                            : which == "move" ? HudGuide::Move : which == "shoot" ? HudGuide::Shoot
+                            : which == "dash" ? HudGuide::Dash : which == "kill" ? HudGuide::Kill
+                            : which == "launch" ? HudGuide::Launch : HudGuide::Hp;
+                        ready_launch::g_HudGuide = card;
+                        ready_launch::g_HudGuideT = card == HudGuide::Hp ? ready_launch::kHudGuideDelay + 1.3f : 1.7f;
                     } else if (step.rfind("READYSTEP=", 0) == 0) {
                         // READY with the first N practice objectives done.
                         if (gm.currentState != GameState::READY) RestartCurrentRun();
@@ -5229,6 +5238,14 @@ int main() {
                         g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
                     } else if (step == "DASH") {
                         g_SmokeDash = true;
+                    } else if (step.rfind("KEYDOWN=", 0) == 0 || step.rfind("KEYUP=", 0) == 0) {
+                        // Hold / release a GLFW key as the keyboard would (READY practice, Space).
+                        const bool down = step[3] == 'D';
+                        const int k = std::atoi(step.c_str() + (down ? 8 : 6));
+                        if (k >= 0 && k < 1024) {
+                            keys[k] = down;
+                            if (down) g_KeyPressSeq[k] = 0xFFFF0000u + (unsigned)k;   // newest press
+                        }
                     } else if (step.rfind("WALK=", 0) == 0) {
                         g_SmokeWalk = step.size() > 5 && step[5] != '0' ? step[5] : 0;
                     } else if (step.rfind("FIRE=", 0) == 0) {
@@ -6008,7 +6025,19 @@ int main() {
                 }
             }
 
-            if (!augExitFired) {
+            if (!augExitFired && ready_launch::PickGuideActive() && g_AugExitT < 0.0f) {
+                // Tutorial card pick guide: Confirm moves the guide on; no card
+                // is focused or taken until it is closed.
+                if (ActionHeld(GameAction::Confirm) && s_augSpaceReleased) {
+                    s_augSpaceReleased = false;
+                    const ready_launch::PickGuide before = ready_launch::g_PickGuide;
+                    if (ready_launch::PickGuideConfirm() && ready_launch::g_PickGuide != before)
+                        Audio::Play(Audio::Cue::UiConfirm);
+                }
+                if (k1 == GLFW_RELEASE) g_aug1Released = true;
+                if (k2 == GLFW_RELEASE) g_aug2Released = true;
+                if (k3 == GLFW_RELEASE) g_aug3Released = true;
+            } else if (!augExitFired) {
                 // 1~5 focuses a card; SPACE starts the confirmation exit.
                 if (g_AugExitT < 0.0f) {
                     if (k1 == GLFW_PRESS && g_aug1Released && g_GameManager.augChoiceCount > 0) {
@@ -6811,7 +6840,20 @@ CollisionSystem::Update(pCX, pCY,
         if (tutSelectionRender) g_GameManager.currentState = GameState::READY;
         SetFullViewport();
         // The pane prototype hides the desktop so its screen captures stay private.
-        glClearColor(0.0f, 0.0f, 0.0f, g_PaneDebug ? 1.0f : 0.0f);
+        // ASTERIA_SMOKE_BACKDROP=white|grey|sky: smoke captures over a bright
+        // "wallpaper" (the window is see-through; this checks contrast on any desktop).
+        static const float* smokeBackdrop = [] () -> const float* {
+            static float c[3];
+            if (!g_SmokeRun.Active()) return nullptr;
+            const std::string s = SmokeEnv("ASTERIA_SMOKE_BACKDROP");
+            if (s == "white") { c[0] = 0.94f; c[1] = 0.94f; c[2] = 0.93f; }
+            else if (s == "grey") { c[0] = 0.55f; c[1] = 0.56f; c[2] = 0.58f; }
+            else if (s == "sky") { c[0] = 0.62f; c[1] = 0.80f; c[2] = 0.95f; }
+            else return nullptr;
+            return c;
+        }();
+        if (smokeBackdrop) glClearColor(smokeBackdrop[0], smokeBackdrop[1], smokeBackdrop[2], 1.0f);
+        else glClearColor(0.0f, 0.0f, 0.0f, g_PaneDebug ? 1.0f : 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(g_MainShader);
@@ -7282,6 +7324,8 @@ CollisionSystem::Update(pCX, pCY,
 #else
                 const float hudTopY = BROWSER_CHROME_H + 4.0f;
 #endif
+                // The combat HUD sits on the bare desktop: wider text halo (bright wallpapers).
+                BeginCombatHudTextHalo(screenHeight);
                 // Level + XP: one line along the bottom edge, stopping short
                 // of the version label in the bottom-right corner.
                 if (st != GameState::DYING) {
@@ -7350,6 +7394,7 @@ CollisionSystem::Update(pCX, pCY,
                 }
             }
             g_BatchAlpha = hudAlphaKeep;
+            EndCombatHudTextHalo(screenHeight);
 
         }
 

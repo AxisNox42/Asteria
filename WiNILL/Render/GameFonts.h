@@ -9,3 +9,9 @@ void ShutdownGameFonts();
 // Per-glyph dark halo that keeps text readable on any wallpaper without a
 // backdrop plate. Call once per frame before UI text is drawn.
 void UpdateGameTextHalo(int screenHeight);
+
+// The combat HUD (wave header, level, skill keys, FPS) is drawn straight on the
+// desktop with nothing darker behind it, unlike the menus: between these two
+// calls every font draws a wider, full-strength halo (bright wallpapers).
+void BeginCombatHudTextHalo(int screenHeight);
+void EndCombatHudTextHalo(int screenHeight);

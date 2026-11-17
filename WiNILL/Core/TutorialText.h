@@ -27,6 +27,19 @@ inline const wchar_t* ExpandKeyTokens(const wchar_t* src, std::wstring& out) {
         else if (!std::wcsncmp(p, L"{SKILLS}", 8)) { out += skills; p += 8; }
         else if (!std::wcsncmp(p, L"{START}", 7)) { out += KeyName(ActionKey(GameAction::Confirm)); p += 7; }
         else if (!std::wcsncmp(p, L"{QUIT}", 6)) { out += KeyName(kBindKeyEscape); p += 6; }
+        else if (!std::wcsncmp(p, L"{TERMS}", 7)) {   // glossary key on the card screen
+            out += ActionBound(GameAction::Glossary) ? KeyName(ActionKey(GameAction::Glossary)) : std::wstring(L"TAB");
+            p += 7;
+        } else if (!std::wcsncmp(p, L"{CARDS}", 7)) {   // card keys, "1/2/3"
+            std::wstring keys;
+            for (GameAction a : { GameAction::Card1, GameAction::Card2, GameAction::Card3 }) {
+                if (!ActionBound(a)) continue;
+                if (!keys.empty()) keys += L"/";
+                keys += KeyName(ActionKey(a));
+            }
+            out += keys.empty() ? std::wstring(L"1/2/3") : keys;
+            p += 7;
+        }
         else out += *p++;
     }
     return out.c_str();
@@ -38,27 +51,9 @@ inline const wchar_t* kReadyTitle[LANG_COUNT] = {
     L"Tutorial",
     L"チュートリアル",
 };
-inline const wchar_t* kReadyBrief[LANG_COUNT] = {
-    L"연습장에서 조작을 익히세요 — {START}로 쉬움 난이도 출격, ESC로 일시정지",
-    L"Learn the controls in the practice field — {START} launches an Easy run, ESC pauses",
-    L"練習場で操作に慣れましょう — {START}でイージー出撃、ESCで一時停止",
-};
-
 inline const wchar_t* ReadyTitle()  { return kReadyTitle[LangIndexTutorial()]; }
-inline const wchar_t* ReadyBrief() {
-    static std::wstring expanded;
-    return ExpandKeyTokens(kReadyBrief[LangIndexTutorial()], expanded);
-}
 
 // ── READY 연습장 + 키보드 패널 ──
-inline const wchar_t* kReadyFieldTitle = L"PRACTICE FIELD";
-inline const wchar_t* kReadyObjectivesTitle = L"OBJECTIVES";
-inline const wchar_t* kReadyFieldNote[LANG_COUNT] = {
-    L"연습 모드 · 피해 없음",
-    L"Practice · no damage",
-    L"練習モード · ダメージなし",
-};
-inline const wchar_t* kReadyKills[LANG_COUNT] = { L"처치", L"Kills", L"撃破" };
 // After "1○" next to the ship's health ring: the ring is the range unit.
 inline const wchar_t* kReadyRingNote[LANG_COUNT] = {
     L"= 체력 링 반경 (증강 범위의 단위)",
@@ -114,20 +109,6 @@ inline const wchar_t* kReadyExtraHint[LANG_COUNT][READY_EXTRA_HINT_COUNT] = {
     { L"Level up! Pick 1 of 3 stat cards" },
     { L"レベルアップ！能力値カード3枚から1枚を選ぼう" },
 };
-// Two-line explanation under the field: [0] cards (while picking).
-inline constexpr int READY_PICK_NOTE_COUNT = 1;
-inline const wchar_t* kReadyPickNote[LANG_COUNT][READY_PICK_NOTE_COUNT][2] = {
-    { { L"레벨 업마다 능력치 카드 3장 중 1장, 웨이브 클리어마다 증강 카드 3장 중 1장을 얻습니다",
-        L"카드를 클릭하거나 숫자 키로 고르고 Space로 확정하세요 — 효과는 카드에 적혀 있습니다" } },
-    { { L"Each level-up gives 1 of 3 stat cards; each wave clear gives 1 of 3 augment cards",
-        L"Click a card or press its number, then confirm with Space — each card lists its effect" } },
-    { { L"レベルアップごとに能力値カード3枚から1枚、ウェーブクリアごとに強化カード3枚から1枚を得ます",
-        L"カードをクリックするか数字キーで選び、Spaceで確定 — 効果はカードに書かれています" } },
-};
-inline const wchar_t* ReadyPickNote(int block, int line) {
-    if (block < 0 || block >= READY_PICK_NOTE_COUNT || line < 0 || line >= 2) return L"";
-    return kReadyPickNote[LangIndexTutorial()][block][line];
-}
 inline const wchar_t* ReadyExtraObjective(int i) {
     if (i < 0 || i >= READY_EXTRA_OBJECTIVE_COUNT) return L"";
     return kReadyExtraObjective[LangIndexTutorial()][i];
@@ -166,28 +147,113 @@ inline const wchar_t* kReadyStepHint[LANG_COUNT][READY_STEP_HINT_COUNT] = {
 // Step counter above the instruction ("STEP 2 / 4").
 inline const wchar_t* kReadyStepLabel = L"STEP";
 
+// Card that opens each step (ready_launch::HudGuide Move, Shoot, Dash, Kill,
+// Launch): title and text. The field waits until it is closed.
+inline constexpr int READY_STEP_CARD_COUNT = 5;
+inline const wchar_t* kReadyStepCard[LANG_COUNT][READY_STEP_CARD_COUNT][2] = {
+    { { L"이동", L"{MOVE} 키로 함선을 움직여요. 연습장 안을 자유롭게 돌아다녀 보세요." },
+      { L"사격", L"마우스로 조준하고 왼쪽 버튼을 누르고 있으면 그쪽으로 계속 쏩니다." },
+      { L"대시", L"{DASH} 키를 누르면 이동 방향으로 빠르게 튀어 나가요. 대시하는 동안은 맞지 않아서 탄을 뚫고 피할 때 씁니다." },
+      { L"스웜 처치", L"스웜은 떼로 몰려오는 가장 기본적인 적이에요. 표시된 스웜 4마리를 쏴서 처치하면 경험치 줄이 가득 차 레벨 업합니다." },
+      { L"출격 준비", L"모든 연습을 마쳤어요! {START} 키를 누르면 쉬움 난이도로 출격합니다. 전투 중엔 ESC로 일시정지할 수 있어요." } },
+    { { L"MOVE", L"Move your ship with {MOVE}. Fly around the practice field freely." },
+      { L"SHOOT", L"Aim with the mouse and hold the left button to keep firing that way." },
+      { L"DASH", L"Press {DASH} to burst forward the way you are moving. Nothing hits you during a dash, so use it to slip through shots." },
+      { L"DEFEAT SWARMS", L"Swarms are the most basic enemy and come in packs. Shoot down the 4 marked Swarms; the XP line fills and you level up." },
+      { L"READY TO LAUNCH", L"Practice complete! Press {START} to launch on Easy. In combat, ESC pauses." } },
+    { { L"移動", L"{MOVE}で艦を動かします。練習場の中を自由に動いてみましょう。" },
+      { L"射撃", L"マウスで照準し、左ボタンを押し続けるとその方向へ撃ち続けます。" },
+      { L"ダッシュ", L"{DASH}を押すと移動方向へ素早く飛び出します。ダッシュ中は被弾しないので、弾をすり抜けて避けるときに使います。" },
+      { L"スウォーム撃破", L"スウォームは群れで迫ってくる最も基本的な敵です。マークされた4体を撃破すると経験値ラインが満タンになりレベルアップします。" },
+      { L"出撃準備", L"練習完了！{START}を押すとイージーで出撃します。戦闘中はESCで一時停止できます。" } },
+};
+inline const wchar_t* kReadyStepCardGo[LANG_COUNT][2] = {
+    { L"{START} · 클릭  연습 시작", L"{START}  출격   ·   클릭  닫기" },
+    { L"{START} · click  start", L"{START}  launch   ·   click  close" },
+    { L"{START} · クリック  練習開始", L"{START}  出撃   ·   クリック  閉じる" },
+};
+inline const wchar_t* ReadyStepCard(int card, int line) {
+    static std::wstring expanded[2];
+    if (card < 0 || card >= READY_STEP_CARD_COUNT || line < 0 || line >= 2) return L"";
+    return ExpandKeyTokens(kReadyStepCard[LangIndexTutorial()][card][line], expanded[line]);
+}
+inline const wchar_t* ReadyStepCardGo(bool launch) {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyStepCardGo[LangIndexTutorial()][launch ? 1 : 0], expanded);
+}
+
+// Short reminder above the ship while a step is practised (after its card),
+// by ready_practice::Objective. {N} = kills so far.
+inline const wchar_t* kReadyStepShort[LANG_COUNT][READY_OBJECTIVE_COUNT] = {
+    { L"{MOVE}  이동", L"좌클릭 유지  사격", L"{DASH}  대시", L"스웜 처치  {N} / 4" },
+    { L"{MOVE}  move", L"hold left click  fire", L"{DASH}  dash", L"Defeat Swarms  {N} / 4" },
+    { L"{MOVE}  移動", L"左クリック長押し  射撃", L"{DASH}  ダッシュ", L"スウォーム撃破  {N} / 4" },
+};
+inline const wchar_t* ReadyStepShort(int step, int kills) {
+    static std::wstring expanded, out;
+    if (step < 0 || step >= READY_OBJECTIVE_COUNT) return L"";
+    ExpandKeyTokens(kReadyStepShort[LangIndexTutorial()][step], expanded);
+    out.clear();
+    for (const wchar_t* p = expanded.c_str(); *p;) {
+        if (!std::wcsncmp(p, L"{N}", 3)) { out += std::to_wstring(kills < 4 ? kills : 4); p += 3; }
+        else out += *p++;
+    }
+    return out.c_str();
+}
+
+// Guide cards over the tutorial's card pick (ready_launch::PickGuide order):
+// title, text. Footer: [0] next, [1] on the last card.
+inline constexpr int READY_PICK_GUIDE_COUNT = 3;
+inline const wchar_t* kReadyPickGuide[LANG_COUNT][READY_PICK_GUIDE_COUNT][2] = {
+    { { L"카드 고르기", L"레벨 업하면 카드 3장 중 1장을 골라요. 실전에선 웨이브를 깰 때마다 같은 방식으로 증강 카드를 고릅니다." },
+      { L"등급과 설명", L"카드 위 다이아몬드 수가 등급이에요. 밑줄 친 단어에 마우스를 올리거나 {TERMS} 키를 누르면 뜻이 나와요." },
+      { L"고르고 확정", L"카드를 클릭하면 바로 골라져요. 또는 {CARDS} 키로 고른 뒤 {START} 키로 확정해요." } },
+    { { L"PICK A CARD", L"Each level-up lets you take 1 of 3 cards. In a run, every wave clear offers augment cards the same way." },
+      { L"RARITY & TEXT", L"The diamonds on top show the rarity. Hover an underlined word or press {TERMS} to see what it means." },
+      { L"CHOOSE", L"Click a card to take it at once, or press {CARDS} to pick one and confirm with {START}." } },
+    { { L"カードを選ぶ", L"レベルアップすると3枚から1枚を選びます。実戦ではウェーブをクリアするたびに同じ方法で強化カードを選びます。" },
+      { L"等級と説明", L"カード上のダイヤの数が等級です。下線の語にマウスを乗せるか{TERMS}キーで意味が出ます。" },
+      { L"選んで確定", L"カードをクリックするとすぐ選ばれます。または{CARDS}キーで選んで{START}キーで確定します。" } },
+};
+inline const wchar_t* kReadyPickGuideGo[LANG_COUNT][2] = {
+    { L"{START} · 클릭  다음", L"{START} · 클릭  카드 고르기" },
+    { L"{START} · click  next", L"{START} · click  choose a card" },
+    { L"{START} · クリック  次へ", L"{START} · クリック  カードを選ぶ" },
+};
+// "Rarity & text" when the card it points at has no underlined word (most
+// stat cards): the underline is then a thing for the run's augment cards.
+inline const wchar_t* kReadyPickGuideNoTerms[LANG_COUNT] = {
+    L"카드 위 다이아몬드 수가 등급이에요. 많을수록 효과가 커요. 실전 증강 카드의 밑줄 친 단어는 마우스를 올리거나 {TERMS} 키로 뜻을 볼 수 있어요.",
+    L"The diamonds on top show the rarity: more is stronger. On a run's augment cards, hover an underlined word or press {TERMS} to see what it means.",
+    L"カード上のダイヤの数が等級です。多いほど強力です。実戦の強化カードでは下線の語にマウスを乗せるか{TERMS}キーで意味が出ます。",
+};
+inline const wchar_t* ReadyPickGuide(int card, int line, bool hasTerms = true) {
+    static std::wstring expanded[2];
+    if (card < 0 || card >= READY_PICK_GUIDE_COUNT || line < 0 || line >= 2) return L"";
+    if (card == 1 && line == 1 && !hasTerms)
+        return ExpandKeyTokens(kReadyPickGuideNoTerms[LangIndexTutorial()], expanded[line]);
+    return ExpandKeyTokens(kReadyPickGuide[LangIndexTutorial()][card][line], expanded[line]);
+}
+inline const wchar_t* ReadyPickGuideGo(bool last) {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyPickGuideGo[LangIndexTutorial()][last ? 1 : 0], expanded);
+}
+
+// Name tag on a Swarm during the defeat step.
+inline const wchar_t* kReadySwarmTag[LANG_COUNT] = { L"스웜", L"SWARM", L"スウォーム" };
+inline const wchar_t* ReadySwarmTag() { return kReadySwarmTag[LangIndexTutorial()]; }
+
 // Under the dash objective when the dash is bound to the start key.
 inline const wchar_t* kReadyDashOnStart[LANG_COUNT] = {
     L"{DASH}는 출격 키 — 전투에서 사용",
     L"{DASH} launches the run here — use it in combat",
     L"{DASH}は出撃キー — 戦闘で使用",
 };
-// Under the checklist once every step is done.
-inline const wchar_t* kReadyAllDone[LANG_COUNT] = {
-    L"완료 — {START}로 쉬움 난이도 출격",
-    L"Done — launch an Easy run with {START}",
-    L"完了 — {START}でイージー出撃",
-};
 // Space pressed before every tutorial step is cleared.
 inline const wchar_t* kReadyLaunchLocked[LANG_COUNT] = {
     L"튜토리얼의 모든 단계를 마치면 출격할 수 있습니다",
     L"Clear every tutorial step to launch",
     L"チュートリアルの全ステップを終えると出撃できます",
-};
-inline const wchar_t* kReadyAim[LANG_COUNT] = {
-    L"조준 · 좌클릭 유지 사격",
-    L"Aim · hold left click to fire",
-    L"照準 · 左クリック長押しで射撃",
 };
 // Legend beside the keyboard, one line per key group (keys follow the bindings).
 inline constexpr int READY_LEGEND_COUNT = 5;
@@ -205,11 +271,8 @@ inline const wchar_t* kReadyKeyCaption[LANG_COUNT][READY_KEY_ROLE_COUNT] = {
     { L"", L"", L"ダッシュ", L"", L"出撃", L"一時停止" },
 };
 
-inline const wchar_t* ReadyFieldNote() { return kReadyFieldNote[LangIndexTutorial()]; }
-inline const wchar_t* ReadyKills()     { return kReadyKills[LangIndexTutorial()]; }
 inline const wchar_t* ReadyRingNote()  { return kReadyRingNote[LangIndexTutorial()]; }
 inline const wchar_t* ReadyXpNote()    { return kReadyXpNote[LangIndexTutorial()]; }
-inline const wchar_t* ReadyAim()       { return kReadyAim[LangIndexTutorial()]; }
 inline const wchar_t* ReadyLaunchLocked() { return kReadyLaunchLocked[LangIndexTutorial()]; }
 inline const wchar_t* ReadyObjective(int i) {
     if (i < 0 || i >= READY_OBJECTIVE_COUNT) return L"";
@@ -224,14 +287,16 @@ inline const wchar_t* ReadyDashOnStart() {
     static std::wstring expanded;
     return ExpandKeyTokens(kReadyDashOnStart[LangIndexTutorial()], expanded);
 }
-inline const wchar_t* ReadyAllDone() {
-    static std::wstring expanded;
-    return ExpandKeyTokens(kReadyAllDone[LangIndexTutorial()], expanded);
-}
 inline const wchar_t* ReadyLegend(int i) {
     static std::wstring expanded[READY_LEGEND_COUNT];
     if (i < 0 || i >= READY_LEGEND_COUNT) return L"";
     return ExpandKeyTokens(kReadyLegend[LangIndexTutorial()][i], expanded[i]);
+}
+// The start key's cap while a card is being picked: there it confirms the card.
+inline const wchar_t* kReadyConfirmCap[LANG_COUNT] = { L"{START}  확정", L"{START}  confirm", L"{START}  確定" };
+inline const wchar_t* ReadyConfirmCap() {
+    static std::wstring expanded;
+    return ExpandKeyTokens(kReadyConfirmCap[LangIndexTutorial()], expanded);
 }
 inline const wchar_t* ReadyKeyCaption(int role) {
     if (role < 0 || role >= READY_KEY_ROLE_COUNT) return L"";

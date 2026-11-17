@@ -505,11 +505,13 @@ void Scene_Shop(const SceneCtx& c) {
     static float s_dimF[5] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     {
         float tgt[5] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-        if (tourOn && s_tourStep < kTourDone) {
+        // The closing step lights the bought module the same way (its caption
+        // sits under the cell, so the rows below must stay faint).
+        if (tourOn && (s_tourStep < kTourDone || tutIdx >= 0)) {
             constexpr float kDim = 0.22f;
             tgt[0] = kDim;
             tgt[1] = kDim;
-            tgt[2] = s_tourStep == kTourPick ? 1.0f : 0.40f;
+            tgt[2] = (s_tourStep == kTourPick || s_tourStep == kTourDone) ? 1.0f : 0.40f;
             tgt[3] = s_tourStep == kTourDetail ? 1.0f : kDim;
             tgt[4] = s_tourStep == kTourBuy ? 1.0f : kDim;
         }
@@ -1143,7 +1145,7 @@ void Scene_Shop(const SceneCtx& c) {
             const float cellRw = cellW + 8.0f * ui, cellRh = cellH + 10.0f * ui;
             float rx = 0.0f, ry = 0.0f, rw = 0.0f, rh = 0.0f;
             bool hasRegion = true;
-            if (s_tourStep == kTourPick && cellShown) {
+            if ((s_tourStep == kTourPick || s_tourStep == kTourDone) && cellShown) {
                 rx = cellRx; ry = cellRy; rw = cellRw; rh = cellRh;
             } else if (s_tourStep == kTourDetail) {
                 // Only the panel's content (kind tag down to the level row).

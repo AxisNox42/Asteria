@@ -36,20 +36,27 @@ struct Layout {
 // A row of three or fewer (the level-up stat pick) has room, so its cards
 // grow by kFewBoost.
 inline constexpr float kFewBoost = 1.18f;
-inline Layout MakeLayout(float sw, float sh, int count) {
+// The tutorial's level-up pick, shrunk into the practice field: its cards are
+// drawn larger, their tops just under the field's title line, so the card text
+// stays readable and the guide's caption still fits below.
+inline constexpr float kTutorialBoost = 1.25f;
+inline constexpr float kTutorialMaxH = 0.555f;    // of the screen height (the guide caption fits below)
+inline constexpr float kTutorialTop = 0.155f;     // card top, of the screen height
+inline Layout MakeLayout(float sw, float sh, int count, bool tutorial = false) {
     Layout L;
     L.count = std::max(0, std::min(kMaxCards, count));
     float s = std::max(0.70f, std::min(1.35f,
         std::min(sw * 0.94f / 1640.0f, sh * 0.90f / 910.0f)));
     if (L.count <= 3) s *= kFewBoost;
+    if (tutorial) s *= kTutorialBoost;
     const int n = std::max(1, L.count);
     const float rowW = n * kCardW + (n - 1) * kGap;
     s = std::min(s, sw * 0.94f / rowW);
-    s = std::min(s, sh * 0.62f / kCardH);
+    s = std::min(s, sh * (tutorial ? kTutorialMaxH : 0.62f) / kCardH);
     L.s = s;
     L.cardW = kCardW * s;
     L.cardH = kCardH * s;
-    L.cy = sh * 0.47f;
+    L.cy = tutorial ? sh * kTutorialTop + L.cardH * 0.5f : sh * 0.47f;
     const float pitch = (kCardW + kGap) * s;
     for (int i = 0; i < L.count; ++i)
         L.cx[i] = sw * 0.5f + (i - (L.count - 1) * 0.5f) * pitch;
