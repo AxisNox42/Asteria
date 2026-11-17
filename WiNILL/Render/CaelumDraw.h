@@ -356,12 +356,12 @@ inline void DrawOverlay(float time) {
     // 4 Snipe: no marker at all; the cursor on the aim point is the warning.
     for (const Shot& s : g.shots) {
         const float sp = std::sqrt(s.vx * s.vx + s.vy * s.vy);
-        const float dx = s.vx / sp, dy = s.vy / sp, r = kShotRadius;
+        const float dx = s.vx / sp, dy = s.vy / sp, r = ShotRadius();
         Seg(s.x + dx * r, s.y + dy * r, s.x - dy * r * 0.6f, s.y + dx * r * 0.6f, 2.0f, H[0], H[1], H[2], 1.0f);
         Seg(s.x - dy * r * 0.6f, s.y + dx * r * 0.6f, s.x - dx * r, s.y - dy * r, 2.0f, H[0], H[1], H[2], 1.0f);
         Seg(s.x - dx * r, s.y - dy * r, s.x + dy * r * 0.6f, s.y - dx * r * 0.6f, 2.0f, H[0], H[1], H[2], 1.0f);
         Seg(s.x + dy * r * 0.6f, s.y - dx * r * 0.6f, s.x + dx * r, s.y + dy * r, 2.0f, H[0], H[1], H[2], 1.0f);
-        Seg(s.x - dx * r, s.y - dy * r, s.x - dx * (r + 90.0f), s.y - dy * (r + 90.0f), 1.6f, A[0], A[1], A[2], 0.6f);
+        Seg(s.x - dx * r, s.y - dy * r, s.x - dx * (r + 90.0f * ArenaScale()), s.y - dy * (r + 90.0f * ArenaScale()), 1.6f, A[0], A[1], A[2], 0.6f);
     }
 
     // Wave: rings (or lines) closing on the source, then the front. Where the

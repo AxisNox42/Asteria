@@ -85,8 +85,27 @@ static void CheckDifficulty() {
     caelum::SetDifficulty(2);
 }
 
+// The Snipe shot is tuned in 1080p pixels and scales with the screen height, so
+// on a bigger monitor it crosses the screen in the same time (2026-11-17).
+static void CheckShotScale() {
+    caelum::SetDifficulty(2);
+    caelum::SetArena(1920.0f, 1080.0f);
+    Check(caelum::ShotSpeed() == caelum::g_Tune.shotSpeed && caelum::ShotRadius() == caelum::kShotRadius,
+          "1080p: shot speed and radius as tuned");
+    caelum::SetArena(2560.0f, 1440.0f);
+    Check(std::fabs(caelum::ShotSpeed() - caelum::g_Tune.shotSpeed * 1440.0f / 1080.0f) < 0.01f,
+          "1440p: shot speed scales with the height");
+    Check(std::fabs(caelum::ShotRadius() - caelum::kShotRadius * 1440.0f / 1080.0f) < 0.01f,
+          "1440p: shot radius scales with the height");
+    caelum::SetArena(3440.0f, 1440.0f);
+    Check(std::fabs(caelum::ShotSpeed() - caelum::g_Tune.shotSpeed * 1440.0f / 1080.0f) < 0.01f,
+          "ultrawide: no faster than 16:9 of the same height");
+    caelum::SetArena(1920.0f, 1080.0f);
+}
+
 int main() {
     CheckDifficulty();
+    CheckShotScale();
     CheckHurts();
     CheckNoOverflow();
     CheckLeak();

@@ -84,6 +84,10 @@ inline std::vector<Event> g_Events;
 
 inline float g_W = 1920.0f, g_H = 1080.0f;  // the arena (the screen)
 inline void SetArena(float w, float h) { if (w > 200.0f) g_W = w; if (h > 200.0f) g_H = h; }
+// Screen size against 1080p (by height, so ultrawide is not faster). The Snipe
+// shot is tuned in 1080p pixels; on a bigger screen it scales so it crosses the
+// screen in the same time and looks the same size (2026-11-17).
+inline float ArenaScale() { return g_H / 1080.0f; }
 
 inline float Rnd01() { return (float)(rand() % 10000) / 10000.0f; }
 inline float RndRange(float a, float b) { return a + (b - a) * Rnd01(); }
@@ -1197,11 +1201,15 @@ inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
     }
 }
 
+// Snipe shot speed / radius / overshoot in this screen's pixels.
+inline float ShotSpeed() { return g_Tune.shotSpeed * ArenaScale(); }
+inline float ShotRadius() { return kShotRadius * ArenaScale(); }
+
 // Where a shot from (bx, by) meets the player if they keep moving as they are.
 inline void LeadAim(float bx, float by, float px, float py, float& ax, float& ay) {
     ax = px; ay = py;
     for (int k = 0; k < 2; ++k) {
-        const float t = std::hypot(ax - bx, ay - by) / g_Tune.shotSpeed;
+        const float t = std::hypot(ax - bx, ay - by) / ShotSpeed();
         ax = px + g.pvx * t; ay = py + g.pvy * t;
     }
     ax = std::clamp(ax, 0.0f, g_W); ay = std::clamp(ay, 0.0f, g_H);
@@ -1210,8 +1218,9 @@ inline void FireSnipe(float bx, float by) {
     const float dx = g.aimX - bx, dy = g.aimY - by, d = std::max(1.0f, std::hypot(dx, dy));
     Shot s;
     s.x = bx; s.y = by;
-    s.vx = dx / d * g_Tune.shotSpeed; s.vy = dy / d * g_Tune.shotSpeed;
-    s.left = d + kShotOvershoot;
+    const float sp = ShotSpeed();
+    s.vx = dx / d * sp; s.vy = dy / d * sp;
+    s.left = d + kShotOvershoot * ArenaScale();
     g.shots.push_back(s);
     g_Events.push_back({ Fx::Fire, bx, by, std::atan2(dy, dx) });
 }
@@ -1219,11 +1228,11 @@ inline void TickShots(float dt, float px, float py, float& playerHP) {
     for (Shot& s : g.shots) {
         const float ox = s.x, oy = s.y;
         s.x += s.vx * dt; s.y += s.vy * dt;
-        s.left -= g_Tune.shotSpeed * dt;
+        s.left -= ShotSpeed() * dt;
         // Fast: test the whole step, not just where it ended.
         const float sx = s.x - ox, sy = s.y - oy, sl = sx * sx + sy * sy;
         const float u = sl > 0.0f ? std::clamp(((px - ox) * sx + (py - oy) * sy) / sl, 0.0f, 1.0f) : 0.0f;
-        const float dx = px - (ox + sx * u), dy = py - (oy + sy * u), r = kShotRadius + 16.0f;
+        const float dx = px - (ox + sx * u), dy = py - (oy + sy * u), r = ShotRadius() + 16.0f;
         if (dx * dx + dy * dy < r * r) { Hit(playerHP, kShotDamage, 3, px, py); s.done = true; }
         else if (s.left <= 0.0f) {
             if (s.x >= 0.0f && s.y >= 0.0f && s.x < g_W && s.y < g_H) Infect(CellAt(s.x, s.y));
