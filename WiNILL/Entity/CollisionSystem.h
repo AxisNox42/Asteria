@@ -275,6 +275,7 @@ public:
                 // The popup is the shot's own attack power, every time: invulnerable
                 // frames, phase caps, shields and overkill never change the number.
                 SpawnDamageNumber(monster->worldX, monster->worldY, baseDamage, crit);
+                if (crit && !monster->alive) SpawnFateKill(monster->worldX, monster->worldY);
                 if (monster->alive) Audio::Play(Audio::Cue::EnemyHit);
                 const bool regular = !IsBossMob(monster->kind) && !IsEliteMob(monster->kind);
                 if (monster->alive && passive_hooks::executes &&
@@ -289,7 +290,7 @@ public:
                             bullet.color.r, bullet.color.g, bullet.color.b);
                 if (passive_hooks::bulletHit)
                     passive_hooks::bulletHit(bullet, monster, monster->worldX,
-                                             monster->worldY, dealt, crit, !monster->alive);
+                                             monster->worldY, baseDamage, crit, !monster->alive);
                 if (!monster->alive) CollectMonsterKill(rewards, *monster);
 
                 if (bullet.SurvivesHit()) { bullet.RememberHit(monster); ++bullet.synPierced; }
@@ -322,6 +323,7 @@ public:
                     stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
                 const float dealt = manager.ApplyDamage(*ranged, baseDamage, shotSpace);
                 SpawnDamageNumber(ranged->worldX, ranged->worldY, baseDamage, crit);
+                if (crit && !ranged->alive) SpawnFateKill(ranged->worldX, ranged->worldY);
                 if (ranged->alive) Audio::Play(Audio::Cue::EnemyHit);
                 if (ranged->alive && passive_hooks::executes &&
                     passive_hooks::executes(ranged, ranged->hp, true))
@@ -334,7 +336,7 @@ public:
                             bullet.color.r, bullet.color.g, bullet.color.b);
                 if (passive_hooks::bulletHit)
                     passive_hooks::bulletHit(bullet, ranged, ranged->worldX,
-                                             ranged->worldY, dealt, crit, !ranged->alive);
+                                             ranged->worldY, baseDamage, crit, !ranged->alive);
                 if (!ranged->alive) CollectScopeKill(rewards, *ranged);
 
                 if (bullet.SurvivesHit()) { bullet.RememberHit(ranged); ++bullet.synPierced; }

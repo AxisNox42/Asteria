@@ -266,7 +266,7 @@ inline const std::vector<Aug>& Table() {
         T_ORBIT | T_ERASE, 0, false, Fx{}.orbit_(1.2f)},
     {"Y_ETERNAL", "영겁의 반사탄","탄 튕김 +3, 튕길 때마다(벽·적 모두) 피해 +22%", Rar::Mythic, Role::Verb,
         T_BOUNCE | T_ON_BOUNCE, 0, false, Fx{}.bounce_(3).perBounce_(0.22f)},
-    {"Y_FATE",    "운명의 필살 일격","치명타 확률 +30%, 치명타 피해 +100%", Rar::Mythic, Role::Trigger,
+    {"Y_FATE",    "운명의 필살 일격","치명타 확률 +30%, 치명타 피해 +100%, 탄 치명타 때 주변 1.1○ 다른 적에게 그 피해의 50%", Rar::Mythic, Role::Trigger,
         T_ON_CRIT, 0, false, Fx{}.crit_(0.30f).critMul_(1.0f).critEcho_(1.0f)},
     // ── 확률 카드: 다른 카드 없이 혼자 작동, 조건을 만족하는 동안 한 가지 확률이 오름 ──
     {"P_STILL_CRIT", "정지 치명", "0.5초 이상 멈춰 있을 때 치명타 확률 +65%", Rar::Common, Role::Chance,

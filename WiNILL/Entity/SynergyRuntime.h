@@ -40,7 +40,9 @@ float DamageTakenMult();               // g_PlayerDmgMult
 void  Step(const passive::StepInput& in);
 
 // Events from the shared combat code.
-void  OnBulletHit(const Bullet& b, const void* target, float x, float y, bool crit, bool killed);
+// damage: the hit's own damage, crit included (운명의 필살 일격's cut deals a share of it).
+void  OnBulletHit(const Bullet& b, const void* target, float x, float y, bool crit, bool killed,
+                  float damage = 0.0f);
 bool  Redirect(Bullet& b, const void* hitTarget);         // ricochet: true = the shot flies on
 void  OnBounce(Bullet& b, bool wall);                     // a shot turned back at the arena edge
 void  OnHurt(float dmgTaken);

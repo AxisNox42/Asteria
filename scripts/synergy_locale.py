@@ -74,7 +74,7 @@ LOC = {
     "Y_SINGULAR": ("Singularity Collapse Warhead", "特異点崩壊弾頭", "Every hit pulls enemies within 2.5○ up to 1○ toward it, then explodes in 1.5○ for 150% attack (bosses, elites and ranged enemies are not pulled)", "命中するたびに周囲2.5○以内の敵を最大1○引き寄せてから1.5○の爆発 (攻撃力150%、ボス・エリート・遠距離の敵は引き寄せない)"),
     "Y_HALO": ("Starlight Halo Orbit Rounds", "星明かりの光輪軌道弾", "Every 3rd volley adds a halo shot that circles the player for 4.5s, erasing enemy bullets and hurting on contact (max 4)", "3回目の射撃ごとに1発追加され、4.5秒間プレイヤーを回って敵弾を消し接触ダメージ (最大4個)"),
     "Y_ETERNAL": ("Eternal Ricochet", "永劫の跳弾", "Shots bounce 3 more times; each bounce (off walls or enemies) adds +22% damage", "弾の跳ね返り+3、跳ねるたびに (壁・敵どちらも) ダメージ+22%"),
-    "Y_FATE": ("Fate's Decisive Strike", "運命の必殺一撃", "Crit chance +30%, crit damage +100%", "会心率+30%、会心ダメージ+100%"),
+    "Y_FATE": ("Fate's Decisive Strike", "運命の必殺一撃", "Crit chance +30%, crit damage +100%. A shot's crit cuts an X that deals 50% of that hit to every other enemy within 1.1○ (at most once per 0.08s)", "会心率+30%、会心ダメージ+100%。弾の会心でX字に斬り、周囲1.1○以内の他の敵にそのダメージの50% (0.08秒ごとに最大1回)"),
     # ── chance cards ──
     "P_STILL_CRIT": ("Still Crit", "静止会心", "While standing still for 0.5s+, crit chance +65%", "0.5秒以上止まっている間、会心率+65%"),
     "P_STILL_PIERCE": ("Still Pierce", "静止貫通", "While standing still for 0.5s+, bullets have a 100% chance of +1 pierce", "0.5秒以上止まっている間、弾が100%の確率で貫通+1"),

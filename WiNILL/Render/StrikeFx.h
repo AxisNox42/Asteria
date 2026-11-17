@@ -30,7 +30,7 @@ using line_fx::Rgb;
 
 inline constexpr Rgb kUnder{ 0.04f, 0.06f, 0.10f };
 
-enum class Kind { Blast, Bolt, Star, Nova, Implode, Sweep, Vortex };
+enum class Kind { Blast, Bolt, Star, Nova, Implode, Sweep, Vortex, Slash };
 
 struct Fx {
     Kind kind = Kind::Blast;
@@ -42,6 +42,7 @@ struct Fx {
     uint32_t seed = 1;
     Rgb c{ 1.0f, 0.6f, 0.25f };
     bool fromShip = false;        // Zap: the bolt starts at the ship wherever it is now
+    int  strokes = 2;             // Slash: pen strokes through the centre
     BlastStyle style = BlastStyle::Impact;   // Blast: which family draws it
 };
 
@@ -148,6 +149,27 @@ inline void Nova(float x, float y, float reach, Rgb c, float delay = 0.0f) {
     Fx f; f.kind = Kind::Nova; f.x = x; f.y = y; f.r = reach; f.c = c;
     f.delay = delay; f.life = 0.70f; f.width = 3.5f; f.seed = NextSeed();
     Push(f);
+}
+
+// Blade cuts crossing on a point (운명의 필살 일격's crit): an X cut into space by two blade
+// cuts a beat apart, scratches where they cross (DrawSlash).
+inline void Slash(float x, float y, float len, Rgb c, float width = 7.0f, float life = 0.50f, int strokes = 2) {
+    Fx f; f.kind = Kind::Slash; f.x = x; f.y = y; f.r = len; f.c = c;
+    f.life = life; f.width = width; f.seed = NextSeed(); f.strokes = strokes;
+    Push(f);
+}
+
+inline int Live(Kind k) {
+    int n = 0;
+    for (const Fx& f : g_Fx) n += f.kind == k;
+    return n;
+}
+
+// Any live effect of this kind within `r` of (x, y)?
+inline bool LiveNear(Kind k, float x, float y, float r) {
+    for (const Fx& f : g_Fx)
+        if (f.kind == k && (f.x - x) * (f.x - x) + (f.y - y) * (f.y - y) < r * r) return true;
+    return false;
 }
 
 inline void Clear() { g_Fx.clear(); }
@@ -426,6 +448,123 @@ inline void DrawNova(const Fx& f, float t) {
     }
 }
 
+inline void DrawSlash(const Fx& f, float t) {
+    // An X cut into space by two blade cuts a beat apart (user's reference 2026-11-17; the cartoon
+    // try was dropped): a swipe runs across white-hot, and behind it the cut opens into a thin rift
+    // — wide in the middle, long sharp tips, clean edges (no sawtooth: user). The rifts are one
+    // shape: where one cut's edge runs inside the other's rift it is not drawn, so the crossing
+    // reads as a single opening. When the second cut lands, scratches spray out of the crossing.
+    // Thin lines only, no fills.
+    constexpr float kGap = 0.14f, kSwipe = 0.06f;   // seconds between the cuts, for one swipe (sped up 2026-11-17)
+    constexpr int kN = 22;                           // samples along a cut
+    constexpr int kMaxCuts = 4;
+    uint32_t s = f.seed;
+    const float base = line_fx::kPi * 0.25f + (line_fx::Rnd(s) - 0.5f) * 0.4f;
+    const Rgb lit = line_fx::Lift(f.c, 0.45f);
+    const Rgb hot = line_fx::Lift(f.c, 0.85f);
+    const float sec = t * f.life;
+    const int cuts = std::clamp(f.strokes, 1, kMaxCuts);
+    const float hold = (float)(cuts - 1) * kGap + kSwipe;
+    const float fade = sec < hold + 0.10f ? 1.0f
+                     : std::max(0.0f, 1.0f - (sec - hold - 0.10f) / std::max(0.05f, f.life - hold - 0.10f));
+    const float half = std::max(f.width * 0.8f, f.r * 0.05f);   // a rift's half width at its middle
+    const float skew = (line_fx::Rnd(s) - 0.5f) * 0.12f;         // the X is never quite square
+    const float len = f.r;
+    struct Cut { bool on; float ca, sa, x0, y0, since, u, p, wOpen; };
+    Cut cut[kMaxCuts];
+    for (int k = 0; k < cuts; ++k) {
+        Cut& c = cut[k];
+        const float ang = base + line_fx::kPi * (float)k / (float)cuts + (k ? skew : 0.0f);
+        const float sign = (k % 2) ? -1.0f : 1.0f;   // alternate ends, as a swordsman would
+        c.ca = std::cos(ang) * sign; c.sa = std::sin(ang) * sign;
+        c.x0 = f.x - c.ca * len * 0.5f; c.y0 = f.y - c.sa * len * 0.5f;
+        c.since = sec - kGap * (float)k;
+        c.on = c.since > 0.0f;
+        c.u = std::clamp(c.since / kSwipe, 0.0f, 1.0f);
+        c.p = 1.0f - (1.0f - c.u) * (1.0f - c.u) * (1.0f - c.u);   // the blade is fastest at the start
+        const float open = std::clamp(c.since / (kSwipe + 0.05f), 0.0f, 1.0f);   // opens behind the blade
+        c.wOpen = half * (0.35f + 0.65f * (1.0f - (1.0f - open) * (1.0f - open)));
+    }
+    auto width = [&](const Cut& c, float q) { return c.wOpen * std::pow(std::sin(line_fx::kPi * q), 1.1f); };
+    // Is (px, py) inside another cut's rift (the part its blade has already opened)?
+    auto inside = [&](int self, float px, float py) {
+        for (int j = 0; j < cuts; ++j) {
+            if (j == self || !cut[j].on) continue;
+            const Cut& c = cut[j];
+            const float dx = px - c.x0, dy = py - c.y0;
+            const float q = (dx * c.ca + dy * c.sa) / len;
+            if (q <= 0.0f || q >= c.p) continue;
+            const float d = std::fabs(-dx * c.sa + dy * c.ca);
+            if (d < width(c, q) + c.wOpen * 0.35f) return true;
+        }
+        return false;
+    };
+    for (int k = 0; k < cuts; ++k) {
+        const Cut& c = cut[k];
+        if (!c.on) continue;
+        const float nx = -c.sa, ny = c.ca;
+        auto at = [&](float q, float side, float& px, float& py) {
+            px = c.x0 + c.ca * len * q + nx * side; py = c.y0 + c.sa * len * q + ny * side;
+        };
+        const int upto = std::min(kN, (int)std::ceil(c.p * kN));
+        for (int e = 0; e < 2; ++e) {
+            const float sgn = e ? -1.0f : 1.0f;
+            float ax, ay; at(0.0f, 0.0f, ax, ay);
+            for (int i = 1; i <= upto; ++i) {
+                const float q = std::min(c.p, (float)i / kN);
+                float bx, by; at(q, sgn * width(c, q), bx, by);
+                if (!inside(k, 0.5f * (ax + bx), 0.5f * (ay + by)))
+                    Stroke(ax, ay, bx, by, 0.8f, f.c, 0.95f * fade);
+                ax = bx; ay = by;
+            }
+        }
+        // A faint seam down the middle of the rift, broken where it crosses another rift.
+        constexpr int kSeam = 10;
+        for (int i = 0; i < kSeam; ++i) {
+            const float q0 = 0.18f + 0.64f * (float)i / kSeam, q1 = 0.18f + 0.64f * (float)(i + 1) / kSeam;
+            if (q1 > c.p) break;
+            float ax, ay, bx, by;
+            at(q0, 0.0f, ax, ay); at(q1, 0.0f, bx, by);
+            if (!inside(k, 0.5f * (ax + bx), 0.5f * (ay + by)))
+                Stroke(ax, ay, bx, by, 0.6f, lit, 0.5f * fade);
+        }
+        // The swipe: a white-hot edge at the blade and the last stretch of its path still glowing.
+        const float flash = std::max(0.0f, 1.0f - (c.since - kSwipe) / 0.06f);
+        if (flash > 0.0f) {
+            float ax, ay, bx, by;
+            at(std::max(0.0f, c.p - 0.35f), 0.0f, ax, ay); at(c.p, 0.0f, bx, by);
+            Stroke(ax, ay, bx, by, 1.1f, hot, flash);
+            const float over = len * 0.16f * (1.0f - 0.5f * c.u);
+            Stroke(bx, by, bx + c.ca * over, by + c.sa * over, 0.6f, hot, 0.5f * flash);
+        }
+    }
+    // Scratches spray out of the crossing as the last cut lands: thin, sharp, uneven, a little
+    // askew (not a neat star), shooting out fast and fading; a few sparkles close in.
+    const float landed = sec - (float)(cuts - 1) * kGap - kSwipe * 0.5f;
+    if (landed > 0.0f) {
+        const float g = std::clamp(landed / 0.20f, 0.0f, 1.0f);
+        const float e = 1.0f - (1.0f - g) * (1.0f - g) * (1.0f - g);
+        const float a = (1.0f - g * g) * fade;
+        uint32_t r = line_fx::Hash(f.seed + 77u);
+        for (int i = 0; i < 14; ++i) {
+            const float an   = line_fx::kTwoPi * ((float)i + 0.8f * line_fx::Rnd(r)) / 14.0f;
+            const float tw   = (line_fx::Rnd(r) - 0.5f) * 0.35f;
+            const float r0   = half * (0.2f + 0.5f * line_fx::Rnd(r));
+            const float l    = f.r * (0.05f + 0.15f * line_fx::Rnd(r));
+            const float head = r0 + l * e, tail = r0 + l * std::max(0.0f, e - 0.45f);
+            Stroke(f.x + std::cos(an) * tail, f.y + std::sin(an) * tail,
+                   f.x + std::cos(an + tw) * head, f.y + std::sin(an + tw) * head,
+                   0.7f, i % 3 ? f.c : hot, a);
+        }
+        for (int i = 0; i < 6; ++i) {
+            const float an = line_fx::kTwoPi * line_fx::Rnd(r);
+            const float d  = f.r * (0.04f + 0.14f * line_fx::Rnd(r)) * (0.5f + 0.5f * e);
+            line_fx::Diamond(f.x + std::cos(an) * d, f.y + std::sin(an) * d, 1.4f + line_fx::Rnd(r), 0.9f,
+                             hot, a * 0.8f);
+        }
+    }
+}
+
 inline void Draw() {
     for (const Fx& f : g_Fx) {
         if (f.delay > 0.0f) continue;
@@ -447,6 +586,7 @@ inline void Draw() {
         case Kind::Implode: DrawImplode(f, t); break;
         case Kind::Sweep:   DrawSweep(f, t); break;
         case Kind::Vortex:  DrawVortex(f, t); break;
+        case Kind::Slash:   DrawSlash(f, t); break;
         }
     }
 }

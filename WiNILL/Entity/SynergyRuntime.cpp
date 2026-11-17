@@ -108,6 +108,11 @@ struct State {
     int   quietWaves = 0, cakeArmed = 0, cakeUsed = 0, mineShots = 0;
     float waveDamage = 0, revengeAcc = 0, cakeAcc = 0, stored = 0, absorbed = 0, dashBoostT = 0;
     float shieldPulse = 0;
+    // Mythic looks kept readable under a barrage: the last singularity's gather (place, clock),
+    // and the ricochet sparks drawn this step.
+    float singularT = -9.0f, singularX = 0, singularY = 0;
+    float fateCutT = -9.0f;   // 운명의 필살 일격: when its last cut fell (clock)
+    int   bounceFx = 0;
     std::unordered_map<const void*, glm::vec2> seen;        // enemies alive last step, to notice deaths
     std::unordered_set<const void*> counted;                // kills already handled this step
     bool  stillCharged = false, prevDash = false, revived = false, lastWallGiven = false,
@@ -141,9 +146,9 @@ template <class F> void ForEachEnemy(F&& f) {
 
 // Damage as a share of attack, with the "all damage" multipliers; no sound.
 void Burst(float x, float y, float radius, float pct, line_fx::Rgb col = { 1.0f, 0.58f, 0.25f },
-           strike_fx::BlastStyle style = strike_fx::BlastStyle::Impact) {
+           strike_fx::BlastStyle style = strike_fx::BlastStyle::Impact, float fxDelay = 0.0f) {
     if (!(pct > 0.0f)) return;   // nothing to deal, nothing to show
-    strike_fx::Blast(x, y, radius, col, 0.0f, style);
+    strike_fx::Blast(x, y, radius, col, fxDelay, style);   // the damage itself is never delayed
     const float dmg = passive::AttackPower() * pct / 100.0f * passive::AllDamageMult();
     ForEachEnemy([&](auto& e, float ex, float ey) {
         const float dx = ex - x, dy = ey - y;
@@ -300,6 +305,7 @@ void Rebuild() {
         flags[i - 1] = alive;
         s.any = s.any || s.own[i] > 0;
     }
+    g_FateCrits = s.on.Y_FATE;   // its crits are drawn as fate's (Juice.h SpawnDamageNumber)
     s.dmg = s.cardDmg = s.rate = s.acc = s.move = s.bullets = 1.0f;
     s.dmgAdd = s.splitDmg = s.crit = s.critMul = s.hpDelta = s.hpSet = 0.0f;
     s.pierce = s.bounce = s.split = 0;
@@ -410,6 +416,8 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
         b.speed = 900.0f; b.sizeScale *= 1.4f;
         b.color = glm::vec3(1.0f, 0.55f, 0.25f);
     }
+    // 운명의 필살 일격: every shot is fate's crimson, whatever frame shaped it (user's call 2026-11-17).
+    if (o.Y_FATE) b.color = glm::vec3(1.0f, 0.25f, 0.35f);
 }
 
 void Explode(float x, float y, float radius, float pct, bool pull, float pullRadius = 0.0f);
@@ -485,9 +493,23 @@ void Landed(const Bullet& b, float radius) {
 }
 
 void Explode(float x, float y, float radius, float pct, bool pull, float pullRadius) {
+    const line_fx::Rgb grav{ 0.62f, 0.45f, 1.0f };
+    // 특이점 붕괴 탄두 (mythic) is told apart from 소형 중력탄 by shape, not colour: the reach
+    // closes in on the point first, then it bursts with a ring thrown out (the burst drawn
+    // a moment later; its damage lands now). Under a barrage one gather per place and moment.
+    const bool singular = pull && s.on.Y_SINGULAR;
+    bool gather = false;
+    if (singular) {
+        gather = s.clock - s.singularT > 0.15f || std::hypot(x - s.singularX, y - s.singularY) > Rings(1);
+        if (gather) { s.singularT = s.clock; s.singularX = x; s.singularY = y; }
+    }
     if (pull) {
         const float pr = pullRadius > 0.0f ? pullRadius : radius * 1.6f;
-        strike_fx::Vortex(x, y, pr, { 0.62f, 0.45f, 1.0f });   // a small black hole pulling from its reach
+        if (!singular)  strike_fx::Vortex(x, y, pr, grav);   // a small black hole pulling from its reach
+        else if (gather) {
+            strike_fx::Implode(x, y, pr, grav, 0.0f, 0.14f);
+            strike_fx::Implode(x, y, pr * 0.6f, line_fx::Lift(grav, 0.4f), 0.03f, 0.11f);
+        }
         ForEachEnemy([&](auto& e, float ex, float ey) {
             if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Monster>) {
                 if (IsBoss(e)) return;
@@ -498,15 +520,19 @@ void Explode(float x, float y, float radius, float pct, bool pull, float pullRad
             }
         });
     }
-    if (pull) Burst(x, y, radius, pct, { 0.62f, 0.45f, 1.0f }, strike_fx::BlastStyle::Gravity);
-    else      Burst(x, y, radius, pct);
+    if (singular) {
+        Burst(x, y, radius, pct, grav, strike_fx::BlastStyle::Gravity, 0.12f);
+        if (gather) strike_fx::Nova(x, y, radius, grav, 0.12f);
+    }
+    else if (pull) Burst(x, y, radius, pct, grav, strike_fx::BlastStyle::Gravity);
+    else           Burst(x, y, radius, pct);
 }
 
 }  // namespace
 
 // ───────────────────────── registration ─────────────────────────
 
-void Reset() { s = State{}; g_PlayerDmgMult = 1.0f; }
+void Reset() { s = State{}; g_PlayerDmgMult = 1.0f; g_FateCrits = false; }
 
 void ForgetEnemy(const void* enemy) {
     s.seen.erase(enemy);
@@ -925,9 +951,29 @@ float DamageTakenMult() {
 
 // ───────────────────────── events ─────────────────────────
 
-void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool crit, bool killed) {
+void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool crit, bool killed, float damage) {
     if (!s.any || b.skillShot) return;
     const Flags& o = s.on;
+    // 운명의 필살 일격: a shot's crit cuts an X through the hit point; every other enemy in
+    // its reach takes kFateCutShare of that crit. At most one cut per kFateCutGap (a fast gun
+    // cannot multiply it). The cut's damage is plain: no crit, no on-hit, no execute.
+    if (crit && o.Y_FATE && s.clock - s.fateCutT >= kFateCutGap) {
+        s.fateCutT = s.clock;
+        // End to end: most of the reach. Every cut shows, on the same spot again too (user
+        // 2026-11-17), except on the hit that killed: its larger kill X (Juice.h SpawnFateKill)
+        // is already there. At most 8 on screen.
+        if (!killed && strike_fx::Live(strike_fx::Kind::Slash) < 8)
+            strike_fx::Slash(x, y, kFateCutReach * 1.6f, { 1.0f, 0.25f, 0.35f });
+        const float share = damage * kFateCutShare;
+        if (share > 0.0f)
+            ForEachEnemy([&](auto& e, float ex, float ey) {
+                if ((const void*)&e == target) return;
+                const float dx = ex - x, dy = ey - y;
+                if (dx * dx + dy * dy > kFateCutReach * kFateCutReach) return;
+                const float dealt = g_MonsterManager.ApplyDamage(e, share);
+                if (dealt > 0.0f) SpawnDamageNumber(ex, ey, dealt, false);
+            });
+    }
     if (b.synFlags & synf::Mark) s.marks[target] = 5.0f;
     if (b.synFlags & synf::Burn) s.burns[target] = { 3.0f, 0.5f };
     if ((b.synFlags & (synf::FrameLaser | synf::LaserBlast)) && o.A_LASER_OVERLOAD) {
@@ -999,7 +1045,19 @@ void OnBounce(Bullet& b, bool wall) {
     if (!s.any) return;
     ++b.synBounces;
     const Flags& o = s.on;
-    (void)o; (void)wall;
+    (void)wall;
+    if (o.Y_ETERNAL && !b.isEnemy) {
+        // 영겁의 반사탄: each bounce adds +22%, so each one shows — a ring more on the shot
+        // (EntityDraw DrawCardMarks) and a small crystal spark where it turned, in the shot's colour.
+        b.synFlags |= synf::Eternal;
+        if (s.bounceFx < 6 && passive::OnScreen(b.x, b.y)) {
+            ++s.bounceFx;
+            const float k = std::min(1.0f, 0.2f * (float)b.synBounces);
+            const line_fx::Rgb c{ b.color.r, b.color.g, b.color.b };
+            strike_fx::Blast(b.x, b.y, 20.0f + 4.0f * (float)std::min(b.synBounces, 4), line_fx::Lift(c, k),
+                             0.0f, strike_fx::BlastStyle::Crystal);
+        }
+    }
 }
 
 void OnHurt(float dmg) {
@@ -1123,6 +1181,7 @@ void StepLaserBurns(float dt) {
 
 void Step(const passive::StepInput& in) {
     s.in = in;
+    s.bounceFx = 0;
     // Ring pulses age even without synergy cards (a pickup of any card shows one).
     for (RingFx& r : s.rings) r.age += in.dt;
     s.rings.erase(std::remove_if(s.rings.begin(), s.rings.end(),
@@ -1287,6 +1346,11 @@ void Step(const passive::StepInput& in) {
     for (Echo& e : s.echoes) {
         e.t -= dt;
         if (e.t <= 0.0f) {
+            // 겹겹 메아리 사격: the ship gives a small ring as the echo leaves it, in the shots' colour.
+            if (!e.shots.empty()) {
+                const glm::vec3 c = e.shots.front().color;
+                strike_fx::Implode(in.px, in.py, 38.0f, line_fx::Lift({ c.r, c.g, c.b }, 0.3f), 0.0f, 0.18f);
+            }
             for (Bullet b : e.shots) {
                 if (g_Bullets.size() >= 800) break;
                 if ((b.synFlags & synf::Orbit) && CountOrbiters() >= 2 + (o.Y_HALO ? 2 : 0)) continue;   // the cap holds for echoes too

@@ -370,8 +370,23 @@ static void DrawCardMarks(const Bullet& b, float r) {
             SkillStroke(ex, ey, ex - tx * r * 0.9f - ox * r * 0.5f, ey - ty * r * 0.9f - oy * r * 0.5f, 1.4f, lit, 0.95f);
         }
     }
-    if (f & synf::Echo) {   // 메아리: a ring round the hollowed shot
-        line_fx::Circle(b.x, b.y, r * 1.7f, 1.2f, { lit.r, lit.g, lit.b }, 0.75f);
+    if (f & synf::Echo) {   // 메아리: two after-lines trailing the fainter shot, as if it were the volley's echo
+        for (int k = -1; k <= 1; k += 2) {
+            const float sx = b.x - ux * r * 1.6f + nx * r * 0.75f * (float)k;
+            const float sy = b.y - uy * r * 1.6f + ny * r * 0.75f * (float)k;
+            SkillStroke(sx, sy, sx - ux * r * 3.6f, sy - uy * r * 3.6f, 1.3f, lit, 0.85f);
+        }
+    }
+    if ((f & synf::Eternal) && b.synBounces > 0) {
+        // 영겁의 반사탄: a ring per bounce (each one +22%), the outer ones brighter.
+        const int n = std::min(b.synBounces, 4);
+        for (int i = 0; i < n; ++i) {
+            const float k = 0.25f + 0.18f * (float)i;
+            const glm::vec3 ci = c + (glm::vec3(1.0f) - c) * k;
+            const float rr = r * (1.55f + 0.55f * (float)i);
+            line_fx::Circle(b.x, b.y, rr, 2.8f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.35f);
+            line_fx::Circle(b.x, b.y, rr, 1.2f, { ci.r, ci.g, ci.b }, 0.9f - 0.12f * (float)i);
+        }
     }
 }
 
@@ -387,10 +402,10 @@ void drawBullet(const Bullet& b) {
         ~AlphaScope() { g_BatchAlpha = saved; }
     } alphaScope(fade);
     if (DrawSkillShot(b)) return;
-    // A mythic echo is drawn hollow-ish: half strength, its ring added by DrawCardMarks.
+    // A mythic echo is drawn a little fainter, its after-lines added by DrawCardMarks.
     struct EchoScope {
         float saved; bool on;
-        explicit EchoScope(bool e) : saved(g_BatchAlpha), on(e) { if (on) g_BatchAlpha *= 0.5f; }
+        explicit EchoScope(bool e) : saved(g_BatchAlpha), on(e) { if (on) g_BatchAlpha *= 0.7f; }
         ~EchoScope() { if (on) g_BatchAlpha = saved; }
     };
     EchoScope echo((b.synFlags & synf::Echo) != 0 && !b.isEnemy);

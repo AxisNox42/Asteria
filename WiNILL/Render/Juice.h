@@ -10,6 +10,8 @@
 #include "Camera.h"
 #include "TextRenderer.h"
 #include "EnemyParticles.h"
+#include "StrikeFx.h"
+#include "Settings.h"
 #include "Experience.h"
 
 // ─────────────────────────────────────────────────────────────
@@ -23,8 +25,18 @@ struct DamageNumber {
     float life, maxLife;
     int   amount;
     bool  crit;
+    bool  fate = false;   // 운명의 필살 일격 crit: crimson and larger (main.cpp DrawFloatingCombatText)
 };
 inline std::vector<DamageNumber> g_DmgNumbers;
+
+// 운명의 필살 일격 (Y_FATE) owned and active: its crits get a crimson number (set by
+// SynergyRuntime::Rebuild). Its cut — the X drawn on a shot's crit that also hits every other
+// enemy within kFateCutReach for kFateCutShare of the crit — is SynergyRuntime OnBulletHit's,
+// at most one per kFateCutGap.
+inline bool  g_FateCrits = false;
+inline constexpr float kFateCutGap   = 0.08f;
+inline constexpr float kFateCutReach = 88.0f;    // 1.1 rings (2026-11-17: 1.2○ 40% → 2○ 30% → 1.6○ 30% → 0.8○ 50% → 1.1○ 50%)
+inline constexpr float kFateCutShare = 0.50f;
 
 // ── 월드 문구 팝업 (카드를 얻었을 때 이름이 떠오름) ──
 struct WorldText {
@@ -73,6 +85,10 @@ inline void SpawnDamageNumber(float x, float y, float amount, bool crit) {
     d.maxLife = d.life = crit ? 0.75f : 0.62f;
     d.amount = std::max(1, (int)std::floor(amount + 0.5f));
     d.crit = crit;
+    if (crit && g_FateCrits) {
+        d.fate = true;
+        d.maxLife = d.life = 0.85f;
+    }
     g_DmgNumbers.push_back(d);
     if (crit) Audio::Play(Audio::Cue::SfxCrit);   // 치명타 숫자
 }
@@ -174,6 +190,19 @@ inline void SpawnEnemyExplosion(float ex, float ey,
         }
         ++j;
     }
+}
+
+// 운명의 필살 일격: a fate crit that killed. A large cut where the
+// enemy was and a brief "필살". Every kill shows its X, on the same spot again too; the killing
+// hit draws no small crit X of its own (SynergyRuntime OnBulletHit), so one hit is one X.
+inline constexpr float kFateKillLen = 170.0f;
+inline void SpawnFateKill(float x, float y) {
+    if (!g_FateCrits) return;
+    const line_fx::Rgb red{ 1.0f, 0.25f, 0.35f };
+    strike_fx::Slash(x, y, kFateKillLen, red, 7.0f, 0.70f, 2);
+    static const wchar_t* kWord[3] = { L"필살", L"FATAL", L"必殺" };
+    // Under the enemy: the crit numbers float up from above it.
+    SpawnWorldText(x, y + 30.0f, kWord[std::clamp(LangIndex(), 0, 2)], 1.0f, 0.30f, 0.38f, 0.7f);
 }
 
 inline void UpdateEnemyFx(float delta) {

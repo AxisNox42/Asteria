@@ -487,13 +487,13 @@ float HookBulletDamageMult(const Bullet& bullet, const void* target,
 }
 
 void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
-                   float, bool crit, bool killed) {
+                   float damage, bool crit, bool killed) {
     CountHit();
     if (bullet.skillShot) {
         active::OnSkillBulletHit(bullet, x, y, killed);
         return;
     }
-    syn::OnBulletHit(bullet, target, x, y, crit, killed);
+    syn::OnBulletHit(bullet, target, x, y, crit, killed, damage);
     if (crit && Has(AugType::P_EDGE_CRITICAL_CHAIN_BURST) && ++s.crits >= 6) {
         s.crits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
