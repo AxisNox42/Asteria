@@ -1,5 +1,5 @@
-# Resolves WiNILL.exe offsets from asteria_crash.log (offset=0x...) to function + line
-# using build\windows\x64\Release\WiNILL.pdb.
+# Resolves Asteria.exe offsets from asteria_crash.log (offset=0x...) to function + line
+# using build\windows\x64\Release\Asteria.pdb.
 # Usage: powershell -File scripts\resolve_crash_addr.ps1 A9F12 [62294 ...]
 param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Offsets)
 $ErrorActionPreference = 'Stop'
@@ -43,4 +43,4 @@ if (-not (Test-Path $exe)) {
     if ($LASTEXITCODE -ne 0) { throw 'sym helper build failed' }
 }
 Push-Location $rel
-try { & $exe 'WiNILL.exe' @Offsets } finally { Pop-Location }
+try { & $exe 'Asteria.exe' @Offsets } finally { Pop-Location }

@@ -10,8 +10,8 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$ExeDir = Join-Path $Root "build\windows\x64\Release"
-$Exe = Join-Path $ExeDir "WiNILL.exe"
+$ExeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $Root "build\windows\x64\Release" }
+$Exe = Join-Path $ExeDir "Asteria.exe"
 if (-not (Test-Path $Exe)) { throw "빌드 결과가 없습니다: $Exe" }
 $Shots = Join-Path $ExeDir "Screenshots"
 $Out = Join-Path $Root "build\smoke\$Tag"

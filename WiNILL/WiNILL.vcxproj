@@ -72,6 +72,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <ApplicationIcon>Resource\WiNILL.ico</ApplicationIcon>
+    <TargetName>Asteria</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(ProjectDir)..\build\windows\$(Platform)\$(Configuration)\</OutDir>

@@ -9,7 +9,7 @@
 
 | 용도 | 경로 |
 |------|------|
-| **테스트 (Windows)** | `build/windows/x64/Release/WiNILL.exe` — `.\scripts\build_windows.ps1` |
+| **테스트 (Windows)** | `build/windows/x64/Release/Asteria.exe` — `.\scripts\build_windows.ps1` |
 | **LTS 배포** | `bin/Asteria/` — `.\scripts\release_windows.ps1` |
 
 ```

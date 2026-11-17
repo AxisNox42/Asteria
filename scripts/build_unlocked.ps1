@@ -7,7 +7,7 @@
 param([string]$SaveDir = '', [switch]$NoBuild, [switch]$Rebuild)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-if (Get-Process WiNILL -ErrorAction SilentlyContinue) {
+if (Get-Process Asteria, WiNILL -ErrorAction SilentlyContinue) {
     throw 'Close the game first: it rewrites the save on exit.'
 }
 

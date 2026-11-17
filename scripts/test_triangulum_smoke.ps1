@@ -1,11 +1,11 @@
 # Live-game smoke for TRIANGULUM: it walks at the player with no attack; when it
 # dies it freezes and shakes, then three Swarms scatter out of the spot. Writes Screenshots\triangulum_*.png and
-# Screenshots\mob_state.txt. Needs a WiNILL.exe in TRIANGULUM_EXE_DIR (default
+# Screenshots\mob_state.txt. Needs a Asteria.exe in TRIANGULUM_EXE_DIR (default
 # build\windows\x64\Release). Uses a throwaway save folder; the run is silent.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = if ($env:TRIANGULUM_EXE_DIR) { $env:TRIANGULUM_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:TRIANGULUM_EXE_DIR) { $env:TRIANGULUM_EXE_DIR } elseif ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $shots = Join-Path $exeDir 'Screenshots'
 Remove-Item (Join-Path $shots 'triangulum_*') -ErrorAction SilentlyContinue

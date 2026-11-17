@@ -85,6 +85,7 @@
 #include "Input.h"
 #include "DebugToolkit.h"
 #include "SmokeCapture.h"
+#include "SmokeDesktop.h"     // smoke runs open on virtual desktop 2
 #include "OsPane.h"
 #include "UiLayout.h"
 #include "SceneUI.h"
@@ -4152,6 +4153,17 @@ int main() {
     // The game is a full-screen desktop overlay. 2x MSAA keeps thin UI and
     // circular VFX clean while avoiding the 4x full-screen sample cost.
     glfwWindowHint(GLFW_SAMPLES,                2);
+#ifdef _WIN32
+    // Smoke runs open on another virtual desktop (default desktop 2) so they
+    // never cover the screen the user is working on. See SmokeDesktop.h.
+    const bool smokeOtherDesktop = g_SmokeCapture && smoke_desktop::Begin();
+    if (smokeOtherDesktop) {
+        // Created hidden, moved, then shown without activation: activating a
+        // window on another desktop makes Windows switch the user there.
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    }
+#endif
 
     // On Windows the window stops one row above the monitor's bottom edge.
     GLFWwindow* window = glfwCreateWindow(screenWidth, screenHeight,
@@ -4169,6 +4181,11 @@ int main() {
     }
 #else
     glfwSetWindowPos(window, 0, 0);
+    if (smokeOtherDesktop) {
+        smoke_desktop::PlaceBeforeShow(glfwGetWin32Window(window));
+        glfwShowWindow(window);
+        smoke_desktop::Settle(glfwGetWin32Window(window));
+    }
 #endif
 
     // ?�단 ?�업?�시�??�이 계산 ???�?�크�??�에 ???�는 ?�업?�시줄에 ?�단 UI 가

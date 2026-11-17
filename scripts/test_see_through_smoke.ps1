@@ -12,11 +12,11 @@
 #    while the game plays (skipped when it is idle or absent).
 #
 # Runs the game full-screen into combat and probes all of this while it plays.
-# Needs build\windows\x64\Release\WiNILL.exe. Uses a throwaway save folder.
+# Needs build\windows\x64\Release\Asteria.exe. Uses a throwaway save folder.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = Join-Path $root 'build\windows\x64\Release'
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 
 if (-not ('SeeThroughProbe' -as [type])) {

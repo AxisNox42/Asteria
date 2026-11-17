@@ -2,12 +2,12 @@
 # boss, its shots and every pane are sampled to Screenshots\norma_state.txt.
 # Usage: test_norma_smoke.ps1 [THROW|RAM|DETONATE|REFUGE] [seconds] [closeAtSecond]
 # closeAtSecond > 0 presses the X on every open pane then, to test defusing.
-# Needs a Release x64 build: build\windows\x64\Release\WiNILL.exe
+# Needs a Release x64 build: build\windows\x64\Release\Asteria.exe
 param([string]$Pattern = 'THROW', [int]$Seconds = 10, [double]$CloseAt = 0)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = Join-Path $root 'build\windows\x64\Release'
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $stateFile = Join-Path $exeDir 'Screenshots\norma_state.txt'
 Remove-Item -LiteralPath $stateFile -ErrorAction SilentlyContinue

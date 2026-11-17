@@ -4,7 +4,7 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Asteria = Join-Path $Root "bin\Asteria"
 $WinOut = Join-Path $Asteria "WindowsOS"
 $MacOut = Join-Path $Asteria "macOS"
-$SrcExe = Join-Path $Root "build\windows\x64\Release\WiNILL.exe"
+$SrcExe = Join-Path $Root "build\windows\x64\Release\Asteria.exe"
 $VersionHeader = Get-Content (Join-Path $Root "WiNILL\Core\GameVersion.h") -Raw
 $Version = [regex]::Match($VersionHeader, 'ASTERIA_VERSION\[\]\s*=\s*L"([0-9.]+)"').Groups[1].Value
 if (-not $Version) { throw "GameVersion.h에서 버전을 찾을 수 없습니다." }

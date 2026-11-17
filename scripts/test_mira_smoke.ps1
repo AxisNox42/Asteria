@@ -1,11 +1,11 @@
 # Live-game smoke for the Mira corruption walker: the debug-menu spawn path brings it in
 # from the screen edge, then it comes into view fires its twin guns and
 # launches craft. Writes Screenshots\mira_*.png and Screenshots\mob_state.txt.
-# Needs build\windows\x64\Release\WiNILL.exe. Uses a throwaway save folder.
+# Needs build\windows\x64\Release\Asteria.exe. Uses a throwaway save folder.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = if ($env:MIRA_EXE_DIR) { $env:MIRA_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:MIRA_EXE_DIR) { $env:MIRA_EXE_DIR } elseif ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $shots = Join-Path $exeDir 'Screenshots'
 Remove-Item (Join-Path $shots 'mira_*') -ErrorAction SilentlyContinue

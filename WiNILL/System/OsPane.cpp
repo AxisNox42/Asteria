@@ -9,6 +9,7 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#include "SmokeDesktop.h"
 #include <cstdio>
 #include <filesystem>
 #include "Settings.h"
@@ -437,6 +438,9 @@ void RaiseOverlay() {
     const UINT keep = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
     SetWindowPos(s_overlayHwnd, HWND_TOPMOST, 0, 0, 0, 0, keep);
     SetWindowPos(s_overlayHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, keep);
+    // Smoke runs on another virtual desktop: taking focus would switch the
+    // user's screen to that desktop, so stop at the z-order.
+    if (!smoke_desktop::MayActivate()) return;
     HWND foreground = GetForegroundWindow();
     if (foreground == s_overlayHwnd) return;
     const DWORD self = GetCurrentThreadId();
@@ -495,7 +499,9 @@ int Open(float x, float y, float w, float h, bool decor) {
                                 s_ownerHwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!hwnd) return 0;
     ApplyTheme(hwnd);
+    smoke_desktop::PlaceBeforeShow(hwnd);
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    smoke_desktop::Settle(hwnd);
 
     // Place the visible frame, not the invisible resize border, at (x, y, w, h).
     RECT wr{};
@@ -910,6 +916,7 @@ unsigned long DebugOverlayExStyle() {
 
 bool DebugActivateProbe() {
     HWND probe = FindWindowW(nullptr, L"PaneProbe");
+    if (!smoke_desktop::MayActivate()) return false;
     return probe && SetForegroundWindow(probe);
 }
 

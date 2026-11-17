@@ -17,6 +17,7 @@ void TransparencyLog(const char* /*fmt*/, ...) {
 #include <dwmapi.h>
 #include <shobjidl.h>
 #include <shellapi.h>
+#include "SmokeDesktop.h"
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -96,7 +97,9 @@ static void CoverEdgeGap(HWND game) {
                                  game, nullptr, inst, nullptr);
     if (!guard) return;
     SetLayeredWindowAttributes(guard, 0, 1, LWA_ALPHA);   // alpha 0 would let clicks through
+    smoke_desktop::PlaceBeforeShow(guard);
     ShowWindow(guard, SW_SHOWNOACTIVATE);
+    smoke_desktop::Settle(guard);
 }
 
 void UpdateWindowTaskbarPolicy(GLFWwindow* window) {

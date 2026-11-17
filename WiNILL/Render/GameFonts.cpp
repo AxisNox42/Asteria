@@ -37,7 +37,7 @@ void InitializeGameFonts(int screenWidth, int screenHeight) {
 
     // Windows releases use the exact fonts compiled into the executable.
     // This prevents a stale Resource/Font folder from changing the UI
-    // after a user downloads only WiNILL.exe from GitHub.
+    // after a user downloads only Asteria.exe from GitHub.
     const char* embeddedFontNames[] = {
         "FONT_CHAKRA", "FONT_ORBIT", "FONT_JUA", "FONT_NOTO_JP", "FONT_NOTO_SC"
     };

@@ -1,10 +1,10 @@
-﻿# 테스트용 Windows 빌드 → build/windows/x64/Release/WiNILL.exe
+﻿# 테스트용 Windows 빌드 → build/windows/x64/Release/Asteria.exe
 # -Rebuild: 헤더의 구조체 배치를 바꾼 뒤에는 반드시 사용 (증분 빌드가 낡은 .obj 를 남겨 크래시를 만든다)
 param([switch]$Rebuild)
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Vcx = Join-Path $Root "WiNILL\WiNILL.vcxproj"
-$Out = Join-Path $Root "build\windows\x64\Release\WiNILL.exe"
+$Out = Join-Path $Root "build\windows\x64\Release\Asteria.exe"
 $IntDir = Join-Path $Root "build\windows\obj\WiNILL\x64\Release\"
 
 # vswhere 로 설치 위치와 무관하게 찾고 (D:\ 등 사용자 지정 경로 포함), 없으면 기본 경로를 본다

@@ -1,10 +1,10 @@
 # Live-game smoke for the Antares elite: every rush ricochets off the map
 # edge, split Antares bounce off each other, and the elite splits twice
-# (1 -> 2 -> 4). Needs build\windows\x64\Release\WiNILL.exe.
+# (1 -> 2 -> 4). Needs build\windows\x64\Release\Asteria.exe.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = Join-Path $root 'build\windows\x64\Release'
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 Write-Host "run dir: $exeDir"
 $stateFile = Join-Path $exeDir 'Screenshots\mob_state.txt'

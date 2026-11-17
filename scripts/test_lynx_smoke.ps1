@@ -1,11 +1,11 @@
 # Live-game smoke for the Lynx sniper: the debug-menu spawn path brings it in
 # from the screen edge, then it comes into view fires its twin guns and
 # launches craft. Writes Screenshots\lynx_*.png and Screenshots\mob_state.txt.
-# Needs build\windows\x64\Release\WiNILL.exe. Uses a throwaway save folder.
+# Needs build\windows\x64\Release\Asteria.exe. Uses a throwaway save folder.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = Join-Path $root 'build\windows\x64\Release'
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $shots = Join-Path $exeDir 'Screenshots'
 Remove-Item (Join-Path $shots 'lynx_*') -ErrorAction SilentlyContinue

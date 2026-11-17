@@ -3,8 +3,8 @@
 # Screenshots\buffmarks_sheet.png (rows = kinds, columns = buffs).
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = Join-Path $root 'build\windows\x64\Release'
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $shots = Join-Path $exeDir 'Screenshots'
 Remove-Item (Join-Path $shots 'buffmarks_*') -ErrorAction SilentlyContinue

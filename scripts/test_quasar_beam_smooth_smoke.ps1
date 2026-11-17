@@ -3,7 +3,7 @@
 # (the band vanishing, the beam cutting out, a width jump) shows as a spike in
 # that change; a smooth animation has no spike next to its neighbours.
 # Writes Screenshots\beamsmooth_report.txt and beamsmooth_sheet.png.
-# Needs a Release x64 build: build\windows\x64\Release\WiNILL.exe
+# Needs a Release x64 build: build\windows\x64\Release\Asteria.exe
 param(
     [string]$Tag = 'beamsmooth',
     [string]$Reflect = '1',
@@ -14,8 +14,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$exeDir = Join-Path $root 'build\windows\x64\Release'
-$exe = Join-Path $exeDir 'WiNILL.exe'
+$exeDir = if ($env:ASTERIA_TEST_EXE_DIR) { $env:ASTERIA_TEST_EXE_DIR } else { Join-Path $root 'build\windows\x64\Release' }
+$exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $shots = Join-Path $exeDir 'Screenshots'
 if (-not $AnalyzeOnly) {
