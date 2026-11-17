@@ -666,6 +666,29 @@ static void DrawEliteBar(float sw, float scale, float topY) {
 // The boss's health under the wave track: a dim full-length line and the
 // bright remaining share of the current phase's bar over it (ERIDANUS: a
 // filled river instead, OCTANS: a seal chain).
+// Soft dark fades along the top and bottom edges so the wave header (and a
+// boss / elite bar under it) and the level + XP line read on bright
+// wallpapers. Edge-anchored, no visible end line; the user asked for it
+// (2026-11-16) as an exception to the no-veil rule.
+static void DrawHudEdgeDim(float sw, float sh, float scale, float topY) {
+    constexpr float kDimAlpha = 0.35f;
+    bool bar = false;
+    for (const Monster* m : g_MonsterManager.monsters)
+        if (m->alive && (IsBossMob(m->kind) || IsEliteMob(m->kind))) { bar = true; break; }
+    // Grow / shrink the top fade smoothly when a bar comes or goes.
+    static float s_bar = 0.0f, s_lastT = 0.0f;
+    const float dt = std::clamp(g_GameTime - s_lastT, 0.0f, 0.1f);
+    s_lastT = g_GameTime;
+    s_bar += ((bar ? 1.0f : 0.0f) - s_bar) * std::min(1.0f, dt * 4.0f);
+
+    const float a = kDimAlpha * g_BatchAlpha;
+    const float topH = topY + (110.0f + 70.0f * s_bar) * scale;
+    DrawLinearGradientVertical(0.0f, 0.0f, sw, topH, 0.0f, 0.0f, 0.0f, a);
+    const float bottomTop = vitals_hud::BottomHudTextY(sh, scale) - 56.0f * scale;
+    DrawLinearGradientVertical(0.0f, bottomTop, sw, sh - bottomTop,
+                               0.0f, 0.0f, 0.0f, a, true);
+}
+
 static void DrawNormaBossBar(float sw, float scale, float topY) {
     const Monster* boss = nullptr;
     for (const Monster* m : g_MonsterManager.monsters)
@@ -821,6 +844,7 @@ static float RamRedFor(int id);
 static void DrawPaneHop(const os_pane::Pane& p);
 static void DrawWarpCracks(const os_pane::Pane& p);
 static bool DrawWallWarning();
+static bool DrawIdleWarning();
 static bool ThrowPayloadFor(int id, int& count, float& turn);
 static void DrawThrowAppear();
 static bool FuseFor(int id, float& share);
@@ -1039,6 +1063,7 @@ static void DrawPaneBrackets() {
         DrawWarpCracks(p);
     }
     if (DrawWallWarning() && !any) { BindMainShader(); any = true; }
+    if (DrawIdleWarning() && !any) { BindMainShader(); any = true; }
     g_PaneCover.clear();
     if (CrashActive()) {
         if (!any) { BindMainShader(); any = true; }
@@ -1180,6 +1205,46 @@ static std::vector<int> g_NormaPanes;
 static std::vector<NormaFlash> g_NormaFlashes;
 struct NormaCountdown { int id = 0; float left = 0.0f; };
 static NormaCountdown g_NormaCountdown;
+
+// Balance log: one FIGHT_* record per boss or elite (System/GameLog.h). The
+// fought one is the boss if there is one, else the spawned elite.
+static void TrackFightLog(float px, float py) {
+    if (!gamelog::On()) return;
+    const Monster* target = nullptr;
+    for (const Monster* m : g_MonsterManager.monsters) {
+        if (!m->alive || m->trainingDummy) continue;
+        if (IsBossMob(m->kind)) { target = m; break; }
+        if (!target && m->UsesEliteGates()) target = m;
+    }
+    gamelog::Fight& f = gamelog::g_fight;
+    if (f.on && f.who != target) {
+        const bool gameOver = g_GameManager.currentState == GameState::GAMEOVER ||
+                              g_GameManager.currentState == GameState::DYING;
+        gamelog::FightEnd(gameOver ? "player_down" : "killed");
+    }
+    if (target && !f.on)
+        gamelog::FightBegin(target, MobKindName(target->kind),
+                            IsBossMob(target->kind) ? target->normaMaxHp : target->eliteMaxHp);
+    // How far the player moved since the last frame of play, filed under the
+    // running pattern (which patterns let the player stand still).
+    // Judged over quarter-second stretches, not per frame: the player moves on
+    // the fixed physics step, so many rendered frames show no movement at all
+    // and a per-frame check counted a steady walk as partly standing still.
+    static float s_px = 0.0f, s_py = 0.0f, s_time = -1.0f, s_accPx = 0.0f, s_accT = 0.0f;
+    const float dt = g_GameTime - s_time;
+    if (f.on && s_time >= 0.0f && dt > 0.0f && dt < 0.25f) {
+        const float mx = px - s_px, my = py - s_py;
+        s_accPx += std::sqrt(mx * mx + my * my);
+        s_accT += dt;
+        if (s_accT >= 0.25f) {
+            gamelog::FightMove(s_accPx, s_accT);
+            s_accPx = s_accT = 0.0f;
+        }
+    } else if (!f.on) {
+        s_accPx = s_accT = 0.0f;
+    }
+    s_px = px; s_py = py; s_time = g_GameTime;
+}
 
 static Monster* FindNorma() {
     for (Monster* m : g_MonsterManager.monsters)
@@ -1401,6 +1466,23 @@ struct PaneWall {
 };
 static PaneWall g_Wall;
 
+// Detonate: the panes lit by the last one, and how many of them the player
+// shut before they blew (norma::kDefuseCount of them leave the boss open).
+static std::vector<int> g_DetonateLit;
+static int g_DetonateDefused = 0;
+
+// "Not responding" (norma::kIdleRadius notes): the error window that pops up
+// on a player who stays put.
+struct IdlePop {
+    float ax = 0.0f, ay = 0.0f;   // the spot being watched (world)
+    float still = 0.0f;           // seconds the player has stayed near it
+    int stage = 0;                // 0 watching, 1 marking the spot, 2 the pane stands
+    float timer = 0.0f;
+    os_pane::Rect spot;           // the pane's footprint (screen px)
+    int id = 0;
+};
+static IdlePop g_Idle;
+
 // 14 Warp: the pane the boss hides in and the one it will smash out of.
 struct PaneWarp {
     int srcId = 0, dstId = 0;
@@ -1507,6 +1589,7 @@ static float RamRedFor(int id) {
     if (g_Wall.active && g_Wall.stage < 2)   // wall panes are red: no one can stand inside
         for (const WallPane& wp : g_Wall.panes)
             if (wp.id == id) return 1.0f;
+    if (g_Idle.id == id && id != 0) return 1.0f;   // the "not responding" error window
     const PaneRam* ram = RamOf(id);
     if (!ram) return 0.0f;
     if (ram->stage == 0) {
@@ -1589,6 +1672,86 @@ static int OpenNormaPane(Monster& boss, float psx, float psy) {
     return id;
 }
 
+// Refuge: a shelter within the player's reach. When no pane of the boss's is
+// (not counting `excludeId` or one about to blow), the nearest glides over, or
+// with none to move, one opens there. flash: light every shelter up first.
+static void BringShelterWithinReach(Monster& boss, float psx, float psy, int excludeId, bool flash) {
+    const float sw = (float)screenWidth, sh = (float)screenHeight;
+    const float reach = std::clamp(norma::kRefugeReach * g_Stats.moveSpeedMult,
+                                   norma::kRefugeReachMin, norma::kRefugeReachMax) * g_ViewZoom;
+    const os_pane::Pane* nearest = nullptr;
+    float nearestGap = 0.0f;
+    int usable = 0;
+    for (const os_pane::Pane* pane : NormaOwnPanes()) {
+        float fuse = 0.0f;
+        if (pane->id == excludeId || FuseFor(pane->id, fuse)) continue;
+        ++usable;
+        if (flash) FlashNormaPane(pane->id, boss);
+        if (pane->minimized || pane->flying) continue;
+        const os_pane::Rect& r = pane->frame;
+        const float gx = std::max({ r.x - psx, 0.0f, psx - (r.x + r.w) });
+        const float gy = std::max({ r.y - psy, 0.0f, psy - (r.y + r.h) });
+        const float gap = std::sqrt(gx * gx + gy * gy);
+        if (!nearest || gap < nearestGap) { nearest = pane; nearestGap = gap; }
+    }
+    if (nearest && nearestGap <= reach) return;
+    // Where a w x h pane sits with its near edge kRefugeGap of reach
+    // from the player, toward (ux, uy).
+    auto spotToward = [&](float w, float h, float ux, float uy, float& x, float& y) {
+        const float along = reach * norma::kRefugeGap +
+                            std::fabs(ux) * w * 0.5f + std::fabs(uy) * h * 0.5f;
+        x = std::clamp(psx + ux * along - w * 0.5f, 0.0f, std::max(0.0f, sw - w));
+        y = std::clamp(psy + uy * along - h * 0.5f, 0.0f, std::max(0.0f, sh - h));
+    };
+    if (nearest) {
+        const os_pane::Rect& r = nearest->frame;
+        float ux = r.x + r.w * 0.5f - psx, uy = r.y + r.h * 0.5f - psy;
+        const float len = std::max(1.0f, std::sqrt(ux * ux + uy * uy));
+        ux /= len;
+        uy /= len;
+        for (PaneDrift& d : g_PaneDrifts) {
+            if (d.id != nearest->id) continue;
+            d.fromX = r.x;
+            d.fromY = r.y;
+            d.x = r.x;
+            d.y = r.y;
+            d.placed = true;
+            // Try fanned directions and keep the one clear of other panes.
+            float bestScore = -1.0f;
+            for (int k = 0; k < 9; ++k) {
+                const float turn = ((k + 1) / 2) * (k % 2 ? 0.35f : -0.35f);
+                const float c = cosf(turn), sn = sinf(turn);
+                float tx = 0.0f, ty = 0.0f;
+                spotToward(r.w, r.h, ux * c - uy * sn, ux * sn + uy * c, tx, ty);
+                const float sc = PaneOverlapScore(tx, ty, r.w, r.h, nearest->id);
+                if (bestScore < 0.0f || sc < bestScore) { bestScore = sc; d.toX = tx; d.toY = ty; }
+                if (sc <= 0.0f) break;
+            }
+            d.pullLeft = norma::kRefugePull;
+        }
+    } else if (usable < norma::MaxBossPanesFor(boss.normaPhase)) {
+        const float w = std::min(sw * norma::kPaneMaxShareW, RandRange(norma::kRefugeMinW, norma::kRefugeMaxW));
+        const float h = std::min(sh * norma::kPaneMaxShareH, RandRange(norma::kRefugeMinH, norma::kRefugeMaxH));
+        const float a0 = RandRange(0.0f, 6.2831853f);
+        float x = 0.0f, y = 0.0f, bestScore = -1.0f;
+        for (int k = 0; k < 12; ++k) {
+            const float a = a0 + 6.2831853f * (float)k / 12.0f;
+            float tx = 0.0f, ty = 0.0f;
+            spotToward(w, h, cosf(a), sinf(a), tx, ty);
+            const float sc = PaneOverlapScore(tx, ty, w, h, 0);
+            if (bestScore < 0.0f || sc < bestScore) { bestScore = sc; x = tx; y = ty; }
+            if (sc <= 0.0f) break;
+        }
+        const int id = os_pane::Open(x, y, w, h);
+        if (id > 0) {
+            Audio::Play(Audio::Cue::BossOctansPaneOpen);
+            g_NormaPanes.push_back(id);
+            StartPaneDrift(id);
+            FlashNormaPane(id, boss);
+        }
+    }
+}
+
 static void ServeNormaAsks(const SpatialBounds& player) {
     Monster* boss = FindNorma();
     std::vector<norma::Ask> asks;
@@ -1613,10 +1776,13 @@ static void ServeNormaAsks(const SpatialBounds& player) {
         case norma::Ask::DetonatePanes:
             // Every pane of the boss's blows on purpose, except one a ram or
             // a countdown is using.
+            g_DetonateLit.clear();
+            g_DetonateDefused = 0;
             for (const os_pane::Pane* pane : NormaOwnPanes()) {
                 if (PaneRamBusy(pane->id) || pane->id == g_NormaCountdown.id) continue;
                 FlashNormaPane(pane->id, *boss);
                 LightPaneFuse(pane->id);
+                g_DetonateLit.push_back(pane->id);
             }
             break;
         case norma::Ask::ReopenPanes: {
@@ -1631,81 +1797,22 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             }
             break;
         }
-        case norma::Ask::OpenRefuges: {
+        case norma::Ask::OpenRefuges:
             Audio::Play(Audio::Cue::BossOctansRefuge);   // 1.5초 예고 → 범람
-            // The shelters are the panes already open (opened on a timer,
-            // not by this pattern): they light up before the flood. One must
-            // be reachable in the telegraph, so when none is within reach
-            // the nearest glides over (or, with none open, one opens there).
-            const float reach = std::clamp(norma::kRefugeReach * g_Stats.moveSpeedMult,
-                                           norma::kRefugeReachMin, norma::kRefugeReachMax) * g_ViewZoom;
-            const os_pane::Pane* nearest = nullptr;
-            float nearestGap = 0.0f;
-            for (const os_pane::Pane* pane : NormaOwnPanes()) {
-                FlashNormaPane(pane->id, *boss);
-                if (pane->minimized || pane->flying) continue;
-                const os_pane::Rect& r = pane->frame;
-                const float gx = std::max({ r.x - psx, 0.0f, psx - (r.x + r.w) });
-                const float gy = std::max({ r.y - psy, 0.0f, psy - (r.y + r.h) });
-                const float gap = std::sqrt(gx * gx + gy * gy);
-                if (!nearest || gap < nearestGap) { nearest = pane; nearestGap = gap; }
-            }
-            if (nearest && nearestGap <= reach) break;
-            // Where a w x h pane sits with its near edge kRefugeGap of reach
-            // from the player, toward (ux, uy).
-            auto spotToward = [&](float w, float h, float ux, float uy, float& x, float& y) {
-                const float along = reach * norma::kRefugeGap +
-                                    std::fabs(ux) * w * 0.5f + std::fabs(uy) * h * 0.5f;
-                x = std::clamp(psx + ux * along - w * 0.5f, 0.0f, std::max(0.0f, sw - w));
-                y = std::clamp(psy + uy * along - h * 0.5f, 0.0f, std::max(0.0f, sh - h));
-            };
-            if (nearest) {
-                const os_pane::Rect& r = nearest->frame;
-                float ux = r.x + r.w * 0.5f - psx, uy = r.y + r.h * 0.5f - psy;
-                const float len = std::max(1.0f, std::sqrt(ux * ux + uy * uy));
-                ux /= len;
-                uy /= len;
-                for (PaneDrift& d : g_PaneDrifts) {
-                    if (d.id != nearest->id) continue;
-                    d.fromX = r.x;
-                    d.fromY = r.y;
-                    d.x = r.x;
-                    d.y = r.y;
-                    d.placed = true;
-                    // Try fanned directions and keep the one clear of other panes.
-                    float bestScore = -1.0f;
-                    for (int k = 0; k < 9; ++k) {
-                        const float turn = ((k + 1) / 2) * (k % 2 ? 0.35f : -0.35f);
-                        const float c = cosf(turn), sn = sinf(turn);
-                        float tx = 0.0f, ty = 0.0f;
-                        spotToward(r.w, r.h, ux * c - uy * sn, ux * sn + uy * c, tx, ty);
-                        const float sc = PaneOverlapScore(tx, ty, r.w, r.h, nearest->id);
-                        if (bestScore < 0.0f || sc < bestScore) { bestScore = sc; d.toX = tx; d.toY = ty; }
-                        if (sc <= 0.0f) break;
-                    }
-                    d.pullLeft = norma::kRefugePull;
-                }
-            } else if ((int)NormaOwnPanes().size() < norma::MaxBossPanesFor(boss->normaPhase)) {
-                const float w = std::min(sw * norma::kPaneMaxShareW, RandRange(norma::kRefugeMinW, norma::kRefugeMaxW));
-                const float h = std::min(sh * norma::kPaneMaxShareH, RandRange(norma::kRefugeMinH, norma::kRefugeMaxH));
-                const float a0 = RandRange(0.0f, 6.2831853f);
-                float x = 0.0f, y = 0.0f, bestScore = -1.0f;
-                for (int k = 0; k < 12; ++k) {
-                    const float a = a0 + 6.2831853f * (float)k / 12.0f;
-                    float tx = 0.0f, ty = 0.0f;
-                    spotToward(w, h, cosf(a), sinf(a), tx, ty);
-                    const float sc = PaneOverlapScore(tx, ty, w, h, 0);
-                    if (bestScore < 0.0f || sc < bestScore) { bestScore = sc; x = tx; y = ty; }
-                    if (sc <= 0.0f) break;
-                }
-                const int id = os_pane::Open(x, y, w, h);
-                if (id > 0) {
-                    Audio::Play(Audio::Cue::BossOctansPaneOpen);
-                    g_NormaPanes.push_back(id);
-                    StartPaneDrift(id);
-                    FlashNormaPane(id, *boss);
-                }
-            }
+            // The shelters are the panes already open: they light up before
+            // the flood, and one must be reachable in the telegraph.
+            BringShelterWithinReach(*boss, psx, psy, 0, true);
+            break;
+        case norma::Ask::RefugeHop: {
+            // Mid-flood the shelter the player stands in is lit to blow and
+            // another is brought within reach: they cross the flood to it.
+            const int here = space::g_PlayerSpace;
+            bool own = false;
+            for (const os_pane::Pane* pane : NormaOwnPanes()) own = own || pane->id == here;
+            if (!own) break;   // in the open: the flood itself is the threat
+            FlashNormaPane(here, *boss);
+            LightPaneFuse(here);
+            BringShelterWithinReach(*boss, psx, psy, here, false);
             break;
         }
         case norma::Ask::ClosePlayerWindow: {
@@ -2032,6 +2139,12 @@ static void PlayCaelumEvents() {
             SpawnSparks(e.x, e.y, 10 + 2 * (int)e.a, ar, ag, ab, 420.0f);
             caelum_fx::Open(e.x, e.y, 240.0f, 0.35f, caelum_fx::kHot, 0.8f);
             Shake(0.20f, 8.0f);
+            break;
+        case caelum::Fx::Gate:       // a phase gate (75% / 25%): a short beat before its pattern
+            SpawnSparks(e.x, e.y, 22, ar, ag, ab, 420.0f);
+            caelum_fx::Open(e.x, e.y, 300.0f, 0.45f, caelum_fx::kAmber, 0.8f);
+            Shake(0.30f, 12.0f);
+            TriggerHitStop(0.05f);
             break;
         case caelum::Fx::PhaseShift:
             SpawnSparks(e.x, e.y, 36, ar, ag, ab, 480.0f);
@@ -2587,6 +2700,109 @@ static void TickPaneWall(float dt) {
     if (!any || wall.timer > 3.0f) EndPaneWall();
 }
 
+// "Not responding": watches for a player who stays put (acts 2-4), marks the
+// spot, then pops an error window open on it (norma::kIdleRadius notes).
+static void EndIdlePop() {
+    if (g_Idle.id > 0)
+        if (const os_pane::Pane* pane = PaneById(g_Idle.id)) {
+            CollapsePane(*pane, true);
+            os_pane::Close(g_Idle.id);
+        }
+    g_Idle = {};
+}
+
+static void TickIdlePop(float dt) {
+    IdlePop& idle = g_Idle;
+    const Monster* boss = FindNorma();
+    if (!boss) { if (idle.stage != 0 || idle.id != 0 || idle.still > 0.0f) EndIdlePop(); return; }
+    const float px = g_NormaPlayerX, py = g_NormaPlayerY;
+    if (idle.stage == 0) {
+        const float need = norma::IdleSecondsFor(norma::ActFor(boss->hp, boss->normaMaxHp));
+        // Off while the boss is open or untouchable, and during the patterns
+        // that ask the player to hold a spot.
+        const bool off = need <= 0.0f || boss->normaExposed > 0.0f || boss->normaInvuln > 0.0f ||
+                         boss->normaPattern == norma::Pattern::Refuge ||
+                         boss->normaPattern == norma::Pattern::Crash || CrashActive();
+        const float ddx = px - idle.ax, ddy = py - idle.ay;
+        if (off || ddx * ddx + ddy * ddy > norma::kIdleRadius * norma::kIdleRadius) {
+            idle.ax = px;
+            idle.ay = py;
+            idle.still = 0.0f;
+            return;
+        }
+        idle.still += dt;
+        if (idle.still < need) return;
+        const float sw = (float)screenWidth, sh = (float)screenHeight;
+        const float w = std::min(sw * 0.4f, norma::kIdleW), h = std::min(sh * 0.4f, norma::kIdleH);
+        idle.spot = { std::clamp(W2SX(px) - w * 0.5f, 0.0f, std::max(0.0f, sw - w)),
+                      std::clamp(W2SY(py) - h * 0.5f, 0.0f, std::max(0.0f, sh - h)), w, h };
+        idle.stage = 1;
+        idle.timer = 0.0f;
+        Audio::Play(Audio::Cue::BossOctansAlert);
+        return;
+    }
+    idle.timer += dt;
+    if (idle.stage == 1) {
+        if (idle.timer < norma::kIdleWarn) return;
+        const os_pane::Rect& p = idle.spot;
+        idle.id = os_pane::Open(p.x, p.y, p.w, p.h);
+        idle.stage = 2;
+        idle.timer = 0.0f;
+        if (idle.id <= 0) { g_Idle = {}; return; }
+        Audio::Play(Audio::Cue::BossOctansPaneOpen);
+        SpawnSparks(ScreenToWorldX(p.x + p.w * 0.5f), ScreenToWorldY(p.y + p.h * 0.5f), 8, 1.0f, 0.45f, 0.38f, 300.0f);
+        norma_fx::Frame(ScreenToWorldX(p.x), ScreenToWorldY(p.y), ScreenToWorldX(p.x + p.w),
+                        ScreenToWorldY(p.y + p.h), 26.0f, 0.40f, norma_fx::kRed);
+        Shake(0.1f, 6.0f);
+        // Still on the spot as it pops open: hurt, and thrown out through the
+        // nearest edge (the wall's hit).
+        const float psx = W2SX(px), psy = W2SY(py);
+        if (psx >= p.x && psx <= p.x + p.w && psy >= p.y && psy <= p.y + p.h) {
+            const float toL = psx - p.x, toR = p.x + p.w - psx, toT = psy - p.y, toB = p.y + p.h - psy;
+            const float m = std::min(std::min(toL, toR), std::min(toT, toB));
+            const float kx = m == toL ? -1.0f : m == toR ? 1.0f : 0.0f;
+            const float ky = m == toT ? -1.0f : m == toB ? 1.0f : 0.0f;
+            {
+                space::HurtSourceScope source(space::kUntracked);
+                HurtPlayer(g_GameManager.playerHP, norma::kWallDamage, "NORMA_IDLE");
+            }
+            ApplyPlayerKnockback(kx * norma::kWallKnock, ky * norma::kWallKnock);
+            Audio::Play(Audio::Cue::SfxKnockback);
+            SpawnSparks(px, py, 14, 1.0f, 0.40f, 0.34f, 380.0f);
+            Shake(0.25f, 12.0f);
+            TriggerHitStop(0.05f);
+        }
+        return;
+    }
+    if (idle.timer >= norma::kIdleStay || !PaneById(idle.id)) EndIdlePop();
+}
+
+// The spot about to get the "not responding" window: red corner brackets (the
+// wall's footprint) with a frame closing in on the player as the time runs out.
+static bool DrawIdleWarning() {
+    if (g_Idle.stage != 1) return false;
+    const float k = std::clamp(g_Idle.timer / norma::kIdleWarn, 0.0f, 1.0f);
+    const hud_lines::Rgb red{ 1.0f, 0.30f, 0.26f };
+    const os_pane::Rect& p = g_Idle.spot;
+    const float arm = std::min(60.0f, std::min(p.w, p.h) * 0.2f);
+    const float xs[2] = { p.x, p.x + p.w }, ys[2] = { p.y, p.y + p.h };
+    for (int cx = 0; cx < 2; ++cx)
+        for (int cy = 0; cy < 2; ++cy) {
+            const float sx = cx == 0 ? 1.0f : -1.0f, sy = cy == 0 ? 1.0f : -1.0f;
+            PaneSeg(xs[cx], ys[cy], xs[cx] + sx * arm, ys[cy], 2.0f + 1.5f * k, red, 0.35f + 0.6f * k);
+            PaneSeg(xs[cx], ys[cy], xs[cx], ys[cy] + sy * arm, 2.0f + 1.5f * k, red, 0.35f + 0.6f * k);
+        }
+    // The closing frame: from the footprint down to a third of it.
+    const float in = (1.0f - 0.66f * k) * 0.5f;
+    const float mx = p.x + p.w * 0.5f, my = p.y + p.h * 0.5f;
+    const float x0 = mx - p.w * in, x1 = mx + p.w * in, y0 = my - p.h * in, y1 = my + p.h * in;
+    PaneSeg(x0, y0, x1, y0, 1.4f, red, 0.25f + 0.5f * k);
+    PaneSeg(x0, y1, x1, y1, 1.4f, red, 0.25f + 0.5f * k);
+    PaneSeg(x0, y0, x0, y1, 1.4f, red, 0.25f + 0.5f * k);
+    PaneSeg(x1, y0, x1, y1, 1.4f, red, 0.25f + 0.5f * k);
+    return true;
+}
+
 // CloseWindow: when the count runs out, everything left in the pane is
 // crushed and the pane closes.
 static void TickNormaCountdown(float dt) {
@@ -3063,16 +3279,27 @@ static void ApplyPaneAbsorbs() {
         if (a.enemy) SpawnSparks(a.x, a.y, 5, 0.86f, 0.80f, 1.0f, 240.0f);
         else SpawnSparks(a.x, a.y, 5, 0.92f, 0.99f, 1.0f, 240.0f);
         if (a.paneId <= 0) continue;
-        WearOf(a.paneId).hits += 1.0f;
+        // The player's shots tear a standing wall pane down fast (it can be shot through).
+        bool wallPane = false;
+        if (!a.enemy && g_Wall.active && g_Wall.stage < 2)
+            for (const WallPane& w : g_Wall.panes) wallPane = wallPane || w.id == a.paneId;
+        WearOf(a.paneId).hits += wallPane ? norma::kWallHitWear : 1.0f;
         if (const os_pane::Pane* p = PaneById(a.paneId))
             AddPaneHit(p->shown, a.paneId, W2SX(a.x), W2SY(a.y), a.enemy);
     }
     space::g_Absorbed.clear();
+    std::vector<int> brokenWall;   // wall panes shot to pieces: they fold away, no burst
     for (const os_pane::Pane& p : os_pane::Panes()) {
         if (!p.open || p.decor) continue;   // the blue screen's storm sets its own glitch
         const float left = PaneDurabilityLeft(p);
         // Worn out: light the fuse once. Low: the contents start to waver.
-        if (left <= 0.0f) LightPaneFuse(p.id);
+        if (left <= 0.0f) {
+            bool standingWall = false;
+            if (g_Wall.active && g_Wall.stage < 2)
+                for (const WallPane& w : g_Wall.panes) standingWall = standingWall || w.id == p.id;
+            if (standingWall) brokenWall.push_back(p.id);
+            else LightPaneFuse(p.id);
+        }
         float unsteady = 0.0f;
         if (const PaneFuse* f = FuseOf(p.id))
             unsteady = 0.6f + 0.4f * std::min(1.0f, f->timer / space::kFuseSeconds);
@@ -3091,12 +3318,19 @@ static void ApplyPaneAbsorbs() {
             const float total = (float)(norma::kThrowRing + norma::kThrowInner);
             const float share = g_ThrowBox.stage == 0 ? std::min(1.0f, g_ThrowBox.timer / norma::kThrowFill) : 1.0f;
             os_pane::SetRole(p.id, os_pane::PaneRole::Copy, std::floor(total * share), total);
-        } else if (wall) {
+        } else if (wall || (g_Idle.id == p.id && p.id != 0)) {
             os_pane::SetRole(p.id, os_pane::PaneRole::Error);
         } else {
             os_pane::SetRole(p.id, os_pane::PaneRole::Plain);
         }
     }
+    for (int id : brokenWall)
+        if (const os_pane::Pane* pane = PaneById(id)) {
+            SpawnSparks(ScreenToWorldX(pane->shown.x + pane->shown.w * 0.5f),
+                        ScreenToWorldY(pane->shown.y + pane->shown.h * 0.5f), 14, 1.0f, 0.45f, 0.38f, 320.0f);
+            CollapsePane(*pane);
+            os_pane::Close(id);
+        }
     g_PaneWear.erase(std::remove_if(g_PaneWear.begin(), g_PaneWear.end(),
         [](const PaneWear& w) {
             for (const os_pane::Pane& p : os_pane::Panes())
@@ -3109,11 +3343,25 @@ static void ApplyPaneAbsorbs() {
 // and scatters its load like a thrown box (no blast of its own). Closing or
 // minimizing the pane while it burns defuses it: no shots.
 static void TickPaneFuses(float dt) {
+    // A pane lit by Detonate that the player shut in time: at kDefuseCount of
+    // one batch, the boss is left open for a moment.
+    const auto defused = [](int id) {
+        const auto it = std::find(g_DetonateLit.begin(), g_DetonateLit.end(), id);
+        if (it == g_DetonateLit.end()) return;
+        g_DetonateLit.erase(it);
+        Monster* boss = FindNorma();
+        if (!boss || boss->normaInvuln > 0.0f || boss->normaHidden) return;
+        if (++g_DetonateDefused != norma::kDefuseCount) return;
+        boss->normaExposed = std::max(boss->normaExposed, norma::kDefuseExpose);
+        norma::g_Events.push_back({ norma::Fx::Burst, boss->worldX, boss->worldY, 1.0f });
+        SpawnSparks(boss->worldX, boss->worldY, 16, 0.92f, 0.99f, 1.0f, 360.0f);
+    };
     for (PaneFuse& fuse : g_PaneFuses) {
         const os_pane::Pane* pane = PaneById(fuse.id);
-        if (!pane) { fuse.timer = -1.0f; continue; }
+        if (!pane) { defused(fuse.id); fuse.timer = -1.0f; continue; }
         if (pane->minimized) {
             os_pane::Close(fuse.id);
+            defused(fuse.id);
             fuse.timer = -1.0f;
             continue;
         }
@@ -3130,6 +3378,7 @@ static void TickPaneFuses(float dt) {
         Audio::Play(Audio::Cue::BossOctansPaneBurst);   // 퓨즈가 다 타 창이 터짐 (벽·폭파·페이즈)
         os_pane::Close(fuse.id);
         fuse.timer = -1.0f;
+        g_DetonateLit.erase(std::remove(g_DetonateLit.begin(), g_DetonateLit.end(), fuse.id), g_DetonateLit.end());
         const int ring = (int)std::round(norma::kThrowRing * norma::kDetonateBurstShare);
         const int inner = (int)std::round(norma::kThrowInner * norma::kDetonateBurstShare);
         const float spin = RandRange(0.0f, 6.2831853f);
@@ -3652,7 +3901,9 @@ static void BeginGameplayTelemetryIfNeeded() {
     if (!inRunFlow) return;
 
     // FinalizeLoadout() runs from the scene layer.
-    const bool hasLoadout = g_CurrentWeapon >= 0;
+    // (ASTERIA_SMOKE_FIGHTLOG=1: a smoke run logs its fights without a loadout pick.)
+    static const bool smokeFightLog = g_SmokeCapture && SmokeEnv("ASTERIA_SMOKE_FIGHTLOG") == "1";
+    const bool hasLoadout = g_CurrentWeapon >= 0 || smokeFightLog;
     if (!hasLoadout) return;
 
     g_GameplayTelemetry.BeginRun(
@@ -3869,9 +4120,8 @@ static void DrawAchievementToast(float sw, float sh, float delta) {
         if (comboUp) {
             const float comboMaxSc = UiTextScale(g_TextS, UiTextLevel::Subtitle,
                                                  1.95f * 1.12f * UiScale(sw, sh));
-            // + 콤보 유지 바 (간격 6 + 굵기 3, UI 배율)
-            wantY = sh * 0.115f + g_TextS.Height(L"0 COMBO", comboMaxSc) + 14.0f +
-                    9.0f * UiScale(sw, sh);
+            // 유지 시간은 글자 색으로 보여 주므로 밑에 바가 없다
+            wantY = sh * 0.115f + g_TextS.Height(L"0 COMBO", comboMaxSc) + 14.0f;
         }
         static float s_toastY = -1.0f;
         if (s_toastY < 0.0f || g_AchToastTimer > 3.9f) s_toastY = wantY;
@@ -3964,7 +4214,7 @@ static void DrawFloatingCombatText(GameState st, float sw, float sh) {
             float sx = roundf(W2SX(d.x)), sy = W2SY(d.y);
             wchar_t nb[32]; FormatGrouped(d.amount, nb, 32);
             float sc = UiTextScale(g_TextS, UiTextLevel::Description,
-                (d.crit ? 1.05f : 0.72f) * g_ViewZoom
+                (d.fate ? 1.30f : d.crit ? 1.05f : 0.72f) * g_ViewZoom
                 * (0.7f + 0.3f * t) * UiScale(sw, sh));
             float a  = (t > 0.55f) ? 1.0f : (t / 0.55f);
             float w  = g_TextS.Width(nb, sc);
@@ -3976,9 +4226,12 @@ static void DrawFloatingCombatText(GameState st, float sw, float sh) {
                 const float critW = g_TextS.Width(critLabel, critSc);
                 g_TextS.Draw(critLabel, sx - critW * 0.5f,
                              sy - g_TextS.Height(critLabel, critSc) - 3.0f,
-                             critSc, 1.0f, 0.74f, 0.18f, a * 0.92f);
-                g_TextS.Draw(nb, sx - w * 0.5f, sy, sc,
-                             1.0f, 0.85f, 0.2f, a);
+                             critSc, 1.0f, d.fate ? 0.30f : 0.74f, d.fate ? 0.38f : 0.18f, a * 0.92f);
+                // 운명의 필살 일격: crimson (the card's own colour) instead of the usual gold.
+                if (d.fate)
+                    g_TextS.Draw(nb, sx - w * 0.5f, sy, sc, 1.0f, 0.25f, 0.35f, a);
+                else
+                    g_TextS.Draw(nb, sx - w * 0.5f, sy, sc, 1.0f, 0.85f, 0.2f, a);
             } else {
                 g_TextS.Draw(nb, sx - w*0.5f, sy, sc,
                              1.0f, 1.0f, 1.0f, a*0.9f);
@@ -4006,8 +4259,68 @@ static void DrawFloatingCombatText(GameState st, float sw, float sh) {
             else if (g_Combo >= 25) { cg = 0.55f; cbl = 0.15f; }
             else if (g_Combo >= 12) { cg = 0.9f;  cbl = 0.3f; }
             if (ms) { cr = 1.0f; cg = 0.85f; cbl = 0.30f; }   // 마일?�톤 = 골드 ?�스
-            float w = g_TextS.Width(cb, sc);
-            g_TextS.Draw(cb, (sw - w) * 0.5f, sh * 0.115f, sc, cr, cg, cbl, 0.95f);
+            const float w  = g_TextS.Width(cb, sc);
+            const float tx = (sw - w) * 0.5f;
+            const float ty = sh * 0.115f;
+            const float th = g_TextS.Height(cb, sc);
+
+            // 콤보 유지 시간 = 글자 색. 왼쪽 고정 · 오른쪽부터 빠진다.
+            // 빠진 부분은 같은 색을 흐리게 남기고, 경계는 얇은 세로 띠로 부드럽게 흐려진다.
+            const float ratio = g_ComboWindowMax > 0.0f
+                ? std::clamp(g_ComboTimer / g_ComboWindowMax, 0.0f, 1.0f) : 0.0f;
+            float br = cr, bg = cg, bb = cbl, ba = 0.95f;
+            if (ratio < 0.3f) {   // 곧 끊김 경고: 빨갛게 + 깜빡임 (끝으로 갈수록 빨라짐)
+                const float k = 1.0f - ratio / 0.3f;
+                br = br + (1.0f - br) * k; bg = bg + (0.22f - bg) * k; bb = bb + (0.18f - bb) * k;
+                const float blinkHz = 5.0f + 7.0f * k;
+                ba = 0.45f + 0.5f * (0.5f + 0.5f * std::cos(g_ComboTimer * blinkHz * 6.2831853f));
+            }
+            // 킬 직후 다시 꽉 차면서 잠깐 밝게
+            br += (1.0f - br) * g_ComboPulse; bg += (1.0f - bg) * g_ComboPulse;
+            bb += (1.0f - bb) * g_ComboPulse;
+
+            // ① 빠진 부분: 사라지지 않고 "색이 약해진" 글자 — 단계 색을 회색 쪽으로
+            //    절반 섞고 조금 어둡게, 알파는 충분히 남겨 계속 읽히게.
+            const float kGrey = 0.55f, kMix = 0.55f;
+            g_TextS.Draw(cb, tx, ty, sc,
+                         (cr + (kGrey - cr) * kMix) * 0.85f,
+                         (cg + (kGrey - cg) * kMix) * 0.85f,
+                         (cbl + (kGrey - cbl) * kMix) * 0.85f, 0.75f);
+            // ② 남은 부분: 가위로 잘라 밝게. edge 는 ratio 1 → 글자 오른쪽 끝,
+            //    ratio 0 → 글자 왼쪽 끝에서 페더 폭만큼 더 왼쪽 (완전히 흐림).
+            const float fe    = std::max(4.0f, th * 0.6f);
+            const float edge  = tx - fe + (w + fe) * ratio;
+            const float clipY = ty - th * 0.5f, clipH = th * 2.0f;
+            glEnable(GL_SCISSOR_TEST);
+            if (edge > tx) {
+                // 꽉 찼을 때는 글리프 테두리가 잘리지 않게 오른쪽을 넉넉히
+                const float right = (ratio >= 1.0f) ? tx + w + th : edge;
+                ScissorUnits(tx - th, clipY, right - (tx - th), clipH);
+                g_TextS.Draw(cb, tx, ty, sc, br, bg, bb, ba);
+            }
+            constexpr int kFeather = 8;
+            for (int i = 0; i < kFeather; ++i) {
+                const float x0 = edge + fe * (float)i / kFeather;
+                const float x1 = edge + fe * (float)(i + 1) / kFeather;
+                if (x1 <= tx || x0 >= tx + w) continue;
+                const float t = ((float)i + 0.5f) / kFeather;   // 0 → 1 로 흐려짐
+                ScissorUnits(x0, clipY, x1 - x0, clipH);
+                g_TextS.Draw(cb, tx, ty, sc, br, bg, bb, ba * (1.0f - t) * (1.0f - t));
+            }
+            glDisable(GL_SCISSOR_TEST);
+        } else if (g_ShowCombo && st == GameState::RUNNING && g_ComboBreakFx > 0.0f &&
+                   g_ComboBreakCount >= 5) {
+            // 콤보 끊김: 이미 다 빠진(흐린) 글자가 빨갛게 내려앉으며 사라진다
+            const float t  = g_ComboBreakFx / COMBO_BREAK_FX;   // 1 → 0
+            const float ui = UiScale(sw, sh);
+            wchar_t cb[48], comboText[32]; FormatGrouped(g_ComboBreakCount, comboText, 32);
+            swprintf_s(cb, L"%ls COMBO", comboText);
+            const float sc = UiTextScale(g_TextS, UiTextLevel::Subtitle, ui) *
+                             (1.0f + (g_ComboBreakCount > 30 ? 0.12f : 0.0f));
+            const float w  = g_TextS.Width(cb, sc);
+            const float drop = (1.0f - t) * 10.0f * ui;
+            g_TextS.Draw(cb, (sw - w) * 0.5f, sh * 0.115f + drop, sc,
+                         1.0f, 0.25f, 0.2f, 0.95f * t);
         }
     }
 }
@@ -4029,56 +4342,10 @@ int main() {
 #endif
     LoadGame();   // �����?����/���?�ҷ����� (������ �⺻�� ����)
     if (g_SmokeRun.Init()) os_pane::SetCoverCheck(false);   // ASTERIA_SMOKE 스모크 캡처 세션 설정
+    // A smoke run's play log goes to its own file, never the player's.
+    if (g_SmokeCapture) GameplayTelemetry::OutputOverride() = "Screenshots/smoke_telemetry.txt";
     if (g_SmokeCapture && SmokeEnv("ASTERIA_SMOKE_RECORDS") == "1") {
         // Smoke-only PLAY panel records (never saved).
-
-            // 콤보 유지 바: 글자 밑 얇은 실선, 왼쪽 고정 · 오른쪽이 줄어듦.
-            // 판 없이 선만 — 빈 구간은 흐린 같은 굵기 선으로 남긴다.
-            const float ui    = UiScale(sw, sh);
-            const float baseSc = UiTextScale(g_TextS, UiTextLevel::Subtitle, ui) *
-                                 (1.0f + (g_Combo > 30 ? 0.12f : 0.0f));
-            const float barW = g_TextS.Width(cb, baseSc);       // 펄스와 무관하게 고정 폭
-            const float barH = std::max(2.0f, roundf(3.0f * ui));
-            const float barX = roundf((sw - barW) * 0.5f);
-            const float barY = roundf(sh * 0.115f + g_TextS.Height(cb, sc) + 6.0f * ui);
-            const float ratio = g_ComboWindowMax > 0.0f
-                ? std::clamp(g_ComboTimer / g_ComboWindowMax, 0.0f, 1.0f) : 0.0f;
-            float br = cr, bg = cg, bb = cbl, ba = 0.95f;
-            if (ratio < 0.3f) {   // 곧 끊김 경고: 빨갛게 + 깜빡임 (끝으로 갈수록 빨라짐)
-                const float k = 1.0f - ratio / 0.3f;
-                br = br + (1.0f - br) * k; bg = bg + (0.22f - bg) * k; bb = bb + (0.18f - bb) * k;
-                const float blinkHz = 5.0f + 7.0f * k;
-                ba = 0.45f + 0.5f * (0.5f + 0.5f * std::cos(g_ComboTimer * blinkHz * 6.2831853f));
-            }
-            // 킬 직후 다시 꽉 차면서 잠깐 밝게
-            br += (1.0f - br) * g_ComboPulse; bg += (1.0f - bg) * g_ComboPulse;
-            bb += (1.0f - bb) * g_ComboPulse;
-            BindMainShader();
-            drawRect(barX, barY, barW, barH, cr, cg, cbl, 0.18f);
-            drawRect(barX, barY, roundf(barW * ratio), barH, br, bg, bb, ba);
-            BatchFlush();
-        } else if (g_ShowCombo && st == GameState::RUNNING && g_ComboBreakFx > 0.0f &&
-                   g_ComboBreakCount >= 5) {
-            // 콤보 끊김: 빨간 글자가 내려앉으며 사라지고, 빈 바는 가운데서 갈라져 흩어짐
-            const float t  = g_ComboBreakFx / COMBO_BREAK_FX;   // 1 → 0
-            const float ui = UiScale(sw, sh);
-            wchar_t cb[48], comboText[32]; FormatGrouped(g_ComboBreakCount, comboText, 32);
-            swprintf_s(cb, L"%ls COMBO", comboText);
-            const float sc = UiTextScale(g_TextS, UiTextLevel::Subtitle, ui) *
-                             (1.0f + (g_ComboBreakCount > 30 ? 0.12f : 0.0f));
-            const float w  = g_TextS.Width(cb, sc);
-            const float drop = (1.0f - t) * 10.0f * ui;
-            g_TextS.Draw(cb, (sw - w) * 0.5f, sh * 0.115f + drop, sc,
-                         1.0f, 0.25f, 0.2f, 0.95f * t);
-            const float barH = std::max(2.0f, roundf(3.0f * ui));
-            const float barY = roundf(sh * 0.115f + g_TextS.Height(cb, sc) + 6.0f * ui + drop);
-            const float half = w * 0.5f * (0.4f + 0.6f * t);    // 조각이 짧아지며
-            const float push = w * 0.18f * (1.0f - t);          // 양옆으로 밀려남
-            const float cx   = sw * 0.5f;
-            BindMainShader();
-            drawRect(roundf(cx - push - half), barY, roundf(half), barH, 1.0f, 0.25f, 0.2f, 0.6f * t);
-            drawRect(roundf(cx + push), barY, roundf(half), barH, 1.0f, 0.25f, 0.2f, 0.6f * t);
-            BatchFlush();
         g_BestWave[0] = 10;
         g_BestWave[1] = 12;
         g_BestWave[2] = 20;
@@ -4654,6 +4921,7 @@ int main() {
             TickThrowBox(delta);
             TickPaneRam(delta);
             TickPaneWall(delta);
+            TickIdlePop(delta);
             TickPaneWarp(delta);
             TickPhaseSpray(delta);
             TickCrash(delta);
@@ -4938,6 +5206,13 @@ int main() {
                         g_ShopIntroStage = std::atoi(step.c_str() + 10);
                     } else if (step.rfind("RUNDUST=", 0) == 0) {
                         g_RunStardust = std::atoll(step.c_str() + 8);   // this play's stardust
+                    } else if (step.rfind("COMBO=", 0) == 0) {
+                        // COMBO=<n>: combo counter at n with a full keep window
+                        // (HUD keep bar captures: hold to watch it drain/break).
+                        g_Combo = std::max(0, std::atoi(step.c_str() + 6));
+                        g_ComboTimer = COMBO_WINDOW + g_ComboWindowBonus;
+                        g_ComboWindowMax = g_ComboTimer;
+                        g_ComboPulse = 0.0f; g_ComboBreakFx = 0.0f;
                     } else if (step.rfind("COINS=", 0) == 0) {
                         g_Coins = std::atoll(step.c_str() + 6);   // stardust for shop captures
                     } else if (step == "TUTVANISH") {
@@ -4961,13 +5236,6 @@ int main() {
                         ready_launch::g_TutorialMode = true;
                         ready_launch::BeginTutorial();
                         Ready_SmokeCompleteSteps(std::atoi(step.c_str() + 8));
-                    } else if (step.rfind("COMBO=", 0) == 0) {
-                        // COMBO=<n>: combo counter at n with a full keep window
-                        // (HUD keep bar captures: hold to watch it drain/break).
-                        g_Combo = std::max(0, std::atoi(step.c_str() + 6));
-                        g_ComboTimer = COMBO_WINDOW + g_ComboWindowBonus;
-                        g_ComboWindowMax = g_ComboTimer;
-                        g_ComboPulse = 0.0f; g_ComboBreakFx = 0.0f;
                     } else if (step.rfind("TUTGUIDET=", 0) == 0) {
                         // Seconds into the guide card now up (its opening animation, frame by frame).
                         ready_launch::g_HudGuideT = (float)std::atof(step.c_str() + 10);
@@ -5334,7 +5602,7 @@ int main() {
                         q->hp = 1000000.0f;
                         q->speed = 0.0f;
                         // ASTERIA_QREFLECT=<n>: beam wall bounces for this QA quasar.
-                        { const std::string qr = SmokeEnv("ASTERIA_QREFLECT"); if (!qr.empty()) q->quasarReflections = std::atoi(qr.c_str()); }
+                        { const std::string qr = SmokeEnv("ASTERIA_QREFLECT"); if (!qr.empty()) { q->quasarReflections = std::atoi(qr.c_str()); q->quasarReflectFixed = true; } }
                         const bool erupt = step.rfind("QUASARERUPT=", 0) == 0;
                         q->quasarBounds = glm::vec4(0, BROWSER_CHROME_H, screenWidth,
                                                     screenHeight - g_GameBarH - g_TaskbarH);
@@ -5453,10 +5721,53 @@ int main() {
                         // MOBGRACE: mobs pass through the (stationary) player instead
                         // of ramming, so a charge can be watched to its end.
                         for (Monster* mob : g_MonsterManager.monsters) mob->singularityGrace = 1.0e9f;
+                    } else if (step.rfind("MOBGATE=", 0) == 0) {
+                        // MOBGATE=<n>: put every gated elite past n phase gates, so its
+                        // phase-n+1 patterns can be captured (scripts/smoke_elite_phases.ps1).
+                        const int n = std::clamp(std::atoi(step.c_str() + 8), 0, phase_gate::kEliteGateCount);
+                        for (Monster* mob : g_MonsterManager.monsters)
+                            if (mob->alive && mob->UsesEliteGates()) {
+                                mob->gatesPassed = n;
+                                mob->gateArmed = false; mob->gateHold = 0.0f; mob->gateShow = 0.0f;
+                            }
+                    } else if (step.rfind("ELITEHIT=", 0) == 0) {
+                        // ELITEHIT=<share>: hit every elite body for that share of its max HP
+                        // through the normal damage path (gates and shields apply).
+                        const float share = std::strtof(step.c_str() + 9, nullptr);
+                        for (Monster* mob : g_MonsterManager.monsters)
+                            if (mob->alive && IsEliteMob(mob->kind) && mob->antaresGen == 0 && mob->eliteMaxHp > 0.0f)
+                                g_MonsterManager.ApplyDamage(*mob, mob->eliteMaxHp * share);
+                    } else if (step.rfind("ELITEDUMP=", 0) == 0) {
+                        // ELITEDUMP=<label>: one line per elite (alive or not) to
+                        // Screenshots/elite_state.txt: HP share and gates passed.
+                        std::filesystem::create_directories("Screenshots");
+                        FILE* ef = nullptr;
+#ifdef _MSC_VER
+                        if (fopen_s(&ef, "Screenshots/elite_state.txt", "a") != 0) ef = nullptr;
+#else
+                        ef = std::fopen("Screenshots/elite_state.txt", "a");
+#endif
+                        if (ef) {
+                            int n = 0;
+                            for (Monster* mob : g_MonsterManager.monsters) {
+                                if (!IsEliteMob(mob->kind) || mob->antaresGen > 0 || mob->genesisControlled) continue;
+                                ++n;
+                                std::fprintf(ef, "%s %s alive=%d hp=%.3f gates=%d armed=%d hold=%.2f\n", step.c_str() + 10,
+                                             MobKindName(mob->kind), (int)mob->alive,
+                                             mob->eliteMaxHp > 0.0f ? mob->hp / mob->eliteMaxHp : -1.0f,
+                                             mob->gatesPassed, (int)mob->gateArmed, mob->gateHold);
+                            }
+                            if (n == 0) std::fprintf(ef, "%s none\n", step.c_str() + 10);
+                            std::fclose(ef);
+                        }
                     } else if (step == "MOBKILL") {
                         // MOBKILL: kill every live mob through the normal damage path.
+                        // (Elites skip their phase gates here: a debug kill is one hit.)
                         for (Monster* mob : g_MonsterManager.monsters)
-                            if (mob->alive) mob->ApplyDamage(mob->hp);
+                            if (mob->alive) {
+                                if (mob->UsesEliteGates()) mob->gatesPassed = phase_gate::kEliteGateCount;
+                                mob->ApplyDamage(mob->hp);
+                            }
                     } else if (step.rfind("MOBDUMP=", 0) == 0) {
                         // MOBDUMP=<label>: append one line per live Gravis /
                         // Regulus plus the player to Screenshots/mob_state.txt
@@ -5543,6 +5854,29 @@ int main() {
                         // DEBUGSPAWN=<MobKind index>: the F1 > Spawn path, from
                         // the screen edge as a hand-spawned mob arrives.
                         debugSpawnMob(std::atoi(step.c_str() + 11), 1);
+                    } else if (step.rfind("DEBUGAUG=", 0) == 0) {
+                        // DEBUGAUG=<text>: F1 > 증강 tab with the search box
+                        // focused and filled as if typed (empty = cleared).
+                        const std::string q = step.substr(9);
+                        std::wstring wq;
+                        if (!q.empty()) {
+                            const int n = MultiByteToWideChar(CP_ACP, 0, q.data(), (int)q.size(), nullptr, 0);
+                            wq.resize((size_t)std::max(0, n));
+                            if (n > 0) MultiByteToWideChar(CP_ACP, 0, q.data(), (int)q.size(), wq.data(), n);
+                        }
+                        if (!g_DebugToolkit.IsVisible()) {
+                            if (gm.currentState != GameState::RUNNING &&
+                                gm.currentState != GameState::READY &&
+                                gm.currentState != GameState::PAUSED)
+                                RestartCurrentRun();
+                            g_DebugToolkit.SetVisible(true);
+                        }
+                        g_DebugToolkit.SmokeAugSearch(wq);
+                    } else if (step.rfind("DEBUGAUGCLICK=", 0) == 0) {
+                        // DEBUGAUGCLICK=<row>[R]: click a row of the F1 > 증강 list
+                        // (R = right click: take one copy back).
+                        g_DebugToolkit.SmokeAugClick(std::atoi(step.c_str() + 14),
+                                                     step.back() == 'R');
                     } else if (step.rfind("SKILLHUD=", 0) == 0) {
                         // SKILLHUD=MIX|EMPTY|PULSE: dash HUD states (cooling
                         // down, ready, ready pulse) on a fresh run.
@@ -5583,11 +5917,13 @@ int main() {
                                 ++open;
                                 if (p.locked) ++locked;
                             }
-                            std::fprintf(nf, "%s ovl=%.0f state=%d hp=%.0f boss=%d pattern=%d stage=%d exposed=%.2f shots=%d panes=%d locked=%d fuses=%d box=%d/%d ram=%d/%d wall=%d\n",
+                            std::fprintf(nf, "%s ovl=%.0f state=%d hp=%.0f boss=%d pattern=%d stage=%d exposed=%.2f shots=%d panes=%d locked=%d fuses=%d box=%d/%d ram=%d/%d wall=%d act=%d idle=%d px=%.0f py=%.0f t=%.2f\n",
                                 step.c_str() + 10, ovl, (int)gm.currentState, gm.playerHP, nb ? 1 : 0, nb ? (int)nb->normaPattern : -1,
                                 nb ? (int)nb->normaStage : -1, nb ? nb->normaExposed : 0.0f, shots,
                                 open, locked, (int)g_PaneFuses.size(), g_ThrowBox.id, g_ThrowBox.stage,
-                                g_PaneRams.empty() ? 0 : g_PaneRams[0].id, g_PaneRams.empty() ? 0 : g_PaneRams[0].stage, (int)g_Wall.panes.size());
+                                g_PaneRams.empty() ? 0 : g_PaneRams[0].id, g_PaneRams.empty() ? 0 : g_PaneRams[0].stage, (int)g_Wall.panes.size(),
+                                nb ? norma::ActFor(nb->hp, nb->normaMaxHp) : 0, g_Idle.stage,
+                                playerWin.x + playerWin.width * 0.5f, playerWin.y + playerWin.height * 0.5f, g_GameTime);
                             std::fclose(nf);
                         }
                     } else if (step == "NORMACLOSE") {
@@ -5833,29 +6169,6 @@ int main() {
             g_BgmEnabled = g_BgmVol > 0;
             g_SfxEnabled = g_SfxVol > 0;
             Audio::SetBgmVolume(g_BgmVol / 100.0f);
-                    } else if (step.rfind("DEBUGAUG=", 0) == 0) {
-                        // DEBUGAUG=<text>: F1 > 증강 tab with the search box
-                        // focused and filled as if typed (empty = cleared).
-                        const std::string q = step.substr(9);
-                        std::wstring wq;
-                        if (!q.empty()) {
-                            const int n = MultiByteToWideChar(CP_ACP, 0, q.data(), (int)q.size(), nullptr, 0);
-                            wq.resize((size_t)std::max(0, n));
-                            if (n > 0) MultiByteToWideChar(CP_ACP, 0, q.data(), (int)q.size(), wq.data(), n);
-                        }
-                        if (!g_DebugToolkit.IsVisible()) {
-                            if (gm.currentState != GameState::RUNNING &&
-                                gm.currentState != GameState::READY &&
-                                gm.currentState != GameState::PAUSED)
-                                RestartCurrentRun();
-                            g_DebugToolkit.SetVisible(true);
-                        }
-                        g_DebugToolkit.SmokeAugSearch(wq);
-                    } else if (step.rfind("DEBUGAUGCLICK=", 0) == 0) {
-                        // DEBUGAUGCLICK=<row>[R]: click a row of the F1 > 증강 list
-                        // (R = right click: take one copy back).
-                        g_DebugToolkit.SmokeAugClick(std::atoi(step.c_str() + 14),
-                                                     step.back() == 'R');
             Audio::SetSfxVolume(g_SfxVol / 100.0f);
             Audio::SetBgmEnabled(g_BgmEnabled);
             Audio::SetSfxEnabled(g_SfxEnabled);
@@ -6503,9 +6816,18 @@ CollisionSystem::Update(pCX, pCY,
                 const int from = (int)s_loggedState, to = (int)g_GameManager.currentState;
                 if (from >= 0 && from < 11 && to >= 0 && to < 11)
                     gamelog::Event("STATE", "from=%s,to=%s", kNames[from], kNames[to]);
+                // How long a card pick held the game (wall-clock: game time stops).
+                static double s_pickBegan = -1.0;
+                if (g_GameManager.currentState == GameState::AUG_SELECT) s_pickBegan = glfwGetTime();
+                else if (s_loggedState == GameState::AUG_SELECT && s_pickBegan >= 0.0) {
+                    gamelog::Event("PICK_TIME", "real_sec=%.2f,level=%d",
+                                   glfwGetTime() - s_pickBegan, g_GameManager.playerLevel);
+                    s_pickBegan = -1.0;
+                }
                 s_loggedState = g_GameManager.currentState;
             }
         }
+        TrackFightLog(playerWin.x + playerWin.width * 0.5f, playerWin.y + playerWin.height * 0.5f);
         g_GameplayTelemetry.Update(
             g_GameTime,
             g_GameManager.playerLevel,
@@ -6812,7 +7134,11 @@ CollisionSystem::Update(pCX, pCY,
                     fireTimer >= effInterval) {
                     // A tick of the standing beam: no gun shot sound or kick (the beam hums, LaserLoop).
                     laser_fx::BeginTick();
-                    spawnOne(tx, ty);
+                    // Fire along the beam as it turns (kTurnRate), not at the cursor:
+                    // the volley's angles are read as offsets off the beam's aim.
+                    const float aim = laser_fx::g_Main.aim;
+                    const float dist = std::max(100.0f, std::hypot(tx - pCX, ty - pCY));
+                    spawnOne(pCX + std::cos(aim) * dist, pCY + std::sin(aim) * dist);
                     passive::OnShot();
                     gamelog::Shot();
                     fireTimer = 0.0f;
@@ -7347,6 +7673,7 @@ CollisionSystem::Update(pCX, pCY,
 #else
                 const float hudTopY = BROWSER_CHROME_H + 4.0f;
 #endif
+                DrawHudEdgeDim(sw, sh, hudScale, hudTopY);
                 // The combat HUD sits on the bare desktop: wider text halo (bright wallpapers).
                 BeginCombatHudTextHalo(screenHeight);
                 // Level + XP: one line along the bottom edge, stopping short
@@ -7464,8 +7791,10 @@ CollisionSystem::Update(pCX, pCY,
                                   g_GameManager.currentState);
 
         const GameState crosshairState = g_GameManager.currentState;
-        // A toggled burst ends with combat: pause, card picks, death and menus all stop it.
-        if (crosshairState != GameState::RUNNING && crosshairState != GameState::READY)
+        // A toggled burst ends with combat: pause, death and menus stop it. A card
+        // pick does not: the burst carries on once the post-pick grace ends.
+        if (crosshairState != GameState::RUNNING && crosshairState != GameState::READY &&
+            crosshairState != GameState::AUG_SELECT)
             g_FireLatched = false;
         if (g_ShowCrosshair && !g_DebugToolkit.IsVisible() &&
             (crosshairState == GameState::RUNNING ||
