@@ -825,6 +825,13 @@ void Acquire(int augIdx) {
     s.slots[target] = Slot{ augIdx, 0.0f, 0.0f, s.nextOrder++ };
 }
 
+bool Equipped(int augIdx) { return SlotOf(augIdx) >= 0; }
+
+void Release(int augIdx) {
+    const int i = SlotOf(augIdx);
+    if (i >= 0) s.slots[i] = Slot{};
+}
+
 void SealSlot() {
     for (int i = kSlots - 1; i >= 0; --i) {
         if (s.sealed[i]) continue;

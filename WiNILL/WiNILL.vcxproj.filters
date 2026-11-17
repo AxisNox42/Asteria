@@ -284,6 +284,9 @@
     <ClInclude Include="System\DebugToolkit.h">
       <Filter>System</Filter>
     </ClInclude>
+    <ClInclude Include="System\DebugAugSearch.h">
+      <Filter>System</Filter>
+    </ClInclude>
     <ClInclude Include="System\EmbeddedResource.h">
       <Filter>System</Filter>
     </ClInclude>

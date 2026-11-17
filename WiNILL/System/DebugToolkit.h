@@ -82,6 +82,31 @@ public:
 
     const std::wstring& LastMessage() const { return lastMessage_; }
 
+    // 증강 tab search box (typed text comes from Input.cpp's char / IME hooks).
+    bool AugSearchActive() const { return visible_ && tab_ == 3 && augSearchFocus_; }
+    void AugSearchInsert(const wchar_t* text);
+    void AugSearchBackspace();
+    void AugSearchSetComposition(const wchar_t* text) { augSearchComp_ = text ? text : L""; }
+    void AugSearchClearComposition() { augSearchComp_.clear(); }
+    bool AugSearchComposing() const { return !augSearchComp_.empty(); }
+    // Esc / Enter while the box is focused (handled next BeginInput).
+    void AugSearchEscape();
+    void AugSearchEnter() { augSearchEnterPending_ = true; }
+    // Smoke: click row `row` of the 증강 list (right = right click).
+    void SmokeAugClick(int row, bool right) {
+        const auto& list = AugVisibleList();
+        if (row >= 0 && augOffset_ + row < (int)list.size())
+            ClickAugmentFromConsole(list[(size_t)(augOffset_ + row)], right);
+    }
+    // Smoke: open the 증강 tab with this query typed into a focused box.
+    void SmokeAugSearch(const std::wstring& query) {
+        tab_ = 3;
+        augSearchFocus_ = true;
+        augSearch_ = query;
+        augSearchComp_.clear();
+        lastMessage_.clear();
+    }
+
 private:
     enum class FieldType { Float, Int, Bool, LongLong };
     struct Field {
@@ -97,6 +122,18 @@ private:
     int fieldOffset_ = 0;
     int augOffset_ = 0;       // first visible row of the augment tab
     int augFilter_ = 0;       // augment tab category filter (0 = all)
+    std::wstring augSearch_;      // committed search text
+    std::wstring augSearchComp_;  // IME preedit (shown, also used for matching)
+    bool augSearchFocus_ = false;
+    bool augSearchEnterPending_ = false;
+    // Cache of AugmentList(augFilter_) narrowed by the query.
+    std::vector<int> augVisible_;
+    std::wstring augVisibleQuery_;
+    int augVisibleFilter_ = -1;
+    const std::vector<int>& AugVisibleList();
+    std::wstring AugSearchQuery() const { return augSearch_ + augSearchComp_; }
+    void GrantAugmentFromConsole(int aug);
+    void ClickAugmentFromConsole(int aug, bool rightClick);
     int selectedField_ = -1;
     int selectedMob_ = -1;
     int spawnCategory_ = 0;   // 0 regular, 1 elite, 2 boss

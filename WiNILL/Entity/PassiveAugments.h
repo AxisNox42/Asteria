@@ -18,6 +18,11 @@ bool CanOffer(int augIdx);            // may this card appear in a pick?
 int  Luck();
 float LuckChanceMult();               // chance multiplier from luck
 void Acquire(int augIdx);             // a card was taken
+// F1 console only: take one copy of a card back. Synergy cards rebuild, stat
+// cards subtract what they added, active cards free their slot. One-time grants
+// (shields, stardust) stay. False when the card is not held or cannot be undone.
+bool Release(int augIdx);
+int  HeldCount(int augIdx);           // copies held now (stat cards included)
 
 // Cards taken this run, not the level-up stat cards: each card once, in the
 // order first taken, and how many times it was taken (run report).

@@ -23,6 +23,8 @@ bool SlotSealed(int i);
 int  EquippedCount();
 bool CanOffer(int augIdx);            // not equipped already
 void Acquire(int augIdx);             // equip (replaces the oldest when full)
+void Release(int augIdx);             // F1 console: empty the slot holding it
+bool Equipped(int augIdx);            // in a slot now
 void SealSlot();                      // Slot Sacrifice
 float CooldownFor(int augIdx);        // after the passive modifiers
 int  DayNightUses();                  // Day-Night Boundary: 0-2 day, 3-5 night

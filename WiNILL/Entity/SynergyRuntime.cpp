@@ -900,6 +900,13 @@ float ShotDamageMult() { return s.any ? s.dmg : 1.0f; }
 float CardDamageMult() {
     if (!s.any) return 1.0f;
     const Flags& o = s.on;
+void Release(int augIdx) {
+    const int i = SynergyIndex(ALL_AUGS[augIdx].type);
+    if (i < 1 || i > kCards || s.own[i] <= 0) return;
+    --s.own[i];
+    Rebuild();
+}
+
     float m = s.cardDmg * (1.0f + s.dmgAdd);
     if (o.T_COMBO) m *= 1.0f + std::min(0.40f, 0.02f * (float)s.combo);
     if (o.C_RITUAL) m *= 1.0f + std::min(0.40f, 0.08f * (float)s.quietWaves);

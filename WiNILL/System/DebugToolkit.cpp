@@ -24,6 +24,7 @@
 #include "Input.h"
 #include "PassiveAugments.h"
 #include "AugmentSynergy.h"
+#include "DebugAugSearch.h"
 
 extern TextRenderer g_TextS;
 extern TextRenderer g_TextL;
@@ -214,6 +215,18 @@ float AugmentFilterWidth(float panelWidth) {
 
 int AugmentVisibleRows(float panelHeight) {
     return std::max(1, (int)((panelHeight - AUG_ROWS_Y - 30.0f) / AUG_ROW_H));
+}
+
+// Search box on the title line, right side of the panel (panel-relative).
+constexpr float AUG_SEARCH_W = 300.0f;
+constexpr float AUG_SEARCH_H = 28.0f;
+constexpr float AUG_SEARCH_CLEAR_W = 26.0f;
+float AugSearchX(float panelWidth) { return panelWidth - 16.0f - AUG_SEARCH_W; }
+constexpr float AUG_SEARCH_Y = CONTENT_Y - 5.0f;
+
+bool AugMatchesQuery(int aug, const std::wstring& query) {
+    const AugDef& d = ALL_AUGS[aug];
+    return debugsearch::Matches(d.locName, LANG_COUNT, d.locDesc, LANG_COUNT, query);
 }
 
 // Cuts text to fit maxWidth, ending in "…".
@@ -506,6 +519,86 @@ void DebugToolkit::SetMessage(const std::wstring& message) {
     lastMessage_ = message;
 }
 
+const std::vector<int>& DebugToolkit::AugVisibleList() {
+    const std::wstring q = AugSearchQuery();
+    if (augVisibleFilter_ == augFilter_ && augVisibleQuery_ == q) return augVisible_;
+    augVisibleFilter_ = augFilter_;
+    augVisibleQuery_ = q;
+    augVisible_.clear();
+    for (int aug : AugmentList(augFilter_))
+        if (AugMatchesQuery(aug, q)) augVisible_.push_back(aug);
+    augOffset_ = 0;
+    return augVisible_;
+}
+
+void DebugToolkit::AugSearchInsert(const wchar_t* text) {
+    if (!text) return;
+    for (const wchar_t* p = text; *p && augSearch_.size() < 40; ++p)
+        if (*p >= 32 && *p != 127) augSearch_.push_back(*p);
+    lastMessage_.clear();
+}
+
+void DebugToolkit::AugSearchBackspace() {
+    if (augSearch_.empty()) return;
+    augSearch_.pop_back();
+    // Keep surrogate pairs whole.
+    if (!augSearch_.empty() && augSearch_.back() >= 0xD800 && augSearch_.back() <= 0xDBFF)
+        augSearch_.pop_back();
+    lastMessage_.clear();
+}
+
+void DebugToolkit::AugSearchEscape() {
+    if (!augSearch_.empty()) augSearch_.clear();
+    else augSearchFocus_ = false;
+    augSearchComp_.clear();
+    lastMessage_.clear();
+}
+
+// Left click: take the card, or switch it OFF when it is held and cannot stack.
+// Right click: take one copy back.
+void DebugToolkit::ClickAugmentFromConsole(int aug, bool rightClick) {
+    const bool held = passive::HeldCount(aug) > 0;
+    if (!rightClick && !(held && !passive::CanOffer(aug))) {
+        GrantAugmentFromConsole(aug);
+        return;
+    }
+    if (!held) {
+        SetMessage(L"가지고 있지 않은 증강입니다");
+        return;
+    }
+    const GameState st = context_.game ? context_.game->currentState
+                                       : GameState::MAIN_MENU;
+    if (st != GameState::RUNNING && st != GameState::PAUSED &&
+        st != GameState::READY) {
+        SetMessage(L"증강은 진행 중/일시정지/준비 화면에서만 바꿀 수 있습니다");
+    } else if (passive::Release(aug)) {
+        std::wstring m = L"증강 해제: ";
+        m += AugName(ALL_AUGS[aug]);
+        const int left = passive::HeldCount(aug);
+        if (left > 0) m += L" (남은 수 " + std::to_wstring(left) + L")";
+        SetMessage(m);
+    } else {
+        SetMessage(L"이 증강은 해제할 수 없습니다");
+    }
+}
+
+void DebugToolkit::GrantAugmentFromConsole(int aug) {
+    const GameState st = context_.game ? context_.game->currentState
+                                       : GameState::MAIN_MENU;
+    if (st != GameState::RUNNING && st != GameState::PAUSED &&
+        st != GameState::READY) {
+        SetMessage(L"증강은 진행 중/일시정지/준비 화면에서만 받을 수 있습니다");
+    } else if (!passive::CanOffer(aug)) {
+        SetMessage(L"받을 수 없는 증강입니다 (이미 보유했거나 슬롯 부족)");
+    } else if (context_.grantAugment && context_.grantAugment(aug)) {
+        std::wstring m = L"증강 획득: ";
+        m += AugName(ALL_AUGS[aug]);
+        SetMessage(m);
+    } else {
+        SetMessage(L"증강을 적용하지 못했습니다");
+    }
+}
+
 bool DebugToolkit::Hit(float x, float y, float w, float h,
                        float mouseX, float mouseY) const {
     return mouseX >= x && mouseX <= x + w &&
@@ -722,6 +815,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS && f1Released) {
             visible_ = !visible_;
             f1Released = false;
+            if (visible_ && tab_ == 3) augSearchFocus_ = true;
             if (!visible_) ResetTransientInput();
         }
         if (glfwGetKey(window, GLFW_KEY_F12) == GLFW_PRESS && f12Released) {
@@ -747,7 +841,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         }
         if (tab_ == 3) {
             augOffset_ -= (int)std::round(g_ScrollAccum * 2.0f);
-            const int maxOffset = std::max(0, (int)AugmentList(augFilter_).size() -
+            const int maxOffset = std::max(0, (int)AugVisibleList().size() -
                                               AugmentVisibleRows(p.h));
             augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
         }
@@ -760,13 +854,24 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         return true;
     }
 
+    bool tabClicked = false;
     for (int t = 0; t < 4; ++t) {
         if (click && Hit(p.x + 16.0f + t * (TAB_W + TAB_GAP),
                         p.y + TAB_Y, TAB_W, TAB_H, mx, my)) {
+            tabClicked = true;
+            if (t == 3 && tab_ != 3) augSearchFocus_ = true;   // type right away
             tab_ = t;
             ResetTransientInput();
         }
     }
+
+    if (tab_ == 3 && augSearchEnterPending_) {
+        const auto& list = AugVisibleList();
+        if (list.size() == 1) GrantAugmentFromConsole(list[0]);
+        else if (list.empty()) SetMessage(L"맞는 증강이 없습니다");
+        else SetMessage(L"결과가 하나일 때만 ENTER 로 받을 수 있습니다");
+    }
+    augSearchEnterPending_ = false;
 
     if (click && tab_ == 0) {
         if (Hit(p.x + p.w - STATS_CLEAR_W - 16.0f,
@@ -1015,7 +1120,22 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         const auto& filters = AugmentFilters();
         const float fw = AugmentFilterWidth(p.w);
         bool rowClick = true;
-        for (size_t i = 0; i < filters.size(); ++i) {
+        const float sx = p.x + AugSearchX(p.w);
+        const float sy = p.y + AUG_SEARCH_Y;
+        if (Hit(sx, sy, AUG_SEARCH_W, AUG_SEARCH_H, mx, my)) {
+            if (!augSearch_.empty() &&
+                Hit(sx + AUG_SEARCH_W - AUG_SEARCH_CLEAR_W, sy,
+                    AUG_SEARCH_CLEAR_W, AUG_SEARCH_H, mx, my)) {
+                augSearch_.clear();
+                augSearchComp_.clear();
+            }
+            augSearchFocus_ = true;
+            lastMessage_.clear();
+            rowClick = false;
+        } else if (!tabClicked) {
+            augSearchFocus_ = false;   // text stays; only the focus goes
+        }
+        for (size_t i = 0; rowClick && i < filters.size(); ++i) {
             if (Hit(p.x + 16.0f + i * (fw + 6.0f), p.y + AUG_FILTER_Y,
                     fw, AUG_FILTER_H, mx, my)) {
                 if (augFilter_ != filters[i]) { augFilter_ = filters[i]; augOffset_ = 0; }
@@ -1024,31 +1144,34 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 break;
             }
         }
-        const auto& list = AugmentList(augFilter_);
+        const auto& list = AugVisibleList();
         const int rows = AugmentVisibleRows(p.h);
         for (int row = 0; rowClick && row < rows; ++row) {
             const int idx = augOffset_ + row;
             if (idx >= (int)list.size()) break;
             if (!Hit(p.x + 16.0f, p.y + AUG_ROWS_Y + row * AUG_ROW_H,
                      p.w - 32.0f, AUG_ROW_H - 3.0f, mx, my)) continue;
-            const int aug = list[(size_t)idx];
-            const GameState st = context_.game ? context_.game->currentState
-                                               : GameState::MAIN_MENU;
-            if (st != GameState::RUNNING && st != GameState::PAUSED &&
-                st != GameState::READY) {
-                SetMessage(L"증강은 진행 중/일시정지/준비 화면에서만 받을 수 있습니다");
-            } else if (!passive::CanOffer(aug)) {
-                SetMessage(L"받을 수 없는 증강입니다 (이미 보유했거나 슬롯 부족)");
-            } else if (context_.grantAugment && context_.grantAugment(aug)) {
-                std::wstring m = L"증강 획득: ";
-                m += AugName(ALL_AUGS[aug]);
-                SetMessage(m);
-            } else {
-                SetMessage(L"증강을 적용하지 못했습니다");
-            }
+            ClickAugmentFromConsole(list[(size_t)idx], false);
             break;
         }
     }
+
+    // Right click on a row: take one copy back.
+    static bool rmbPrev = false;
+    const bool rmb = window && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    if (rmb && !rmbPrev && tab_ == 3) {
+        const auto& list = AugVisibleList();
+        const int rows = AugmentVisibleRows(p.h);
+        for (int row = 0; row < rows; ++row) {
+            const int idx = augOffset_ + row;
+            if (idx >= (int)list.size()) break;
+            if (!Hit(p.x + 16.0f, p.y + AUG_ROWS_Y + row * AUG_ROW_H,
+                     p.w - 32.0f, AUG_ROW_H - 3.0f, mx, my)) continue;
+            ClickAugmentFromConsole(list[(size_t)idx], true);
+            break;
+        }
+    }
+    rmbPrev = rmb;
 
     HandleNumericKeys(window);
     return true;
@@ -1258,15 +1381,66 @@ void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
 }
 
 void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
-    const auto& list = AugmentList(augFilter_);
+    const auto& list = AugVisibleList();
     const int rows = AugmentVisibleRows(h);
     const int maxOffset = std::max(0, (int)list.size() - rows);
     augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
+    const std::wstring query = AugSearchQuery();
 
     g_TextS.Draw(L"증강 선택", x + 20.0f, y + CONTENT_Y, 0.55f,
                  0.70f, 0.94f, 1.0f, 0.94f);
-    g_TextS.Draw(L"클릭 = 즉시 획득  |  휠 = 스크롤", x + 150.0f, y + CONTENT_Y + 3.0f,
+    g_TextS.Draw(L"클릭 = 획득/해제  |  휠 = 스크롤", x + 150.0f, y + CONTENT_Y + 3.0f,
                  0.42f, 0.52f, 0.68f, 0.80f, 0.84f);
+
+    // Search box: thin constellation frame only (no plate), like the buttons.
+    {
+        const float sx = x + AugSearchX(w);
+        const float sy = y + AUG_SEARCH_Y;
+        const bool focus = augSearchFocus_;
+        BindMainShader();
+        drawConstellFrame(sx, sy, AUG_SEARCH_W, AUG_SEARCH_H,
+                          focus ? 0.45f : 0.22f, focus ? 0.85f : 0.40f, focus ? 1.0f : 0.55f,
+                          focus ? 0.95f : 0.55f, 9.0f, 3.0f);
+        const float ts = 0.46f;
+        const float tx = sx + 10.0f;
+        const float textMaxW = AUG_SEARCH_W - 20.0f - AUG_SEARCH_CLEAR_W;
+        float th = g_TextS.Height(L"Ag", ts);
+        const float ty = sy + std::max(3.0f, (AUG_SEARCH_H - th) * 0.5f);
+        if (query.empty()) {
+            g_TextS.Draw(L"검색 (이름·설명)", tx, ty, ts, 0.42f, 0.52f, 0.62f,
+                         focus ? 0.70f : 0.55f);
+        } else {
+            // Long queries keep their tail visible.
+            std::wstring shown = query;
+            while (shown.size() > 1 && g_TextS.Width(shown.c_str(), ts) > textMaxW)
+                shown.erase(shown.begin());
+            g_TextS.Draw(shown.c_str(), tx, ty, ts, 0.86f, 0.94f, 1.0f, 0.96f);
+            if (!augSearchComp_.empty()) {
+                // Underline the IME preedit part.
+                const std::wstring done = shown.size() > augSearchComp_.size()
+                    ? shown.substr(0, shown.size() - augSearchComp_.size()) : L"";
+                const float ux = tx + g_TextS.Width(done.c_str(), ts);
+                const float uw = g_TextS.Width(shown.c_str(), ts) - (ux - tx);
+                BindMainShader();
+                drawRect(ux, ty + th + 1.0f, uw, 1.5f, 0.70f, 0.90f, 1.0f, 0.85f);
+            }
+            g_TextS.Draw(L"X", sx + AUG_SEARCH_W - AUG_SEARCH_CLEAR_W + 7.0f, ty, ts,
+                         0.60f, 0.72f, 0.82f, 0.85f);
+        }
+        if (focus) {
+            std::wstring shown = augSearch_;
+            while (shown.size() > 1 && g_TextS.Width((shown + augSearchComp_).c_str(), ts) > textMaxW)
+                shown.erase(shown.begin());
+            const float caretX = tx + g_TextS.Width(shown.c_str(), ts);
+            const float fullX = tx + g_TextS.Width((shown + augSearchComp_).c_str(), ts);
+            const bool blinkOn = std::fmod((float)glfwGetTime(), 1.0f) < 0.55f;
+            if (blinkOn && augSearchComp_.empty()) {
+                BindMainShader();
+                drawRect(caretX + 1.0f, ty, 1.5f, th, 0.80f, 0.94f, 1.0f, 0.90f);
+            }
+            InputSetCodexImeAnchor(caretX, fullX, ty, th);
+        }
+    }
 
     // Category filter row.
     const auto& filters = AugmentFilters();
@@ -1283,8 +1457,13 @@ void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
 
     std::wstring status;
     if (!lastMessage_.empty()) status = lastMessage_;
+    else if (!query.empty() && list.empty())
+        status = L"'" + query + L"' 에 맞는 증강이 없습니다";
+    else if (!query.empty())
+        status = L"'" + query + L"' 검색 결과 " + std::to_wstring(list.size()) +
+                 L"개" + (list.size() == 1 ? L"  |  ENTER = 획득" : L"");
     else if (augFilter_ > 0) status = AugCategoryHint(augFilter_ - 1);
-    else status = L"분류 버튼으로 걸러 볼 수 있습니다";
+    else status = L"우클릭 = 1장 빼기  |  분류 버튼이나 검색창으로 걸러 볼 수 있습니다";
     g_TextS.Draw(status.c_str(), x + 20.0f, y + AUG_STATUS_Y, 0.46f,
                  0.56f, 0.76f, 0.88f, 0.86f);
 
@@ -1296,7 +1475,9 @@ void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
         const AugDef& d = ALL_AUGS[aug];
         const int cat = AugCategory(aug);
         const float ry = y + AUG_ROWS_Y + row * AUG_ROW_H;
-        const bool offerable = passive::CanOffer(aug);
+        const int owned = passive::HeldCount(aug);
+        // Held cards stay bright (a click switches them OFF); dim = cannot be taken now.
+        const bool offerable = passive::CanOffer(aug) || owned > 0;
         float cr = 1, cg = 1, cb = 1;
         GetRarityColor(d.rarity, cr, cg, cb);
         float kr = 1, kg = 1, kb = 1;
@@ -1320,7 +1501,6 @@ void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
         g_TextS.Draw(GetRarityLabel(d.rarity), x + w - 190.0f, ry + 5.0f, 0.42f,
                      std::min(1.0f, cr + 0.25f), std::min(1.0f, cg + 0.25f),
                      std::min(1.0f, cb + 0.25f), a);
-        const int owned = passive::AcquiredCount(aug);
         if (owned > 0) {
             wchar_t buf[32] = {};
             std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"보유 x%d", owned);
@@ -1335,7 +1515,7 @@ void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
     }
     wchar_t page[64] = {};
     std::swprintf(page, sizeof(page) / sizeof(page[0]), L"증강 %d-%d / %d",
-                  augOffset_ + 1,
+                  list.empty() ? 0 : augOffset_ + 1,
                   std::min(augOffset_ + rows, (int)list.size()), (int)list.size());
     g_TextS.Draw(page, x + w - 190.0f, y + h - 22.0f, 0.46f,
                  0.52f, 0.68f, 0.78f, 0.78f);

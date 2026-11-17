@@ -728,6 +728,49 @@ void Acquire(int augIdx) {
     if (!AugIsStatCard(ALL_AUGS[augIdx])) s.lastPicked = augIdx;
 }
 
+int HeldCount(int augIdx) {
+    if (augIdx < 0 || augIdx >= AUG_TOTAL) return 0;
+    const AugDef& d = ALL_AUGS[augIdx];
+    if (AugIsStatCard(d)) return s.count[augIdx];
+    if (AugIsActive(d)) return active::Equipped(augIdx) ? 1 : 0;   // a full bar may have pushed it out
+    return s.taken[augIdx];
+}
+
+bool Release(int augIdx) {
+    if (HeldCount(augIdx) <= 0) return false;
+    const AugDef& d = ALL_AUGS[augIdx];
+    if (AugIsSynergy(d.type)) {
+        syn::Release(augIdx);
+    } else if (AugIsActive(d)) {
+        active::Release(augIdx);
+    } else if (AugIsStatCard(d)) {
+        PlayerStats& st = g_Stats;
+        float& hp = g_GameManager.playerHP;
+        switch (d.type) {   // the reverse of ApplyCard's stat card lines
+        case AugType::S_ATTACK:     st.baseDamage -= 4.0f; break;
+        case AugType::S_MAX_HP:     st.maxHP -= 12.0f; break;
+        case AugType::S_FIRE_RATE:  st.fireInterval *= 1.08f; break;
+        case AugType::S_MOVE_SPEED: st.moveSpeedMult -= 0.05f; break;
+        case AugType::S_REGEN:      st.regenPerSec -= 0.15f; break;
+        case AugType::S_CRIT:       st.critChance = std::max(0, st.critChance - 6); break;
+        default: return false;
+        }
+        --s.count[augIdx];
+        st.moveSpeedMult = std::max(0.30f, st.moveSpeedMult);
+        st.regenPerSec = std::max(0.0f, st.regenPerSec);
+        hp = std::min(hp, st.maxHP);
+        g_GameManager.maxHP = st.maxHP;
+        syn::RefreshStats();
+    } else {
+        return false;   // old passive cards: not in the build, not undoable
+    }
+    if (!AugIsStatCard(d) && s.taken[augIdx] > 0 && --s.taken[augIdx] == 0)
+        s.takenOrder.erase(std::remove(s.takenOrder.begin(), s.takenOrder.end(), augIdx),
+                           s.takenOrder.end());
+    gamelog::Event("AUG_RELEASE", "aug=%s,left=%d", d.name, HeldCount(augIdx));
+    return true;
+}
+
 void Step(const StepInput& in) {
     s.in = in;
     StepLandingHits(in.dt);

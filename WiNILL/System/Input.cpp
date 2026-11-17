@@ -52,12 +52,18 @@ static bool CodexTextInputActive() {
            g_CodexSearchInputEnabled;
 }
 
+// F1 console > 증강 tab search box.
+static bool DebugSearchInputActive() {
+    return g_DebugToolkit.AugSearchActive();
+}
+
 static bool TextInputActive() {
-    return CodexTextInputActive();
+    return CodexTextInputActive() || DebugSearchInputActive();
 }
 
 static void ClearTextComposition() {
     CodexSearchClearComposition();
+    g_DebugToolkit.AugSearchClearComposition();
 }
 
 #ifdef _WIN32
@@ -103,17 +109,23 @@ static void ReadCodexImeComposition(HWND hwnd, LPARAM flags) {
     }
     HIMC context = ImmGetContext(hwnd);
     if (!context) return;
+    const bool debugSearch = DebugSearchInputActive();
     if (flags & GCS_RESULTSTR) {
         const std::wstring result = ReadImeString(context, GCS_RESULTSTR);
         ClearTextComposition();
-        CodexSearchInsertText(result.c_str());
-        CodexCheckDevPhrase();
+        if (debugSearch) {
+            g_DebugToolkit.AugSearchInsert(result.c_str());
+        } else {
+            CodexSearchInsertText(result.c_str());
+            CodexCheckDevPhrase();
+        }
     }
     if (flags & (GCS_COMPSTR | GCS_CURSORPOS)) {
         const std::wstring composition = ReadImeString(context, GCS_COMPSTR);
         const LONG cursorPos = ImmGetCompositionStringW(
             context, GCS_CURSORPOS, nullptr, 0);
-        CodexSearchSetComposition(composition.c_str(), (int)cursorPos);
+        if (debugSearch) g_DebugToolkit.AugSearchSetComposition(composition.c_str());
+        else CodexSearchSetComposition(composition.c_str(), (int)cursorPos);
     } else if (!flags) {
         ClearTextComposition();
     }
@@ -260,6 +272,21 @@ static void InputKeyCallback(GLFWwindow* window, int key, int, int action, int m
         if (action == GLFW_PRESS && g_CapturedKey < 0) g_CapturedKey = key;
         return;
     }
+    if (DebugSearchInputActive() && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+        // The IME owns Backspace/Enter while a syllable is being composed.
+        if (g_DebugToolkit.AugSearchComposing()) return;
+        const bool ctrlDown = (mods & GLFW_MOD_CONTROL) != 0;
+        if (ctrlDown && key == GLFW_KEY_V && action == GLFW_PRESS) {
+            g_DebugToolkit.AugSearchInsert(CodexUtf8ToWide(glfwGetClipboardString(window)).c_str());
+        } else if (key == GLFW_KEY_BACKSPACE) {
+            g_DebugToolkit.AugSearchBackspace();
+        } else if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+            g_DebugToolkit.AugSearchEscape();
+        } else if ((key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) && action == GLFW_PRESS) {
+            g_DebugToolkit.AugSearchEnter();
+        }
+        return;
+    }
     if (!CodexTextInputActive() || (action != GLFW_PRESS && action != GLFW_REPEAT)) return;
     if (g_CodexSearchCompositionLen > 0) return;
 
@@ -295,6 +322,11 @@ static void InputCharCallback(GLFWwindow*, unsigned int cp) {
             g_VolBuf[g_VolLen++] = (wchar_t)cp;
             g_VolBuf[g_VolLen] = 0;
         }
+        return;
+    }
+    if (DebugSearchInputActive()) {
+        const wchar_t text[2] = { (wchar_t)cp, 0 };
+        if (cp <= 0xFFFF) g_DebugToolkit.AugSearchInsert(text);
         return;
     }
     if (!CodexTextInputActive()) return;

@@ -5833,6 +5833,29 @@ int main() {
             g_BgmEnabled = g_BgmVol > 0;
             g_SfxEnabled = g_SfxVol > 0;
             Audio::SetBgmVolume(g_BgmVol / 100.0f);
+                    } else if (step.rfind("DEBUGAUG=", 0) == 0) {
+                        // DEBUGAUG=<text>: F1 > 증강 tab with the search box
+                        // focused and filled as if typed (empty = cleared).
+                        const std::string q = step.substr(9);
+                        std::wstring wq;
+                        if (!q.empty()) {
+                            const int n = MultiByteToWideChar(CP_ACP, 0, q.data(), (int)q.size(), nullptr, 0);
+                            wq.resize((size_t)std::max(0, n));
+                            if (n > 0) MultiByteToWideChar(CP_ACP, 0, q.data(), (int)q.size(), wq.data(), n);
+                        }
+                        if (!g_DebugToolkit.IsVisible()) {
+                            if (gm.currentState != GameState::RUNNING &&
+                                gm.currentState != GameState::READY &&
+                                gm.currentState != GameState::PAUSED)
+                                RestartCurrentRun();
+                            g_DebugToolkit.SetVisible(true);
+                        }
+                        g_DebugToolkit.SmokeAugSearch(wq);
+                    } else if (step.rfind("DEBUGAUGCLICK=", 0) == 0) {
+                        // DEBUGAUGCLICK=<row>[R]: click a row of the F1 > 증강 list
+                        // (R = right click: take one copy back).
+                        g_DebugToolkit.SmokeAugClick(std::atoi(step.c_str() + 14),
+                                                     step.back() == 'R');
             Audio::SetSfxVolume(g_SfxVol / 100.0f);
             Audio::SetBgmEnabled(g_BgmEnabled);
             Audio::SetSfxEnabled(g_SfxEnabled);
