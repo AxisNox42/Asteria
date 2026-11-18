@@ -256,7 +256,7 @@ void KillEvent(float x, float y, const void* target) {
     if (!s.counted.insert(target).second) return;
     const Flags& o = s.on;
     s.combo += 1;
-    s.comboT = 3.0f;
+    s.comboT = COMBO_WINDOW + g_ComboWindowBonus;   // the same window as the HUD's combo (shop Combo Focus included)
     ++s.kills;
     if (o.T_KILLBURST && passive::Chance(0.12f))
         for (int i = 0; i < 4; ++i)
@@ -372,8 +372,10 @@ void ApplyVerbs(Bullet& b, float tx, float ty) {
     if (o.V_ABSORB) b.synFlags |= synf::Absorb;
     {
         auto roll = [](float c) { return c > 0.0f && Rand01() < c; };
-        if (roll(s.chance[(int)CKind::Pierce])) b.pierceLeft += 1;
-        if (roll(s.chance[(int)CKind::Bounce])) b.bouncesLeft += 1;
+        // Pierce / bounce chances of several live cards add up past 100%: each whole 100% is one
+        // more +1 (as the extra-shot chance does), so a second card is never wasted.
+        for (float c = s.chance[(int)CKind::Pierce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) b.pierceLeft += 1;
+        for (float c = s.chance[(int)CKind::Bounce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) b.bouncesLeft += 1;
         if (roll(s.chance[(int)CKind::Split]) && b.splitCount == 0) { b.splitCount = 3; b.splitDmg = 0.28f; }
         if (roll(s.chance[(int)CKind::Blast])) b.blastPct = std::max(b.blastPct, 0.30f);
     }
@@ -480,7 +482,10 @@ void Landed(const Bullet& b, float radius) {
         ForEachEnemy([&](auto& e, float ex, float ey) {
             if ((ex - x) * (ex - x) + (ey - y) * (ey - y) > radius * radius) return;
             if (mark) s.marks[&e] = 5.0f;
-            if (burn) s.burns[&e] = { 3.0f, 0.5f };
+            if (burn) {   // refresh the 3s without restarting the 0.5s tick (a reset tick never burned)
+                auto [it, fresh] = s.burns.try_emplace(&e, Burn{ 3.0f, 0.5f });
+                if (!fresh) it->second.t = 3.0f;
+            }
         });
     if (b.synFlags & synf::Gravity) Explode(x, y, s.on.Y_SINGULAR ? Rings(1.5f) : 75.0f, s.on.Y_SINGULAR ? 150.0f * b.dmgMult * s.dmg : 0.0f, true, s.on.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     if (b.splitCount > 0 && s.pending.size() < 64) {
@@ -690,19 +695,28 @@ void PickupFx(int augIdx) {
     SpawnWorldText(x, y - 34.0f, AugName(d), r, g, b, 1.5f + 0.15f * tier);
 }
 
-// The mortar's shell flies over walls and lands where it is aimed, so bounce / pierce / return verbs
-// have nothing to act on. Neither side of such a pair is offered once the other is owned.
-static bool ClashesWithMortar(int card) {
-    static const char* kFlight[] = { "V_BOUNCE", "V_RICOCHET", "V_PIERCE", "V_RETURN", "V_HUNTER" };
-    const int mortar = Index("F_MORTAR");
-    const auto& t = T();
-    bool isFlight = false;
-    for (const char* c : kFlight) if (t[card].code == std::string(c)) isFlight = true;
-    if (card == mortar) {
-        for (const char* c : kFlight) if (s.own[Index(c)] > 0) return true;
-        return false;
+// Pairs where one card leaves the other nothing to act on. Neither side of such a pair is offered
+// once the other is owned.
+//   - The mortar's shell flies over walls and lands where it is aimed: bounce / pierce / return verbs,
+//     and the on-hit blast (the shell never hits; Landed() has its own blast), do nothing.
+//   - Wave, laser and Relentless Hunter shots pierce every enemy already: +2 pierce does nothing, and a
+//     ricochet only turns a shot that ends on a hit, so it never fires (the laser also drops it).
+struct CardClash { const char* a; const char* b; };
+static const CardClash kClashes[] = {
+    { "F_MORTAR", "V_BOUNCE" }, { "F_MORTAR", "V_RICOCHET" }, { "F_MORTAR", "V_PIERCE" },
+    { "F_MORTAR", "V_RETURN" }, { "F_MORTAR", "V_HUNTER" }, { "F_MORTAR", "V_BLAST" },
+    { "F_MORTAR", "Y_ETERNAL" }, { "F_MORTAR", "T_ANCHOR" },   // no bounces to count / a fixed landing blast, no direct hits
+    { "F_WAVE", "V_PIERCE" }, { "F_WAVE", "V_RICOCHET" },
+    { "F_LASER", "V_PIERCE" }, { "F_LASER", "V_RICOCHET" },
+    { "V_HUNTER", "V_PIERCE" }, { "V_HUNTER", "V_RICOCHET" },
+};
+static bool ClashesWithOwned(int card) {
+    const std::string code = T()[card].code;
+    for (const CardClash& c : kClashes) {
+        if (code == c.a && s.own[Index(c.b)] > 0) return true;
+        if (code == c.b && s.own[Index(c.a)] > 0) return true;
     }
-    return isFlight && s.own[mortar] > 0;
+    return false;
 }
 
 // Relentless Hunter Rounds is Boomerang Rounds plus strong homing: both set the same return flag, so
@@ -718,7 +732,7 @@ bool CanOffer(int augIdx) {
     if (i < 1 || i > kCards || s.own[i] > 0) return false;
     if (T()[i].role == synergy::Role::Frame && s.frame != 0) return false;   // one frame per run
     if ((T()[i].needs & s.tags) != T()[i].needs) return false;                // a card that would do nothing
-    return !ClashesWithMortar(i) && !ClashesWithReturn(i);
+    return !ClashesWithOwned(i) && !ClashesWithReturn(i);
 }
 
 namespace {
@@ -886,6 +900,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
             if (o.Y_HALO) b.synFlags |= synf::Halo;
             b.speed = 0.0f; b.piercing = true; b.maxRange = 0.0f; b.sizeScale *= 1.2f;
             b.splitCount = 0;   // an orbiter hits again every 0.4 s; its split children inherited Orbit and broke the cap
+            b.bouncesLeft = 0; b.synRicochet = 0;   // held near a screen edge it bounced off the wall, counting bounces and clearing its hits
             b.synFlags &= ~(synf::Lob | synf::Mine);   // a mortar shell held in orbit never hit (shells skip hits until they land)
             b.x = px; b.y = py;
             out.push_back(b);
@@ -975,7 +990,10 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             });
     }
     if (b.synFlags & synf::Mark) s.marks[target] = 5.0f;
-    if (b.synFlags & synf::Burn) s.burns[target] = { 3.0f, 0.5f };
+    if (b.synFlags & synf::Burn) {   // refresh the 3s without restarting the 0.5s tick: hits faster than 0.5s never burned
+        auto [it, fresh] = s.burns.try_emplace(target, Burn{ 3.0f, 0.5f });
+        if (!fresh) it->second.t = 3.0f;
+    }
     if ((b.synFlags & (synf::FrameLaser | synf::LaserBlast)) && o.A_LASER_OVERLOAD) {
         auto [it, fresh] = s.laserBurns.try_emplace(target, LaserBurn{ 0.0f, 0.25f, 0.0f, x, y, 0.0f, 0 });
         LaserBurn& lb = it->second;
@@ -1004,6 +1022,16 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             c.sizeScale = b.sizeScale * 0.75f;
             c.splitCount = 0; c.splitSpent = true; c.synRicochet = 0;
             if (!b.piercing && c.pierceLeft > 0) --c.pierceLeft;   // the parent spends one on this hit
+            if (b.synFlags & synf::Hitscan) {
+                // A beam segment lies still from its start to the beam's end: its children
+                // would copy that still line and sit at the far end. They fly from the hit instead.
+                c.synFlags &= ~(synf::Hitscan | synf::FrameLaser);
+                c.x = c.prevX = x; c.y = c.prevY = y;
+                c.speed = g_Stats.bulletSpeed;
+                c.maxRange = Rings(6.5f);
+                c.traveled = 0.0f; c.synTrailAt = 0.0f;
+                c.hitscanLeft = 0;
+            }
             c.ClearHits(); c.RememberHit(target);
             s.pending.push_back(c);
         }
@@ -1088,7 +1116,10 @@ void OnDashStarted() {
     s.dashDropped = 0.0f; s.dashLastX = s.in.px; s.dashLastY = s.in.py;
     s.sinceDash = 0.0f;
     if (o.C_RECKLESS)
+    {
         g_PlayerRuntime.dashCooldown = std::max(0.4f, g_PlayerRuntime.dashCooldown - 1.5f);
+        g_PlayerRuntime.dashCooldownMax = g_PlayerRuntime.dashCooldown;   // the HUD ring starts empty, not half full
+    }
     if (o.G_PARRY) g_PlayerRuntime.dashInvulnerability = std::max(g_PlayerRuntime.dashInvulnerability, 0.45f);
 }
 
@@ -1097,7 +1128,8 @@ void OnWaveCleared() {
     const Flags& o = s.on;
     if (o.G_CHARGER) AddShield(40.0f);
     if (o.G_FORCEFIELD) AddShield(15.0f);
-    if (s.waveDamage < 10.0f) s.quietWaves = std::min(8, s.quietWaves + 1);
+    // Only while Precise Ritual is owned: quiet waves banked before the pick made it start at up to +40%.
+    if (o.C_RITUAL && s.waveDamage < 10.0f) s.quietWaves = std::min(8, s.quietWaves + 1);
     s.waveDamage = 0.0f;
     if (o.T_CAKE && s.cakeArmed > 0) {
         --s.cakeArmed; ++s.cakeUsed;
@@ -1196,7 +1228,11 @@ void Step(const passive::StepInput& in) {
     UpdateChances(in);
     g_PlayerDmgMult = DamageTakenMult();
 
-    if (g_GameManager.currentWave != s.lastWave) { s.lastWave = g_GameManager.currentWave; s.waveAge = 0.0f; }
+    if (g_GameManager.currentWave != s.lastWave) {
+        // A new wave starts clean: hits taken between the clear and the card pick were counted
+        // against the next wave and broke its 무결 cards.
+        s.lastWave = g_GameManager.currentWave; s.waveAge = 0.0f; s.waveDamage = 0.0f;
+    }
     else s.waveAge += dt;
 
     // Stillness.
@@ -1239,8 +1275,12 @@ void Step(const passive::StepInput& in) {
         for (Bullet& b : g_Bullets) {
             // Its own mark (not Bullet::grazed), so Graze Recovery still heals on the same bullet.
             if (!b.active || !b.isEnemy || (b.synFlags & synf::Grazed)) continue;
+            // A shot counts once it has been in the band and leaves it outward still flying: counted on
+            // entry, almost every shot that then hit the player was a "graze" the step before.
             const float d = std::hypot(b.x - in.px, b.y - in.py);
             if (d > hitR && d < hitR + 18.0f) {
+                b.synFlags |= synf::GrazeNear;
+            } else if ((b.synFlags & synf::GrazeNear) && d >= hitR + 18.0f) {
                 b.synFlags |= synf::Grazed;
                 if (++s.grazes >= 30) { s.grazes = 0; AddShield(25.0f); Audio::Play(Audio::Cue::ProcCounterFull); }
             }

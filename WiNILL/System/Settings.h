@@ -29,6 +29,7 @@ inline int g_SmokeGlossKeyPresses = 0;
 inline float g_SmokeTimeScale = 1.0f;
 // Smoke-only: hold fire at the nearest enemy (FIRE=1), as if the button were held.
 inline bool  g_SmokeFire = false;
+inline bool  g_SmokeNoGun = false;     // NOGUN=1: FIRE=1 still uses skills and takes cards, the gun stays quiet
 inline bool  g_SmokeNoQuota = false;   // NOQUOTA=1: the kill quota never ends a wave
 // Smoke-only: keep the player at full health (GOD=1).
 inline bool  g_SmokeGod = false;

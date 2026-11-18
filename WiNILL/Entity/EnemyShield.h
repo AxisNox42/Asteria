@@ -86,6 +86,9 @@ inline void SpawnRegulusLinkBreakParticles(float x, float y, glm::vec3 color) {
     SpawnEnemyParticleBurst(x, y, color, 10.0f, burst);
 }
 
+// Every point of damage enemies have taken this session (smoke SKILLDUMP reads it).
+inline double g_EnemyDamageTotal = 0.0;
+
 inline float ApplyEnemyDamageWithShield(float& hp, bool& alive,
                                         float& hitFlashTimer,
                                         EnemyShieldState& shield,
@@ -118,5 +121,6 @@ inline float ApplyEnemyDamageWithShield(float& hp, bool& alive,
     }
     if (remaining > 0.0f)
         applied += ApplyMobDamage(hp, alive, hitFlashTimer, remaining);
+    g_EnemyDamageTotal += applied;
     return applied;
 }

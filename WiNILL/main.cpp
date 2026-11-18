@@ -5516,6 +5516,38 @@ int main() {
                         }
                     } else if (step.rfind("WALK=", 0) == 0) {
                         g_SmokeWalk = step.size() > 5 && step[5] != '0' ? step[5] : 0;
+                    } else if (step.rfind("NOGUN=", 0) == 0) {
+                        g_SmokeNoGun = step.size() > 6 && step[6] == '1';
+                    } else if (step.rfind("SKILLDUMP=", 0) == 0) {
+                        // SKILLDUMP=<label>: one line per call to Screenshots/skill_state.txt
+                        // (scripts/test_skill_each_smoke.ps1): damage enemies have taken so
+                        // far, kills, player state and the three skill slots.
+                        std::filesystem::create_directories("Screenshots");
+                        FILE* sf = nullptr;
+#ifdef _MSC_VER
+                        if (fopen_s(&sf, "Screenshots/skill_state.txt", "a") != 0) sf = nullptr;
+#else
+                        sf = std::fopen("Screenshots/skill_state.txt", "a");
+#endif
+                        if (sf) {
+                            int alive = 0;
+                            for (const Monster* mob : g_MonsterManager.monsters) alive += mob->alive;
+                            for (const RangedMob* mob : g_MonsterManager.rangedMobs) alive += mob->alive;
+                            std::fprintf(sf, "%s state=%d dealt=%.1f kills=%lld hp=%.1f maxhp=%.1f "
+                                             "shield=%.1f alive=%d bullets=%d time=%.2f",
+                                         step.c_str() + 10, (int)gm.currentState,
+                                         g_EnemyDamageTotal, g_Stats.killCount, gm.playerHP,
+                                         g_Stats.maxHP, g_PlayerShield, alive,
+                                         (int)g_Bullets.size(), g_GameTime);
+                            for (int s = 0; s < active::kSlots; ++s) {
+                                const active::Slot& slot = active::GetSlot(s);
+                                std::fprintf(sf, " slot%d=%s:%.2f", s,
+                                             slot.aug >= 0 && slot.aug < AUG_TOTAL ? ALL_AUGS[slot.aug].name : "-",
+                                             slot.cd);
+                            }
+                            std::fprintf(sf, "\n");
+                            std::fclose(sf);
+                        }
                     } else if (step.rfind("FIRE=", 0) == 0) {
                         g_SmokeFire = step.size() > 5 && step[5] == '1';
                     } else if (step.rfind("GIVE=", 0) == 0) {
@@ -6118,7 +6150,7 @@ int main() {
                 g_GameManager.playerHP = g_Stats.maxHP;
             if (g_SmokeFire) {
                 // FIRE=1: hold fire, and take the first card of every pick.
-                lmb = true;
+                lmb = !g_SmokeNoGun;
                 GameManager& fgm = g_GameManager;
                 if (fgm.currentState == GameState::AUG_SELECT && fgm.augChoiceCount > 0 &&
                     g_AugExitT < 0.0f) {
@@ -6604,6 +6636,7 @@ int main() {
 
                 // ?�??무적 ???�번 ?�텝 ?�작 HP ?�??(???�해??무효, ?�복?�??��?)
                 float hpAtStep = g_GameManager.playerHP;
+                const float shieldAtStep = g_PlayerShield;   // HurtPlayer spends the shield before HP
                 TickPlayerShield(FIXED_DT);
                 //   ???��? = ?�간?��? ?�킬 OR 증강 ??직후 ~0.05s("?�이 ?�?, 짧게)
                 bool  timeStopped = g_PlayerRuntime.postPickGrace > 0.45f;
@@ -6745,6 +6778,10 @@ CollisionSystem::Update(pCX, pCY,
                 ApplyPlayerDamageProtection(
                     hpAtStep, g_GameManager.playerHP,
                     IsPlayerDamageProtected());
+                // The same protection keeps the shield: hits during a dash / pick grace undid the HP
+                // loss but not the shield they ate first. Shield gained this step stays.
+                if (IsPlayerDamageProtected())
+                    g_PlayerShield = std::max(g_PlayerShield, shieldAtStep);
                 g_MetaPlayerHpFrac = g_GameManager.playerHP / std::max(1.0f, g_Stats.maxHP);
                 g_MetaComboNow = g_Combo;
 

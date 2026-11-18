@@ -271,7 +271,7 @@ int main(int argc, char** argv) {
         { "무결 사수",           "F_BASIC",   Cards({ "C_RITUAL", "G_CHARGER", "T_AFTERIMAGE", "T_COMBO", "G_PARRY", "P_MOVING_EXTRA" }) },
         { "파동 흡수",           "F_WAVE",    Cards({ "V_ABSORB", "V_MARK", "G_CHARGER", "T_RHYTHM", "P_STILL_CRIT", "P_CROWD_PIERCE" }) },
         { "박격 지뢰밭",         "F_MORTAR",  Cards({ "V_MINE", "V_BURN", "G_CHARGER", "P_LONG_SPLIT", "P_CLEAN_BOUNCE", "P_BOSS_CRIT" }) },
-        { "복수의 불꽃",         "F_BASIC",   Cards({ "T_GRUDGE", "T_BERSERK", "T_LASTSTAND", "C_HERESY", "P_SHIELD_PIERCE", "P_KILL_PIERCE" }) },
+        { "복수의 불꽃",         "F_BASIC",   Cards({ "T_GRUDGE", "T_BERSERK", "T_LASTSTAND", "C_HERESY", "P_HURT_PIERCE", "P_KILL_PIERCE" }) },
         { "주사위 도박",         "F_BASIC",   Cards({ "V_DICE", "A_COLLECTOR", "V_MARK", "V_HOMING", "P_MOVING_EXTRA", "P_STILL_CRIT" }) },
         { "대시 연계",           "F_BASIC",   Cards({ "V_DICE", "T_FIREWORK", "T_AFTERIMAGE", "G_PARRY", "P_CROWD_PIERCE", "P_LONG_SPLIT" }) },
         { "거대 성장탄",         "F_BASIC",   Cards({ "V_GROW", "V_BOUNCE", "T_ANCHOR", "G_STILLGUARD", "P_CLEAN_BOUNCE", "P_BOSS_CRIT" }) },

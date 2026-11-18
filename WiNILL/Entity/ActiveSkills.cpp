@@ -143,6 +143,15 @@ Bullet SkillShot(float fromX, float fromY, float dirX, float dirY, float pct,
     return b;
 }
 
+// StepObjects walks s.objs with a range-for; objects made during that walk (Storm Nebula's
+// bolts) wait here and join after it, so the vector never reallocates under the loop.
+bool g_SteppingObjs = false;
+std::vector<Obj> g_PendingObjs;
+void PushObj(Obj&& o) {
+    if (g_SteppingObjs) g_PendingObjs.push_back(std::move(o));
+    else s.objs.push_back(std::move(o));
+}
+
 void AddLine(std::vector<float> pts, Rgb col, float life, LineStyle style) {
     Obj o;
     o.kind = ObjKind::Line;
@@ -151,7 +160,7 @@ void AddLine(std::vector<float> pts, Rgb col, float life, LineStyle style) {
     o.life = life;
     o.style = style;
     o.seed = line_fx::Hash((uint32_t)std::rand());
-    s.objs.push_back(std::move(o));
+    PushObj(std::move(o));
 }
 
 // A lightning bolt onto (x, y): from the sky, or from (sx, sy) when fromSource.
@@ -165,7 +174,7 @@ void AddStrike(float x, float y, Rgb col, bool fromSource = false, float sx = 0,
     o.col = col;
     o.life = 0.30f;
     o.seed = line_fx::Hash((uint32_t)std::rand());
-    s.objs.push_back(o);
+    PushObj(std::move(o));
 }
 
 int SlotOf(int aug) {
@@ -624,6 +633,13 @@ bool TryUse(int slot) {
     if (s.sealed[slot] || sl.aug < 0 || sl.cd > 0.0f) return false;
     if (TypeOf(sl.aug) == AugType::A_STILL_CONDENSED_BLAST && s.meditateT >= 0.0f) return false;
     if (TypeOf(sl.aug) == AugType::A_EDGE_PRECISION_SNIPE && s.snipeT >= 0.0f) return false;
+    // Echo Cast repeats the last skill: while that is still a pending snipe or charge, a repeat
+    // would only restart its timer (one shot, cooldown spent), so the echo waits for it to land.
+    if (TypeOf(sl.aug) == AugType::A_PERFORM_ECHO_CAST && s.lastUsedAug >= 0) {
+        const AugType last = TypeOf(s.lastUsedAug);
+        if (last == AugType::A_EDGE_PRECISION_SNIPE && s.snipeT >= 0.0f) return false;
+        if (last == AugType::A_STILL_CONDENSED_BLAST && s.meditateT >= 0.0f) return false;
+    }
     sl.cd = sl.cdMax = CooldownFor(sl.aug);
     Cast(sl.aug);
     AfterUse(sl.aug, slot);
@@ -631,6 +647,7 @@ bool TryUse(int slot) {
 }
 
 void StepObjects(float dt) {
+    g_SteppingObjs = true;
     for (Obj& o : s.objs) {
         o.t += dt;
         switch (o.kind) {
@@ -780,6 +797,9 @@ void StepObjects(float dt) {
         default: break;
         }
     }
+    g_SteppingObjs = false;
+    for (Obj& o : g_PendingObjs) s.objs.push_back(std::move(o));
+    g_PendingObjs.clear();
     s.objs.erase(std::remove_if(s.objs.begin(), s.objs.end(),
         [](const Obj& o) { return o.t >= o.life; }), s.objs.end());
 }
@@ -896,7 +916,10 @@ void OnPlayerBullet(const Bullet& shot) {
         b.x += offX; b.y += offY; b.prevX = b.x; b.prevY = b.y;
         b.dmgMult *= passive::MultiHitMult();   // the clone's copy hits as hard as the ship's shot
         b.color = glm::vec3(0.60f, 0.50f, 0.95f);
+        // "착탄 폭발은 없음": the dash blast and the synergy on-hit blasts (파열, 중력탄) stay with the ship.
         b.blastOnHit = false;
+        b.blastPct = 0.0f;
+        b.synFlags &= ~synf::Gravity;
         g_Bullets.push_back(b);
     }
 }

@@ -110,7 +110,8 @@ void AdvancePlayerDash(float delta, float& playerX, float& playerY) {
         (g_PlayerRuntime.dashToX - g_PlayerRuntime.dashFromX) * progress;
     playerY = g_PlayerRuntime.dashFromY +
         (g_PlayerRuntime.dashToY - g_PlayerRuntime.dashFromY) * progress;
-    g_PlayerRuntime.dashInvulnerability = DASH_INVULN;
+    // max: a longer window set at the dash start (회피 반격 0.45s) was cut back to 0.2s every step.
+    g_PlayerRuntime.dashInvulnerability = std::max(g_PlayerRuntime.dashInvulnerability, DASH_INVULN);
 }
 
 // Exponential decay: total travel = initial velocity / decay rate, so the

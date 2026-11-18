@@ -20,7 +20,8 @@ inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover 
     FrameLaser = 1u << 23, Hitscan = 1u << 24,
     LaserBlast = 1u << 25,   // 과부하 레이저's released beam: wider than the shot size cap
     CritEchoShot = 1u << 26, // 치명 반응's extra shot: its own crits set off no further echo
-    Grazed = 1u << 27;       // an enemy shot already counted by 스침 (T_GRAZE); Bullet::grazed is Graze Recovery's
+    Grazed = 1u << 27,       // an enemy shot already counted by 스침 (T_GRAZE); Bullet::grazed is Graze Recovery's
+    GrazeNear = 1u << 28;    // an enemy shot inside the 스침 band, counted once it leaves without hitting
 }
 inline constexpr uint32_t kSynNoHit = synf::Lob | synf::Mine;   // a shell or a mine does not hit on the way
 

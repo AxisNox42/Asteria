@@ -6,6 +6,7 @@
 #include "MiraMob.h"
 #include "TriangulumMob.h"
 #include "TrainingDummy.h"
+#include "PassiveHooks.h"   // EnemyRemoved: a thrown Swarm that hits the player is not a kill
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -2166,6 +2167,7 @@ public:
                 HurtPlayer(playerHP, THROWN_SWARM_DAMAGE, "THROWN_SWARM");
                 alive = false;
                 scored = true;      // vanished on impact: no kill reward
+                passive_hooks::EnemyRemoved(this);   // nor a kill for the synergy cards (combo, kill burst, chain)
                 noBlast = true;
                 return true;
             }
