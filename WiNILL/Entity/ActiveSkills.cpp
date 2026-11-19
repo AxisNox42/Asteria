@@ -74,6 +74,10 @@ struct State {
     // Pending casts.
     float snipeT = -1.0f;         // aiming time left
     float meditateT = -1.0f;      // charge time, -1 = not channelling
+    float meditateWait = -1.0f;   // cast while moving: time waited for a stop, -1 = charging
+    int   meditateSlot = -1;      // the slot that paid for the charge (refund)
+    int   castSlot = -1;          // slot of the skill being used now
+    bool  echoing = false;        // inside an Echo Cast recast
     bool teleport = false;
     float teleX = 0, teleY = 0;
     std::unordered_map<int, float> moonCd;   // Moon Pendant per skill
@@ -130,6 +134,9 @@ void ClampToView(float& x, float& y) {
     x = std::clamp(x, s.in.viewL + m, s.in.viewR - m);
     y = std::clamp(y, s.in.viewT + m, s.in.viewB - m);
 }
+
+// Precision Snipe's reach: the shot's range and its aim line.
+float SnipeRange() { return 2.2f * s.in.screenW / std::max(0.01f, s.in.viewZoom); }
 
 Bullet SkillShot(float fromX, float fromY, float dirX, float dirY, float pct,
                  int tag, float speed, Rgb col, float size = 1.0f) {
@@ -233,13 +240,12 @@ void CastChainLightning() {
     AddLine(pts, { 0.70f, 0.85f, 1.0f }, 0.50f, LineStyle::Bolt);   // hops land one after another
 }
 
-void CastExecute(int aug) {
+// Pinpoint Execution's target: the nearest enemy in the aim cone within 12 rings.
+void* FindExecuteTarget(bool& ranged, float& tx, float& ty) {
     float dx, dy;
     AimDir(dx, dy);
-    float best = 1e12f;
+    float best = Rings(12);
     void* target = nullptr;
-    bool ranged = false;
-    float tx = 0, ty = 0;
     ForEachEnemy([&](auto& e, float x, float y) {
         const float ex = x - s.in.px, ey = y - s.in.py;
         const float d = std::sqrt(ex * ex + ey * ey);
@@ -249,6 +255,13 @@ void CastExecute(int aug) {
             ranged = std::is_same<std::decay_t<decltype(e)>, RangedMob>::value;
         }
     });
+    return target;
+}
+
+void CastExecute(int aug) {
+    bool ranged = false;
+    float tx = 0, ty = 0;
+    void* target = FindExecuteTarget(ranged, tx, ty);
     if (!target) return;
     bool killed;
     if (ranged) { RangedMob& r = *(RangedMob*)target; HitOne(r, 1000.0f); killed = !r.alive; }
@@ -315,12 +328,16 @@ void CastRewind() {
     if (s.trail.empty()) return;
     const State::Pos& p = s.trail.front();   // the oldest kept: ~3s ago
     float lost = 0.0f;
-    for (const auto& d : s.damage) lost += d.second;
+    if (!s.echoing)   // an echoed return moves you but does not heal again
+        for (const auto& d : s.damage) lost += d.second;
     g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + lost * 0.5f);
     AddLine({ s.in.px, s.in.py, p.x, p.y }, { 0.85f, 0.75f, 1.0f }, 0.45f, LineStyle::Rewind);
     Audio::Play(Audio::Cue::SkillTeleport);
     if (lost > 0.0f) Audio::Play(Audio::Cue::SfxHealBig);
     s.teleport = true; s.teleX = p.x; s.teleY = p.y;
+    // The history is used up: a second return within 3s can't heal the same damage.
+    s.trail.clear();
+    s.damage.clear();
 }
 
 void CastDayAndNight() {
@@ -384,6 +401,37 @@ void CastBookOfCheats() {
     }
 }
 
+// What Echo Cast would recast: the last skill used, if still equipped and not a move.
+int EchoTarget() {
+    const int last = s.lastUsedAug;
+    if (last < 0 || SlotOf(last) < 0) return -1;
+    switch (TypeOf(last)) {
+    case AugType::A_PERFORM_ECHO_CAST:
+    case AugType::A_FLIGHT_WARP_JUMP:
+    case AugType::A_FLIGHT_COMET_RUSH:
+        return -1;
+    default: return last;
+    }
+}
+
+// False when using aug now would do nothing (the cooldown is then kept).
+bool CanCast(int aug) {
+    switch (TypeOf(aug)) {
+    case AugType::A_STILL_CONDENSED_BLAST: return s.meditateT < 0.0f;   // still charging
+    case AugType::A_EDGE_PRECISION_SNIPE:  return s.snipeT < 0.0f;      // still aiming
+    case AugType::A_NOVA_NOVA_BURST:       return s.waveKills > 0;
+    case AugType::A_HUNTER_PINPOINT_EXECUTION: {
+        bool ranged; float tx, ty;
+        return FindExecuteTarget(ranged, tx, ty) != nullptr;
+    }
+    case AugType::A_PERFORM_ECHO_CAST: {
+        const int target = EchoTarget();
+        return target >= 0 && CanCast(target);
+    }
+    default: return true;
+    }
+}
+
 void Cast(int aug) {
     gamelog::Cast();
     gamelog::Event("SKILL_CAST", "aug=%s", ALL_AUGS[aug].name);
@@ -406,8 +454,8 @@ void Cast(int aug) {
     }
     case AugType::A_CHRONO_ORBITAL_RETURN: CastRewind(); break;
     case AugType::A_CHRONO_RESONANT_SYNC:
-        for (Slot& o : s.slots)
-            if (o.aug >= 0 && o.aug != aug) o.cd *= 0.5f;
+        for (int i = 0; i < kSlots; ++i)   // not itself, nor the Echo Cast that recast it
+            if (s.slots[i].aug >= 0 && s.slots[i].aug != aug && i != s.castSlot) s.slots[i].cd *= 0.5f;
         Audio::Play(Audio::Cue::SkillCooldownCut);
         // Time folds in on the ship: two rings closing, one after the other.
         strike_fx::Implode(px, py, 150.0f, { 0.55f, 0.95f, 1.0f }, 0.0f, 0.32f);
@@ -503,6 +551,7 @@ void Cast(int aug) {
         Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f * MetaDurationMult();
         o.col = { 0.55f, 0.35f, 0.95f };
         s.objs.push_back(o);
+        strike_fx::Implode(o.x, o.y, Rings(8), o.col, 0.0f, 0.30f);   // space folds in as it opens
         Audio::StartLoop(Audio::Cue::SkillVortexLoop);
         break;
     }
@@ -551,12 +600,16 @@ void Cast(int aug) {
         }
         Audio::StartLoop(Audio::Cue::SkillBoomerangLoop);
         break;
-    case AugType::A_PERFORM_ECHO_CAST:
-        if (s.lastUsedAug >= 0 && TypeOf(s.lastUsedAug) != AugType::A_PERFORM_ECHO_CAST) {
+    case AugType::A_PERFORM_ECHO_CAST: {
+        const int target = EchoTarget();
+        if (target >= 0) {
             Audio::Play(Audio::Cue::SkillCooldownCut);
-            Cast(s.lastUsedAug);
+            s.echoing = true;
+            Cast(target);
+            s.echoing = false;
         }
         break;
+    }
     case AugType::A_STILL_STARLIGHT_TURRET: {
         Obj o; o.kind = ObjKind::Turret; o.x = px; o.y = py; o.life = 10.0f * MetaDurationMult();
         o.col = { 0.60f, 0.95f, 0.80f };
@@ -564,7 +617,12 @@ void Cast(int aug) {
         Audio::Play(Audio::Cue::SkillSummon);
         break;
     }
-    case AugType::A_STILL_CONDENSED_BLAST: s.meditateT = 0.0f; Audio::StartLoop(Audio::Cue::SkillChargeLoop); break;
+    case AugType::A_STILL_CONDENSED_BLAST:
+        s.meditateT = 0.0f;
+        s.meditateWait = s.in.moving ? 0.0f : -1.0f;   // used on the move: charge from the first stop
+        s.meditateSlot = s.castSlot;
+        Audio::StartLoop(Audio::Cue::SkillChargeLoop);
+        break;
     case AugType::A_VEIN_TIMED_BOMB: {
         Obj o; o.kind = ObjKind::Dynamite; o.x = px; o.y = py;
         o.x2 = s.in.aimX; o.y2 = s.in.aimY; o.life = 1.0f;
@@ -574,7 +632,7 @@ void Cast(int aug) {
         break;
     }
     case AugType::A_NOVA_NOVA_BURST: {
-        const float pct = std::min(2000.0f, 20.0f * (float)s.waveKills);
+        const float pct = std::min(2000.0f, 20.0f * (float)s.waveKills);   // > 0: CanCast holds it at 0 kills
         if (pct > 0.0f) { passive::DamageAll(pct, 1.0f, 0.95f, 0.75f, false, extra, passive::ScreenFx::Nova); Audio::Play(Audio::Cue::SkillScreenwide); }
         break;
     }
@@ -631,17 +689,13 @@ void AfterUse(int aug, int slot) {
 bool TryUse(int slot) {
     Slot& sl = s.slots[slot];
     if (s.sealed[slot] || sl.aug < 0 || sl.cd > 0.0f) return false;
-    if (TypeOf(sl.aug) == AugType::A_STILL_CONDENSED_BLAST && s.meditateT >= 0.0f) return false;
-    if (TypeOf(sl.aug) == AugType::A_EDGE_PRECISION_SNIPE && s.snipeT >= 0.0f) return false;
-    // Echo Cast repeats the last skill: while that is still a pending snipe or charge, a repeat
-    // would only restart its timer (one shot, cooldown spent), so the echo waits for it to land.
-    if (TypeOf(sl.aug) == AugType::A_PERFORM_ECHO_CAST && s.lastUsedAug >= 0) {
-        const AugType last = TypeOf(s.lastUsedAug);
-        if (last == AugType::A_EDGE_PRECISION_SNIPE && s.snipeT >= 0.0f) return false;
-        if (last == AugType::A_STILL_CONDENSED_BLAST && s.meditateT >= 0.0f) return false;
-    }
+    // Nothing to do (pending snipe/charge, no target, no kills, nothing to echo): keep the cooldown.
+    // Echo checks its target, so it also waits for a pending snipe or charge to land.
+    if (!CanCast(sl.aug)) return false;
     sl.cd = sl.cdMax = CooldownFor(sl.aug);
+    s.castSlot = slot;
     Cast(sl.aug);
+    s.castSlot = -1;
     AfterUse(sl.aug, slot);
     return true;
 }
@@ -693,16 +747,20 @@ void StepObjects(float dt) {
                 }
             }
             if (o.t >= o.life && o.count > 0)
-                passive::DamageRadius(o.x, o.y, Rings(3), 30.0f * (float)o.count,
+                passive::DamageRadius(o.x, o.y, Rings(3), 70.0f * (float)o.count,
                                       0.75f, 0.95f, 1.0f, DamageMult(), strike_fx::BlastStyle::Crystal);
             break;
         case ObjKind::Gate: {
-            constexpr float kPull = Rings(5);
+            // Full pull inside 5 rings; a weak field out to 8 rings that fades
+            // from kFieldPull at the edge of the pull to nothing.
+            constexpr float kPull = Rings(5), kField = Rings(8), kFieldPull = 90.0f;
             auto pull = [&](float& x, float& y, float speed) {
                 const float ex = o.x - x, ey = o.y - y;
                 const float d = std::sqrt(ex * ex + ey * ey);
-                if (d < 1.0f || d > kPull) return;
-                const float step = std::min(d, speed * dt);
+                if (d < 1.0f || d > kField) return;
+                const float v = d <= kPull ? speed
+                    : kFieldPull * (speed / 260.0f) * (1.0f - (d - kPull) / (kField - kPull));
+                const float step = std::min(d, v * dt);
                 x += ex / d * step; y += ey / d * step;
             };
             for (auto* m : g_MonsterManager.monsters)
@@ -717,9 +775,16 @@ void StepObjects(float dt) {
                 }
             }
             if (o.t >= o.life) {
-                Audio::StopLoop(Audio::Cue::SkillVortexLoop);
-                passive::DamageRadius(o.x, o.y, Rings(3.5f), 1500.0f + 50.0f * (float)o.count,
+                // The vortex hum stops with the last black hole open, not the first to close.
+                bool otherOpen = false;
+                for (const Obj& g : s.objs)
+                    if (&g != &o && g.kind == ObjKind::Gate && g.t < g.life) otherOpen = true;
+                if (!otherOpen) Audio::StopLoop(Audio::Cue::SkillVortexLoop);
+                passive::DamageRadius(o.x, o.y, Rings(4), 1500.0f + 50.0f * (float)o.count,
                                       0.55f, 0.35f, 0.95f, DamageMult(), strike_fx::BlastStyle::Gravity);
+                // After collapsing to a point it rings out past the blast.
+                strike_fx::Nova(o.x, o.y, Rings(5), line_fx::Lift(o.col, 0.35f));
+                strike_fx::Nova(o.x, o.y, Rings(3), o.col, 0.08f);
             }
             break;
         }
@@ -865,7 +930,7 @@ float CooldownFor(int augIdx) {
     const AugDef& d = ALL_AUGS[augIdx];
     float base = d.cooldown;
     if (d.type == AugType::A_ABYSS_TIDAL_SURGE) {
-        base = 10.0f;
+        base = 14.0f;   // floor: on its own it out-hit Gravity Slam on a shorter cooldown
         for (const Slot& o : s.slots)
             if (o.aug >= 0 && o.aug != augIdx) base = std::max(base, CooldownFor(o.aug));
         return base;
@@ -1038,18 +1103,37 @@ void Step(const StepInput& in) {
                                  { 1.0f, 0.95f, 0.85f }, 1.4f);
             b.piercing = true;
             b.forceCrit = true;
-            b.maxRange = 2.2f * in.screenW / std::max(0.01f, in.viewZoom);
+            b.maxRange = SnipeRange();
             g_Bullets.push_back(b);
         }
     }
-    // Condensed Blast: charge while still; moving or 2s sets it off.
+    // Condensed Blast: charge while still; moving or 2s sets it off. Used on the move,
+    // it first waits for a stop (up to 3s). A charge too short to count is a 0 fire:
+    // nothing goes off and the cooldown that paid for it comes back.
     if (s.meditateT >= 0.0f) {
-        s.meditateT += dt;
-        if (in.moving || s.meditateT >= 2.0f) {
-            const float k = std::min(1.0f, s.meditateT / 2.0f);
-            passive::DamageRadius(in.px, in.py, Rings(4), 2000.0f * k, 0.70f, 1.0f, 0.85f, DamageMult(), strike_fx::BlastStyle::Stellar);
-            g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 10.0f * k);
+        bool end = false, refund = false;
+        if (s.meditateWait >= 0.0f) {
+            s.meditateWait += dt;
+            if (!in.moving) s.meditateWait = -1.0f;
+            else if (s.meditateWait >= 3.0f) end = refund = true;
+        } else {
+            s.meditateT += dt;
+            if (in.moving || s.meditateT >= 2.0f) {
+                end = true;
+                if (s.meditateT < 0.1f) {
+                    refund = true;
+                } else {
+                    const float k = std::min(1.0f, s.meditateT / 2.0f);
+                    passive::DamageRadius(in.px, in.py, Rings(4), 2000.0f * k, 0.70f, 1.0f, 0.85f, DamageMult(), strike_fx::BlastStyle::Stellar);
+                    g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + 10.0f * k);
+                }
+            }
+        }
+        if (end) {
+            if (refund && s.meditateSlot >= 0 && s.meditateSlot < kSlots) s.slots[s.meditateSlot].cd = 0.0f;
             s.meditateT = -1.0f;
+            s.meditateWait = -1.0f;
+            s.meditateSlot = -1;
             if (s.snipeT < 0.0f) Audio::StopLoop(Audio::Cue::SkillChargeLoop);   // 저격 조준 중이면 유지
         }
     }
@@ -1177,6 +1261,116 @@ static void DrawLineObj(const Obj& o, float k, float time) {
     (void)time;
 }
 
+// 블랙홀 포획: lines only. From outside in:
+//   weak field (8 rings) - a faint edge and slow ripples drifting inward
+//   pull reach (5 rings) - a clearer edge, long spiral arms winding in
+//   accretion disc       - tilted ellipses turning, arc shards spiralling in,
+//                          one bead per enemy bullet eaten
+//   horizon              - tight contours, a bright photon ring that pulses
+// Things being pulled leave short tails curving toward it. In the last 0.15s
+// everything collapses to a point; the blast and shockwaves follow at close.
+static void DrawBlackHole(const Obj& o, float born, float time) {
+    constexpr float kPullR = Rings(5), kFieldR = Rings(8);
+    const Rgb c = o.col;
+    const Rgb hi = lf::Lift(c, 0.5f);
+    const Rgb deep = { c.r * 0.6f, c.g * 0.5f, c.b * 0.85f };
+    const float open = Smooth01(o.t / 0.25f);
+    const float collapse = Smooth01((o.t - (o.life - 0.15f)) / 0.15f);
+    const float sc = open * (1.0f - collapse);           // overall size
+    const float a = born * (1.0f - 0.6f * collapse);    // overall alpha
+    if (sc <= 0.01f && collapse >= 1.0f) return;
+    const float spin = o.t * 2.4f;
+
+    // ── weak field ──
+    lf::Circle(o.x, o.y, kFieldR * sc, 1.0f, c, 0.12f * a);
+    for (int i = 0; i < 3; ++i) {
+        const float p = std::fmod(o.t * 0.35f + (float)i / 3.0f, 1.0f);
+        const float r = kFieldR - (kFieldR - kPullR) * p;
+        lf::Circle(o.x, o.y, r * sc, 1.0f, c, 0.16f * std::sin(lf::kPi * p) * a);
+    }
+    // ── pull reach ──
+    lf::Circle(o.x, o.y, kPullR * sc, 1.4f, c, 0.32f * a);
+    for (int i = 0; i < 2; ++i) {
+        const float p = std::fmod(o.t * 0.8f + 0.5f * (float)i, 1.0f);
+        lf::Circle(o.x, o.y, (kPullR * (1.0f - p) + 40.0f * p) * sc, 1.0f, c, 0.30f * p * a);
+    }
+    // Long spiral arms from the reach down to the disc.
+    for (int arm = 0; arm < 4; ++arm) {
+        constexpr int kN = 28;
+        float px[kN], py[kN];
+        for (int j = 0; j < kN; ++j) {
+            const float u = (float)j / (kN - 1);
+            const float r = (40.0f + (kPullR * 0.92f - 40.0f) * u * u) * sc;
+            const float ang = lf::kTwoPi * (float)arm / 4.0f + u * 4.2f - spin;
+            px[j] = o.x + std::cos(ang) * r; py[j] = o.y + std::sin(ang) * r;
+        }
+        miter::Path(px, py, kN, arm % 2 ? 1.2f : 1.8f, c.r, c.g, c.b, (arm % 2 ? 0.45f : 0.75f) * a);
+    }
+    // ── accretion disc: tilted ellipses ──
+    const float tilt = 0.38f;   // flattening
+    for (int e = 0; e < 3; ++e) {
+        constexpr int kN = 40;
+        float px[kN], py[kN];
+        const float rx = (58.0f + 26.0f * (float)e) * sc, ry = rx * tilt;
+        const float rot = -0.35f + 0.12f * (float)e;
+        const float cr = std::cos(rot), sr = std::sin(rot);
+        for (int j = 0; j < kN; ++j) {
+            const float t = lf::kTwoPi * (float)j / kN;
+            const float ex = std::cos(t) * rx, ey = std::sin(t) * ry;
+            px[j] = o.x + ex * cr - ey * sr; py[j] = o.y + ex * sr + ey * cr;
+        }
+        miter::Loop(px, py, kN, e == 0 ? 2.2f : 1.3f, (e == 0 ? hi : c).r, (e == 0 ? hi : c).g,
+                    (e == 0 ? hi : c).b, (e == 0 ? 0.9f : 0.55f - 0.12f * (float)e) * a);
+    }
+    // Arc shards on the disc, sliding inward as they go round.
+    uint32_t seed = lf::SeedAt(o.x, o.y);
+    for (int i = 0; i < 10; ++i) {
+        const float ph = std::fmod(o.t * (0.55f + 0.25f * lf::Rnd(seed)) + lf::Rnd(seed), 1.0f);
+        const float r = (150.0f - 95.0f * ph) * sc;
+        const float a0 = lf::Rnd(seed) * lf::kTwoPi - spin * (1.4f + ph);
+        const float sweep = 0.35f + 0.5f * ph;
+        lf::ArcLine(o.x, o.y, r, a0, sweep, 1.2f, hi, 0.6f * std::sin(lf::kPi * ph) * a);
+    }
+    // One bead on the disc per enemy bullet eaten (up to 12).
+    const int beads = std::min(12, o.count);
+    for (int i = 0; i < beads; ++i) {
+        const float ang = spin * 1.6f + lf::kTwoPi * (float)i / (float)std::max(1, beads);
+        const float ex = std::cos(ang) * 70.0f * sc, ey = std::sin(ang) * 70.0f * tilt * sc;
+        const float cr = std::cos(-0.35f), sr = std::sin(-0.35f);
+        lf::Diamond(o.x + ex * cr - ey * sr, o.y + ex * sr + ey * cr, 3.5f, 1.2f, hi, 0.95f * a);
+    }
+    // ── horizon: tight contours, brighter inward, and the photon ring ──
+    const float eaten = std::min(1.0f, (float)o.count / 12.0f);
+    for (int i = 0; i < 4; ++i) {
+        const float r = (34.0f - 6.0f * (float)i) * sc;
+        lf::Circle(o.x, o.y, r, 1.0f + 0.3f * (float)i, i < 2 ? deep : c, (0.35f + 0.18f * (float)i) * a);
+    }
+    const float pulse = 0.5f + 0.5f * std::sin(time * 9.0f);
+    lf::Circle(o.x, o.y, (38.0f + 2.5f * pulse) * sc, 2.4f, hi, (0.65f + 0.25f * pulse + 0.1f * eaten) * a);
+    lf::Circle(o.x, o.y, 9.0f * sc, 1.2f, hi, (0.4f + 0.6f * eaten) * a);
+
+    // ── tails on what is being pulled ──
+    auto tail = [&](float x, float y, float len) {
+        const float dx = o.x - x, dy = o.y - y;
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d < 50.0f || d > kFieldR) return;
+        const float inside = d <= kPullR ? 1.0f : 0.45f * (1.0f - (d - kPullR) / (kFieldR - kPullR));
+        const float ux = dx / d, uy = dy / d;
+        // Trail behind it (away from the hole), bent sideways like the arms.
+        const float bx = x - ux * len - uy * len * 0.35f, by = y - uy * len + ux * len * 0.35f;
+        const float mx = x - ux * len * 0.5f - uy * len * 0.08f, my = y - uy * len * 0.5f + ux * len * 0.08f;
+        const float qx[3] = { bx, mx, x }, qy[3] = { by, my, y };
+        miter::Path(qx, qy, 3, 1.2f, c.r, c.g, c.b, 0.55f * inside * a);
+    };
+    if (collapse < 1.0f) {
+        for (auto* m : g_MonsterManager.monsters)
+            if (m->alive && !IsBossMob(m->kind)) tail(m->worldX, m->worldY, 34.0f);
+        for (auto* r : g_MonsterManager.rangedMobs) if (r->alive) tail(r->worldX, r->worldY, 34.0f);
+        for (const Bullet& b : g_Bullets)
+            if (b.active && b.isEnemy) tail(b.x, b.y, 18.0f);
+    }
+}
+
 void DrawWorld(float time) {
     using namespace hud_lines;
     BindMainShader();
@@ -1265,28 +1459,7 @@ void DrawWorld(float time) {
             break;
         }
         case ObjKind::Gate: {
-            // Black hole: spiral arms winding in to a small horizon, the pull's
-            // reach as a faint circle with rings drawn in toward the centre.
-            const float closing = 1.0f - Smooth01((o.t - (o.life - 0.3f)) / 0.3f);
-            const float sc = born * closing;
-            lf::Circle(o.x, o.y, Rings(5), 1.0f, o.col, 0.2f * sc);
-            for (int i = 0; i < 2; ++i) {
-                const float p = std::fmod(o.t * 0.8f + 0.5f * (float)i, 1.0f);
-                lf::Circle(o.x, o.y, Rings(5) * (1.0f - p) + 30.0f * p, 1.0f, o.col, 0.35f * p * sc);
-            }
-            for (int arm = 0; arm < 3; ++arm) {
-                float px[14], py[14];
-                for (int j = 0; j < 14; ++j) {
-                    const float u = (float)j / 13.0f;
-                    const float r = (26.0f + 120.0f * u) * sc;
-                    const float a = lf::kTwoPi * (float)arm / 3.0f + u * 2.6f - o.t * 3.0f;
-                    px[j] = o.x + std::cos(a) * r; py[j] = o.y + std::sin(a) * r;
-                }
-                miter::Path(px, py, 14, 1.8f, o.col.r, o.col.g, o.col.b, 0.85f * sc);
-            }
-            const float glow = std::min(1.0f, 0.4f + 0.06f * (float)o.count);
-            lf::Circle(o.x, o.y, 24.0f * sc, 3.0f, o.col, sc);
-            lf::Circle(o.x, o.y, 13.0f * sc, 1.2f, hi, glow * sc);
+            DrawBlackHole(o, born, time);
             break;
         }
         case ObjKind::Trap: {
@@ -1358,7 +1531,8 @@ void DrawWorld(float time) {
     if (s.snipeT >= 0.0f) {
         float dx, dy;
         AimDir(dx, dy);
-        Segment(s.in.px, s.in.py, s.in.px + dx * 1600.0f, s.in.py + dy * 1600.0f, 1.0f,
+        const float reach = SnipeRange();   // as far as the shot goes
+        Segment(s.in.px, s.in.py, s.in.px + dx * reach, s.in.py + dy * reach, 1.0f,
                 { 1.0f, 0.95f, 0.85f }, 0.6f);
     }
     if (s.meditateT >= 0.0f) {

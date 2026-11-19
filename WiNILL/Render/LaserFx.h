@@ -87,6 +87,7 @@ struct Main {
     float px = 0, py = 0, aim = 0;   // ship and aim (radians), followed every frame
     // The last tick's volley, as angles off the aim, and what the shots carried.
     std::vector<float> offsets;
+    std::vector<float> sides;   // each shot's sideways offset (쌍발 사격탄: two beams side by side)
     int   bounces = 0;
     float range = kRange;
     float baseHalfW = 6.5f;     // the band before heat
@@ -100,6 +101,7 @@ struct Main {
     float releaseHeat = 0.0f;
     // Sound events since main.cpp last read them (TakeEvents).
     bool  evCharge = false, evOpen = false;
+    int   beams = 0;            // beams opened so far: one beam counts as one shot (SynergyRuntime Shape)
 };
 
 // A short beam of a laser shot that did not leave with the main beam,
@@ -154,7 +156,7 @@ inline bool Hold(bool held, float px, float py, float tx, float ty, float dt, in
         m.charge = std::min(ChargeTime(), m.charge + dt);
         const bool was = m.on;
         m.on = m.charge >= ChargeTime();
-        if (m.on && !was) m.evOpen = true;
+        if (m.on && !was) { m.evOpen = true; ++m.beams; }
         if (m.on) { m.onT = was ? m.onT + dt : 0.0f; m.offT = 0.0f; }
     } else {
         m.charge = std::max(0.0f, m.charge - 2.0f * dt);   // a quick re-press charges faster
@@ -225,18 +227,24 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
         const float range = m.tier >= 2 ? kWallRange : (free ? kFreeRange : kRange);
         const int bounces = std::max(0, b.bouncesLeft);
         const float halfW = std::max(2.5f, 5.0f * b.sizeScale);   // kPlayerShotHitPx per sizeScale
-        const bool main = std::hypot(b.x - m.tickX, b.y - m.tickY) < 12.0f && m.tick > 0;
+        // An echo (겹겹 메아리) leaves the ship later: its own flash beam, not merged into the main one.
+        const bool main = std::hypot(b.x - m.tickX, b.y - m.tickY) < 12.0f && m.tick > 0 &&
+                          !(b.synFlags & synf::Echo);
         if (main) {
-            if (m.offsetsTick != m.tick) { m.offsetsTick = m.tick; m.offsets.clear(); }
+            if (m.offsetsTick != m.tick) { m.offsetsTick = m.tick; m.offsets.clear(); m.sides.clear(); }
             float off = std::atan2(b.dirY, b.dirX) - m.tickAim;
             while (off > 3.14159265f) off -= 6.2831853f;
             while (off < -3.14159265f) off += 6.2831853f;
-            if (m.offsets.size() < 16) m.offsets.push_back(off);
+            // Sideways offset off the tick's aim; a side-by-side pair stands far enough apart to read as two.
+            float side = -(b.x - m.tickX) * std::sin(m.tickAim) + (b.y - m.tickY) * std::cos(m.tickAim);
+            if (std::fabs(side) > 1.0f) side = std::copysign(std::max(std::fabs(side), halfW * 1.6f), side);
+            if (m.offsets.size() < 16) { m.offsets.push_back(off); m.sides.push_back(side); }
             m.bounces = bounces; m.range = range; m.baseHalfW = halfW; m.color = b.color;
             // The beam follows the aim between ticks, so the damage lies where it is drawn:
             // along the current aim from the current ship position.
             const float a = m.aim + off;
-            b.x = m.px; b.y = m.py; b.dirX = std::cos(a); b.dirY = std::sin(a);
+            b.dirX = std::cos(a); b.dirY = std::sin(a);
+            b.x = m.px - b.dirY * side; b.y = m.py + b.dirX * side;
             if (m.offsets.size() == 1) { m.lastShot = b; m.hasShot = true; }   // the release is made from it (before heat)
             // 집속 레이저: the hot beam is wider and hits harder.
             const float heat = Heat();
@@ -266,7 +274,9 @@ inline float FireRelease(std::vector<Bullet>& bullets) {
     Path(m.px, m.py, std::cos(m.aim), std::sin(m.aim), kWallRange, m.bounces, g_Arena, pts);
     const float halfW = m.baseHalfW * (1.4f + 1.6f * heat);   // full heat ~ the Quasar beam (55 px)
     Bullet proto = m.lastShot;
-    proto.dmgMult *= kReleaseMult * heat;
+    // The last tick's one-shot bonuses (정지 반응, 박자 사격 ...) are not multiplied again.
+    proto.dmgMult *= kReleaseMult * heat / std::max(1e-3f, proto.synBoost);
+    proto.synBoost = 1.0f;
     proto.sizeScale = halfW / 5.0f;                 // the hit band is the drawn band
     proto.synFlags |= synf::LaserBlast;             // exempt from the shot size cap
     proto.synFlags &= ~synf::Echo;

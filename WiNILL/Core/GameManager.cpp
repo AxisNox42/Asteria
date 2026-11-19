@@ -311,8 +311,12 @@ void GameManager::PickStatChoices() {
     for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augChoiceCount = 0;
     int pool[AUG_TOTAL], n = 0;
+    // Glass Cannon fixes max HP at 30: Max HP Up would do nothing there.
+    bool glass = false;
     for (int i = 0; i < AUG_TOTAL; ++i)
-        if (AugIsStatCard(ALL_AUGS[i])) pool[n++] = i;
+        if (ALL_AUGS[i].type == AugType::SYN_C_GLASS && passive::HeldCount(i) > 0) glass = true;
+    for (int i = 0; i < AUG_TOTAL; ++i)
+        if (AugIsStatCard(ALL_AUGS[i]) && !(glass && ALL_AUGS[i].type == AugType::S_MAX_HP)) pool[n++] = i;
     for (int k = 0; k < 3 && n > 0; ++k) {
         const int j = std::rand() % n;
         augChoices[augChoiceCount++] = pool[j];

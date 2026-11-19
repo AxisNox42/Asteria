@@ -28,7 +28,7 @@ DEFAULT_CROP = (400, 200, 480, 300)
 
 
 def shot_dir(code):
-    for sub in ('shots_fixed', 'shots_active', 'shots_passive'):
+    for sub in ('shots_v2_active', 'shots_v2_passive', 'shots_fixed', 'shots_active', 'shots_passive'):
         d = os.path.join(QA, sub, code)
         if os.path.isdir(d):
             return d
@@ -100,10 +100,10 @@ by_sheet = {k: [] for k in order}
 for a in findings['ambiguous']:
     by_sheet.setdefault(a['sheet'], []).append(a)
 for key in order:
-    ws = sheet(wb, key, ['증강명', '문제', '추천 변경안', '내 의견', '인게임 화면'], [24, 60, 46, 40, 52])
+    ws = sheet(wb, key, ['증강명', '문제', '추천 변경안', '내 의견', '인게임 화면', '처리 결과'], [24, 60, 46, 40, 52, 50])
     for r, a in enumerate(by_sheet.get(key, []), start=2):
-        ws.append([label(a['code'], a['name']), a['problem'], a['rec'], a.get('opinion', '')])
-        for c in range(1, 5):
+        ws.append([label(a['code'], a['name']), a['problem'], a['rec'], a.get('opinion', ''), '', a.get('done', '')])
+        for c in (1, 2, 3, 4, 6):
             ws.cell(r, c).alignment = WRAP
         t = thumb(a.get('shot_code') or first_code(a['code']))
         if t:

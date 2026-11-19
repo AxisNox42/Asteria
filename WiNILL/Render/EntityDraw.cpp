@@ -297,7 +297,7 @@ static bool DrawCardShot(const Bullet& b, float r) {
         const float spin = b.synOrbitAngle * 2.0f;
         line_fx::Star4(b.x, b.y, r * 2.2f, r * 0.8f, spin, 3.6f, { c.r * 0.18f, c.g * 0.18f, c.b * 0.18f }, 0.55f);
         line_fx::Star4(b.x, b.y, r * 2.2f, r * 0.8f, spin, 1.8f, { lit.r, lit.g, lit.b }, 1.0f);
-        line_fx::Circle(b.x, b.y, 30.0f, 1.0f, { c.r, c.g, c.b }, 0.45f);   // the reach it erases shots in
+        line_fx::Circle(b.x, b.y, 30.0f, 1.8f, { c.r, c.g, c.b }, 0.6f);   // the reach it erases shots in (thick enough not to read as dotted)
         return true;
     }
     if (f & synf::FrameSniper) {   // 저격총: a long thin diamond head and a short wake
@@ -2989,9 +2989,11 @@ void DrawPlayerLasers() {
         // 집속 레이저: the beam swells and runs whiter as it heats up.
         const float heat = laser_fx::Heat();
         const glm::vec3 col = m.color + (glm::vec3(1.0f) - m.color) * (0.45f * heat);
-        for (const float off : offs) {
-            const float a = m.aim + off;
-            laser_fx::Path(m.px, m.py, std::cos(a), std::sin(a), m.range, m.bounces, laser_fx::g_Arena, pts);
+        for (size_t i = 0; i < offs.size(); ++i) {
+            const float a = m.aim + offs[i];
+            const float side = i < m.sides.size() ? m.sides[i] : 0.0f;   // twin beams stand side by side
+            laser_fx::Path(m.px - std::sin(a) * side, m.py + std::cos(a) * side, std::cos(a), std::sin(a),
+                           m.range, m.bounces, laser_fx::g_Arena, pts);
             DrawLaserPath(pts, laser_fx::HalfWidth(), ws, m.onT, 1.0f, col, m.onT + 0.05f, true, m.tier);
         }
         // Heat gauge at the muzzle: an arc that closes as the beam heats (full = the release is at its most).

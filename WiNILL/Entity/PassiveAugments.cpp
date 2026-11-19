@@ -679,7 +679,9 @@ static void ApplyCard(int augIdx) {
     case AugType::S_ATTACK:     st.baseDamage += 4.0f; break;
     case AugType::S_MAX_HP:     st.maxHP += 12.0f; hp += 12.0f; break;
     case AugType::S_FIRE_RATE:  st.fireInterval /= 1.08f; break;
-    case AugType::S_MOVE_SPEED: st.moveSpeedMult += 0.05f; break;
+    // ×1.05, not +0.05: the multiplier already carries synergy / shop factors, so +0.05 came out
+    // as +4~5.6%. A product is always the +5% the card says (and undoes exactly).
+    case AugType::S_MOVE_SPEED: st.moveSpeedMult *= 1.05f; break;
     case AugType::S_REGEN:      st.regenPerSec += 0.15f; break;
     case AugType::S_CRIT:       st.critChance += 6; break;    // uncapped sum (RollCrit caps the roll)
     default: break;
@@ -750,7 +752,7 @@ bool Release(int augIdx) {
         case AugType::S_ATTACK:     st.baseDamage -= 4.0f; break;
         case AugType::S_MAX_HP:     st.maxHP -= 12.0f; break;
         case AugType::S_FIRE_RATE:  st.fireInterval *= 1.08f; break;
-        case AugType::S_MOVE_SPEED: st.moveSpeedMult -= 0.05f; break;
+        case AugType::S_MOVE_SPEED: st.moveSpeedMult /= 1.05f; break;
         case AugType::S_REGEN:      st.regenPerSec -= 0.15f; break;
         case AugType::S_CRIT:       st.critChance = std::max(0, st.critChance - 6); break;
         default: return false;

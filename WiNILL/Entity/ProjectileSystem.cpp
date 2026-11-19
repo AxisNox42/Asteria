@@ -35,7 +35,18 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         const float bulletDelta = fixedDelta;
         if (bullet.homing && !bullet.isEnemy && bullet.active) {
             float targetX = 0.0f, targetY = 0.0f;
-            if (monsters.FindNearestEnemy(bullet.x, bullet.y, targetX, targetY)) {
+            // A piercing homing shot skips the enemies it already hit, or it circles the last one.
+            const bool pierces = bullet.piercing || bullet.pierceLeft > 0;
+            bool found = false;
+            float best = 1e18f;
+            auto consider = [&](const void* id, float ex, float ey) {
+                if (pierces && bullet.HasHit(id)) return;
+                const float d = (ex - bullet.x) * (ex - bullet.x) + (ey - bullet.y) * (ey - bullet.y);
+                if (d < best) { best = d; targetX = ex; targetY = ey; found = true; }
+            };
+            for (const auto* m : monsters.monsters) if (m->alive) consider(m, m->worldX, m->worldY);
+            for (const auto* r : monsters.rangedMobs) if (r->alive) consider(r, r->worldX, r->worldY);
+            if (found) {
                 const float dx = targetX - bullet.x;
                 const float dy = targetY - bullet.y;
                 const float length = std::sqrt(dx * dx + dy * dy);
@@ -86,6 +97,13 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         }
         const float prevX = bullet.x, prevY = bullet.y;
         bullet.Update(bulletDelta);
+        // A mortar shell a pane border stops lands right there (SynergyRuntime lands it) instead of vanishing.
+        auto landsAtPane = [&](float px, float py) {
+            if (bullet.isEnemy || !(bullet.synFlags & synf::Lob) || (bullet.synFlags & synf::Orbit)) return false;
+            bullet.x = px; bullet.y = py;
+            bullet.synLandDist = bullet.traveled;
+            return true;
+        };
         // A shot whose space changed under it was swept by a moving pane's
         // border (stopped there), or a pane closed, was released or jumped
         // away (it just takes the space it now stands in).
@@ -93,6 +111,7 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
             space::SpaceAt(prevX, prevY) == space::SpaceAt(bullet.x, bullet.y)) {
             int sweepingPane = 0;
             if (space::SweptBy(bullet.space, prevX, prevY, bullet.x, bullet.y, sweepingPane)) {
+                if (landsAtPane(prevX, prevY)) continue;
                 bullet.active = false;
                 space::g_Absorbed.push_back({ sweepingPane, bullet.x, bullet.y, bullet.isEnemy });
                 continue;
@@ -106,6 +125,7 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
             bullet.space = space::SpaceAt(bullet.x, bullet.y);   // a pane born after the shot: pass
         } else if (bullet.active &&
             space::CrossedBorder(bullet.space, bullet.x, bullet.y, absorbingPane)) {
+            if (landsAtPane(prevX, prevY)) continue;
             bullet.active = false;
             // Every shot a border stops wears that pane, the player's own too.
             space::g_Absorbed.push_back({ absorbingPane, bullet.x, bullet.y, bullet.isEnemy });
