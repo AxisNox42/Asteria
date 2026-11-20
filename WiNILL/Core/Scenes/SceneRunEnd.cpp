@@ -288,7 +288,7 @@ void Scene_GameOver(const SceneCtx& c, const GameOverSceneContext& state) {
     drawLabel(kWaveLabel[li], leftX, top + heroLabY, false);
     drawValue(hero, waveBuf, leftX + shakeX, top + heroY + shakeY, false,
               1.0f, heroHot ? 0.58f : 0.88f, heroHot ? 0.50f : 0.34f);
-    const float heroW = hero.r->Width(L"00", hero.scale);
+    const float heroW = hero.r->Width(waveBuf, hero.scale);   // the real digits, so "1" sits next to "/ 13"
     const float finalW = val.r->Width(L"/ 00", val.scale);
     drawValue(val, finalBuf, leftX + heroW + 12.0f * uiS,
               top + heroY + heroH - valH, false, 0.64f, 0.76f, 0.88f);

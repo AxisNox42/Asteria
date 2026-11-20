@@ -111,7 +111,7 @@ constexpr float kGlowCurrent = 1.0f;    // the step being taught (pulses)
 constexpr float kGlowEase    = 5.0f;    // per second
 constexpr float kPulseSpeed  = 5.0f;
 constexpr float kCurrentFillA = 0.42f;  // colour fill of the keys to press now
-constexpr float kGhostKeyA   = 0.10f;   // caps with no role: outline only, no label
+constexpr float kGhostKeyA   = 0.05f;   // caps with no role: a bare hint of the board, so the used keys stand out
 
 // ── Colours ──
 constexpr Rgb kCyan   { 0.55f, 0.90f, 1.00f };

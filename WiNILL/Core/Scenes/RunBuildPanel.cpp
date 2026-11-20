@@ -276,7 +276,7 @@ void DrawPanel(PanelState& st, const PanelIn& in) {
     int hoverStat = -1;
     if (nTaken == 0) {
         drawT(*lab.r, kNoneLabel[li], Snap(panelX), Snap(gridY + cell * 0.5f - labH * 0.5f),
-                    lab.scale, 0.64f, 0.76f, 0.88f, 0.70f * ge);
+                    lab.scale, 0.72f, 0.82f, 0.92f, 0.90f * ge);
     }
     BindMainShader();
     for (int i = 0; i < shown; ++i) {

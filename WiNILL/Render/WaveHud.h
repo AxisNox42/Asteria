@@ -2,7 +2,8 @@
 // ─────────────────────────────────────────────────────────────
 // Wave HUD (top centre): "04 / 15" and how long the wave's fight has run,
 // and a seven-node window of the wave track - three past waves, the current
-// wave fixed in the centre, three upcoming waves (symbols only, no labels).
+// wave fixed in the centre, three upcoming waves. Each number carries a
+// small word in front (WAVE / KILLS / TIME) so a first run can read it.
 // The window's end nodes are faded to say the track goes on; the run's
 // first and final waves are never faded because nothing lies beyond them.
 // Line glyphs only; text keeps the renderer halo so
@@ -206,13 +207,30 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
                           + std::max(g_TextL.Width(L"/ 88", totalSc), g_TextL.Width(total, totalSc));
     const float timerW = std::max(g_TextL.Width(quota > 0 ? L"88/88" : L"88:88", textSc),
                                   g_TextL.Width(timer, textSc));
-    const float headerW = progressW + 24.0f * hs + timerW;
+    // Small words in front of each group, on the same baseline.
+    int li = LangIndex();
+    if (li < 0 || li > 2) li = 0;
+    static const wchar_t* kWaveWord[3] = { L"\uC6E8\uC774\uBE0C", L"WAVE", L"\u30A6\u30A7\u30FC\u30D6" };
+    static const wchar_t* kKillWord[3] = { L"\uCC98\uCE58", L"KILLS", L"\u6483\u7834" };
+    static const wchar_t* kTimeWord[3] = { L"\uC2DC\uAC04", L"TIME", L"\u6642\u9593" };
+    static const wchar_t* kLeftWord[3] = { L"\uB0A8\uC740 \uC2DC\uAC04", L"LEFT", L"\u6B8B\u308A" };
+    const wchar_t* waveWord = kWaveWord[li];
+    const wchar_t* timerWord = quota > 0 ? kKillWord[li] : (finalFight ? kLeftWord[li] : kTimeWord[li]);
+    const float wordSc = UiTextScale(g_TextS, UiTextLevel::Supporting, hs * 0.9f);
+    const float wordGap = 6.0f * hs;
+    const float waveWordW = g_TextS.Width(waveWord, wordSc) + wordGap;
+    const float timerWordW = g_TextS.Width(timerWord, wordSc) + wordGap;
+    const float headerW = waveWordW + progressW + 24.0f * hs + timerWordW + timerW;
     const float baseline = hudTopY + g_TextL.BaselineOffset(textSc) + 4.0f * hs;
-    const float x = cx - headerW * 0.5f;
+    const float x0 = cx - headerW * 0.5f;
+    HudText(g_TextS, waveWord, x0, baseline, wordSc, kNext, 0.80f);
+    const float x = x0 + waveWordW;
     HudText(g_TextL, current, x, baseline, textSc, kText, 1.0f);
     HudText(g_TextL, total, x + g_TextL.Width(current, textSc) + totalGap, baseline,
             totalSc, kNext, 1.0f);
-    HudText(g_TextL, timer, x + progressW + 24.0f * hs, baseline, textSc,
+    const float tx = x + progressW + 24.0f * hs;
+    HudText(g_TextS, timerWord, tx, baseline, wordSc, kNext, 0.80f);
+    HudText(g_TextL, timer, tx + timerWordW, baseline, textSc,
             lastSeconds ? kDanger : kPast, 1.0f);
 
     // ── track ──

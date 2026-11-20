@@ -11,6 +11,8 @@
 //   Nova      a ring sweeping out from a point across the whole screen
 //   Sweep     a radar line turning once round the ship, a fan of fading lines behind it
 //   Implode   a ring closing in on a point, shards drawn inward with it
+//   HoleBurst 블랙홀 포획 closing: a singularity flash, warped shells rippling
+//             out, the swallowed spiral flung back out, a late faint ring
 //   Vortex    a small black hole: the pull's reach, spiral arms winding into
 //             a tilted accretion disk and a dark event horizon (gravity shots)
 //             (pulls, charges, cooldowns, the gather before a revive)
@@ -30,7 +32,7 @@ using line_fx::Rgb;
 
 inline constexpr Rgb kUnder{ 0.04f, 0.06f, 0.10f };
 
-enum class Kind { Blast, Bolt, Star, Nova, Implode, Sweep, Vortex, Slash };
+enum class Kind { Blast, Bolt, Star, Nova, Implode, Sweep, Vortex, Slash, HoleBurst };
 
 struct Fx {
     Kind kind = Kind::Blast;
@@ -114,6 +116,14 @@ inline void StarAt(const Fx& f, float u, float& px, float& py) {
     const float side = f.width * std::sin(line_fx::kPi * u);
     px = f.x0 + dx * u - dy / d * side;
     py = f.y0 + dy * u + dx / d * side;
+}
+
+// The black hole skill letting go at (x, y): its own burst out to `reach`
+// (the damage radius), slower than a Blast so each part reads.
+inline void HoleBurst(float x, float y, float reach, Rgb c, float life = 0.95f) {
+    Fx f; f.kind = Kind::HoleBurst; f.x = x; f.y = y; f.r = reach; f.c = c;
+    f.life = life; f.width = 2.4f; f.seed = NextSeed();
+    Push(f);
 }
 
 // A small black hole at (x, y) pulling from `reach`, over `life` seconds.
@@ -565,6 +575,78 @@ inline void DrawSlash(const Fx& f, float t) {
     }
 }
 
+// A ring whose radius wobbles (gravity bending it): amp is a fraction of r.
+inline void WarpRing(float x, float y, float r, float amp, float phase, float w, Rgb c, float a) {
+    if (r < 2.0f || a <= 0.004f) return;
+    constexpr int kN = 56;
+    float px[kN], py[kN];
+    for (int i = 0; i < kN; ++i) {
+        const float th = line_fx::kTwoPi * (float)i / kN;
+        const float k = 1.0f + amp * (0.6f * std::sin(3.0f * th + phase) + 0.4f * std::sin(5.0f * th - phase * 1.3f));
+        px[i] = x + std::cos(th) * r * k; py[i] = y + std::sin(th) * r * k;
+    }
+    miter::Loop(px, py, kN, w + 2.0f, kUnder.r, kUnder.g, kUnder.b, 0.26f * a);
+    miter::Loop(px, py, kN, w, c.r, c.g, c.b, a);
+}
+
+inline void DrawHoleBurst(const Fx& f, float t) {
+    const float L = f.life;
+    const float sec = t * L;
+    const Rgb hi = line_fx::Lift(f.c, 0.55f);
+    const Rgb white{ 1.0f, 0.97f, 1.0f };
+    auto ease = [](float u) { u = std::clamp(u, 0.0f, 1.0f); return 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u); };
+    auto win = [&](float a, float b) { return std::clamp((sec - a) / (b - a), 0.0f, 1.0f); };
+
+    // 1. Singularity flash (0 - 0.16s): a hot point swelling.
+    {
+        const float u = win(0.0f, 0.16f);
+        if (u < 1.0f) Ring(f.x, f.y, 6.0f + 10.0f * u, 2.2f, white, 1.0f - u);
+    }
+    // 2. Warped shells rippling out to the reach, the wobble settling as they go.
+    //    The first one is fast and hard: the hit itself.
+    for (int i = 0; i < 3; ++i) {
+        const float s0 = 0.02f + 0.10f * (float)i;
+        const float u = win(s0, s0 + (i == 0 ? 0.32f : 0.62f));
+        if (u <= 0.0f || u >= 1.0f) continue;
+        const float r = f.r * (0.15f + 0.85f * ease(u)) * (1.0f - 0.08f * (float)i);
+        const float amp = 0.16f * (1.0f - u) * (1.0f - u);
+        const float a = (1.0f - u) * (i == 0 ? 1.0f : 0.65f);
+        WarpRing(f.x, f.y, r, amp, sec * 7.0f + 1.7f * (float)i, i == 0 ? 3.0f : 1.6f, i == 0 ? hi : f.c, a);
+    }
+    // 3. The swallowed spiral flung back out: arms unwinding the other way.
+    {
+        const float u = win(0.06f, 0.70f);
+        if (u > 0.0f && u < 1.0f) {
+            const float reach = f.r * ease(u);
+            const float a = std::sin(line_fx::kPi * std::min(1.0f, u * 1.25f)) * 0.85f;
+            for (int arm = 0; arm < 4; ++arm) {
+                constexpr int kN = 20;
+                float px[kN], py[kN];
+                for (int j = 0; j < kN; ++j) {
+                    const float v = (float)j / (kN - 1);
+                    const float rr = reach * (0.25f + 0.75f * v);
+                    const float ang = line_fx::kTwoPi * (float)arm / 4.0f - v * (2.6f * (1.0f - u)) + sec * 2.0f;
+                    px[j] = f.x + std::cos(ang) * rr; py[j] = f.y + std::sin(ang) * rr;
+                }
+                miter::Path(px, py, kN, 1.6f, f.c.r, f.c.g, f.c.b, a * (arm % 2 ? 0.55f : 1.0f));
+            }
+        }
+    }
+    // 5. A late, thin ring past the blast (the field letting go), undistorted.
+    {
+        const float u = win(0.40f, 0.95f);
+        if (u > 0.0f && u < 1.0f)
+            Ring(f.x, f.y, f.r * (1.0f + 0.30f * ease(u)), 1.0f, f.c, 0.45f * (1.0f - u));
+    }
+    // 6. Afterimage: the horizon's ghost shrinking away at the centre.
+    {
+        const float u = win(0.20f, L);
+        if (u > 0.0f && u < 1.0f) {
+            WarpRing(f.x, f.y, 30.0f * (1.0f - u), 0.10f, sec * 9.0f, 1.2f, hi, 0.6f * (1.0f - u));
+        }
+    }
+}
+
 inline void Draw() {
     for (const Fx& f : g_Fx) {
         if (f.delay > 0.0f) continue;
@@ -587,6 +669,7 @@ inline void Draw() {
         case Kind::Sweep:   DrawSweep(f, t); break;
         case Kind::Vortex:  DrawVortex(f, t); break;
         case Kind::Slash:   DrawSlash(f, t); break;
+        case Kind::HoleBurst: DrawHoleBurst(f, t); break;
         }
     }
 }

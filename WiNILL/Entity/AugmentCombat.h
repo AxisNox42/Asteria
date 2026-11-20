@@ -25,6 +25,8 @@ void  DamageRadius(float x, float y, float radius, float pct,
 // radius < 0: all. show: an erase ring out to the radius (radius >= 100) or a nova
 // for a full clear; off for per-shot clears and for callers that draw their own.
 int   ClearEnemyBullets(float x, float y, float radius, bool show = true);
+// Damage only, no effect or sound: for callers that draw their own burst.
+void  BurstDamage(float x, float y, float radius, float pct);
 void  AddStardust(long long n);
 void  ResetDash();
 void  ChanceTriggered();              // Crown of Storms follow-up

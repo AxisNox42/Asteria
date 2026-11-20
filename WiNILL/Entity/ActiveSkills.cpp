@@ -27,6 +27,10 @@ extern MonsterManager      g_MonsterManager;
 extern std::vector<Bullet> g_Bullets;
 extern PlayerStats         g_Stats;
 
+// Screen shake (main.cpp).
+extern float g_ShakeTime;
+extern float g_ShakeMag;
+
 namespace active {
 namespace {
 
@@ -432,6 +436,13 @@ bool CanCast(int aug) {
     }
 }
 
+// 블랙홀 포획: the seed's flight from the ship before the hole opens (it is
+// added to the hole's life so the card's 3s is all open).
+static constexpr float kHoleSeed = 0.25f;
+// The last kHoleSuck seconds: it inhales hard (pull up to 3.5x, drawn as
+// streaks rushing in), then snaps to a point for kHoleSnap and lets go.
+static constexpr float kHoleSuck = 0.55f, kHoleSnap = 0.12f;
+
 void Cast(int aug) {
     gamelog::Cast();
     gamelog::Event("SKILL_CAST", "aug=%s", ALL_AUGS[aug].name);
@@ -548,10 +559,10 @@ void Cast(int aug) {
         Audio::Play(Audio::Cue::SkillWave);
         break;
     case AugType::A_ABYSS_BLACK_HOLE_CAPTURE: {
-        Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f * MetaDurationMult();
+        Obj o; o.kind = ObjKind::Gate; o.x = s.in.aimX; o.y = s.in.aimY; o.life = 3.0f * MetaDurationMult() + kHoleSeed;
         o.col = { 0.55f, 0.35f, 0.95f };
+        o.x2 = px; o.y2 = py;   // thrown from the ship: the seed flies from here (DrawBlackHole)
         s.objs.push_back(o);
-        strike_fx::Implode(o.x, o.y, Rings(8), o.col, 0.0f, 0.30f);   // space folds in as it opens
         Audio::StartLoop(Audio::Cue::SkillVortexLoop);
         break;
     }
@@ -700,6 +711,55 @@ bool TryUse(int slot) {
     return true;
 }
 
+// 블랙홀 포획 letting go: everything it swallowed thrown back out at once.
+// Layers (particle drag is 2.5/s, so reach ~ speed / 2.5):
+//   white-hot sparks from the core, a ring of particles riding the shock
+//   front out past the blast, a mass of matter flung in every direction at
+//   mixed speeds and sizes, and slow embers left hanging after it.
+void SpawnHoleBlast(float x, float y, line_fx::Rgb c) {
+    const line_fx::Rgb hi = line_fx::Lift(c, 0.55f);
+    auto rnd = []() { return (float)(rand() % 10001) / 10000.0f; };
+    SpawnSparks(x, y, 70, 1.0f, 0.94f, 1.0f, 1500.0f);
+    int slot = 0;
+    const int cap = EnemyParticleCap();
+    auto put = [&](float px, float py, float vx, float vy, float life, float size,
+                   line_fx::Rgb col, EnemyParticleShape shape, float delay) {
+        while (slot < cap && g_EnemyParts[slot].active) ++slot;
+        if (slot >= cap) return;
+        EnemyParticle& e = g_EnemyParts[slot];
+        e = {};
+        e.x = px; e.y = py; e.vx = vx; e.vy = vy;
+        e.life = e.maxLife = life; e.size = size;
+        e.r = col.r; e.g = col.g; e.b = col.b;
+        e.active = true; e.shape = shape; e.delay = delay;
+    };
+    // Shock front: an even ring, fast, small and bright (~5.5 rings out).
+    for (int i = 0; i < 72; ++i) {
+        const float ang = 6.2831853f * (float)i / 72.0f;
+        const float v = 1100.0f + 80.0f * rnd();
+        put(x, y, std::cos(ang) * v, std::sin(ang) * v, 0.60f, 5.5f, hi, EnemyParticleShape::CIRCLE, 0.0f);
+    }
+    // The swallowed matter: every direction, mixed speeds (200 - 800 px) and sizes.
+    for (int i = 0; i < 180; ++i) {
+        const float ang = rnd() * 6.2831853f;
+        const float v = 500.0f + 1500.0f * rnd() * rnd();
+        const float r0 = 30.0f * rnd();
+        const float k = rnd();
+        const line_fx::Rgb col = k < 0.20f ? line_fx::Rgb{ 1.0f, 0.95f, 1.0f }
+                               : k < 0.60f ? hi : c;
+        const EnemyParticleShape sh = static_cast<EnemyParticleShape>(rand() % 3);
+        put(x + std::cos(ang) * r0, y + std::sin(ang) * r0, std::cos(ang) * v, std::sin(ang) * v,
+            0.55f + 0.55f * rnd(), 4.0f + 13.0f * rnd() * rnd(), col, sh, 0.0f);
+    }
+    // Embers that hang in the air after the blast has passed.
+    for (int i = 0; i < 40; ++i) {
+        const float ang = rnd() * 6.2831853f;
+        const float v = 150.0f + 300.0f * rnd();
+        put(x, y, std::cos(ang) * v, std::sin(ang) * v, 1.0f + 0.4f * rnd(), 2.0f + 2.0f * rnd(),
+            c, EnemyParticleShape::SQUARE, 0.06f + 0.10f * rnd());
+    }
+}
+
 void StepObjects(float dt) {
     g_SteppingObjs = true;
     for (Obj& o : s.objs) {
@@ -754,12 +814,16 @@ void StepObjects(float dt) {
             // Full pull inside 5 rings; a weak field out to 8 rings that fades
             // from kFieldPull at the edge of the pull to nothing.
             constexpr float kPull = Rings(5), kField = Rings(8), kFieldPull = 90.0f;
+            // Nothing pulls while the seed flies; the pull grows as the hole opens.
+            const float gu = std::clamp((o.t - kHoleSeed) / 0.55f, 0.0f, 1.0f);
+            const float suckU = std::clamp((o.t - (o.life - kHoleSuck)) / (kHoleSuck - kHoleSnap), 0.0f, 1.0f);
+            const float grip = gu * gu * (3.0f - 2.0f * gu) * (1.0f + 2.5f * suckU * suckU);
             auto pull = [&](float& x, float& y, float speed) {
                 const float ex = o.x - x, ey = o.y - y;
                 const float d = std::sqrt(ex * ex + ey * ey);
-                if (d < 1.0f || d > kField) return;
-                const float v = d <= kPull ? speed
-                    : kFieldPull * (speed / 260.0f) * (1.0f - (d - kPull) / (kField - kPull));
+                if (d < 1.0f || d > kField || grip <= 0.0f) return;
+                const float v = grip * (d <= kPull ? speed
+                    : kFieldPull * (speed / 260.0f) * (1.0f - (d - kPull) / (kField - kPull)));
                 const float step = std::min(d, v * dt);
                 x += ex / d * step; y += ey / d * step;
             };
@@ -769,7 +833,7 @@ void StepObjects(float dt) {
             for (Bullet& b : g_Bullets) {
                 if (!b.active || !b.isEnemy) continue;
                 pull(b.x, b.y, 520.0f);
-                if ((b.x - o.x) * (b.x - o.x) + (b.y - o.y) * (b.y - o.y) < 30.0f * 30.0f) {
+                if (grip > 0.5f && (b.x - o.x) * (b.x - o.x) + (b.y - o.y) * (b.y - o.y) < 30.0f * 30.0f) {
                     b.active = false;
                     ++o.count;
                 }
@@ -780,11 +844,16 @@ void StepObjects(float dt) {
                 for (const Obj& g : s.objs)
                     if (&g != &o && g.kind == ObjKind::Gate && g.t < g.life) otherOpen = true;
                 if (!otherOpen) Audio::StopLoop(Audio::Cue::SkillVortexLoop);
-                passive::DamageRadius(o.x, o.y, Rings(4), 1500.0f + 50.0f * (float)o.count,
-                                      0.55f, 0.35f, 0.95f, DamageMult(), strike_fx::BlastStyle::Gravity);
-                // After collapsing to a point it rings out past the blast.
-                strike_fx::Nova(o.x, o.y, Rings(5), line_fx::Lift(o.col, 0.35f));
-                strike_fx::Nova(o.x, o.y, Rings(3), o.col, 0.08f);
+                // Collapsed to a point (DrawBlackHole), it lets go: its own burst,
+                // not the shared gravity blast.
+                passive::BurstDamage(o.x, o.y, Rings(4), (1500.0f + 50.0f * (float)o.count) * DamageMult());
+                strike_fx::HoleBurst(o.x, o.y, Rings(4), o.col);
+                SpawnHoleBlast(o.x, o.y, o.col);
+                Audio::Play(Audio::Cue::ExplodeL);
+                // A beat of stillness, then a short jolt.
+                TriggerHitStop(0.05f);
+                g_ShakeTime = std::max(g_ShakeTime, 0.30f);
+                g_ShakeMag = std::max(g_ShakeMag, 12.0f);
             }
             break;
         }
@@ -1261,108 +1330,201 @@ static void DrawLineObj(const Obj& o, float k, float time) {
     (void)time;
 }
 
-// 블랙홀 포획: lines only. From outside in:
-//   weak field (8 rings) - a faint edge and slow ripples drifting inward
-//   pull reach (5 rings) - a clearer edge, long spiral arms winding in
-//   accretion disc       - tilted ellipses turning, arc shards spiralling in,
-//                          one bead per enemy bullet eaten
-//   horizon              - tight contours, a bright photon ring that pulses
-// Things being pulled leave short tails curving toward it. In the last 0.15s
-// everything collapses to a point; the blast and shockwaves follow at close.
-static void DrawBlackHole(const Obj& o, float born, float time) {
+// 블랙홀 포획: lines only.
+//   seed (0 - kHoleSeed)   a bright dart thrown from the ship onto the aim
+//   tear                   space splits open along a short slit, which curls
+//                          into the horizon
+//   open (to ~0.9s)        horizon rings, then the disc spinning up, then the
+//                          arms growing out to the reach, then the field rings
+//   steady                 weak field (8 rings) ripples drifting in, pull reach
+//                          (5 rings), long arms, tilted disc with arc shards,
+//                          one bead per enemy bullet eaten, horizon contours and
+//                          a pulsing photon ring, tails on what is being pulled
+//   unstable (last 0.6s)   everything wobbles harder, the arms wind faster
+//   collapse (last 0.18s)  all of it falls into a point; HoleBurst follows
+static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
     constexpr float kPullR = Rings(5), kFieldR = Rings(8);
     const Rgb c = o.col;
     const Rgb hi = lf::Lift(c, 0.5f);
+    const Rgb white = { 1.0f, 0.97f, 1.0f };
     const Rgb deep = { c.r * 0.6f, c.g * 0.5f, c.b * 0.85f };
-    const float open = Smooth01(o.t / 0.25f);
-    const float collapse = Smooth01((o.t - (o.life - 0.15f)) / 0.15f);
-    const float sc = open * (1.0f - collapse);           // overall size
-    const float a = born * (1.0f - 0.6f * collapse);    // overall alpha
-    if (sc <= 0.01f && collapse >= 1.0f) return;
-    const float spin = o.t * 2.4f;
+    const float t = o.t;
+    auto win = [&](float a, float b) { return Smooth01((t - a) / (b - a)); };
+
+    // ── seed: thrown from the ship ──
+    if (t < kHoleSeed + 0.05f) {
+        const float u = std::clamp(t / kHoleSeed, 0.0f, 1.0f);
+        const float e = u * u;   // speeds up into the point
+        const float hx = o.x2 + (o.x - o.x2) * e, hy = o.y2 + (o.y - o.y2) * e;
+        const float tu = std::max(0.0f, e - 0.35f);
+        const float tx = o.x2 + (o.x - o.x2) * tu, ty = o.y2 + (o.y - o.y2) * tu;
+        lf::Line(tx, ty, hx, hy, 1.4f, c, 0.7f);
+        lf::Diamond(hx, hy, 6.0f, 1.6f, white, 1.0f);
+        lf::Circle(hx, hy, 11.0f, 1.0f, hi, 0.6f);
+        if (t < kHoleSeed) return;
+    }
+    const float ht = t - kHoleSeed;   // time since the hole began
+
+    // ── tear: a slit across the flight line opens, then curls up ──
+    const float fdx = o.x - o.x2, fdy = o.y - o.y2;
+    const float fd = std::max(1.0f, std::sqrt(fdx * fdx + fdy * fdy));
+    const float nx = -fdy / fd, ny = fdx / fd;
+    {
+        const float grow = Smooth01(ht / 0.14f), curl = Smooth01((ht - 0.10f) / 0.22f);
+        if (curl < 1.0f) {
+            const float half = 70.0f * grow * (1.0f - curl);
+            const float jag = 5.0f * (1.0f - curl);
+            float px[7], py[7];
+            for (int j = 0; j < 7; ++j) {
+                const float v = (float)j / 6.0f * 2.0f - 1.0f;
+                const float off = (j % 2 ? jag : -jag) * (1.0f - std::fabs(v));
+                px[j] = o.x + nx * half * v + (fdx / fd) * off;
+                py[j] = o.y + ny * half * v + (fdy / fd) * off;
+            }
+            miter::Path(px, py, 7, 2.2f, white.r, white.g, white.b, 0.95f * (1.0f - curl));
+        }
+    }
+
+    // ── phases ──
+    const float horizonIn = win(kHoleSeed + 0.10f, kHoleSeed + 0.34f);
+    const float discIn    = win(kHoleSeed + 0.22f, kHoleSeed + 0.55f);
+    const float armsIn    = win(kHoleSeed + 0.30f, kHoleSeed + 0.85f);
+    const float fieldIn   = win(kHoleSeed + 0.45f, kHoleSeed + 0.95f);
+    const float unstable  = Smooth01((t - (o.life - 0.60f)) / 0.42f);
+    // The inhale: 0 -> 1 over the suck window, accelerating; then the snap.
+    const float suckLin   = std::clamp((t - (o.life - kHoleSuck)) / (kHoleSuck - kHoleSnap), 0.0f, 1.0f);
+    const float suck      = suckLin * suckLin;
+    const float collapse  = Smooth01((t - (o.life - kHoleSnap)) / kHoleSnap);
+    const float shrink = 1.0f - collapse;
+    const float a = 1.0f - 0.5f * collapse;
+    if (shrink <= 0.01f) {   // the instant before it lets go: one hot point
+        lf::Circle(o.x, o.y, 4.0f, 2.0f, white, 1.0f);
+        return;
+    }
+    // The disc spins up as it opens and winds faster as it destabilises.
+    const float spin = ht * (1.2f + 1.6f * discIn) + unstable * unstable * 4.0f + suck * 9.0f;
+    const float wob = 0.03f + 0.14f * unstable;   // ring wobble (fraction of radius)
+    const float ph = time * (3.0f + 6.0f * unstable);
 
     // ── weak field ──
-    lf::Circle(o.x, o.y, kFieldR * sc, 1.0f, c, 0.12f * a);
-    for (int i = 0; i < 3; ++i) {
-        const float p = std::fmod(o.t * 0.35f + (float)i / 3.0f, 1.0f);
-        const float r = kFieldR - (kFieldR - kPullR) * p;
-        lf::Circle(o.x, o.y, r * sc, 1.0f, c, 0.16f * std::sin(lf::kPi * p) * a);
+    if (fieldIn > 0.0f) {
+        strike_fx::WarpRing(o.x, o.y, kFieldR * shrink, wob * 0.5f, ph * 0.5f, 1.0f, c, 0.14f * fieldIn * a);
+        for (int i = 0; i < 3; ++i) {
+            const float p = std::fmod(ht * 0.35f + (float)i / 3.0f, 1.0f);
+            const float r = kFieldR - (kFieldR - kPullR) * p;
+            lf::Circle(o.x, o.y, r * shrink, 1.0f, c, 0.16f * std::sin(lf::kPi * p) * fieldIn * a);
+        }
     }
     // ── pull reach ──
-    lf::Circle(o.x, o.y, kPullR * sc, 1.4f, c, 0.32f * a);
-    for (int i = 0; i < 2; ++i) {
-        const float p = std::fmod(o.t * 0.8f + 0.5f * (float)i, 1.0f);
-        lf::Circle(o.x, o.y, (kPullR * (1.0f - p) + 40.0f * p) * sc, 1.0f, c, 0.30f * p * a);
-    }
-    // Long spiral arms from the reach down to the disc.
-    for (int arm = 0; arm < 4; ++arm) {
-        constexpr int kN = 28;
-        float px[kN], py[kN];
-        for (int j = 0; j < kN; ++j) {
-            const float u = (float)j / (kN - 1);
-            const float r = (40.0f + (kPullR * 0.92f - 40.0f) * u * u) * sc;
-            const float ang = lf::kTwoPi * (float)arm / 4.0f + u * 4.2f - spin;
-            px[j] = o.x + std::cos(ang) * r; py[j] = o.y + std::sin(ang) * r;
+    if (armsIn > 0.0f) {
+        strike_fx::WarpRing(o.x, o.y, kPullR * armsIn * shrink, wob * 0.6f, ph * 0.7f, 1.4f, c, 0.34f * armsIn * a);
+        for (int i = 0; i < 2; ++i) {
+            const float p = std::fmod(ht * 0.8f + 0.5f * (float)i, 1.0f);
+            lf::Circle(o.x, o.y, (kPullR * (1.0f - p) + 40.0f * p) * shrink, 1.0f, c, 0.28f * p * fieldIn * a);
         }
-        miter::Path(px, py, kN, arm % 2 ? 1.2f : 1.8f, c.r, c.g, c.b, (arm % 2 ? 0.45f : 0.75f) * a);
-    }
-    // ── accretion disc: tilted ellipses ──
-    const float tilt = 0.38f;   // flattening
-    for (int e = 0; e < 3; ++e) {
-        constexpr int kN = 40;
-        float px[kN], py[kN];
-        const float rx = (58.0f + 26.0f * (float)e) * sc, ry = rx * tilt;
-        const float rot = -0.35f + 0.12f * (float)e;
-        const float cr = std::cos(rot), sr = std::sin(rot);
-        for (int j = 0; j < kN; ++j) {
-            const float t = lf::kTwoPi * (float)j / kN;
-            const float ex = std::cos(t) * rx, ey = std::sin(t) * ry;
-            px[j] = o.x + ex * cr - ey * sr; py[j] = o.y + ex * sr + ey * cr;
+        // Long arms growing out from the disc to the reach.
+        for (int arm = 0; arm < 4; ++arm) {
+            constexpr int kN = 28;
+            float px[kN], py[kN];
+            const float outer = 40.0f + (kPullR * 0.92f - 40.0f) * armsIn;
+            for (int j = 0; j < kN; ++j) {
+                const float u = (float)j / (kN - 1);
+                const float r = (40.0f + (outer - 40.0f) * u * u) * shrink;
+                const float ang = lf::kTwoPi * (float)arm / 4.0f + u * (4.2f + 1.5f * unstable + 5.0f * suck) - spin;
+                const float w = 1.0f + 0.35f * wob * std::sin(2.0f * ang + ph);   // a slow bend, not a scribble
+                px[j] = o.x + std::cos(ang) * r * w; py[j] = o.y + std::sin(ang) * r * w;
+            }
+            miter::Path(px, py, kN, arm % 2 ? 1.2f : 1.8f, c.r, c.g, c.b, (arm % 2 ? 0.45f : 0.75f) * armsIn * a);
         }
-        miter::Loop(px, py, kN, e == 0 ? 2.2f : 1.3f, (e == 0 ? hi : c).r, (e == 0 ? hi : c).g,
-                    (e == 0 ? hi : c).b, (e == 0 ? 0.9f : 0.55f - 0.12f * (float)e) * a);
     }
-    // Arc shards on the disc, sliding inward as they go round.
-    uint32_t seed = lf::SeedAt(o.x, o.y);
-    for (int i = 0; i < 10; ++i) {
-        const float ph = std::fmod(o.t * (0.55f + 0.25f * lf::Rnd(seed)) + lf::Rnd(seed), 1.0f);
-        const float r = (150.0f - 95.0f * ph) * sc;
-        const float a0 = lf::Rnd(seed) * lf::kTwoPi - spin * (1.4f + ph);
-        const float sweep = 0.35f + 0.5f * ph;
-        lf::ArcLine(o.x, o.y, r, a0, sweep, 1.2f, hi, 0.6f * std::sin(lf::kPi * ph) * a);
-    }
-    // One bead on the disc per enemy bullet eaten (up to 12).
-    const int beads = std::min(12, o.count);
-    for (int i = 0; i < beads; ++i) {
-        const float ang = spin * 1.6f + lf::kTwoPi * (float)i / (float)std::max(1, beads);
-        const float ex = std::cos(ang) * 70.0f * sc, ey = std::sin(ang) * 70.0f * tilt * sc;
+    // ── accretion disc ──
+    const float tilt = 0.38f;
+    const float discR = discIn * shrink;
+    if (discIn > 0.0f) {
+        for (int e = 0; e < 3; ++e) {
+            constexpr int kN = 40;
+            float px[kN], py[kN];
+            const float rx = (58.0f + 26.0f * (float)e) * discR, ry = rx * tilt;
+            const float rot = -0.35f + 0.12f * (float)e + unstable * 0.25f * std::sin(time * 7.0f + (float)e);
+            const float cr = std::cos(rot), sr = std::sin(rot);
+            for (int j = 0; j < kN; ++j) {
+                const float th = lf::kTwoPi * (float)j / kN;
+                const float w = 1.0f + wob * 0.6f * std::sin(3.0f * th + ph + (float)e);
+                const float ex = std::cos(th) * rx * w, ey = std::sin(th) * ry * w;
+                px[j] = o.x + ex * cr - ey * sr; py[j] = o.y + ex * sr + ey * cr;
+            }
+            const Rgb ec = e == 0 ? hi : c;
+            miter::Loop(px, py, kN, e == 0 ? 2.2f : 1.3f, ec.r, ec.g, ec.b,
+                        (e == 0 ? 0.9f : 0.55f - 0.12f * (float)e) * discIn * a);
+        }
+        uint32_t seed = lf::SeedAt(o.x, o.y);
+        for (int i = 0; i < 10; ++i) {
+            const float sp = 0.55f + 0.25f * lf::Rnd(seed);
+            const float p = std::fmod(ht * sp + lf::Rnd(seed), 1.0f);
+            const float r = (150.0f - 95.0f * p) * discR;
+            const float a0 = lf::Rnd(seed) * lf::kTwoPi - spin * (1.4f + p);
+            lf::ArcLine(o.x, o.y, r, a0, 0.35f + 0.5f * p, 1.2f, hi, 0.6f * std::sin(lf::kPi * p) * discIn * a);
+        }
+        const int beads = std::min(12, o.count);
         const float cr = std::cos(-0.35f), sr = std::sin(-0.35f);
-        lf::Diamond(o.x + ex * cr - ey * sr, o.y + ex * sr + ey * cr, 3.5f, 1.2f, hi, 0.95f * a);
+        for (int i = 0; i < beads; ++i) {
+            const float ang = spin * 1.6f + lf::kTwoPi * (float)i / (float)std::max(1, beads);
+            const float ex = std::cos(ang) * 70.0f * discR, ey = std::sin(ang) * 70.0f * tilt * discR;
+            lf::Diamond(o.x + ex * cr - ey * sr, o.y + ex * sr + ey * cr, 3.5f, 1.2f, hi, 0.95f * a);
+        }
     }
-    // ── horizon: tight contours, brighter inward, and the photon ring ──
-    const float eaten = std::min(1.0f, (float)o.count / 12.0f);
-    for (int i = 0; i < 4; ++i) {
-        const float r = (34.0f - 6.0f * (float)i) * sc;
-        lf::Circle(o.x, o.y, r, 1.0f + 0.3f * (float)i, i < 2 ? deep : c, (0.35f + 0.18f * (float)i) * a);
+    // ── horizon ──
+    if (horizonIn > 0.0f) {
+        const float hr = horizonIn * shrink;
+        const float eaten = std::min(1.0f, (float)o.count / 12.0f);
+        for (int i = 0; i < 4; ++i) {
+            const float r = (34.0f - 6.0f * (float)i) * hr;
+            strike_fx::WarpRing(o.x, o.y, r, wob * 0.8f, ph + (float)i, 1.0f + 0.3f * (float)i,
+                                i < 2 ? deep : c, (0.35f + 0.18f * (float)i) * horizonIn * a);
+        }
+        // The photon ring flickers as it destabilises.
+        const float pulse = 0.5f + 0.5f * std::sin(time * (9.0f + 20.0f * unstable));
+        strike_fx::WarpRing(o.x, o.y, (38.0f + 2.5f * pulse) * hr, wob, -ph, 2.4f, collapse > 0.0f ? white : hi,
+                            (0.65f + 0.25f * pulse + 0.1f * eaten) * horizonIn * (1.0f - 0.3f * collapse) + 0.3f * collapse);
+        lf::Circle(o.x, o.y, 9.0f * hr, 1.2f, hi, (0.4f + 0.6f * eaten) * horizonIn * a);
     }
-    const float pulse = 0.5f + 0.5f * std::sin(time * 9.0f);
-    lf::Circle(o.x, o.y, (38.0f + 2.5f * pulse) * sc, 2.4f, hi, (0.65f + 0.25f * pulse + 0.1f * eaten) * a);
-    lf::Circle(o.x, o.y, 9.0f * sc, 1.2f, hi, (0.4f + 0.6f * eaten) * a);
+    // ── the inhale: streaks rushing in from the field's edge, rings snapping inward ──
+    if (suckLin > 0.0f && collapse < 1.0f) {
+        uint32_t sd = lf::SeedAt(o.y, o.x);
+        for (int i = 0; i < 28; ++i) {
+            const float ang = lf::Rnd(sd) * lf::kTwoPi;
+            const float off = lf::Rnd(sd);
+            // Each streak starts at the field's edge and falls in, faster and faster.
+            const float p = std::fmod(suckLin * (1.6f + 1.4f * lf::Rnd(sd)) + off, 1.0f);
+            const float head = kFieldR * (1.0f - p * p) + 20.0f;
+            const float len = 40.0f + 160.0f * p * suckLin;
+            const float tail = std::min(kFieldR * 1.05f, head + len);
+            const float bend = 0.25f * (1.0f - p);   // curls round as it falls
+            lf::Line(o.x + std::cos(ang + bend) * tail, o.y + std::sin(ang + bend) * tail,
+                     o.x + std::cos(ang) * head, o.y + std::sin(ang) * head,
+                     i % 4 == 0 ? 1.8f : 1.1f, i % 4 == 0 ? white : hi, (0.35f + 0.55f * suckLin) * std::sin(lf::kPi * p));
+        }
+        for (int i = 0; i < 3; ++i) {
+            const float u = std::clamp(suckLin * 1.5f - 0.25f * (float)i, 0.0f, 1.0f);
+            if (u <= 0.0f || u >= 1.0f) continue;
+            const float r = kFieldR * (1.0f - u * u * u);
+            strike_fx::WarpRing(o.x, o.y, r, 0.04f, ph, i == 0 ? 2.4f : 1.4f, i == 0 ? hi : c, 0.75f * u);
+        }
+    }
 
     // ── tails on what is being pulled ──
-    auto tail = [&](float x, float y, float len) {
-        const float dx = o.x - x, dy = o.y - y;
-        const float d = std::sqrt(dx * dx + dy * dy);
-        if (d < 50.0f || d > kFieldR) return;
-        const float inside = d <= kPullR ? 1.0f : 0.45f * (1.0f - (d - kPullR) / (kFieldR - kPullR));
-        const float ux = dx / d, uy = dy / d;
-        // Trail behind it (away from the hole), bent sideways like the arms.
-        const float bx = x - ux * len - uy * len * 0.35f, by = y - uy * len + ux * len * 0.35f;
-        const float mx = x - ux * len * 0.5f - uy * len * 0.08f, my = y - uy * len * 0.5f + ux * len * 0.08f;
-        const float qx[3] = { bx, mx, x }, qy[3] = { by, my, y };
-        miter::Path(qx, qy, 3, 1.2f, c.r, c.g, c.b, 0.55f * inside * a);
-    };
-    if (collapse < 1.0f) {
+    if (collapse <= 0.0f && armsIn > 0.3f) {
+        auto tail = [&](float x, float y, float len) {
+            const float dx = o.x - x, dy = o.y - y;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            if (d < 50.0f || d > kFieldR) return;
+            const float inside = d <= kPullR ? 1.0f : 0.45f * (1.0f - (d - kPullR) / (kFieldR - kPullR));
+            const float ux = dx / d, uy = dy / d;
+            const float bx = x - ux * len - uy * len * 0.35f, by = y - uy * len + ux * len * 0.35f;
+            const float mx = x - ux * len * 0.5f - uy * len * 0.08f, my = y - uy * len * 0.5f + ux * len * 0.08f;
+            const float qx[3] = { bx, mx, x }, qy[3] = { by, my, y };
+            miter::Path(qx, qy, 3, 1.2f, c.r, c.g, c.b, 0.55f * inside * armsIn);
+        };
         for (auto* m : g_MonsterManager.monsters)
             if (m->alive && !IsBossMob(m->kind)) tail(m->worldX, m->worldY, 34.0f);
         for (auto* r : g_MonsterManager.rangedMobs) if (r->alive) tail(r->worldX, r->worldY, 34.0f);

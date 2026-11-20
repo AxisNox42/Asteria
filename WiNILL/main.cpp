@@ -4255,7 +4255,8 @@ static void DrawFloatingCombatText(GameState st, float sw, float sh) {
                 (1.0f + g_ComboPulse * 0.4f + msBoost * 0.55f) * UiScale(sw, sh));
             sc *= 1.0f + (g_Combo > 30 ? 0.12f : 0.0f);
             float cr = 1.0f, cg = 1.0f, cbl = 1.0f;
-            if      (g_Combo >= 50) { cg = 0.25f; cbl = 0.2f; }
+            // Red stays the "about to break" warning only; the top tier is magenta.
+            if      (g_Combo >= 50) { cr = 0.92f; cg = 0.42f; cbl = 1.0f; }
             else if (g_Combo >= 25) { cg = 0.55f; cbl = 0.15f; }
             else if (g_Combo >= 12) { cg = 0.9f;  cbl = 0.3f; }
             if (ms) { cr = 1.0f; cg = 0.85f; cbl = 0.30f; }   // 마일?�톤 = 골드 ?�스
@@ -7475,9 +7476,10 @@ CollisionSystem::Update(pCX, pCY,
             BindMainShader();
             DrawPlayerTrail();
             const GameState healthState = g_GameManager.currentState;
+            // Not under the augment pick: the cards are outline-only and the
+            // HP ring read through the middle card's text.
             if (healthState == GameState::RUNNING ||
-                (healthState == GameState::PAUSED && !TutorialPaused()) ||
-                healthState == GameState::AUG_SELECT) {
+                (healthState == GameState::PAUSED && !TutorialPaused())) {
                 const float hpFraction = std::clamp(g_GameManager.playerHP /
                     std::max(1.0f, g_Stats.maxHP), 0.0f, 1.0f);
                 const float hpHit = std::min(1.0f, g_HpBarPop / 0.35f);

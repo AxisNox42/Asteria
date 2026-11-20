@@ -695,7 +695,9 @@ void FlushEnemySightFrontBatch() {
     DrawIconBatch(g_ConstellationCircleTex, quads, true);
 }
 
-static constexpr float kSightRearScale = 1.55f;
+// Kept small and soft: on a bright wallpaper a stronger field read as a
+// dark plate behind every mob (no plates/veils).
+static constexpr float kSightRearScale = 1.20f;
 
 // Render all black sight fields in a prepass. This keeps a mob's rear field
 // behind every body instead of letting it occlude a neighboring mob.
@@ -800,7 +802,7 @@ void DrawCombatSightFields(const MonsterManager& monsters,
             const float base = RangedMob::VISUAL_BASE_PX * ranged->deathScale;
             rearMarkers.push_back({ranged->worldX, ranged->worldY, base * 2.65f});
         }
-        DrawEnemySightRearBatch(rearMarkers);
+        DrawEnemySightRearBatch(rearMarkers, 0.35f);
     }
     BatchFlush();
 

@@ -215,9 +215,10 @@ inline void DrawSkillHud(const skill_hud::SkillHudView& view, float hudScale,
         if (s.empty) {
             // Faint on a dark desktop, but its keyline must still carry it on a
             // bright one (beta: the empty slots vanished on light wallpapers).
-            hud_lines::Ring(cx, cy, radius, 1.0f * hs, kEmptyCol, 0.55f, keyline);
+            // (Thicker and brighter than before: at 720p hs ~0.71 left a hairline.)
+            hud_lines::Ring(cx, cy, radius, 1.6f * hs, kEmptyCol, 0.75f, keyline);
             for (int pass = keyline > 0.0f ? 0 : 1; pass < 2; ++pass) {
-                const Pen mark{ kEmptyCol, 0.75f, 1.2f * hs, keyline, pass == 0 };
+                const Pen mark{ kEmptyCol, 0.85f, 1.5f * hs, keyline, pass == 0 };
                 if (s.sealed) {   // a sealed slot: an X
                     mark.Line(cx - 7.0f * hs, cy - 7.0f * hs, cx + 7.0f * hs, cy + 7.0f * hs);
                     mark.Line(cx - 7.0f * hs, cy + 7.0f * hs, cx + 7.0f * hs, cy - 7.0f * hs);

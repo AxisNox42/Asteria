@@ -1101,18 +1101,34 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const float frameA0 = frameA;
     // (The tutorial's single level-up pick has no deck: the key line sits there.)
     if (!inExit && !pickGuideUp && !tutorialPick && g_GlossaryOpenA < 0.99f) {   // the guide's caption takes the deck's place
-        const float frameA = frameA0 * (1.0f - g_GlossaryOpenA);   // the deck steps back for a definition
+        // Picks still queued after this one. With none left the deck has only
+        // dealt this hand, so it fades once the cards are face up.
+        const int queued = std::min(6, std::max(0, g_GameManager.PendingRewards() - 1));
+        const float deckLife = queued > 0 ? 1.0f : 1.0f - ac::Smooth01((t - T.end) / 0.40f);
+        const float frameA = frameA0 * (1.0f - g_GlossaryOpenA) * deckLife;   // the deck steps back for a definition
         for (int k = 3; k >= 0; --k) {
             const Xf X = MakeXf(L.deckX + k * 2.5f * ui, L.deckY - k * 2.5f * ui, L.deckS * ui, L.deckS * ui, 0.0f);
             LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, kUiBlue,
                      frameA * (k == 0 ? 0.26f : 0.14f), k == 0 ? key : 0.0f);
             if (k == 0) LCornerBrackets(X, kUiBlue, frameA * 0.80f, 3.6f * ui, 30.0f, key);
         }
-        // Picks still queued after this one.
-        const int queued = std::min(6, std::max(0, g_GameManager.PendingRewards() - 1));
         for (int q = 0; q < queued; ++q)
             SDiamond(L.deckX + ac::kCardW * L.deckS * ui * 0.5f + (22.0f + q * 16.0f) * ui, L.deckY,
                      5.0f * ui, kUiBlue, frameA * 0.85f, 1.3f * ui, key, true);
+        // Says what the deck is: the picks waiting after this one.
+        if (queued > 0) {
+            static const wchar_t* kLeft[3] = { L"남은 선택 %d", L"PICKS LEFT %d", L"残り %d" };
+            wchar_t buf[48];
+            swprintf_s(buf, kLeft[CurLangIdx()], queued);
+            const float ls = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
+            const float lw = g_TextS.Width(buf, ls);
+            const Rgb lc = Mix(kUiBlue, kText, 0.45f);
+            BatchFlush();
+            DrawShadowedText(g_TextS, buf, L.deckX - lw * 0.5f,
+                             L.deckY + (ac::kCardH * L.deckS * 0.5f + 12.0f) * ui, ls,
+                             lc.r, lc.g, lc.b, frameA * 0.90f, 0.70f);
+            BindMainShader();
+        }
     }
 
     // ── cards: geometry ──
@@ -1132,12 +1148,17 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         d.y = u * u * L.deckY + 2.0f * u * e * ctrlY + e * e * slotY;
         const float scale = Lerp(L.deckS, 1.0f, e) * ui;
         const float rot = Lerp(-8.0f, 0.0f, e) * kDeg;
-        d.alpha = sceneA * ac::Clamp01(1.0f - 0.45f * (focusMax - focusT[i]));
+        // Unfocused cards: the frame steps back, the words stay readable.
+        const float unfocus = focusMax - focusT[i];
+        d.alpha = sceneA * ac::Clamp01(1.0f - 0.45f * unfocus);
+        d.textA = sceneA * ac::Clamp01(1.0f - 0.15f * unfocus);
         // The guide's rarity-and-text card is about the middle card: the
         // others step back (alpha, no veil).
-        if (pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Detail && i != count / 2)
-            d.alpha *= 1.0f - 0.7f * ac::Clamp01(ready_launch::g_PickGuideT / 0.3f);
-        d.textA = d.alpha;
+        if (pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Detail && i != count / 2) {
+            const float back = 1.0f - 0.7f * ac::Clamp01(ready_launch::g_PickGuideT / 0.3f);
+            d.alpha *= back;
+            d.textA *= back;
+        }
         d.conA = d.alpha;
         // "Choose": the card faces step back so the [n] keys read first.
         if (pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Keys)
