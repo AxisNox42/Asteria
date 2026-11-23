@@ -105,14 +105,25 @@ inline const UpRow* FindUp(const char* code) {
     return nullptr;
 }
 
-// Chance cards: the upgraded card's chance is x1.5. A pierce / bounce / extra-shot
-// chance past 100% is one more sure +1 (RollVerbs). Split, blast and crit cannot use
-// a chance past 100%: those already at 100% grow the effect instead (4-way split at
-// 35%, blast 45%, +40% crit damage while the condition holds).
+// Chance cards: a chance never reads past 100% (2026-11-23, user: "95% → 142.5%" made
+// no sense). The upgraded card's chance is x1.5, rounded to a whole percent, when that
+// stays within 100%. A card whose chance would pass 100% keeps its chance and grows its
+// effect instead: pierce / bounce +1 → +2, one extra shot → two, a 3-way 28% split →
+// 4-way 35%, blast 30% → 45%, and +40% crit damage while the condition holds.
 inline constexpr float kChanceUpMult = 1.5f;
 inline constexpr float kChanceUpSplitDmg = 0.35f;
 inline constexpr float kChanceUpBlastPct = 0.45f;
 inline constexpr float kChanceUpCritMul = 0.40f;
+
+struct ChanceUp {
+    int  pct;           // the chance (%) at stage 2
+    bool effectGrows;   // the chance stays and the effect grows instead
+};
+inline ChanceUp ChanceUpgrade(int pct) {
+    const int up = (int)std::lround((double)pct * kChanceUpMult);
+    if (up <= 100) return { up, false };
+    return { pct, true };
+}
 
 // Text for one number (lang 0 KR, 1 EN, 2 JP).
 inline std::wstring UpNumber(UpUnit u, float v, int lang) {

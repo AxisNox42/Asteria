@@ -114,6 +114,28 @@ int main() {
     for (int i = 0; i < n; ++i)
         for (int lang = 0; lang < 3; ++lang)
             EXPECT(!synergy::UpPart(rows[i].l1, rows[i].u1, rows[i].a1, rows[i].b1, lang).empty(), "upgrade text");
+    // Chance cards: an upgrade never shows a chance past 100% (user 2026-11-23: "95% → 142.5%").
+    {
+        struct Ch { const char* code; int pct; };
+        static const Ch kRows[] = {
+#define CH(c, k, n, p) { #c, p },
+#include "SynergyChance.inc"
+#undef CH
+        };
+        int grows = 0;
+        for (const Ch& c : kRows) {
+            const synergy::ChanceUp up = synergy::ChanceUpgrade(c.pct);
+            char msg[96];
+            std::snprintf(msg, sizeof msg, "%s: %d%% upgrades to %d%% (<= 100)", c.code, c.pct, up.pct);
+            EXPECT(up.pct <= 100, msg);
+            EXPECT(up.effectGrows ? up.pct == c.pct : up.pct > c.pct, "either the chance rises or the effect grows");
+            grows += up.effectGrows ? 1 : 0;
+        }
+        EXPECT(synergy::ChanceUpgrade(65).pct == 98 && !synergy::ChanceUpgrade(65).effectGrows, "65% -> 98%");
+        EXPECT(synergy::ChanceUpgrade(95).pct == 95 && synergy::ChanceUpgrade(95).effectGrows, "95% keeps 95%, effect grows");
+        EXPECT(synergy::ChanceUpgrade(66).pct == 99 && synergy::ChanceUpgrade(67).effectGrows, "the 100% line");
+        std::printf("chance cards: %d grow their effect, %d raise their chance\n", grows, (int)(sizeof(kRows) / sizeof(kRows[0])) - grows);
+    }
     EXPECT(synergy::UpNumber(synergy::UpUnit::Pct, 0.12f, 0) == L"12%", "pct text");
     EXPECT(synergy::UpNumber(synergy::UpUnit::Sec, 0.45f, 0) == L"0.45초", "sec text");
     EXPECT(synergy::UpNumber(synergy::UpUnit::Ring, 2.25f, 1) == L"2.25○", "ring text");

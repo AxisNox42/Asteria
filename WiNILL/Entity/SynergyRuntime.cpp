@@ -132,7 +132,10 @@ struct State {
     std::vector<int> chanceRows;     // owned chance cards (index into kChance)
     std::vector<bool> chanceUp;      // ...and whether each is upgraded
     float chance[6] = {};            // the chance of each kind that holds right now (0..1+)
-    float chanceBoost[6] = {};       // upgraded 100% split / blast / crit cards holding right now
+    // Upgraded chance cards whose chance would pass 100% keep it and grow their effect
+    // (synergy::ChanceUpgrade): their chances, kept apart so a hit from them gets the bigger
+    // effect (pierce / bounce +2, two extra shots, 4-way split, 45% blast). Crit: > 0 = +40% crit damage.
+    float chanceBig[6] = {};
     int   appliedChanceCrit = 0;
     float appliedChanceCritMul = 0;
     float sinceDash = 99.0f, sinceHurt = 99.0f, nearest = 1e9f;
@@ -442,10 +445,13 @@ VerbRoll RollVerbs(const Bullet& b) {
     // more +1 (as the extra-shot chance does), so a second card is never wasted.
     for (float c = s.chance[(int)CKind::Pierce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.pierce += 1;
     for (float c = s.chance[(int)CKind::Bounce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.bounce += 1;
-    r.split = roll(s.chance[(int)CKind::Split]);
-    r.blast = roll(s.chance[(int)CKind::Blast]);
-    r.splitUp = r.split && s.chanceBoost[(int)CKind::Split] > 0.0f;
-    r.blastUp = r.blast && s.chanceBoost[(int)CKind::Blast] > 0.0f;
+    // Upgraded cards that grew their effect: +2 when they fire.
+    for (float c = s.chanceBig[(int)CKind::Pierce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.pierce += 2;
+    for (float c = s.chanceBig[(int)CKind::Bounce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.bounce += 2;
+    r.splitUp = roll(s.chanceBig[(int)CKind::Split]);
+    r.blastUp = roll(s.chanceBig[(int)CKind::Blast]);
+    r.split = r.splitUp || roll(s.chance[(int)CKind::Split]);
+    r.blast = r.blastUp || roll(s.chance[(int)CKind::Blast]);
     if (s.on.V_DICE) {
         // Only outcomes that do something for this shot: a shell neither pierces, bounces nor
         // hits (its landing blast is its own), and a shot that pierces everything gains no pierce.
@@ -562,7 +568,7 @@ bool CondHolds(const ChanceRow& row, const passive::StepInput& in) {
 
 void UpdateChances(const passive::StepInput& in) {
     for (float& c : s.chance) c = 0.0f;
-    for (float& c : s.chanceBoost) c = 0.0f;
+    for (float& c : s.chanceBig) c = 0.0f;
     int wantCrit = 0;
     if (!s.chanceRows.empty()) {
         s.crowd = 0; s.enemiesLeft = 0; s.nearest = 1e9f; s.bossUp = false; s.nearBullets = 0;
@@ -585,14 +591,16 @@ void UpdateChances(const passive::StepInput& in) {
             if (holds) {
                 const CKind kind = kChance[r].kind;
                 float p = (float)kChance[r].pct / 100.0f;
+                bool big = false;
                 if (k < s.chanceUp.size() && s.chanceUp[k]) {
-                    // Upgraded: x1.5. A split, blast or crit chance cannot use more than 100%:
-                    // a card already there grows its effect instead (ApplyVerbs, below).
-                    const bool capped = kind == CKind::Split || kind == CKind::Blast || kind == CKind::Crit;
-                    if (capped && p >= 0.999f) s.chanceBoost[(int)kind] += 1.0f;
-                    else p = capped ? std::min(1.0f, p * synergy::kChanceUpMult) : p * synergy::kChanceUpMult;
+                    // Upgraded: x1.5 while that stays within 100%, else the effect grows.
+                    const synergy::ChanceUp up = synergy::ChanceUpgrade(kChance[r].pct);
+                    p = (float)up.pct / 100.0f;
+                    big = up.effectGrows;
                 }
-                s.chance[(int)kind] += p;
+                if (big && kind == CKind::Crit) { s.chance[(int)kind] += p; s.chanceBig[(int)kind] += 1.0f; }
+                else if (big) s.chanceBig[(int)kind] += p;
+                else s.chance[(int)kind] += p;
             }
             // A small line ring round the ship when a chance card's condition comes on (not too often).
             if (holds && !s.chanceWas[r] && s.clock - s.chanceFxAt[r] > 1.5f) {
@@ -609,7 +617,7 @@ void UpdateChances(const passive::StepInput& in) {
     g_Stats.critChance = std::max(0, g_Stats.critChance + wantCrit - s.appliedChanceCrit);   // unclamped sum, see Rebuild
     s.appliedChanceCrit = wantCrit;
     // An upgraded 100% crit card: more crit damage while its condition holds.
-    const float wantCritMul = s.chanceBoost[(int)CKind::Crit] > 0.0f ? synergy::kChanceUpCritMul : 0.0f;
+    const float wantCritMul = s.chanceBig[(int)CKind::Crit] > 0.0f ? synergy::kChanceUpCritMul : 0.0f;
     g_Stats.critMult += wantCritMul - s.appliedChanceCritMul;
     s.appliedChanceCritMul = wantCritMul;
 }
@@ -1167,16 +1175,19 @@ std::wstring UpgradeLine(int augIdx, int lang) {
         for (int r = 0; r < kChanceRows; ++r) {
             if (std::string(kChance[r].code) != a.code) continue;
             const ChanceRow& row = kChance[r];
-            const float p = (float)row.pct / 100.0f;
-            const bool capped = row.kind == CKind::Split || row.kind == CKind::Blast || row.kind == CKind::Crit;
-            if (capped && p >= 0.999f) {
-                static const wchar_t* const kSplit[3] = { L"분열 3갈래 28% → 4갈래 35%", L"Split 3-way 28% → 4-way 35%", L"分裂 3方向28% → 4方向35%" };
-                static const wchar_t* const kBlast[3] = { L"폭발 피해 30% → 45%", L"Blast damage 30% → 45%", L"爆発ダメージ 30% → 45%" };
-                static const wchar_t* const kCrit[3] = { L"조건 동안 치명타 피해 +40%", L"Crit damage +40% while it holds", L"条件中 会心ダメージ+40%" };
-                return row.kind == CKind::Split ? kSplit[lang] : row.kind == CKind::Blast ? kBlast[lang] : kCrit[lang];
+            const synergy::ChanceUp up = synergy::ChanceUpgrade(row.pct);
+            if (up.effectGrows) {
+                static const wchar_t* const kText[6][3] = {
+                    { L"조건 동안 치명타 피해 +40%", L"Crit damage +40% while it holds", L"条件中 会心ダメージ+40%" },
+                    { L"추가 탄 1발 → 2발", L"Extra shots 1 → 2", L"追加弾 1発 → 2発" },
+                    { L"관통 +1 → +2", L"Pierce +1 → +2", L"貫通 +1 → +2" },
+                    { L"벽 튕김 +1 → +2", L"Wall bounce +1 → +2", L"壁跳弾 +1 → +2" },
+                    { L"분열 3갈래 28% → 4갈래 35%", L"Split 3-way 28% → 4-way 35%", L"分裂 3方向28% → 4方向35%" },
+                    { L"폭발 피해 30% → 45%", L"Blast damage 30% → 45%", L"爆発ダメージ 30% → 45%" } };
+                return kText[(int)row.kind][lang];
             }
-            const float up = capped ? std::min(1.0f, p * synergy::kChanceUpMult) : p * synergy::kChanceUpMult;
-            return synergy::UpPart(synergy::UpLabel::Chance, synergy::UpUnit::Pct, p, up, lang);
+            return synergy::UpPart(synergy::UpLabel::Chance, synergy::UpUnit::Pct,
+                                   (float)row.pct / 100.0f, (float)up.pct / 100.0f, lang);
         }
         return L"";
     }
@@ -1297,6 +1308,8 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         s.beamExtra.clear();
         for (float c = s.chance[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)
             if (Rand01() < std::min(c, 1.0f)) s.beamExtra.push_back(Rand01() < 0.5f ? -0.08f : 0.08f);
+        for (float c = s.chanceBig[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)   // upgraded: two extra shots
+            if (Rand01() < std::min(c, 1.0f)) { s.beamExtra.push_back(-0.08f); s.beamExtra.push_back(0.08f); }
     }
     for (const float off : s.beamExtra) {
         Bullet b = out.front();
