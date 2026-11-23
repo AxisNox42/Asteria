@@ -1496,7 +1496,7 @@ static bool PaneRamBusy(int id) { return RamOf(id) != nullptr; }
 
 // 13 Wall: panes popped open in a cascade, standing still (screen px).
 // srcId: the boss pane that glides to this spot; id: set once it stands there.
-// (ox, oy): where it stood before the wall, and goes back to when it is let go.
+// (ox, oy): where it stood before the wall.
 struct WallPane { int id = 0; float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f; int srcId = 0;
                   float ox = 0.0f, oy = 0.0f; };
 struct PaneWall {
@@ -1667,7 +1667,7 @@ static float RamRedFor(int id) {
         const float flicker = 0.5f + 0.5f * sinf(g_GameTime * (10.0f + 22.0f * k));
         return std::clamp(0.25f + 0.55f * k + 0.2f * flicker * k, 0.0f, 1.0f);
     }
-    if (g_Wall.active && g_Wall.stage == 2) {   // let go: the red drains out as it glides back
+    if (g_Wall.active && g_Wall.stage == 2) {   // let go: the red drains out where it stands
         for (const WallPane& wp : g_Wall.panes)
             if (wp.id == id)
                 return 1.0f - std::clamp(g_Wall.timer / norma::kWallRelease, 0.0f, 1.0f);
@@ -2907,8 +2907,11 @@ static void TickPaneWall(float dt) {
     }
     if (wall.stage == 1) {
         // Standing: then the panes are let go (not blown). Each unlocks with
-        // a frame that springs out in the boss's own colour, the red drains
-        // from it over kWallRelease and it glides back to where it came from.
+        // a frame that springs out in the boss's own colour and the red drains
+        // from it over kWallRelease. It stays where it stood (2026-11-23: it
+        // used to glide straight back to its old spot, which read as a pane
+        // darting off the moment it turned plain); it moves on later with the
+        // usual marked hop.
         if (wall.timer < norma::kWallStand) return;
         wall.stage = 2;
         wall.timer = 0.0f;
@@ -2920,15 +2923,6 @@ static void TickPaneWall(float dt) {
             norma_fx::Frame(ScreenToWorldX(r.x), ScreenToWorldY(r.y), ScreenToWorldX(r.x + r.w),
                             ScreenToWorldY(r.y + r.h), 22.0f, norma::kWallRelease, norma_fx::kIce);
             SpawnSparks(ScreenToWorldX(r.x + r.w * 0.5f), ScreenToWorldY(r.y + r.h * 0.5f), 6, 0.72f, 0.94f, 1.0f, 220.0f);
-            for (PaneDrift& d : g_PaneDrifts) {
-                if (d.id != p.id) continue;
-                d.fromX = d.x = r.x;
-                d.fromY = d.y = r.y;
-                d.placed = true;
-                d.toX = p.ox;
-                d.toY = p.oy;
-                d.pullLeft = norma::kRefugePull;
-            }
         }
         return;
     }

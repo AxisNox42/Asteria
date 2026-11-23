@@ -238,9 +238,9 @@ constexpr float kWallWarn = 1.2f;           // red brackets mark the footprints 
 // colour while it glides to its spot and reddens only kWallRedden before it
 // locks; no spot is marked within kWallClear px of where the player stands.
 constexpr float kWallRedden = 0.35f;
-// Let go: the red drains out and the pane glides back to where it stood
-// before the wall, over this long (the Refuge pull's time). Not solid meanwhile.
-constexpr float kWallRelease = 0.8f;
+// Let go: the red drains out over this long, the pane staying where it stood
+// in the wall (it hops on later like any other pane). Not solid meanwhile.
+constexpr float kWallRelease = 0.5f;
 constexpr float kWallClear = 90.0f;         // screen px
 constexpr float kWallStand = 1.5f;          // seconds the wall stays up before it is lit (was 2.5 until 2026-11-17)
 constexpr float kWallBuildSeconds = 1.0f;   // the boss's telegraph
