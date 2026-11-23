@@ -8,20 +8,21 @@
 
 int main() {
     const int levels[] = {1, 2, 3, 5, 10, 20, 30, 40, 45, 60};
-    const long long expected[] = {6, 31, 83, 285, 1507, 7954, 21049, 41985, 55700, 111100};
+    // 2026-11-23 augment rework: 35 x L^1.7 (was 6 x L^2.4).
+    const long long expected[] = {35, 113, 226, 539, 1754, 5699, 11354, 18516, 22621, 36891};
     for (int i = 0; i < 10; ++i) {
         assert(g_ExpSystem.Required(levels[i]) == expected[i]);
         assert(g_ExpSystem.RequiredAmount(levels[i]) == XpFromWhole(expected[i]));
     }
 
-    XpAmount xp = 5999;
+    XpAmount xp = 34999;
     int level = 1;
     assert(!g_ExpSystem.ConsumeNextLevel(xp, level));
     ++xp;
     assert(g_ExpSystem.ConsumeNextLevel(xp, level));
     assert(level == 2 && xp == 0);
 
-    xp = XpFromWhole(6 + 31 + 83) + 125;
+    xp = XpFromWhole(35 + 113 + 226) + 125;
     level = 1;
     int gained = 0;
     while (level < MAIN_LEVEL_CAP && g_ExpSystem.ConsumeNextLevel(xp, level)) ++gained;

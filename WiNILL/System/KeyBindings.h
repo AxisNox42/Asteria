@@ -15,6 +15,8 @@ enum class GameAction {
     Pause,                 // 일시정지 / 재개 (ESC 는 항상 일시정지)
     Card1, Card2, Card3,   // 증강 카드 고르기 (마우스로도 고를 수 있음)
     Glossary,              // 증강 카드: 고른 카드의 용어 설명을 차례로 열기 (마우스는 올려서 봄)
+    Card4, Card5,          // 강화 화면(카드 5장)의 4·5번째 카드 (2026-11-23 증강 개편)
+    Reroll,                // 강화 화면: 다시 굴리기 (1회)
     Count
 };
 inline constexpr int GAME_ACTION_COUNT = (int)GameAction::Count;
@@ -25,7 +27,7 @@ inline constexpr int kKeyUnbound = -1;
 // GLFW_KEY_* 와 같은 값 (GLFW 헤더 없이 쓰기 위해 값만 둔다).
 inline constexpr int kBindKeySpace = 32;
 inline constexpr int kBindKeyEscape = 256;
-inline constexpr int kBindKeyA = 65, kBindKeyD = 68, kBindKeyE = 69, kBindKeyQ = 81;
+inline constexpr int kBindKeyA = 65, kBindKeyC = 67, kBindKeyD = 68, kBindKeyE = 69, kBindKeyQ = 81;
 inline constexpr int kBindKeyR = 82, kBindKeyS = 83, kBindKeyW = 87;
 inline constexpr int kBindKeyTab = 258;
 inline constexpr int kBindKeyLeftShift = 340, kBindKeyLeftCtrl = 341, kBindKeyLeftAlt = 342;
@@ -50,6 +52,8 @@ inline constexpr KeyBindSet kDefaultKeyBinds = {{
     kBindKeySpace,       // Pause (Confirm 과 같은 키를 함께 쓸 수 있음)
     '1', '2', '3',
     kBindKeyTab,         // Glossary
+    '4', '5',
+    kBindKeyC,           // Reroll
 }};
 
 inline KeyBindSet g_KeyBinds = kDefaultKeyBinds;
@@ -65,6 +69,7 @@ inline bool ActionRequired(GameAction a) {
     switch (a) {
     case GameAction::Pause:
     case GameAction::Card1: case GameAction::Card2: case GameAction::Card3:
+    case GameAction::Card4: case GameAction::Card5: case GameAction::Reroll:
     case GameAction::Glossary:
         return false;
     default:

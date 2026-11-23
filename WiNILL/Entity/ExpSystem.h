@@ -13,10 +13,16 @@
 //   (잡몹 1xp, 큰몹/엘리트 3~20xp, AoE 후반 폭딜이라 후반 통이 커도 시간당 획득은 늘어남)
 //   이전: baseExp=100·weight=1.4 + 20레벨 tier 점프 → 초반(L1=100)이 너무 비싸
 //         "초반=6마리" 의도와 정반대였음. tier 불연속도 제거해 매끈한 곡선으로.
+//
+//   2026-11-23 증강 개편 (레벨업 = 새 증강): baseExp=35, weight=1.7
+//     L1=35  L2=113  L3=226  L5=539  L10=1754  L20=5699
+//     목표: 첫 레벨업이 1웨이브 중간(약 15~20초), 보통 한 런(약 16분)에 레벨업 12~14회.
+//     6 x L^2.4 는 첫 레벨업이 3~8초라 1웨이브 클리어 때 강화할 카드가 없었다.
+//     획득 속도는 "3.7분에 레벨 8"(플레이 기록) 한 점으로 추정했다 — 플레이 기록으로 다시 맞출 것.
 // ─────────────────────────────────────────────────────────────
 struct ExpSystem {
-    float baseExp = 6.0f;
-    float weight  = 2.4f;
+    float baseExp = 35.0f;
+    float weight  = 1.7f;
     // 현재 레벨에서 다음 레벨까지 필요한 EXP
     //   The threshold remains whole XP; earned XP keeps three decimals.
     long long Required(int currentLevel) const {

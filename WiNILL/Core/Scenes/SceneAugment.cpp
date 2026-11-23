@@ -530,13 +530,26 @@ CardText LayoutCardText(const AugDef& def, float ui) {
     else if (!synMeta.empty()) swprintf_s(meta, L"%ls", synMeta.c_str());
     else swprintf_s(meta, L"%ls", kPassive[CurLangIdx()]);
     t.meta = meta;
+    // Augment rework: on a wave clear's upgrade pick the card shows what the upgrade does
+    // first ("강화 ★ → ★★: 튕김 1 → 2"), then its own text.
+    const int augIdx = (int)(&def - ALL_AUGS);
+    std::wstring descText = AugDesc(def);
+    if (g_GameManager.ActiveIsUpgrade()) {
+        static const wchar_t* kUp[3] = { L"강화 ★ → ★★", L"Upgrade ★ → ★★", L"強化 ★ → ★★" };
+        t.meta = kUp[CurLangIdx()];
+        const std::wstring line = syn::UpgradeLine(augIdx, CurLangIdx());
+        if (!line.empty()) descText = L"▲ " + line + L" · " + descText;
+    } else if (g_GameManager.ActiveIsFrame()) {
+        static const wchar_t* kFrame[3] = { L"시작 무기 · 이번 런 동안 유지", L"Starting frame · kept all run", L"開始武器 · このラン中ずっと" };
+        t.meta = kFrame[CurLangIdx()];
+    }
     t.metaScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
     const float room = (kDescBottom - kDescY) * ui;
     const float floorScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
     float d = ui;
     for (;;) {
         t.descScale = UiTextScale(g_TextS, UiTextLevel::Description, d);
-        t.desc = WrapIconDesc(AugDesc(def), t.descScale, inner, ui, true);
+        t.desc = WrapIconDesc(descText.c_str(), t.descScale, inner, ui, true);
         float h = 0.0f;
         for (const auto& l : t.desc.lines) h += g_TextS.Height(l.text.c_str(), t.descScale) + 4.0f * ui;
         if (h <= room || t.descScale <= floorScale) break;
@@ -1317,10 +1330,10 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     if (inputReady && !pickGuide) {
         // The card and confirm keys follow the bindings (KeyBindings.h); unbound
         // card keys drop out, leaving the click.
-        static const GameAction kCardKeys[3] = {
-            GameAction::Card1, GameAction::Card2, GameAction::Card3 };
+        static const GameAction kCardKeys[5] = {
+            GameAction::Card1, GameAction::Card2, GameAction::Card3, GameAction::Card4, GameAction::Card5 };
         std::wstring cardKeys;
-        for (int i = 0; i < std::min(3, std::max(1, count)); ++i) {
+        for (int i = 0; i < std::min(5, std::max(1, count)); ++i) {
             if (!ActionBound(kCardKeys[i])) continue;
             if (!cardKeys.empty()) cardKeys += L"/";
             cardKeys += KeyName(ActionKey(kCardKeys[i]));
@@ -1342,6 +1355,21 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             guideText += li == 0 ? L" · " + termKey + L" 용어 설명"
                        : li == 2 ? L" · " + termKey + L"で用語説明"
                                  : L" · " + termKey + L" FOR TERMS";
+        }
+        // Augment rework: what this pick is, and the upgrade pick's one reroll.
+        if (g_GameManager.ActiveIsUpgrade()) {
+            std::wstring head = li == 0 ? L"웨이브 클리어 · 강화할 카드 1장" : li == 2 ? L"ウェーブクリア · 強化するカード1枚" : L"WAVE CLEAR · UPGRADE ONE CARD";
+            if (g_GameManager.upgradeRerollsLeft > 0 && ActionBound(GameAction::Reroll)) {
+                const std::wstring rk = KeyName(ActionKey(GameAction::Reroll));
+                head += li == 0 ? L" · " + rk + L" 다시 굴리기 (1회)" : li == 2 ? L" · " + rk + L"で引き直し (1回)" : L" · " + rk + L" TO REROLL (ONCE)";
+            }
+            guideText = head + L"   " + guideText;
+        } else if (g_GameManager.ActiveIsFrame()) {
+            const std::wstring head = li == 0 ? L"런 시작 · 이번 런의 무기를 고르세요" : li == 2 ? L"ラン開始 · このランの武器を選んでください" : L"RUN START · CHOOSE THIS RUN'S FRAME";
+            guideText = head + L"   " + guideText;
+        } else if (!tutorialPick) {
+            const std::wstring head = li == 0 ? L"레벨 업 · 새 증강 1장" : li == 2 ? L"レベルアップ · 新しい増強1枚" : L"LEVEL UP · ONE NEW AUGMENT";
+            guideText = head + L"   " + guideText;
         }
         const wchar_t* guide = guideText.c_str();
         // In the tutorial the line goes under the cards (the field's title sits above them).

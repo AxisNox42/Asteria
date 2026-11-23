@@ -49,6 +49,7 @@
 #include "Augment.h"
 #include "PassiveAugments.h"
 #include "SynergyRuntime.h"
+#include "RewardRules.h"      // augment rework: level-up / wave-clear / run-start picks
 #include "ActiveSkills.h"
 #include "PlayerStats.h"
 #include "TextRenderer.h"
@@ -4081,7 +4082,8 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     const bool quotaMet = quota > 0 && gm.waveKills >= quota && !g_SmokeNoQuota;
     if (((clear.cleared && clear.wave == gm.currentWave) || quotaMet) &&
         !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
-        // The faster the clear, the higher the guaranteed tier and the odds.
+        // Augment rework: a clear upgrades owned cards (two on an elite or boss wave), the
+        // fastest clear band one more (RewardRules.h). The new augments come from level-ups.
         const WaveRewardTimes times = quotaMet
             ? RegularWaveRewardTimes(quota) : WaveRewardTimesFor(clear.boss);
         const float seconds = quotaMet ? g_GameTime - gm.waveStartTime : clear.killSeconds;
@@ -4091,12 +4093,14 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
                                             (float)std::rand() / ((float)RAND_MAX + 1.0f),
                                             passive::LuckChanceMult(), gm.rewardPityCount);
         gm.rewardSpeed = WaveRewardSpeed(seconds, times);
+        const bool specialWave = IsSpecialWave(gm.currentWave, g_Difficulty);
+        const int upgrades = (specialWave ? 2 : 1) + (earned == WaveRewardTier::Legendary ? 1 : 0);
         gamelog::Event("WAVE_CLEAR", "cleared_wave=%d,clear_sec=%.2f,by=%s,kills=%d,quota=%d,"
-                       "earned_tier=%d,reward_tier=%d,tier_cap=%d,reward_speed=%.2f,hp=%.1f",
+                       "earned_tier=%d,upgrades=%d,hp=%.1f",
                        gm.currentWave, seconds, quotaMet ? "quota" : "objective", gm.waveKills, quota,
-                       (int)earned, gm.rewardTier, gm.rewardTierCap, gm.rewardSpeed, gm.playerHP);
-        gm.QueueAugmentReward();
-        passive::OnWaveCleared(IsSpecialWave(gm.currentWave, g_Difficulty));
+                       (int)earned, upgrades, gm.playerHP);
+        gm.QueueUpgradeReward(upgrades);
+        passive::OnWaveCleared(specialWave);
         // Shop: Wave Mend.
         if (MetaWaveMendFrac() > 0.0f)
             gm.playerHP = std::min(g_Stats.maxHP, gm.playerHP + g_Stats.maxHP * MetaWaveMendFrac());
@@ -4106,6 +4110,14 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         // The next wave waits until the reward is picked.
         gm.waveAdvancePending = true;
         gm.waveClearDelay = 0.8f;
+    }
+    // Run start: one frame out of three (augment rework). Not in the READY tutorial, nor in a
+    // smoke run unless it asks (ASTERIA_SMOKE_FRAMEPICK=1), nor when a frame is already owned.
+    static const bool smokeFramePick = SmokeEnv("ASTERIA_SMOKE_FRAMEPICK") == "1";
+    if (!gm.framePickOffered && gm.currentWave == 1 && !ready_launch::g_TutorialMode &&
+        (!g_SmokeCapture || smokeFramePick)) {
+        gm.framePickOffered = true;
+        if (!syn::HasFrame()) gm.QueueFramePick();
     }
     // The reward opens a beat after the kill, once nothing else holds the
     // selection screen (a level-up slow-motion may be mid-flight).
@@ -4172,7 +4184,10 @@ static void GrantLevelUpReward(int oldLevel, XpAmount need, XpAmount oldXp,
     g_GameplayTelemetry.RecordLevelUp(g_GameTime, oldLevel,
                                       g_GameManager.playerLevel, need,
                                       oldXp, g_GameManager.xp, manual);
-    g_GameManager.QueueStatReward();
+    // Augment rework: a level-up offers new augments (no stat cards) and adds +2% damage.
+    g_Stats.damageMultiplier *= reward::LevelDamageMult(g_GameManager.playerLevel) /
+                                reward::LevelDamageMult(oldLevel);
+    g_GameManager.QueueAugmentReward();
     Audio::Play(Audio::Cue::LevelUp);
 
     // XP level-ups play a short full-speed signal and then open the
@@ -5828,11 +5843,18 @@ int main() {
                             RestartCurrentRun();
                         gm.QueueAugmentReward();
                         gm.ActivateNextAugmentReward();
-                    } else if (step == "STATDEAL") {
-                        // STATDEAL: opens a level-up stat pick (three cards).
+                    } else if (step == "STATDEAL" || step == "UPDEAL") {
+                        // UPDEAL (was STATDEAL): opens a wave clear's upgrade pick (up to five
+                        // owned cards; a new-augment pick when nothing can be upgraded).
                         if (gm.currentState != GameState::RUNNING)
                             RestartCurrentRun();
-                        gm.QueueStatReward();
+                        gm.QueueUpgradeReward(1);
+                        gm.ActivateNextAugmentReward();
+                    } else if (step == "FRAMEDEAL") {
+                        // FRAMEDEAL: opens the run-start frame pick.
+                        if (gm.currentState != GameState::RUNNING)
+                            RestartCurrentRun();
+                        gm.QueueFramePick();
                         gm.ActivateNextAugmentReward();
                     } else if (step.rfind("AUGPICK=", 0) == 0) {
                         // AUGPICK=<slot>: confirm a card on the open pick (the exit animation).
@@ -6709,13 +6731,25 @@ int main() {
             const int k1 = ActionHeld(GameAction::Card1) ? GLFW_PRESS : GLFW_RELEASE;
             const int k2 = ActionHeld(GameAction::Card2) ? GLFW_PRESS : GLFW_RELEASE;
             const int k3 = ActionHeld(GameAction::Card3) ? GLFW_PRESS : GLFW_RELEASE;
+            const int k4 = ActionHeld(GameAction::Card4) ? GLFW_PRESS : GLFW_RELEASE;
+            const int k5 = ActionHeld(GameAction::Card5) ? GLFW_PRESS : GLFW_RELEASE;
+            const int kRe = ActionHeld(GameAction::Reroll) ? GLFW_PRESS : GLFW_RELEASE;
+            static bool s_aug4Released = true, s_aug5Released = true, s_rerollReleased = true;
             // The placeholder card has no effect: taking it only closes the pick.
             auto applyAug = [&](int slot) {
                 if (slot < 0 || slot >= g_GameManager.augChoiceCount) return;
                 const int selectedIdx = g_GameManager.augChoices[slot];
                 if (selectedIdx < 0 || selectedIdx >= AUG_TOTAL) return;
-                passive::Acquire(selectedIdx);
-                MarkAugSeen(selectedIdx);
+                if (g_GameManager.ActiveIsUpgrade()) {
+                    syn::Upgrade(selectedIdx);
+                    g_GameManager.lastUpgraded = selectedIdx;
+                    syn::PickupFx(selectedIdx);
+                    gamelog::Event("AUG_UPGRADE", "aug=%s,stage=%d,level=%d", ALL_AUGS[selectedIdx].name,
+                                   syn::Stage(selectedIdx), g_GameManager.playerLevel);
+                } else {
+                    passive::Acquire(selectedIdx);
+                    MarkAugSeen(selectedIdx);
+                }
                 FinishAugmentEffects();
             };
 
@@ -6749,6 +6783,9 @@ int main() {
                 if (k1 == GLFW_RELEASE) g_aug1Released = true;
                 if (k2 == GLFW_RELEASE) g_aug2Released = true;
                 if (k3 == GLFW_RELEASE) g_aug3Released = true;
+                if (k4 == GLFW_RELEASE) s_aug4Released = true;
+                if (k5 == GLFW_RELEASE) s_aug5Released = true;
+                if (kRe == GLFW_RELEASE) s_rerollReleased = true;
             } else if (!augExitFired) {
                 // 1~5 focuses a card; SPACE starts the confirmation exit.
                 if (g_AugExitT < 0.0f) {
@@ -6764,10 +6801,26 @@ int main() {
                         g_HoveredAug = 2; g_GameManager.augmentKeyboardFocus = true;
                         g_aug3Released = false;
                     }
+                    if (k4 == GLFW_PRESS && s_aug4Released && g_GameManager.augChoiceCount > 3) {
+                        g_HoveredAug = 3; g_GameManager.augmentKeyboardFocus = true;
+                        s_aug4Released = false;
+                    }
+                    if (k5 == GLFW_PRESS && s_aug5Released && g_GameManager.augChoiceCount > 4) {
+                        g_HoveredAug = 4; g_GameManager.augmentKeyboardFocus = true;
+                        s_aug5Released = false;
+                    }
+                    // Reroll (upgrade pick only, once): five other cards.
+                    if (kRe == GLFW_PRESS && s_rerollReleased && g_GameManager.RerollUpgrade()) {
+                        s_rerollReleased = false;
+                        Audio::Play(Audio::Cue::UiConfirm);
+                    }
                 }
                 if (k1 == GLFW_RELEASE) g_aug1Released = true;
                 if (k2 == GLFW_RELEASE) g_aug2Released = true;
                 if (k3 == GLFW_RELEASE) g_aug3Released = true;
+                if (k4 == GLFW_RELEASE) s_aug4Released = true;
+                if (k5 == GLFW_RELEASE) s_aug5Released = true;
+                if (kRe == GLFW_RELEASE) s_rerollReleased = true;
 
                 // Confirm key = confirm the focused constellation.
                 const int kSp = ActionHeld(GameAction::Confirm) ? GLFW_PRESS : GLFW_RELEASE;
