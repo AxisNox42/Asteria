@@ -259,7 +259,7 @@ int main(int argc, char** argv) {
         { "유도 폭우",           "F_MINIGUN", Cards({ "V_HOMING", "V_MARK", "G_CHARGER", "T_KILLBURST", "P_CLEAN_BOUNCE", "P_BOSS_CRIT" }) },
         { "번개 전도체",         "F_BASIC",   Cards({ "V_CHAIN", "T_KILLBURST", "T_CRITECHO", "G_CIRCUIT", "P_SHIELD_PIERCE", "P_KILL_PIERCE" }) },
         { "공전 요새",           "F_BASIC",   Cards({ "V_ORBIT", "G_PARRY", "G_CHARGER", "T_AFTERIMAGE", "P_MOVING_EXTRA", "P_STILL_CRIT" }) },
-        { "되돌이 부메랑",       "F_BASIC",   Cards({ "V_RETURN", "V_PIERCE", "V_GROW", "G_CHARGER", "P_CROWD_PIERCE", "P_LONG_SPLIT" }) },
+        { "사냥 부메랑",         "F_BASIC",   Cards({ "V_HUNTER", "V_PIERCE", "V_GROW", "G_CHARGER", "P_CROWD_PIERCE", "P_LONG_SPLIT" }) },
         { "빈 방 격자",          "F_LASER",   Cards({ "V_BOUNCE", "V_TRAIL", "G_CHARGER", "P_CLEAN_BOUNCE", "P_BOSS_CRIT", "P_SHIELD_PIERCE" }) },
         { "불바다 점사",         "F_BURST",   Cards({ "V_BURN", "V_MINE", "G_CHARGER", "P_KILL_PIERCE", "P_MOVING_EXTRA", "P_STILL_CRIT" }) },
         { "산탄 폭죽",           "F_SHOTGUN", Cards({ "V_SPRAY", "V_BLAST", "T_FIREWORK", "G_CHARGER", "P_CROWD_PIERCE", "P_LONG_SPLIT" }) },

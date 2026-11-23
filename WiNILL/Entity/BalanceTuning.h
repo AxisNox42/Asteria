@@ -44,16 +44,19 @@ struct BalanceTuning {
 // Shipped values (sheet "최종 수치", columns EASY / NORMAL / HARD / NIGHTMARE).
 // bossHp, 2026-11-14: a Normal run that ended with 3 legendary augments killed
 // the final boss (ERIDANUS, ~18.9k HP) in 6 s at ~3k DPS (play log). Bosses now
-// aim at a ~90 s fight for that build: Normal final boss x12 (0.425 -> 5.10).
+// aim at a shorter fight for that build. 2026-11-17: x8 on Easy, +0.25 per
+// difficulty above it (x8 / x8.25 / x8.5 / x8.75 of the pre-11-14 values),
+// since harder runs have more waves and so more augments.
+// (x12 until 2026-11-16, then x10 on every difficulty.)
 // Other difficulties are set by final-boss HP against Normal's, after their run
 // HP and elite ramps: Easy 0.6x, Hard 1.6x, Nightmare 2.2x. (Easy was 0.973,
 // 1.7x Normal.) A mid-run boss takes kMidBossHpShare of this (EnemySpawner.cpp).
 inline constexpr BalanceTuning kBalanceDefaults[kBalanceDifficulties] = {
     // xpMult  wv1    wv2    wv3    wv4    kSwarm kGimbal kGravis kMagnetar scopeInt bossHp hpScale hpLate rangedDmg spawnInt pressure cvStart cvPeak cvEnd cvPeakAt
-    /* EASY      */ { 4.0f, 0.726f, 0.730f, 0.951f, 0.931f, 1.328f, 0.783f, 0.538f, 0.696f, 1.547f, 4.040f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
-    /* NORMAL    */ { 4.0f, 0.851f, 0.890f, 0.424f, 0.609f, 0.716f, 0.530f, 0.540f, 0.755f, 2.159f, 5.100f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
-    /* HARD      */ { 4.0f, 0.769f, 0.873f, 0.610f, 0.491f, 0.835f, 1.359f, 0.795f, 1.202f, 1.204f, 6.130f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
-    /* NIGHTMARE */ { 4.0f, 0.782f, 0.690f, 0.481f, 0.337f, 0.686f, 1.322f, 0.680f, 0.343f, 1.487f, 7.450f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
+    /* EASY      */ { 4.0f, 0.726f, 0.730f, 0.951f, 0.931f, 1.328f, 0.783f, 0.538f, 0.696f, 1.547f, 2.694f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
+    /* NORMAL    */ { 4.0f, 0.851f, 0.890f, 0.424f, 0.609f, 0.716f, 0.530f, 0.540f, 0.755f, 2.159f, 3.506f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
+    /* HARD      */ { 4.0f, 0.769f, 0.873f, 0.610f, 0.491f, 0.835f, 1.359f, 0.795f, 1.202f, 1.204f, 4.342f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
+    /* NIGHTMARE */ { 4.0f, 0.782f, 0.690f, 0.481f, 0.337f, 0.686f, 1.322f, 0.680f, 0.343f, 1.487f, 5.432f, 0.80f, 0.70f, 1.0f, 1.0f, 0.10f, 1.10f, 1.50f, 0.50f, 0.70f },
 };
 inline constexpr int kBalanceWaveBandFirstDefault[kBalanceWaveBands] = { 1, 4, 7, 10 };
 

@@ -27,7 +27,7 @@ int main() {
     EXPECT(Near(BalanceFor(1).wv3, 0.424f), "NORMAL wv3");
     EXPECT(Near(BalanceFor(2).kGimbal, 1.359f), "HARD kGimbal");
     EXPECT(Near(BalanceFor(1).scopeInterval, 2.159f), "NORMAL scopeInterval");
-    EXPECT(Near(BalanceFor(1).bossHp, 5.10f) && Near(BalanceFor(3).bossHp, 7.45f), "bossHp (2026-11-14 x12)");
+    EXPECT(Near(BalanceFor(1).bossHp, 3.506f) && Near(BalanceFor(3).bossHp, 5.432f), "bossHp (2026-11-17 x8..x8.75)");
     // Final-boss HP climbs with difficulty: run HP x elite ramp x bossHp.
     EXPECT(BalanceFor(1).bossHp * 1.00f * 1.9f < BalanceFor(2).bossHp * 1.15f * 2.2f &&
            BalanceFor(2).bossHp * 1.15f * 2.2f < BalanceFor(3).bossHp * 1.30f * 2.2f, "boss HP order");

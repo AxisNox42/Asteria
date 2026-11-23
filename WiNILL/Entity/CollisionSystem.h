@@ -41,6 +41,7 @@ inline float MobBodyHitPx(MobKind kind) {
     case MobKind::LYNX:       return 27.8f;   // hull nose
     case MobKind::MIRA:       return 14.5f;   // outer ring
     case MobKind::TRIANGULUM: return 33.9f;   // shell corner 1.88 b
+    case MobKind::HOROLOGIUM: return horologium::kDialRadius / horologium::kSizeScale;   // the dial
     }
     return 18.0f;
 }
@@ -113,7 +114,7 @@ inline bool HoldAntaresReward(const Monster& m, XpAmount& xp, float& score, int&
     f.stardust += stardust;
     --f.outstanding;
     // Same rule as MonsterManager::SpawnAntaresSplits: this body splits.
-    if (!m.noBlast && m.antaresGen < Monster::ANTARES_MAX_GEN)
+    if (!m.noBlast && m.antaresGen < Monster::AntaresMaxGen())
         f.outstanding += Monster::ANTARES_SPLIT_COUNT;
     if (f.outstanding > 0) return false;
     xp = f.xp;

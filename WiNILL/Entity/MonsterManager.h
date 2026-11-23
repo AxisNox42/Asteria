@@ -25,6 +25,21 @@ public:
         int buff = 0;   // Monster::REGULUS_BUFF_*: picks the colour
     };
     std::vector<RegulusBeam> regulusBeams;
+    // Phase 2: a chosen laser waits REGULUS_WARN_TIME with its line shown,
+    // then fires along that same line (targets are checked again then).
+    struct RegulusPending {
+        Monster* mob = nullptr;
+        RangedMob* ranged = nullptr;
+        int buff = 0;
+        float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+        float left = 0.0f;
+        float bodyRadius = 0.0f;
+    };
+    std::vector<RegulusPending> regulusPending;
+    // The player's recent velocity (smoothed), for the phase-3 strike lead.
+    glm::vec2 regulusLastPlayer{0.0f};
+    glm::vec2 regulusPlayerVel{0.0f};
+    bool regulusHasLastPlayer = false;
 
     static bool RegulusBuffable(const Monster& m) {
         return m.alive && m.kind != MobKind::REGULUS && !IsBossMob(m.kind);
@@ -48,8 +63,10 @@ public:
         // Shop upgrades on the player's own hits (Elite / Boss Damage, Last Stand).
         if (source == space::kPlayerSource)
             damage *= MetaPlayerHitMult(IsEliteMob(target.kind), IsBossMob(target.kind));
+        const bool opening = target.InOpening();
         const float dealt = target.ApplyDamage(damage);
         gamelog::Dealt(MobKindName(target.kind), dealt);
+        gamelog::FightDealt(&target, dealt, opening);
         if (dealt > 0.0f && target.alive && IsEliteMob(target.kind))
             target.EliteHitFeel(hitDirX, hitDirY);
         HandleShieldBreak(target);
@@ -142,6 +159,7 @@ public:
         case MobKind::LYNX:   tier = 2; break;
         case MobKind::GRAVIS:   tier = 3; break;
         case MobKind::QUASAR:   tier = 4; break;
+        case MobKind::HOROLOGIUM: tier = 4; break;
         case MobKind::REGULUS:  tier = 3; break;
         case MobKind::MAGNETAR: tier = 3; break;
         case MobKind::GIMBAL:   tier = 2; break;
@@ -168,7 +186,7 @@ public:
         m.antaresHeadingY = v.y / len;
         m.antaresMoveSpeed = std::clamp(len * Monster::ANTARES_BOUNCE_BOOST,
                                         Monster::ANTARES_BOUNCE_MIN_SPEED,
-                                        Monster::ANTARES_MAX_SPEED);
+                                        Monster::AntaresTopSpeed());
         m.antaresState = S::CHASE;
         m.antaresStateTimer = 0.0f;
     }
@@ -190,6 +208,13 @@ public:
                 const glm::vec2 va = AntaresVelocity(*a), vb = AntaresVelocity(*b);
                 const float closing = glm::dot(va - vb, n);
                 if (closing <= 0.0f) continue;   // already moving apart (or both still)
+                // Nightmare: fragments that clash hard leave a ring that bursts
+                // where they met (AntaresWake.h).
+                if (elite_diff::AntaresWake((int)g_Difficulty) &&
+                    (a->antaresGen >= 1 || b->antaresGen >= 1) &&
+                    closing >= antares_wake::kClashSpeed)
+                    antares_wake::AddClash((a->worldX + b->worldX) * 0.5f, (a->worldY + b->worldY) * 0.5f,
+                                           a->antaresFamily, std::min(a->antaresGen, b->antaresGen));
                 SetAntaresVelocity(*a, va - n * closing);
                 SetAntaresVelocity(*b, vb + n * closing);
                 const float push = (reach - dist) * 0.5f;
@@ -210,7 +235,7 @@ public:
             Monster* m = monsters[i];
             if (m->kind != MobKind::ANTARES || m->alive || m->antaresSplit) continue;
             m->antaresSplit = true;
-            if (m->noBlast || m->antaresGen >= Monster::ANTARES_MAX_GEN) continue;
+            if (m->noBlast || m->antaresGen >= Monster::AntaresMaxGen()) continue;
             Audio::Play(Audio::Cue::EliteAntaresSplit);
             const int gen = m->antaresGen + 1;
             const float base = atan2f(m->antaresHeadingY, m->antaresHeadingX) + 1.5707963f;
@@ -295,9 +320,32 @@ public:
         TickRegulusBuffs(dt);
         // A dead MIRA's zone keeps hurting where it fell.
         const bool miraWasIn = mira::g_weaken > 0.0f;
+        horologium::Tick(dt);   // HOROLOGIUM freeze / tempo wear off unless the clock holds them
+        {   // Nightmare Antares wake and clash rings burst on their own clock.
+            const antares_wake::TickOut w =
+                antares_wake::Tick(dt, playerCX, playerCY, 10.0f * g_PlayerSizeMult);
+            if (w.wakeBurst) gamelog::FightOverlay("WAKE");
+            if (w.clashBurst) gamelog::FightOverlay("WAKE_CLASH");
+            if (w.wakeBurst || w.clashBurst) Audio::Play(Audio::Cue::EliteAntaresImpact);
+            if (w.wakeDamage > 0.0f) HurtPlayer(playerHP, w.wakeDamage, "ANTARES_WAKE");
+            if (w.clashDamage > 0.0f) HurtPlayer(playerHP, w.clashDamage, "ANTARES_CLASH");
+        }
         if (mira::Tick(dt, playerCX, playerCY, g_PlayerSizeMult)) {
             HurtPlayer(playerHP, mira::kZoneDps * dt, "MIRA_ZONE");
             if (!miraWasIn) Audio::Play(Audio::Cue::EnemyMiraTouch);   // just stepped in
+        }
+        // Phase 3 Regulus: a buffed ally that fell since last frame exposes it.
+        {
+            bool buffedFell = false;
+            for (auto* m : monsters)
+                if (!m->alive && !m->regulusDeathSeen && m->kind != MobKind::REGULUS && m->RegulusBuffed()) {
+                    m->regulusDeathSeen = true;
+                    buffedFell = true;
+                }
+            if (buffedFell)
+                for (auto* r : monsters)
+                    if (r->alive && r->kind == MobKind::REGULUS && r->RegulusPhase() >= 3)
+                        r->ExposeRegulus();
         }
         for (auto m : monsters) {
             // Whatever this mob does to the player only lands in its own space.
@@ -337,7 +385,7 @@ public:
         SpawnAntaresSplits();
         SpawnTriangulumChildren();
 
-        UpdateRegulusShots(dt);
+        UpdateRegulusShots(dt, playerCX, playerCY, playerHP);
         UpdateRegulusBeams(dt);
         // Death animations (Gravis collapse) run on the gameplay clock; a
         // dead mob stays until its animation ends.
@@ -371,7 +419,9 @@ public:
     void Clear() {
         dummy::Clear();
         regulusBeams.clear();
+        regulusPending.clear();
         mira::Reset();
+        antares_wake::Reset();
         for (auto m : monsters) delete m;
         monsters.clear();
         for (auto r : rangedMobs) delete r;
@@ -384,6 +434,7 @@ private:
         case MobKind::GENESIS: return 4.0f;
         case MobKind::LYNX:  return 2.0f;
         case MobKind::GRAVIS:
+        case MobKind::HOROLOGIUM:
         case MobKind::QUASAR:  return 3.0f;
         case MobKind::MAGNETAR: return 3.0f;
         case MobKind::GIMBAL:
@@ -416,14 +467,104 @@ private:
 
     // A mob gets at most one Regulus buff in its life (shield, speed or
     // stealth); buffs are permanent, a broken shield does not free it again.
-    static bool RegulusFree(const Monster& m) { return !m.RegulusBuffed(); }
+    static bool RegulusFree(const Monster& m) { return !m.RegulusBuffed() && !m.regulusReserved; }
 
     // Every REGULUS_SHOT_INTERVAL a Regulus fires a volley of instant lasers at
     // up to REGULUS_VOLLEY_COUNT distinct random allies within
     // REGULUS_SHOT_RANGE that have never been buffed. Each gets one random,
     // permanent buff: a shield (until it breaks), a speed boost or a stealth
     // cloak. The buff lands on the spot; the laser colour tells which one.
-    void UpdateRegulusShots(float dt) {
+    void ApplyRegulusBuff(Monster* mob, RangedMob* ranged, int buff, float tx, float ty,
+                          float bodyRadius) {
+        if (buff == Monster::REGULUS_BUFF_SHIELD) {
+            EnemyShieldState* shield = mob ? &mob->regulusShield : &ranged->regulusShield;
+            // 120% of the target's own HP at the moment of the grant.
+            const float shieldHp = std::max(1.0f, mob ? mob->hp : ranged->hp) * 1.2f;
+            *shield = {};
+            shield->acquiredOnce = true;
+            shield->hp = shield->maxHp = shieldHp;
+            shield->flashTimer = MOB_HIT_FLASH_TIME;
+            shield->grantTimer = SHIELD_GRANT_TIME;
+            Audio::Play(Audio::Cue::EliteRegulusShield);
+        } else if (buff == Monster::REGULUS_BUFF_SPEED) {
+            mob->regulusSpeedAge = 0.0f;
+        } else {
+            mob->regulusStealthAge = 0.0f;
+        }
+        SpawnRegulusShieldGrantParticles(tx, ty, bodyRadius, Monster::RegulusBuffColor(buff));
+    }
+
+    bool StillHere(const Monster* m) const {
+        for (auto* x : monsters) if (x == m) return x->alive;
+        return false;
+    }
+    bool StillHere(const RangedMob* r) const {
+        for (auto* x : rangedMobs) if (x == r) return x->alive;
+        return false;
+    }
+
+    // Fires the phase-2 lasers whose warning ran out: the buff (if the target
+    // is still alive) and a hit on a player standing on the shown line.
+    void UpdateRegulusPending(float dt, float playerCX, float playerCY, float& playerHP) {
+        bool fired = false;
+        for (auto& p : regulusPending) {
+            p.left -= dt;
+            if (p.left > 0.0f) continue;
+            fired = true;
+            if (p.mob ? StillHere(p.mob) : (p.ranged && StillHere(p.ranged)))
+                ApplyRegulusBuff(p.mob, p.mob ? nullptr : p.ranged, p.buff, p.x1, p.y1, p.bodyRadius);
+            regulusBeams.push_back({ p.x0, p.y0, p.x1, p.y1, 0.0f, p.buff });
+            const float ax = p.x1 - p.x0, ay = p.y1 - p.y0;
+            const float len2 = ax * ax + ay * ay;
+            float u = len2 > 0.001f ? ((playerCX - p.x0) * ax + (playerCY - p.y0) * ay) / len2 : 0.0f;
+            u = std::clamp(u, 0.0f, 1.0f);
+            const float hx = p.x0 + ax * u - playerCX, hy = p.y0 + ay * u - playerCY;
+            if (hx * hx + hy * hy <= Monster::REGULUS_LASER_HIT_RADIUS * Monster::REGULUS_LASER_HIT_RADIUS)
+                HurtPlayer(playerHP, Monster::REGULUS_LASER_DAMAGE, "REGULUS_LASER");
+        }
+        if (fired) Audio::Play(Audio::Cue::EliteRegulusBeam);
+        regulusPending.erase(std::remove_if(regulusPending.begin(), regulusPending.end(),
+            [](const RegulusPending& p) { return p.left <= 0.0f; }), regulusPending.end());
+    }
+
+    // Strike lasers (phase 2: one at the player; phase 3: also one at where
+    // the player will be). Warned like the buff lasers, no buff, a hit only.
+    void QueueRegulusStrikes(const Monster& source, float playerCX, float playerCY) {
+        const int phase = source.RegulusPhase();
+        if (phase < 2) return;
+        const glm::vec2 from(source.worldX, source.worldY);
+        if (!space::Reaches(space::SpaceAt(from.x, from.y), playerCX, playerCY)) return;
+        auto queue = [&](glm::vec2 aim) {
+            glm::vec2 d = aim - from;
+            const float len = glm::length(d);
+            if (len < 1.0f || len > Monster::REGULUS_STRIKE_RANGE) return;
+            d /= len;
+            RegulusPending p;
+            p.buff = Monster::REGULUS_BUFF_STEALTH;     // the violet line
+            p.x0 = from.x; p.y0 = from.y;
+            p.x1 = from.x + d.x * (len + Monster::REGULUS_STRIKE_OVERSHOOT);
+            p.y1 = from.y + d.y * (len + Monster::REGULUS_STRIKE_OVERSHOOT);
+            p.left = Monster::REGULUS_WARN_TIME;
+            regulusPending.push_back(p);
+        };
+        const glm::vec2 player(playerCX, playerCY);
+        queue(player);
+        if (phase >= 3) {
+            const glm::vec2 lead = regulusPlayerVel * Monster::REGULUS_WARN_TIME;
+            if (glm::length(lead) > 40.0f) queue(player + lead);   // standing still: one line is enough
+        }
+    }
+
+    void UpdateRegulusShots(float dt, float playerCX, float playerCY, float& playerHP) {
+        UpdateRegulusPending(dt, playerCX, playerCY, playerHP);
+        const glm::vec2 player(playerCX, playerCY);
+        if (regulusHasLastPlayer && dt > 0.0f) {
+            const glm::vec2 v = (player - regulusLastPlayer) / dt;
+            const float k = std::min(1.0f, dt / 0.15f);
+            regulusPlayerVel += (glm::length(v) < 3000.0f ? v - regulusPlayerVel : -regulusPlayerVel) * k;
+        }
+        regulusLastPlayer = player;
+        regulusHasLastPlayer = true;
         constexpr float rangeSq = Monster::REGULUS_SHOT_RANGE *
                                   Monster::REGULUS_SHOT_RANGE;
         struct Cand { Monster* mob; RangedMob* ranged; };
@@ -453,11 +594,22 @@ private:
 
             source->regulusHasTarget = !pool.empty();
             if (pool.empty()) {
+                if (source->RegulusPhase() >= 2) {   // no ally to buff: the strikes still come
+                    QueueRegulusStrikes(*source, playerCX, playerCY);
+                    gamelog::FightPattern("LASER_STRIKE");
+                    source->regulusShotTimer = Monster::REGULUS_SHOT_INTERVAL;
+                    continue;
+                }
                 source->regulusShotTimer = 0.2f;   // look again shortly
                 continue;
             }
             const int shots = std::min((int)pool.size(), Monster::REGULUS_VOLLEY_COUNT);
-            Audio::Play(Audio::Cue::EliteRegulusBeam);
+            const bool warned = source->RegulusPhase() >= 2;
+            if (warned) {
+                gamelog::FightPattern("LASER_LINES");
+                QueueRegulusStrikes(*source, playerCX, playerCY);
+            }
+            else Audio::Play(Audio::Cue::EliteRegulusBeam);
             for (int n = 0; n < shots; ++n) {
                 const int idx = n + rand() % ((int)pool.size() - n);
                 std::swap(pool[n], pool[idx]);
@@ -472,24 +624,19 @@ private:
                     tx = c.ranged->worldX; ty = c.ranged->worldY;
                     bodyRadius = RangedMob::VISUAL_BASE_PX;
                 }
-                if (buff == Monster::REGULUS_BUFF_SHIELD) {
-                    EnemyShieldState* shield = c.mob ? &c.mob->regulusShield
-                                                     : &c.ranged->regulusShield;
-                    // 120% of the target's own HP at the moment of the grant.
-                    const float shieldHp = std::max(1.0f, c.mob ? c.mob->hp : c.ranged->hp) * 1.2f;
-                    *shield = {};
-                    shield->acquiredOnce = true;
-                    shield->hp = shield->maxHp = shieldHp;
-                    shield->flashTimer = MOB_HIT_FLASH_TIME;
-                    shield->grantTimer = SHIELD_GRANT_TIME;
-                    Audio::Play(Audio::Cue::EliteRegulusShield);
-                } else if (buff == Monster::REGULUS_BUFF_SPEED) {
-                    c.mob->regulusSpeedAge = 0.0f;
-                } else {
-                    c.mob->regulusStealthAge = 0.0f;
+                if (warned) {
+                    // Reserve the target now so the next volley skips it.
+                    if (c.mob) c.mob->regulusReserved = true;
+                    else c.ranged->regulusShield.acquiredOnce = true;
+                    RegulusPending p;
+                    p.mob = c.mob; p.ranged = c.ranged; p.buff = buff;
+                    p.x0 = source->worldX; p.y0 = source->worldY; p.x1 = tx; p.y1 = ty;
+                    p.left = Monster::REGULUS_WARN_TIME;
+                    p.bodyRadius = bodyRadius;
+                    regulusPending.push_back(p);
+                    continue;
                 }
-                SpawnRegulusShieldGrantParticles(tx, ty, bodyRadius,
-                    Monster::RegulusBuffColor(buff));
+                ApplyRegulusBuff(c.mob, c.ranged, buff, tx, ty, bodyRadius);
                 regulusBeams.push_back({ source->worldX, source->worldY, tx, ty, 0.0f, buff });
             }
             source->regulusShotTimer = Monster::REGULUS_SHOT_INTERVAL;
@@ -517,7 +664,8 @@ private:
         while(turn<-3.14159265f) turn+=6.2831853f;
         g.hiveOrbitAngle+=std::clamp(turn,-9.0f*dt,9.0f*dt);
         const float duration=g.hivePhase==4 ? Monster::GENESIS_ROTOR_PREP :
-                             g.hivePhase==5 ? Monster::GENESIS_ROTOR_GAP : Monster::GENESIS_ROTOR_RECOVER;
+                             g.hivePhase==5 ? (g.genesisLaneVolley ? Monster::GENESIS_LANE_GAP : Monster::GENESIS_ROTOR_GAP)
+                                            : Monster::GENESIS_ROTOR_RECOVER;
         if(g.hivePhase==6) {
             if(g.spawnTimer>=duration) {
                 g.hivePhase=0; g.spawnTimer=0; g.hiveSpawnCount=0;
@@ -576,7 +724,14 @@ private:
             child->thrownTimer=u*Monster::GENESIS_ROTOR_FORM;
             child->thrownSpin=g.hiveOrbitAngle;
             if(g.spawnTimer>=duration) {
-                child->LaunchGenesisRotor(px,py,atan2f(py-g.worldY,px-g.worldX)); launched=true;
+                float tx=px,ty=py;
+                if(g.genesisLaneVolley) {               // phase 2: its slot in the row
+                    const auto& t=g.genesisLaneTargets[std::min(g.hiveSpawnCount,Monster::GENESIS_ROTOR_COUNT-1)];
+                    tx=t.x; ty=t.y;
+                }
+                child->genesisLaneShot=g.genesisLaneVolley;
+                child->genesisLaneHit=false;
+                child->LaunchGenesisRotor(tx,ty,atan2f(ty-g.worldY,tx-g.worldX)); launched=true;
             }
         };
         for(auto* child:monsters) feed(child);
@@ -676,6 +831,13 @@ private:
                     m->genesisShellSpin=0;
                     if(m->spawnTimer>=Monster::GENESIS_ROTOR_WAIT) {
                         Audio::Play(Audio::Cue::EnemyTelegraph);   // Rotor 발사대 준비 예고
+                        m->genesisLaneVolley=false;
+                        if(m->GenesisPhase()>=2) {
+                            m->PlanGenesisLane(playerCX,playerCY);
+                            gamelog::FightPattern("ROTOR_LANE");
+                        } else {
+                            gamelog::FightPattern("ROTOR");
+                        }
                         m->hivePhase=4; m->spawnTimer=0; m->hiveSpawnCount=0;
                         m->genesisRotorLoaded=false; m->genesisRotorShotAge=1;
                     }
@@ -691,6 +853,7 @@ private:
                     m->genesisShellSpin = m->genesisSpinBase;
                     // Lock the aim now so the aim lines tell the truth.
                     Audio::Play(Audio::Cue::EliteGenesisAim);
+                    gamelog::FightPattern(m->GenesisPhase() >= 3 ? "THROW_MARK" : "THROW");
                     m->hivePhase = 1;
                     m->spawnTimer = 0.0f;
                     m->hiveSpawnCount = 0;
@@ -751,6 +914,9 @@ private:
                         child->hp *= m->genesisChildHpMult;
                         child->BeginThrownFlight(m->genesisShotX[shot],
                                                  m->genesisShotY[shot]);
+                        if (m->GenesisPhase() >= 3)          // phase 3: a ring stays where it lands
+                            m->AddGenesisMark(shot, m->genesisShotX[shot], m->genesisShotY[shot],
+                                              child->thrownDuration);
                         child->TakeGenesisControl(m->genesisId);
                         if (scopeCapsule) {
                             child->genesisSummonCarrier = true;

@@ -42,6 +42,8 @@ struct EnemySpawnState {
     float objectiveSpawnTime = 0.0f;
     // The target fell; ConsumeWaveClear hands this to the wave flow once.
     WaveClearInfo clear;
+    // Regular kills of the last few seconds; the refill floor follows them.
+    KillRateMeter killRate;
 };
 
 static EnemySpawnState g_EnemySpawnState;
@@ -88,7 +90,8 @@ static void SpecializeRegularMob(const MonsterManager& monsters, Monster& mob, i
 
 // Every elite wave, on every difficulty, brings one of these at random.
 static constexpr MobKind kEliteKinds[] = {
-    MobKind::QUASAR, MobKind::REGULUS, MobKind::GENESIS, MobKind::ANTARES
+    MobKind::QUASAR, MobKind::REGULUS, MobKind::GENESIS, MobKind::ANTARES,
+    MobKind::HOROLOGIUM,
 };
 static constexpr int kEliteKindCount = (int)(sizeof(kEliteKinds) / sizeof(kEliteKinds[0]));
 
@@ -148,7 +151,7 @@ static void SpawnScheduledElite(MonsterManager& monsters, int screenWidth,
 static bool AntaresStanding(const Monster* mob) {
     if (mob->kind != MobKind::ANTARES) return false;
     return mob->alive || (!mob->antaresSplit && !mob->noBlast &&
-                          mob->antaresGen < Monster::ANTARES_MAX_GEN);
+                          mob->antaresGen < Monster::AntaresMaxGen());
 }
 
 static void TrackScheduledElite(const MonsterManager& monsters) {
@@ -352,7 +355,9 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
         g_EnemySpawnState.spawnedThisWave = 0;
         g_EnemySpawnState.mobTimer = 0.0f;
         g_EnemySpawnState.rangedTimer = 0.0f;
+        g_EnemySpawnState.killRate.Reset(stats.killCount);
     }
+    g_EnemySpawnState.killRate.Step(delta, stats.killCount);
     const float minutePressure = waveSeconds < 60.0f ? 1.0f
         : waveSeconds < 120.0f ? 1.15f : 1.30f;
     const float spawnPressure = (1.0f + balance.spawnPressureWave * (wave - 1)) * minutePressure *
@@ -383,7 +388,8 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
     }
 
     // Regular waves run on their kill quota: no spawn budget, and the field is
-    // refilled at once whenever it runs thin, so faster kills bring more mobs.
+    // refilled at once whenever it runs thin. How thin follows the recent kill
+    // rate (RegularWaveFieldTarget), so faster kills bring more mobs.
     // Elite waves keep the regular pace around the elite, within the budget.
     // Regulus is a support elite that lives off its allies, so its wave is
     // filled like a regular wave and never runs out of mobs.
@@ -396,7 +402,10 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
     if (fillField)
         for (const Monster* mob : monsters.monsters)
             aliveRegular += mob->alive && !IsEliteMob(mob->kind) && !IsBossMob(mob->kind);
-    const bool refill = fillField && aliveRegular < RegularWaveMinAlive(wave, difficulty);
+    const int fieldTarget = RegularWaveFieldTarget(
+        wave, difficulty, g_EnemySpawnState.killRate.PerSecond(stats.killCount));
+    if (fillField) gamelog::FieldTarget(fieldTarget);
+    const bool refill = fillField && aliveRegular < fieldTarget;
     const float bossFight = 1.0f;
     const float bossStretch = std::max(bossFight,
         SpecialWaveSpawnStretch(wave, difficulty, SpawnSource::Regular));
@@ -416,11 +425,13 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
             ++g_EnemySpawnState.spawnedThisWave;
             if (g_EnemySpawnState.mobTimer >= spawnInterval)
                 g_EnemySpawnState.mobTimer -= spawnInterval;
+            else
+                gamelog::Refill();   // spawned only because the field ran thin
         }
     }
 
     // Scope uses its own ranged spawn path, gated by its roster entry.
-    const float scopeRate = ScopeRateMult(wave, (int)difficulty);
+    const float scopeRate = ScopeRateMult(wave, (int)difficulty) * LateRangedMult(wave);
     if (!RosterUnlocked(RosterKind::SCOPE, wave, (int)difficulty) || scopeRate <= 0.0f) {
         g_EnemySpawnState.rangedTimer = 0.0f;
         return;

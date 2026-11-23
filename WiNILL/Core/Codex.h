@@ -263,6 +263,7 @@ enum CodexMobId {
     CM_TRIGON,      // MobKind::TRIANGULUM, shown as TRIGON
     CM_OCTANS,      // MobKind::NORMA boss, shown as OCTANS
     CM_ERIDANUS,    // MobKind::CAELUM boss, shown as ERIDANUS
+    CM_HOROLOGIUM,  // MobKind::HOROLOGIUM clock elite (appended: saved indices stay put)
     CM_COUNT
 };
 
@@ -392,6 +393,18 @@ inline const CodexMobProfile CODEX_MOB_PROFILES[CM_COUNT] = {
       { L"칸은 오염되기 전에 테두리가 깜빡입니다. 충격파 경고 중에는 밀려날 곳을 보고 오염 칸이 없는 쪽으로 서세요. 저격 형태는 이동 방향을 앞질러 쏘므로 방향을 자주 바꾸세요.",
         L"A cell's outline flickers before it corrupts. During a shockwave warning, look where you will land and stand so it is clean. The sniper form leads your movement, so change direction often.",
         L"マスは汚染される前に枠が点滅します。衝撃波の警告中は押し出される先を見て、汚染のない側に立ちましょう。狙撃形態は移動方向を先読みするので、こまめに向きを変えてください。" } },
+    { { L"호롤로기움", L"HOROLOGIUM", L"ホロロギウム" },
+      { L"[엘리트] 기운 궤도가 감도는 천체 시계 모양의 시계자리 신호",
+        L"[ELITE] Clock signal shaped like a celestial clock wrapped in a tilted orbit",
+        L"[エリート] 傾いた軌道がめぐる天体時計の形をした時計座のシグナル" },
+      L"ELITE", 2, 8, (int)horologium::kBaseHp,
+      L"9 / needle (out and back), 18 / stasis strike, 16 / recall shock, 4 / sec (contact)", L"70 px/s (keeps its distance)",
+      { L"역행 탄 · 정지 장판 · 태엽 쉼\n2페이즈: 되감기 · 3페이즈: 박자(빠름·느림)",
+        L"Reverse volley · stasis field · winding rest\nPhase 2: recall · Phase 3: tempo (slow and fast)",
+        L"逆行弾 · 停止フィールド · ぜんまいの休止\n第2フェーズ: 巻き戻し · 第3フェーズ: テンポ(遅い・速い)" },
+      { L"바늘은 끝까지 간 뒤 같은 길로 되돌아옵니다. 발밑 고리는 1초 안에 빠져나가야 얼지 않습니다. 되감기 표식이 찍히면 3초 뒤 그 자리로 끌려가니, 그 전에 시계를 세게 때려 깨거나 끌려간 뒤 바로 빠져나가세요.",
+        L"Needles fly to the end of their lane, then come back the same way. Leave the ring under you within 1 s or you freeze. Once a recall mark is stamped you are pulled back onto it 3 s later: break it by hitting the clock hard first, or step off the mark right after.",
+        L"針はレーンの端まで飛んだ後、同じ道を戻ってきます。足元のリングは1秒以内に出ないと凍りつきます。巻き戻しの印が押されると3秒後にその場所へ引き戻されるので、その前に時計を強く叩いて壊すか、戻された直後に離れましょう。" } },
 };
 
 inline const CodexMobProfile* CodexMobProfileFor(int id) {
@@ -462,6 +475,7 @@ inline CodexMobId CodexMobIdForKind(MobKind k) {
     case MobKind::TRIANGULUM: return CM_TRIGON;
     case MobKind::NORMA:   return CM_OCTANS;
     case MobKind::CAELUM:  return CM_ERIDANUS;
+    case MobKind::HOROLOGIUM: return CM_HOROLOGIUM;
     default:               return CM_COUNT;
     }
 }
@@ -469,7 +483,7 @@ inline CodexMobId CodexMobIdForKind(MobKind k) {
 // Codex signal classes: 0 = regular, 1 = elite, 2 = boss.
 inline int CodexMobClass(int id) {
     switch (id) {
-    case CM_QUASAR: case CM_REGULUS: case CM_ANTARES: case CM_GENESIS: return 1;
+    case CM_QUASAR: case CM_REGULUS: case CM_ANTARES: case CM_GENESIS: case CM_HOROLOGIUM: return 1;
     case CM_OCTANS: case CM_ERIDANUS: return 2;
     default: return 0;
     }
@@ -479,7 +493,7 @@ template <typename Fn>
 inline void ForEachCodexMobEntry(Fn&& fn) {
     static constexpr CodexMobId kRosterOrder[] = {
         CM_ROTOR, CM_ANTARES, CM_SCOPE, CM_REGULUS, CM_GIMBAL, CM_SWARM,
-        CM_GENESIS, CM_GRAVIS, CM_QUASAR, CM_MAGNETAR, CM_LYNX, CM_TRIGON,
+        CM_GENESIS, CM_GRAVIS, CM_QUASAR, CM_HOROLOGIUM, CM_MAGNETAR, CM_LYNX, CM_TRIGON,
         CM_OCTANS, CM_ERIDANUS
     };
     for (CodexMobId id : kRosterOrder) fn((int)id);
@@ -613,6 +627,7 @@ inline MobKind CodexMobKind(int id) {
     case CM_MAGNETAR: return MobKind::MAGNETAR;
     case CM_LYNX:  return MobKind::LYNX;
     case CM_TRIGON: return MobKind::TRIANGULUM;
+    case CM_HOROLOGIUM: return MobKind::HOROLOGIUM;
     default:         return MobKind::ROTOR;
     }
 }

@@ -1,6 +1,7 @@
 // Wave schedule: sets of three regular waves and an elite wave, the final
 // boss (NIGHTMARE also a mid-run boss), regular kill quotas, the elite-wave
 // spawn pace, the HP ramp and the kill-time reward tiers, per difficulty.
+#include <cmath>
 #include <cstdio>
 
 #include "WaveSystem.h"
@@ -83,9 +84,12 @@ int main() {
         EXPECT(RegularWaveKillQuota(5, normal) == 80 && RegularWaveKillQuota(9, normal) == 145, "normal sets");
     }
 
-    // HP ramp: +kWaveHpStep per elite wave behind; mid boss adds no step.
-    EXPECT(WaveHpRamp(4, normal) == 1.0f, "no elite behind before wave 5");
-    EXPECT(WaveHpRamp(5, normal) == 1.0f + kWaveHpStep, "one elite behind");
+    // HP ramp: +kWaveHpStep every wave (smooth, not per elite wave).
+    EXPECT(WaveHpRamp(1, normal) == 1.0f, "wave 1 is x1");
+    EXPECT(std::fabs(WaveHpRamp(5, normal) - (1.0f + 4.0f * kWaveHpStep)) < 1e-5f, "per wave");
+    EXPECT(WaveHpRamp(3, normal) > WaveHpRamp(2, normal) && WaveHpRamp(4, normal) > WaveHpRamp(3, normal),
+           "rises inside a set too");
+    EXPECT(std::fabs(WaveHpRamp(13, normal) - 1.9f) < 0.1f, "wave 13 about where the old steps put it");
     EXPECT(EliteWavesBefore(13, nightmare) == 2, "nightmare mid boss is not an elite");
     // Spawns ramp per elite wave behind too.
     EXPECT(WaveSpawnRamp(3, normal) == kBaseSpawnRateMult &&

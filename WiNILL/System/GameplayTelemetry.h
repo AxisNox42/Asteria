@@ -46,6 +46,9 @@ public:
     }
 
     float SampleIntervalSeconds() const { return m_sampleIntervalSeconds; }
+    // Smoke runs write their log here instead of beside the exe, so they never
+    // mix into the player's own play log.
+    static std::string& OutputOverride() { static std::string path; return path; }
     bool IsActive() const { return m_active; }
 
     static StatsSnapshot Capture(const PlayerStats& stats) {
@@ -70,6 +73,7 @@ public:
         if (m_active) {
             // A run reset can happen from the menu without a separate end
             // event. Close the old section before starting the new one.
+            gamelog::FightEnd("run_end");
             gamelog::WriteWindow();
             gamelog::Detach();
             m_file << "RUN_END,reason=replaced_by_new_run\n";
@@ -187,6 +191,7 @@ public:
 
         const double averagePerMinute = gameTime > 0.001f
             ? XpToDouble(m_totalExperience) * 60.0 / (double)gameTime : 0.0;
+        gamelog::FightEnd("run_end");
         gamelog::WriteWindow();
         gamelog::Detach();
         m_file << "RUN_END,game_sec=" << std::fixed << std::setprecision(2)
@@ -202,6 +207,7 @@ public:
 
 private:
     static std::string OutputFilePath() {
+        if (!OutputOverride().empty()) return OutputOverride();
         const std::string exeDir = PlatformExeDirectory();
         if (exeDir.empty()) return "asteria_gameplay_telemetry.txt";
         return exeDir + "/asteria_gameplay_telemetry.txt";

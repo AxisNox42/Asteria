@@ -74,6 +74,7 @@ static void CheckSplit() {
     Monster* a = Add(mm, 300.0f, 300.0f);
     a->antaresInArena = true;
     a->antaresHeadingX = 1.0f;
+    a->gatesPassed = phase_gate::kEliteGateCount;   // past its phase gates: one hit kills
     a->ApplyDamage(a->hp);
     assert(!a->alive);
     std::vector<Bullet> bullets;

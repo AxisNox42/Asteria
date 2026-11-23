@@ -62,6 +62,10 @@ void DrawRadialGradientRotated(float centerX, float centerY,
 void DrawLinearGradient(float x, float y, float w, float h,
                         float r, float g, float b, float alpha,
                         bool mirrorX = false);
+// Vertical version: darkest at the top edge (fromBottom: the bottom edge).
+void DrawLinearGradientVertical(float x, float y, float w, float h,
+                                float r, float g, float b, float alpha,
+                                bool fromBottom = false);
 void DrawLinearGradientRibbon(float x, float y, float w, float h,
                               float cut, float r, float g, float b,
                               float alpha, bool mirrorX = false,

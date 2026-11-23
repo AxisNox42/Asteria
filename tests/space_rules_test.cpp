@@ -115,6 +115,8 @@ static void NewPanesLetOlderShotsPass() {
     Check(space::Absorbs(3, 5.0f), "pane stops shots fired once it stood");
     Check(space::Absorbs(0, 1.0f), "open field is never exempt");
     Check(space::Absorbs(9, 1.0f), "unknown pane keeps the old rule");
+    Check(space::Absorbs(3, 4.0f, false), "a player shot is stopped even by a pane born after it");
+    Check(!space::Absorbs(3, 4.0f, true), "an enemy shot still passes a pane born after it");
 }
 
 static void SolidBoxesNeverTrapAnything() {

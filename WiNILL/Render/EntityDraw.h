@@ -13,6 +13,8 @@ void drawRangedMob(const RangedMob* r, float visualTime = -1.0f);
 void DrawRegulusBuffMarks(const Monster* m, float visualTime);
 void DrawLynxRay(const Monster* m);
 void DrawMiraZones();
+// Nightmare Antares wake and clash rings (AntaresWake.h).
+void DrawAntaresWake();
 void DrawRegulusBeams(const MonsterManager& manager, float visualTime);
 // 레이저 frame card: the player's beams (LaserFx.h).
 void DrawPlayerLasers();

@@ -22,7 +22,6 @@ LOC = {
     "V_CHAIN": ("Lightning Chain Rounds", "稲妻連鎖弾", "Kills send lightning to 3 enemies within 3.5○ (80% attack)", "撃破時に3.5○以内の敵3体へ稲妻 (攻撃力80%)"),
     "V_TRAIL": ("Afterimage Trail Rounds", "残像軌跡弾", "Shots leave an afterimage along their path for 1.2s that deals 40% of shot damage per second · with Ember Igniting Rounds, enemies it touches burn", "弾が通った道に残像が1.2秒残り、触れた敵に毎秒弾ダメージの40% · 火種点火弾があれば残像に触れた敵が燃える"),
     "V_HOVER": ("Hovering Rounds", "空中静止弾", "Damage +70%, fire rate -10%. After flying 4○, shots pause for 0.8s, then fly on", "ダメージ+70%、連射-10%。4○飛ぶと0.8秒止まり、再び飛ぶ"),
-    "V_RETURN": ("Boomerang Rounds", "往復ブーメラン弾", "After flying 6.5○, shots turn back to you (they hit on the way back too) · removes the Shotgun/Laser range limit", "6.5○飛ぶとプレイヤーへ戻る (戻る途中も命中する) · ショットガン・レーザーの射程制限がなくなる"),
     # ── triggers ──
     "T_NTH": ("Beat Bonus Round", "拍子追加弾", "Every 6th shot adds one extra bullet with all of your shot's effects (pierce, bounce and so on)", "6発ごとに弾を1発追加 (追加弾も貫通・跳弾など今の弾の効果をそのまま持つ)"),
     "T_KILLBURST": ("Kill Reaction", "撃破反応", "Kills have a 12% chance to fire 4 bullets outward (60% of shot damage each, range 6.5○)", "撃破時12%の確率で弾4発を放射 (各弾ダメージの60%、射程6.5○)"),
@@ -46,7 +45,7 @@ LOC = {
     "V_TWIN": ("Twin Shot Rounds", "双発射撃弾", "Fires two shots side by side (65% damage each)", "2発を並べて発射 (1発あたりダメージ65%)"),
     "V_MARK": ("Branded Mark Rounds", "烙印標識弾", "Marks the enemy for 5s; marked enemies take +25% bullet damage", "命中した敵に5秒間刻印、刻印された敵は受ける弾のダメージ+25%"),
     "V_BURN": ("Ember Igniting Rounds", "火種点火弾", "Hit enemies burn for 3s (20% attack per second)", "命中した敵が3秒間燃える (毎秒攻撃力20%)"),
-    "V_HUNTER": ("Relentless Hunter Rounds", "執拗な狩猟弾", "Strongly homing shots that turn back after flying 6.5○ and hit again · removes the Shotgun/Laser range limit", "強く曲がる誘導弾 — 6.5○飛ぶと戻ってきて再び当たる · ショットガン・レーザーの射程制限がなくなる"),
+    "V_HUNTER": ("Relentless Hunter Rounds", "執拗な狩猟弾", "Strongly homing piercing shots that turn back after flying 13○ and hit again · removes the Shotgun/Laser range limit", "強く曲がる貫通誘導弾 — 13○飛ぶと戻ってきて再び当たる · ショットガン・レーザーの射程制限がなくなる"),
     "V_SPRAY": ("Fan Spray Rounds", "扇状散開弾", "Each shot adds 2 side bullets (35% damage)", "射撃ごとに左右へ弾2発追加 (ダメージ35%)"),
     "V_GRAVITY": ("Mini Gravity Rounds", "小型重力弾", "Pulls enemies within 1.5○ of the hit up to 1○ toward it (not bosses, elites or ranged enemies)", "命中点の周囲1.5○以内の敵を最大1○引き寄せる (ボス・エリート・遠距離の敵は除く)"),
     "T_LASTSTAND": ("Last Stand", "背水の陣", "+50% all damage at 30% HP or less", "体力30%以下で全ダメージ+50%"),

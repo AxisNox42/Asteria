@@ -175,7 +175,7 @@ int main() {
         const float first = eliteHp(4), later = eliteHp(8);
         std::printf("elite %d: wave 4 %.0f HP, wave 8 %.0f HP\n", kind, first, later);
         EXPECT(first > 7500.0f && first < 10200.0f, "elite %d first HP %.0f", kind, first);
-        EXPECT(std::fabs(later / first - WaveHpRamp(8, Difficulty::NORMAL)) < 0.01f,
+        EXPECT(std::fabs(later / first - WaveHpRamp(8, Difficulty::NORMAL) / WaveHpRamp(4, Difficulty::NORMAL)) < 0.01f,
                "elite %d ramps by wave (%.0f -> %.0f)", kind, first, later);
     }
 

@@ -624,6 +624,9 @@ void QueueMonsterSightFront(const Monster* m) {
     } else if (m->kind == MobKind::QUASAR) {
         alpha = 0.18f;
         radiusScale = 3.00f;   // tinted glow behind the halo and tilted orbit
+    } else if (m->kind == MobKind::HOROLOGIUM) {
+        alpha = 0.15f;
+        radiusScale = 2.10f;   // behind the dial and its orbit
     } else if (m->kind == MobKind::GIMBAL) {
         alpha = 0.19f;
         radiusScale = 2.35f;
@@ -1028,7 +1031,42 @@ static void DrawGenesisArrival(float x, float y, float R, float entryT, float ri
 //   entry   - it assembles where it appears: the core flickers on, the three
 //             shells fly in one by one and snap shut with a seam sweep, the
 //             orbit frame comes up and the spinning ring settles.
+static void DrawLineRing(float cx, float cy, float radius, float width,
+                         float r, float g, float b, float alpha);
+
+// Phase-pattern tells (solid lines only): the lane row's landing spots from
+// the wind-up until each Rotor leaves, and the phase-3 landing rings.
+static void DrawGenesisTells(const Monster* m) {
+    const float pr = Monster::GENESIS_PRODUCTION.r, pg = Monster::GENESIS_PRODUCTION.g,
+                pb = Monster::GENESIS_PRODUCTION.b;
+    if (m->genesisLaneVolley && (m->hivePhase == 4 || m->hivePhase == 5)) {
+        const float rise = m->hivePhase == 4
+            ? std::min(1.0f, m->spawnTimer / (Monster::GENESIS_ROTOR_PREP * 0.6f)) : 1.0f;
+        // Each path as a faint band as wide as its hit, with a solid centre line;
+        // the next one to fly is the brightest.
+        for (int i = m->hiveSpawnCount; i < Monster::GENESIS_ROTOR_COUNT; ++i) {
+            const glm::vec2 p = m->genesisLaneTargets[i];
+            const bool next = i == m->hiveSpawnCount;
+            drawLineQuad(m->worldX, m->worldY, p.x, p.y, 2.0f * Monster::GENESIS_LANE_HIT_RADIUS,
+                         pr, pg, pb, 0.06f * rise);
+            drawLineQuad(m->worldX, m->worldY, p.x, p.y, next ? 1.8f : 1.2f,
+                         pr, pg, pb, (next ? 0.85f : 0.50f) * rise);
+        }
+    }
+    for (int i = 0; i < Monster::GENESIS_STACKS; ++i) {
+        const float age = m->genesisMarkAge[i];
+        if (age < 0.0f || age >= Monster::GENESIS_MARK_TIME) continue;
+        const float in = std::min(1.0f, age / 0.12f);
+        const float out = std::min(1.0f, (Monster::GENESIS_MARK_TIME - age) / 0.4f);
+        const float a = in * out;
+        const glm::vec2 p = m->genesisMarkPos[i];
+        DrawLineRing(p.x, p.y, Monster::GENESIS_MARK_RADIUS, 1.4f, pr, pg, pb, 0.70f * a);
+        DrawLineRing(p.x, p.y, Monster::GENESIS_MARK_RADIUS * 0.82f, 0.8f, pr, pg, pb, 0.30f * a);
+    }
+}
+
 static void DrawGenesisLauncher(const Monster* m, float base, float t) {
+    DrawGenesisTells(m);
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
     ApplyMobStyleTint(cr, cg, cb);
     // Genesis' own colour family (shared with the enemies it controls).
@@ -1579,7 +1617,26 @@ void DrawRegulusBuffMarks(const Monster* m, float visualTime) {
     }
 }
 
-void DrawRegulusBeams(const MonsterManager& manager, float /*visualTime*/) {
+void DrawRegulusBeams(const MonsterManager& manager, float visualTime) {
+    // Phase 2: the line a laser will take, thin and brightening, then the
+    // laser itself (the beams below). Solid lines only.
+    for (const auto& p : manager.regulusPending) {
+        const float u = 1.0f - std::clamp(p.left / Monster::REGULUS_WARN_TIME, 0.0f, 1.0f);
+        const glm::vec3 bc = Monster::RegulusBuffColor(p.buff);
+        drawLineQuad(p.x0, p.y0, p.x1, p.y1, 2.0f * Monster::REGULUS_LASER_HIT_RADIUS * (0.4f + 0.6f * u),
+                     bc.r, bc.g, bc.b, 0.06f + 0.10f * u);
+        drawLineQuad(p.x0, p.y0, p.x1, p.y1, 1.0f + 0.6f * u, bc.r, bc.g, bc.b, 0.35f + 0.45f * u);
+    }
+    // Phase 3: an exposed Regulus shows two rings breathing in and out.
+    for (const auto* m : manager.monsters) {
+        if (!m->alive || m->kind != MobKind::REGULUS || m->regulusExposed <= 0.0f) continue;
+        const glm::vec3 c = Monster::RegulusBuffColor(Monster::REGULUS_BUFF_STEALTH);
+        const float base = 18.0f * m->sizeScale;
+        const float fade = std::min(1.0f, m->regulusExposed / 0.3f);
+        const float pulse = 0.5f + 0.5f * sinf(visualTime * 9.0f);
+        DrawLineRing(m->worldX, m->worldY, base * (2.3f + 0.15f * pulse), 1.4f, c.r, c.g, c.b, 0.75f * fade);
+        DrawLineRing(m->worldX, m->worldY, base * (2.8f - 0.15f * pulse), 0.9f, c.r, c.g, c.b, 0.40f * fade);
+    }
     for (const auto& beam : manager.regulusBeams) {
         const float t = std::clamp(beam.age / Monster::REGULUS_BEAM_TIME, 0.0f, 1.0f);
         const float fade = (1.0f - t) * (1.0f - t);
@@ -1630,6 +1687,64 @@ static void DrawAntaresFrame(float x, float y, float base, float angle,
                       style.r, style.g, style.b, style.alpha);
 }
 
+// Phase-pattern tells, amber, solid lines only: the gather's closing rings,
+// the six radial lines (the bright one is the dash), the lance's bouncing path.
+static void DrawAntaresTells(const Monster* m, float base) {
+    using State = Monster::AntaresState;
+    const State s = m->antaresState;
+    if (s != State::GATHER && s != State::AIM && s != State::DASH) return;
+    const float ar = 1.0f, ag = 0.66f, ab = 0.20f;
+    const float x = m->worldX, y = m->worldY, t = m->antaresStateTimer;
+    auto Path = [&](float width, float alpha) {
+        for (int k = 0; k + 1 < m->antaresPathCount; ++k) {
+            const glm::vec2 a = m->antaresPath[k], b = m->antaresPath[k + 1];
+            drawLineQuad(a.x, a.y, b.x, b.y, width + 3.0f, ar, ag, ab, alpha * 0.15f);
+            drawLineQuad(a.x, a.y, b.x, b.y, width, ar, ag, ab, alpha);
+        }
+    };
+    // Nightmare: the wake's reach (kWidth to each side of the path), two faint
+    // solid lines, shown with the path so the whole band is known up front.
+    const bool wake = m->AntaresWakeUsed();
+    auto Band = [&](float alpha) {
+        if (!wake) return;
+        for (int k = 0; k + 1 < m->antaresPathCount; ++k) {
+            const glm::vec2 a = m->antaresPath[k], b = m->antaresPath[k + 1];
+            const glm::vec2 d = b - a;
+            const float len = glm::length(d);
+            if (len < 0.001f) continue;
+            const glm::vec2 n = glm::vec2(-d.y, d.x) / len * antares_wake::kWidth;
+            drawLineQuad(a.x + n.x, a.y + n.y, b.x + n.x, b.y + n.y, 1.3f, ar, ag, ab, alpha);
+            drawLineQuad(a.x - n.x, a.y - n.y, b.x - n.x, b.y - n.y, 1.3f, ar, ag, ab, alpha);
+        }
+    };
+    if (s == State::GATHER) {
+        if (t < Monster::AntaresGatherTime()) {
+            const float u = t / Monster::AntaresGatherTime();
+            const float outer = base * (1.7f + 3.0f * (1.0f - u));
+            DrawLineRing(x, y, outer, 1.2f, ar, ag, ab, 0.25f + 0.55f * u);
+            DrawLineRing(x, y, base * 1.7f + (outer - base * 1.7f) * 0.45f, 1.0f,
+                         ar, ag, ab, 0.15f + 0.45f * u);
+        } else {
+            DrawLineRing(x, y, base * 1.7f, 1.6f, ar, ag, ab, 0.85f);
+            const float head = atan2f(m->antaresHeadingY, m->antaresHeadingX);
+            for (int k = 1; k < Monster::ANTARES_RADIAL_COUNT; ++k) {
+                const float a = head + (float)k * 6.2831853f / (float)Monster::ANTARES_RADIAL_COUNT;
+                drawLineQuad(x, y, x + cosf(a) * Monster::ANTARES_RADIAL_DRAW,
+                             y + sinf(a) * Monster::ANTARES_RADIAL_DRAW, 1.0f, ar, ag, ab, 0.32f);
+            }
+            Path(2.0f, 0.90f);
+            Band(0.38f);
+        }
+    } else if (s == State::AIM) {
+        const float u = std::min(1.0f, t / Monster::ANTARES_LANCE_AIM);
+        Path(1.6f, 0.35f + 0.55f * u);
+        Band(0.15f + 0.25f * u);
+    } else {
+        Path(1.0f, 0.28f);
+        Band(0.14f);
+    }
+}
+
 static void DrawAntares(const Monster* m, float base) {
     using State = Monster::AntaresState;
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
@@ -1644,6 +1759,7 @@ static void DrawAntares(const Monster* m, float base) {
         headX = cosf(m->antaresVisualAngle);
         headY = sinf(m->antaresVisualAngle);
     }
+    DrawAntaresTells(m, base);
     // Segments lag up to 4px behind as speed builds.
     const float pushPx = 4.0f * m->AntaresSpeedRatio();
 
@@ -1691,7 +1807,7 @@ static void DrawAntares(const Monster* m, float base) {
         coreAlpha = 0.96f - 0.38f * std::min(1.0f, m->antaresStateTimer / 0.45f);
     else if (m->antaresState == State::REST)
         coreAlpha = 0.58f + 0.38f * std::min(1.0f,
-            m->antaresStateTimer / Monster::ANTARES_REST_TIME);
+            m->antaresStateTimer / Monster::AntaresRestTime());
     else if (m->antaresState == State::STUNNED)
         coreAlpha = 0.62f + 0.30f * (0.5f + 0.5f * sinf(m->antaresStateTimer * 40.0f));
     DrawEnemyCore(x, y, base * 0.26f, cr, cg, cb, coreAlpha, topSpeed);
@@ -1935,6 +2051,41 @@ static void DrawTriangulumDeath(const Monster* m, float visualTime) {
         drawLineQuad(mx - hx, my - hy, mx + hx, my + hy, 2.4f, cr, cg, cb, 0.95f * (1.0f - v));
     }
     DrawMiraRing(x, y, base * (0.5f + 1.6f * v), 2.0f, cr, cg, cb, 0.8f * (1.0f - v));
+}
+
+// Nightmare Antares wake (AntaresWake.h), amber, solid lines only: each piece
+// brightens until it bursts, then two lines spread out to both sides and fade;
+// rings (wall bounces, fragment clashes) show their full reach, then spread.
+void DrawAntaresWake() {
+    using namespace antares_wake;
+    const float ar = 1.0f, ag = 0.66f, ab = 0.20f;
+    auto FadeOf = [](float age) {
+        return age < kDelay + kSpread ? 1.0f
+                                      : std::max(0.0f, 1.0f - (age - kDelay - kSpread) / kFade);
+    };
+    for (const Node& n : g.nodes) {
+        const float sx = n.bx - n.ax, sy = n.by - n.ay;
+        const float len = std::sqrt(sx * sx + sy * sy);
+        if (len < 0.001f) continue;
+        if (n.age < kDelay) {
+            drawLineQuad(n.ax, n.ay, n.bx, n.by, 1.4f, ar, ag, ab, 0.30f + 0.55f * (n.age / kDelay));
+            continue;
+        }
+        const float spread = SpreadOf(n.age), fade = FadeOf(n.age);
+        const float ox = -sy / len * kWidth * spread, oy = sx / len * kWidth * spread;
+        drawLineQuad(n.ax + ox, n.ay + oy, n.bx + ox, n.by + oy, 1.6f, ar, ag, ab, 0.90f * fade);
+        drawLineQuad(n.ax - ox, n.ay - oy, n.bx - ox, n.by - oy, 1.6f, ar, ag, ab, 0.90f * fade);
+        drawLineQuad(n.ax, n.ay, n.bx, n.by, 1.0f, ar, ag, ab, 0.50f * (1.0f - spread) * fade);
+    }
+    for (const Ring& r : g.rings) {
+        if (r.age < kDelay) {
+            DrawLineRing(r.x, r.y, r.radius, 1.0f, ar, ag, ab, 0.15f + 0.45f * (r.age / kDelay));
+            continue;
+        }
+        const float spread = SpreadOf(r.age), fade = FadeOf(r.age);
+        DrawLineRing(r.x, r.y, std::max(1.0f, r.radius * spread), 1.6f, ar, ag, ab, 0.90f * fade);
+        DrawLineRing(r.x, r.y, r.radius, 0.8f, ar, ag, ab, 0.25f * fade);
+    }
 }
 
 void DrawMiraZones() {
@@ -2617,8 +2768,8 @@ static void DrawQuasarStarIgnition(float cx, float cy, float R, float t, float p
 }
 
 static void DrawQuasarFall(const Monster* m, float cr, float cg, float cb) {
-    if (!m->QuasarFalling()) return;
-    const float age = m->quasarTimer;
+    if (!m->QuasarFallShots()) return;
+    const float age = m->quasarFallClock;
     auto diamond = [&](glm::vec2 p, float size, float alpha, float angle = 0.0f) {
         // A faceted chunk with a white spine, rather than a small round node.
         const glm::vec2 shape[6] = {{0,-1.5f}, {0.65f,-0.3f}, {0.48f,0.6f},
@@ -3458,6 +3609,213 @@ static void DrawGenesisLauncherShot(const Monster* m, float x, float y, float cr
     }
 }
 
+// ── HOROLOGIUM (HorologiumMob.h) ──────────────────────────────
+// The "celestial clock" sheet (plan 2026-11-18 5.1 option 3), upright (it
+// never turns to the player). Sheet units, +y down, 12 o'clock = -y:
+// dial r60 + inner r40, four hour ticks 48..60, a construction triangle and
+// a small construction circle, two kite hands, a tilted orbit ellipse 76x22
+// with a small star riding it. Solid lines only, no fills.
+static void DrawHorologiumKite(float x, float y, float k, float a, float len, float half,
+                               float r, float g, float b, float al, float w) {
+    // Kite from the centre along angle a (0 = 12 o'clock, clockwise).
+    const float ux = sinf(a), uy = -cosf(a);    // along the hand
+    const float vx = -uy, vy = ux;              // across
+    const float px[4] = { 0.0f, half * 0.9f, 0.0f, -half * 0.9f };
+    const float py[4] = { 0.0f, len * 0.16f, len, len * 0.16f };
+    float wx[4], wy[4];
+    for (int i = 0; i < 4; ++i) {
+        wx[i] = x + k * (ux * py[i] + vx * px[i]);
+        wy[i] = y + k * (uy * py[i] + vy * px[i]);
+    }
+    for (int i = 0; i < 4; ++i) {
+        const int j = (i + 1) % 4;
+        drawLineQuad(wx[i], wy[i], wx[j], wy[j], w, r, g, b, al);
+    }
+}
+
+// Pattern drawing (never on the body): reverse-volley lanes and needles, the
+// stasis ring, the recall mark with its countdown and break meter, the tempo
+// ring around the player, and hit flashes.
+static void DrawHorologiumClockRing(float x, float y, float r, float left, float rr, float gg, float bb, float al) {
+    // A floor clock: ring, 12 ticks and one hand sweeping the time left
+    // (a full turn = time is up).
+    DrawLineRing(x, y, r, 1.8f, rr, gg, bb, al);
+    for (int i = 0; i < 12; ++i) {
+        const float a = 6.2831853f * (float)i / 12.0f;
+        const float r0 = r - ((i % 3 == 0) ? 14.0f : 7.0f);
+        drawLineQuad(x + cosf(a) * r0, y + sinf(a) * r0, x + cosf(a) * r, y + sinf(a) * r,
+                     (i % 3 == 0) ? 2.4f : 1.2f, rr, gg, bb, al);
+    }
+    const float h = 6.2831853f * (1.0f - std::clamp(left, 0.0f, 1.0f));
+    drawLineQuad(x, y, x + sinf(h) * r * 0.82f, y - cosf(h) * r * 0.82f, 2.2f, 1.0f, 1.0f, 1.0f, al);
+}
+
+static void DrawHorologiumTells(const Monster* m) {
+    const horologium::Brain& br = m->horologium;
+    float cr = m->color.r, cg = m->color.g, cb = m->color.b;
+    ApplyMobStyleTint(cr, cg, cb);
+    const float x = m->worldX, y = m->worldY, sc = br.scale;
+    const float dk = 0.05f;
+    using horologium::State;
+    using horologium::Recall;
+
+    // Reverse volley: the lanes of the salvo about to fire (tracking the
+    // player), then needles that bend out to the screen edge, flash there,
+    // and fly back to the dial glowing white.
+    const bool volleyWarn = br.state == State::VolleyWarn;
+    const bool salvoNext = br.state == State::Volley && br.salvosFired < horologium::kSalvos;
+    if (volleyWarn || salvoNext) {
+        const float in = volleyWarn ? 1.0f - br.timer / horologium::kVolleyWarn
+                                    : 1.0f - br.salvoTimer / horologium::kSalvoGap;
+        const float laneLen = 520.0f * sc;
+        for (int l = 0; l < horologium::kLanes; ++l) {
+            const float a = br.LaneAngle(l);
+            const float ox = x + cosf(a) * horologium::kDialRadius, oy = y + sinf(a) * horologium::kDialRadius;
+            drawLineQuad(ox, oy, ox + cosf(a) * laneLen, oy + sinf(a) * laneLen, 1.2f, cr, cg, cb,
+                         (volleyWarn ? 0.25f : 0.15f) + 0.45f * in);
+        }
+    }
+    for (const auto& n : br.needles) {
+        if (!n.active) continue;
+        const bool back = n.leg == horologium::Leg::Back;
+        const bool hold = n.leg == horologium::Leg::Hold;
+        const float ax = cosf(n.a), ay = sinf(n.a);
+        const float h = horologium::kNeedleHalfLen;
+        const float r = back ? 1.0f : cr, g = back ? 0.95f : cg, b = back ? 0.85f : cb;
+        if (hold) {   // turning round at the edge
+            DrawLineRing(n.x, n.y, 10.0f + 6.0f * (n.hold / horologium::kNeedleHold), 1.6f, 1.0f, 1.0f, 1.0f, 0.8f);
+            drawLineQuad(n.x - ax * h, n.y - ay * h, n.x + ax * h, n.y + ay * h, 2.4f, r, g, b, 0.9f);
+            continue;
+        }
+        drawLineQuad(n.x - ax * h * 3.0f, n.y - ay * h * 3.0f, n.x - ax * h, n.y - ay * h, 1.2f, r, g, b, 0.35f);
+        drawLineQuad(n.x - ax * h, n.y - ay * h, n.x + ax * h, n.y + ay * h, 4.6f, dk, dk, dk, 0.5f);
+        drawLineQuad(n.x - ax * h, n.y - ay * h, n.x + ax * h, n.y + ay * h, 2.8f, r, g, b, 1.0f);
+        drawLineQuad(n.x, n.y, n.x + ax * h, n.y + ay * h, 1.0f, 1.0f, 1.0f, 1.0f, 0.95f);
+    }
+
+    // Stasis: a floor clock round the player's spot; frozen = grey rings.
+    if (br.state == State::StasisWarn) {
+        const float k = 1.0f - br.timer / horologium::kStasisWarn;
+        const float r = horologium::kStasisRadius * sc;
+        const bool locked = br.timer <= horologium::kStasisWarn - horologium::kStasisFollow;
+        if (locked) DrawLineRing(br.stasisX, br.stasisY, r + 8.0f, 2.0f, 1.0f, 1.0f, 1.0f, 0.85f);   // locked in place
+        DrawLineRing(br.stasisX, br.stasisY, r, 4.0f, dk, dk, dk, 0.45f);
+        DrawHorologiumClockRing(br.stasisX, br.stasisY, r, br.timer / horologium::kStasisWarn,
+                                cr + (1.0f - cr) * k, cg + (1.0f - cg) * k, cb + (1.0f - cb) * k, 0.55f + 0.45f * k);
+    } else if (br.state == State::Freeze) {
+        const float r = horologium::kStasisRadius * sc;
+        DrawLineRing(br.stasisX, br.stasisY, r, 1.6f, 0.72f, 0.74f, 0.80f, 0.7f);
+        if (br.caught) {
+            for (int i = 0; i < 6; ++i) {   // frost cracks around the frozen player
+                const float a = 1.047f * (float)i + 0.3f;
+                drawLineQuad(br.lastPX + cosf(a) * 14.0f, br.lastPY + sinf(a) * 14.0f,
+                             br.lastPX + cosf(a) * 30.0f, br.lastPY + sinf(a) * 30.0f, 1.6f, 0.85f, 0.88f, 0.95f, 0.9f);
+            }
+            DrawLineRing(br.lastPX, br.lastPY, 22.0f, 2.0f, 0.85f, 0.88f, 0.95f, 0.9f);
+        }
+    }
+
+    // Recall: the mark follows the player, stamps, counts down; a tether to
+    // the player; the white arc (also round the clock) fills with the damage
+    // that breaks it; then the shock ring closes in after the pull.
+    if (br.recall != Recall::Off) {
+        const float mr = 46.0f;
+        if (br.recall == Recall::Aim) {
+            const float k = 1.0f - br.recallTimer / horologium::kRecallAim;
+            DrawLineRing(br.markX, br.markY, mr * (1.6f - 0.6f * k), 1.4f, cr, cg, cb, 0.35f + 0.5f * k);
+        } else if (br.recall == Recall::Count) {
+            DrawLineRing(br.markX, br.markY, mr, 4.0f, dk, dk, dk, 0.45f);
+            DrawHorologiumClockRing(br.markX, br.markY, mr, br.recallTimer / horologium::kRecallCount, cr, cg, cb, 1.0f);
+            drawLineQuad(br.lastPX, br.lastPY, br.markX, br.markY, 1.0f, cr, cg, cb, 0.35f);
+            const float prog = br.RecallProgress();
+            if (prog > 0.0f) {
+                DrawEnemyArc(br.markX, br.markY, mr + 9.0f, -1.5708f, 6.2831853f * prog, 40, 1.0f, 1.0f, 1.0f, 0.95f, 2.4f);
+                DrawEnemyArc(x, y, horologium::kDialRadius * 1.35f, -1.5708f, 6.2831853f * prog, 48, 1.0f, 1.0f, 1.0f, 0.95f, 2.4f);
+            }
+            DrawLineRing(x, y, horologium::kDialRadius * 1.35f, 1.0f, 1.0f, 1.0f, 1.0f, 0.35f);
+        } else {   // Shock
+            const float k = 1.0f - br.recallTimer / horologium::kRecallShockDelay;
+            const float R = horologium::kRecallShockRadius * sc;
+            DrawLineRing(br.markX, br.markY, R, 4.0f, dk, dk, dk, 0.45f);
+            DrawLineRing(br.markX, br.markY, R, 2.0f, cr, cg, cb, 0.9f);
+            DrawLineRing(br.markX, br.markY, R * (1.0f - k) + 8.0f, 2.4f, 1.0f, 1.0f, 1.0f, 0.9f);
+        }
+    }
+
+    // Tempo (phase 3): a ring round the player. Slow = grey ring, arrows
+    // pointing in; fast = brass ring, arrows pointing out. A white arc fills
+    // over the beat (full = switch) and the ring blinks the next state's
+    // colour for the last 0.5 s.
+    if (horologium::TempoOn() && m->HorologiumPhase() >= 3) {
+        const bool slow = horologium::TempoSlow();
+        const float left = horologium::g_player.beatLeft;
+        const bool warn = left <= horologium::kTempoWarn;
+        const bool blinkNext = warn && fmodf(left * 8.0f, 1.0f) < 0.5f;
+        const bool showSlow = blinkNext ? !slow : slow;
+        const float r = showSlow ? 0.70f : cr, g = showSlow ? 0.74f : cg, b = showSlow ? 0.82f : cb;
+        const float px = br.lastPX, py = br.lastPY, R = 56.0f;   // outside the player's own HUD ring
+        DrawLineRing(px, py, R, 2.0f, r, g, b, 0.9f);
+        const float fill = 1.0f - left / horologium::kTempoBeat;
+        DrawEnemyArc(px, py, R + 6.0f, -1.5708f, 6.2831853f * fill, 40, 1.0f, 1.0f, 1.0f, 0.85f, 2.0f);
+        for (int i = 0; i < 4; ++i) {   // chevrons: in (slow) or out (fast)
+            const float a = 1.5708f * (float)i + 0.785f;
+            const float ux = cosf(a), uy = sinf(a), vx = -uy, vy = ux;
+            const float tip = showSlow ? R - 14.0f : R - 2.0f, base = showSlow ? R - 4.0f : R - 12.0f;
+            const float bx = px + ux * base, by = py + uy * base, tx = px + ux * tip, ty = py + uy * tip;
+            drawLineQuad(bx + vx * 5.0f, by + vy * 5.0f, tx, ty, 2.0f, r, g, b, 0.95f);
+            drawLineQuad(bx - vx * 5.0f, by - vy * 5.0f, tx, ty, 2.0f, r, g, b, 0.95f);
+        }
+    }
+
+    // Hit and pattern flashes.
+    for (const auto& f : br.flashes) {
+        if (f.age < 0.0f) continue;
+        const float t = f.age / 0.45f;
+        DrawLineRing(f.x, f.y, f.r * (0.6f + 0.8f * t), 3.0f * (1.0f - t) + 1.0f, 1.0f, 1.0f, 1.0f, 0.9f * (1.0f - t));
+        DrawLineRing(f.x, f.y, f.r * (0.4f + 0.6f * t), 2.0f, cr, cg, cb, 0.7f * (1.0f - t));
+    }
+}
+
+static void DrawHorologium(const Monster* m) {
+    DrawHorologiumTells(m);   // floor warnings stay outside the hit-feel scope
+    const horologium::Brain& br = m->horologium;
+    float cr = m->color.r, cg = m->color.g, cb = m->color.b;
+    ApplyMobStyleTint(cr, cg, cb);
+    const float x = m->worldX, y = m->worldY;
+    const float k = horologium::kSheet;
+    EliteHitFxScope hitFx(m, x, y);
+    // Dial.
+    DrawEnemyArc(x, y, 60.0f * k, 0.0f, 6.2831853f, 56, cr, cg, cb, 1.0f, 2.4f);
+    DrawEnemyArc(x, y, 40.0f * k, 0.0f, 6.2831853f, 40, cr, cg, cb, 0.6f, 1.0f);
+    // Hour ticks at 12 / 3 / 6 / 9.
+    for (int i = 0; i < 4; ++i) {
+        const float a = 1.5707963f * (float)i;
+        const float ux = sinf(a), uy = -cosf(a);
+        drawLineQuad(x + ux * 48.0f * k, y + uy * 48.0f * k, x + ux * 60.0f * k, y + uy * 60.0f * k,
+                     2.6f, cr, cg, cb, 1.0f);
+    }
+    // Construction triangle and the small construction circle.
+    const float tx[3] = { 0.0f, 35.0f, -35.0f }, ty[3] = { -40.0f, 20.0f, 20.0f };
+    for (int i = 0; i < 3; ++i) {
+        const int j = (i + 1) % 3;
+        drawLineQuad(x + tx[i] * k, y + ty[i] * k, x + tx[j] * k, y + ty[j] * k, 0.9f, cr, cg, cb, 0.5f);
+    }
+    DrawEnemyArc(x - 45.0f * k, y - 50.0f * k, 16.0f * k, 0.0f, 6.2831853f, 24, cr, cg, cb, 0.55f, 1.0f);
+    // Tilted orbit and the star riding it.
+    const float ct = cosf(br.tilt), st = sinf(br.tilt);
+    DrawQuasarEllipseArc(x, y, -st, ct, 76.0f * k, 22.0f * k, 0.0f, 6.2831853f, 48, cr, cg, cb, 0.8f, 1.3f);
+    {
+        // Same parametrisation as DrawQuasarEllipseArc: side = (-aimY, aimX) = (ct, st).
+        const float ex = ct * cosf(br.rider) * 76.0f * k + (-st) * sinf(br.rider) * 22.0f * k;
+        const float ey = st * cosf(br.rider) * 76.0f * k + ct * sinf(br.rider) * 22.0f * k;
+        DrawEnemyArc(x + ex, y + ey, 5.0f * k, 0.0f, 6.2831853f, 12, cr, cg, cb, 1.0f, 1.5f);
+    }
+    // Hands and the centre ring.
+    DrawHorologiumKite(x, y, k, br.minute, 37.0f, 5.0f, cr, cg, cb, 1.0f, 2.0f);
+    DrawHorologiumKite(x, y, k, br.hour, 26.0f, 4.5f, cr, cg, cb, 1.0f, 2.0f);
+    DrawEnemyArc(x, y, 5.0f * k, 0.0f, 6.2831853f, 14, cr, cg, cb, 1.0f, 1.6f);
+}
+
 void drawMob(const Monster* m, float visualTime) {
     if (!m) return;
     if (!m->alive) {
@@ -3480,6 +3838,7 @@ void drawMob(const Monster* m, float visualTime) {
     if (m->kind == MobKind::REGULUS) MarkMobSeenId(CM_REGULUS);
     if (m->kind == MobKind::MAGNETAR) MarkMobSeenId(CM_MAGNETAR);
     if (m->kind == MobKind::LYNX) MarkMobSeenId(CM_LYNX);
+    if (m->kind == MobKind::HOROLOGIUM) MarkMobSeenId(CM_HOROLOGIUM);
     float base = (m->summoned ? 28.0f : 18.0f) * m->sizeScale;
     if (visualTime < 0.0f) visualTime = (float)glfwGetTime();
     if (m->genesisCarryScope) {
@@ -3872,6 +4231,8 @@ void drawMob(const Monster* m, float visualTime) {
         g_BatchAlpha = savedBatchAlpha;
     } else if (m->kind == MobKind::ANTARES) {
         DrawAntares(m, base);
+    } else if (m->kind == MobKind::HOROLOGIUM) {
+        DrawHorologium(m);
     } else if (m->kind == MobKind::LYNX) {
         DrawLynx(m);
     } else if (m->kind == MobKind::MIRA) {

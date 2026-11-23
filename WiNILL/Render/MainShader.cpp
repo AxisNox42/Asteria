@@ -314,6 +314,40 @@ void DrawLinearGradient(float x, float y, float w, float h,
     BindMainShader();
 }
 
+// Same falloff as DrawLinearGradient, but along y: darkest at the top edge
+// (or the bottom edge with fromBottom), fading to nothing across h.
+void DrawLinearGradientVertical(float x, float y, float w, float h,
+                                float r, float g, float b, float alpha,
+                                bool fromBottom) {
+    if (alpha <= 0.0f || w <= 0.0f || h <= 0.0f || g_RadGradProg == 0 || g_LinGradTex == 0) return;
+    BatchFlush();
+
+    const float x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+
+    glUseProgram(g_RadGradProg);
+    glBindVertexArray(g_MainVAO);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_LinGradTex);
+    glUniform1i(g_RadGradTexLoc, 0);
+    glUniformMatrix4fv(g_RadGradProjLoc, 1, GL_FALSE, g_BaseOrtho);
+    glUniform3f(g_RadGradColLoc, r, g, b);
+    glUniform1f(g_RadGradAlpLoc, alpha);
+
+    // The texture fades along u; map u to y and hold v mid-row.
+    const float uTop = fromBottom ? 1.0f : 0.0f;
+    const float uBot = fromBottom ? 0.0f : 1.0f;
+    float verts[36] = {
+        x0,y0, uTop,0.5f, 0,0,  x1,y0, uTop,0.5f, 0,0,  x1,y1, uBot,0.5f, 0,0,
+        x0,y0, uTop,0.5f, 0,0,  x1,y1, uBot,0.5f, 0,0,  x0,y1, uBot,0.5f, 0,0
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, g_VBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    BindMainShader();
+}
+
 void DrawLinearGradientRibbon(float x, float y, float w, float h,
                               float cut, float r, float g, float b,
                               float alpha, bool mirrorX, bool mirrorY,

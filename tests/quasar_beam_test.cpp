@@ -139,7 +139,8 @@ static void CheckTurnTowardPlayerWhileFiring() {
     std::printf("turn toward the player while firing: ok\n");
 }
 
-// Damage band: inside the radius hurts at QUASAR_BEAM_DPS, outside does not.
+// Damage band: inside the radius hurts (one clear hit of QUASAR_BEAM_DPS x
+// QUASAR_BEAM_TICK, then one each QUASAR_BEAM_TICK), outside does not.
 static void CheckBand() {
     for (int inside = 0; inside <= 1; ++inside) {
         float hp = 1000.0f;   // small enough that per-frame damage registers
@@ -153,8 +154,10 @@ static void CheckBand() {
         const float tx = cosf(a) * 600.0f - sinf(a) * off;
         const float ty = sinf(a) * 600.0f + cosf(a) * off;
         const float before = hp;
-        for (int i = 0; i < 12; ++i) q.Update(tx, ty, DT, hp);         // 0.1s
-        if (inside) assert(fabsf((before - hp) - Monster::QUASAR_BEAM_DPS * 0.1f) < 0.2f);
+        q.quasarBeamTick = 0.0f;                                        // ready to hit
+        for (int i = 0; i < 12; ++i) q.Update(tx, ty, DT, hp);         // 0.1s: one hit
+        const float tick = Monster::QUASAR_BEAM_DPS * Monster::QUASAR_BEAM_TICK;
+        if (inside) assert(fabsf((before - hp) - tick) < 0.2f);
         else assert(hp == before);
     }
     std::printf("band: %.0f px radius, %.0f dps ok\n",
@@ -172,6 +175,7 @@ static void CheckLastLegLeavesArena() {
                     Monster q = MakeQuasar();
                     q.quasarBounds = glm::vec4(0.0f, 0.0f, size.x, size.y);
                     q.quasarReflections = refl;
+                    q.quasarReflectFixed = true;   // geometry only: no phase-gate cap
                     q.worldX = at.x * size.x;
                     q.worldY = at.y * size.y;
                     const float ang = 0.0873f * (float)a + 0.013f;

@@ -122,9 +122,17 @@ static void CheckNeedsPuddles() {
     caelum::Reset();
     caelum::SetArena(1920.0f, 1080.0f);
     caelum::g.phase = 1;
-    caelum::g.count = 4;   // the siphon's slot in phase 1
+    caelum::g.count = 4;   // a board turn
+    caelum::g.bag[0] = caelum::Pattern::Siphon;   // the siphon is the deck's next card
+    caelum::g.bag[1] = caelum::Pattern::Spread;
+    caelum::g.bag[2] = caelum::Pattern::Scanline;
+    caelum::g.bag[3] = caelum::Pattern::Smear;
+    caelum::g.bagPos = 0;
     Check(caelum::PickPattern() != caelum::Pattern::Siphon, "no siphon on a clean board");
     for (int c = 0; c < 4; ++c) caelum::g.cells[c * 2].state = caelum::CellState::Corrupt;
+    caelum::g.bag[0] = caelum::Pattern::Siphon;   // (looking moved it back: it is next again)
+    caelum::g.bag[1] = caelum::Pattern::Spread;
+    caelum::g.bagPos = 0;
     Check(caelum::PickPattern() == caelum::Pattern::Siphon, "the siphon with puddles out");
 }
 

@@ -60,6 +60,67 @@ bool UserPrefersDark() {
     return light == 0;
 }
 
+// Opening and closing are animated (2026-11-23: a window popping in at full
+// size and vanishing in one frame was tiring to watch). A new pane unfolds
+// from a thin strip at its middle over kOpenSeconds (easing out); a pane the
+// game closes folds back to a strip over kCloseSeconds, then is destroyed.
+// Only what is seen changes: for the game the pane has its full frame from
+// the moment it opens (RefreshRects leaves it alone while it unfolds) and is
+// gone the moment it closes. Decor panes (the blue screen's storm) and windows
+// the player closes are not animated.
+constexpr float kOpenSeconds = 0.25f;
+constexpr float kCloseSeconds = 0.16f;
+constexpr float kOpenStartWidth = 0.35f;    // share of the full width it starts at
+constexpr float kCloseEndWidth = 0.6f;
+struct PaneAnim { HWND hwnd = nullptr; RECT full{}; float t = 0.0f; };
+std::vector<PaneAnim> s_opening, s_closing;
+
+bool IsOpening(HWND hwnd) {
+    for (const PaneAnim& a : s_opening) if (a.hwnd == hwnd) return true;
+    return false;
+}
+// The window rect (screen px) a share `wide` of the full width and `tall` of
+// the height above the smallest a captioned window can be, about its centre.
+void ApplyAnimRect(const PaneAnim& a, float wide, float tall) {
+    const int fw = a.full.right - a.full.left, fh = a.full.bottom - a.full.top;
+    const int minH = std::min(fh, GetSystemMetrics(SM_CYMINTRACK));
+    const int w = std::max(1, (int)std::lround((float)fw * wide));
+    const int h = minH + (int)std::lround((float)(fh - minH) * tall);
+    SetWindowPos(a.hwnd, nullptr, a.full.left + (fw - w) / 2, a.full.top + (fh - h) / 2, w, h,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+}
+// Ends a pane's unfolding at once (the game is about to move or close it).
+void FinishOpening(HWND hwnd) {
+    for (size_t k = 0; k < s_opening.size(); ++k) {
+        if (s_opening[k].hwnd != hwnd) continue;
+        const PaneAnim a = s_opening[k];
+        s_opening.erase(s_opening.begin() + (long long)k);
+        if (IsWindow(hwnd)) ApplyAnimRect(a, 1.0f, 1.0f);
+        return;
+    }
+}
+void TickPaneAnims(float dt) {
+    for (PaneAnim& a : s_opening) {
+        if (!IsWindow(a.hwnd)) { a.hwnd = nullptr; continue; }
+        a.t += dt;
+        const float k = std::clamp(a.t / kOpenSeconds, 0.0f, 1.0f);
+        const float e = 1.0f - (1.0f - k) * (1.0f - k) * (1.0f - k);   // fast first, settling
+        ApplyAnimRect(a, kOpenStartWidth + (1.0f - kOpenStartWidth) * e, e);
+        if (k >= 1.0f) a.hwnd = nullptr;
+    }
+    for (PaneAnim& a : s_closing) {
+        if (!IsWindow(a.hwnd)) { a.hwnd = nullptr; continue; }
+        a.t += dt;
+        const float k = std::clamp(a.t / kCloseSeconds, 0.0f, 1.0f);
+        const float e = k * k;                                         // slow first, then shut
+        if (k >= 1.0f) { DestroyWindow(a.hwnd); a.hwnd = nullptr; continue; }
+        ApplyAnimRect(a, 1.0f - (1.0f - kCloseEndWidth) * e, 1.0f - e);
+    }
+    const auto done = [](const PaneAnim& a) { return a.hwnd == nullptr; };
+    s_opening.erase(std::remove_if(s_opening.begin(), s_opening.end(), done), s_opening.end());
+    s_closing.erase(std::remove_if(s_closing.begin(), s_closing.end(), done), s_closing.end());
+}
+
 std::vector<Rect> s_desktop;
 std::vector<HWND> s_desktopHandles;        // parallel to s_desktop
 float s_scanTimer = 0.0f;
@@ -132,6 +193,7 @@ RECT FrameBounds(HWND hwnd) {
 void RefreshRects(int i) {
     HWND hwnd = s_handles[i];
     if (!hwnd) return;
+    if (IsOpening(hwnd)) return;   // unfolding: the game keeps the full frame it opened with
     Pane& p = s_panes[i];
     p.frame = ToOverlay(FrameBounds(hwnd));
     RECT cr{};
@@ -175,6 +237,7 @@ void PaintClient(HWND hwnd, HDC dc) {
     RECT r{};
     GetClientRect(hwnd, &r);
     const int i = IndexOfHandle(hwnd);
+    if (i < 0) return;   // a pane folding shut: nothing to paint
     Content* c = (i >= 0 && i < (int)s_content.size()) ? &s_content[i] : nullptr;
     if (c && c->fast) {
         // Decor: paint the dialog once into the cache, then copy (and glitch) it.
@@ -471,6 +534,9 @@ void Shutdown() {
     SetArrangeMode(false);
     for (size_t i = 0; i < s_handles.size(); ++i)
         if (s_handles[i] && !s_panes[i].adopted) DestroyWindow(s_handles[i]);
+    for (const PaneAnim& a : s_closing) if (IsWindow(a.hwnd)) DestroyWindow(a.hwnd);
+    s_closing.clear();
+    s_opening.clear();
     if (s_ownerHwnd) DestroyWindow(s_ownerHwnd);
     s_ownerHwnd = nullptr;
     s_panes.clear();
@@ -537,6 +603,13 @@ int Open(float x, float y, float w, float h, bool decor) {
     InvalidateRect(hwnd, nullptr, TRUE);
     RefreshRects((int)s_panes.size() - 1);
     s_panes.back().shown = s_panes.back().frame;
+    if (!decor) {   // it unfolds from a strip at its middle
+        PaneAnim anim;
+        anim.hwnd = hwnd;
+        GetWindowRect(hwnd, &anim.full);
+        s_opening.push_back(anim);
+        ApplyAnimRect(anim, kOpenStartWidth, 0.0f);
+    }
     return pane.id;
 }
 
@@ -568,7 +641,18 @@ void Close(int id) {
         s_handles[i] = nullptr;
         return;
     }
-    DestroyWindow(s_handles[i]);
+    // The pane is gone for the game at once; its window folds shut over
+    // kCloseSeconds, then is destroyed (TickPaneAnims).
+    HWND hwnd = s_handles[i];
+    FinishOpening(hwnd);
+    s_panes[i].open = false;
+    s_handles[i] = nullptr;
+    if (!hwnd) return;
+    if (s_panes[i].decor || IsIconic(hwnd)) { DestroyWindow(hwnd); return; }
+    PaneAnim anim;
+    anim.hwnd = hwnd;
+    GetWindowRect(hwnd, &anim.full);
+    s_closing.push_back(anim);
 }
 
 void CloseAll() {
@@ -581,6 +665,7 @@ void Place(int id, float x, float y) {
     if (i < 0) return;
     Pane& p = s_panes[i];
     if (p.adopted || p.flying || p.minimized) return;
+    FinishOpening(s_handles[i]);
     RECT wr{};
     GetWindowRect(s_handles[i], &wr);
     const RECT fr = FrameBounds(s_handles[i]);
@@ -597,6 +682,7 @@ void Resize(int id, float x, float y, float w, float h) {
     if (i < 0) return;
     Pane& p = s_panes[i];
     if (p.adopted || p.flying || p.minimized) return;
+    FinishOpening(s_handles[i]);
     RECT wr{};
     GetWindowRect(s_handles[i], &wr);
     const RECT fr = FrameBounds(s_handles[i]);
@@ -747,6 +833,7 @@ void UpdateCovered() {
 }
 
 void Tick(float dt) {
+    TickPaneAnims(dt);
     // Forget closed panes whose afterimages are gone, so a blue screen's
     // dozens of panes do not pile up in every per-pane loop.
     for (size_t i = s_panes.size(); i-- > 0;) {

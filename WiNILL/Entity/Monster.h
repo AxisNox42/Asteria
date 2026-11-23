@@ -2,9 +2,13 @@
 
 #include "NormaBoss.h"
 #include "CaelumBoss.h"
+#include "PhaseGate.h"
 #include "LynxMob.h"
 #include "MiraMob.h"
 #include "TriangulumMob.h"
+#include "HorologiumMob.h"
+#include "EliteDifficulty.h"   // per-difficulty elite patterns
+#include "AntaresWake.h"      // nightmare Antares wake
 #include "TrainingDummy.h"
 #include "PassiveHooks.h"   // EnemyRemoved: a thrown Swarm that hits the player is not a kill
 #include <algorithm>
@@ -88,6 +92,7 @@ enum class MobKind {
     LYNX,     // regular sniper (LynxMob.h)
     MIRA,     // regular corruption walker (MiraMob.h)
     TRIANGULUM, // regular passive carrier: three Swarms burst out when it dies (TriangulumMob.h)
+    HOROLOGIUM, // clock elite: reverse volley, stasis, recall, tempo (HorologiumMob.h)
 };
 
 // Short names for the balance log (System/GameLog.h).
@@ -107,6 +112,7 @@ inline const char* MobKindName(MobKind kind) {
     case MobKind::LYNX:   return "LYNX";
     case MobKind::MIRA:   return "MIRA";
     case MobKind::TRIANGULUM: return "TRIANGULUM";
+    case MobKind::HOROLOGIUM: return "HOROLOGIUM";
     }
     return "?";
 }
@@ -120,7 +126,7 @@ inline constexpr bool IsBossMob(MobKind kind) {
 inline constexpr bool IsEliteMob(MobKind kind) {
     return kind == MobKind::REGULUS || kind == MobKind::GENESIS ||
            kind == MobKind::ANTARES ||
-           kind == MobKind::QUASAR;
+           kind == MobKind::QUASAR || kind == MobKind::HOROLOGIUM;
 }
 
 inline constexpr float ANTARES_STUN_TIME_SEC = 0.6f;
@@ -135,6 +141,7 @@ inline void MobKillReward(MobKind kind, float& xpBase, float& scoreBase) {
     case MobKind::SWARM:   xpBase = 1.0f;  scoreBase = 12.0f;  break;
     case MobKind::GRAVIS:  xpBase = 16.0f; scoreBase = 520.0f; break;
     case MobKind::QUASAR:  xpBase = 12.0f; scoreBase = 480.0f; break;
+    case MobKind::HOROLOGIUM: xpBase = 12.0f; scoreBase = 480.0f; break;
     case MobKind::REGULUS: xpBase = 6.0f;  scoreBase = 260.0f; break;
     case MobKind::ANTARES: xpBase = 8.0f;  scoreBase = 350.0f; break;
     case MobKind::MAGNETAR: xpBase = 10.0f; scoreBase = 520.0f; break;
@@ -153,6 +160,7 @@ inline int StardustRewardFor(MobKind kind) {
     case MobKind::GENESIS: return 20;
     case MobKind::GRAVIS:  return 15;
     case MobKind::QUASAR:  return 7;
+    case MobKind::HOROLOGIUM: return 7;
     case MobKind::GIMBAL:  return 2;
     case MobKind::REGULUS: return 3;
     case MobKind::ANTARES: return 4;
@@ -197,6 +205,27 @@ public:
     static constexpr int REGULUS_VOLLEY_COUNT = 3;         // distinct allies per volley
     static constexpr float REGULUS_BEAM_TIME = 0.25f;   // laser afterglow
     static constexpr float REGULUS_SHIELD_REGEN_DELAY = 8.0f;
+    // Phase patterns of the gated elite (2026-11-17 plan stage 8).
+    // Phase 2: every buff laser shows its line REGULUS_WARN_TIME before it
+    // fires, and the fired laser hurts a player standing on that line.
+    // Phase 3: killing a buffed mob exposes the Regulus: its shield drops for
+    // REGULUS_EXPOSE_TIME and it takes x REGULUS_EXPOSE_DAMAGE.
+    static constexpr float REGULUS_WARN_TIME = 0.6f;
+    static constexpr float REGULUS_LASER_DAMAGE = 12.0f;
+    static constexpr float REGULUS_LASER_HIT_RADIUS = 22.0f;
+    static constexpr float REGULUS_EXPOSE_TIME = 2.0f;
+    static constexpr float REGULUS_EXPOSE_DAMAGE = 1.5f;
+    // Phase 2 on, every volley also sends a strike laser at the player (same
+    // line warning, no buff); phase 3 sends a second one at where the player
+    // will be when it fires (current velocity x REGULUS_WARN_TIME).
+    static constexpr float REGULUS_STRIKE_OVERSHOOT = 400.0f;   // runs on past the player
+    static constexpr float REGULUS_STRIKE_RANGE = 1100.0f;      // farther than this: no strike
+    // The self shield comes back at this share of its max, not full
+    // (2026-11-17: a low-damage player had to break a full 90%-of-HP shield
+    // again and again).
+    static constexpr float REGULUS_SHIELD_REGEN_SHARE = 0.5f;
+    // The self shield, as a share of its HP (0.9 until 2026-11-17).
+    static constexpr float REGULUS_SHIELD_SHARE = 0.6f;
     // Regulus elite is a support mob: it only drifts and fires buff lasers.
     // Each shot picks random allies that carry no buff yet and gives each one
     // random buff; buffs are permanent and a mob only ever gets one (a broken
@@ -243,7 +272,7 @@ public:
     // Quasar beam: when the cooldown ends the axis snaps straight onto the
     // player and locks; the beam fires QUASAR_LOCK_TIME later on that fixed
     // angle (no sweep), so the lock window is the dodge window.
-    static constexpr float QUASAR_LOCK_TIME = 0.55f;    // elite-wave pass: was 0.7
+    static constexpr float QUASAR_LOCK_TIME = 0.80f;    // 2026-11-17: 0.55 was too short to read (0.7 before that)
     static constexpr float QUASAR_BEAM_TIME = 3.0f;     // was 2.5
     // The beam does not cut out: over its last QUASAR_BEAM_FADE_OUT seconds it
     // thins to nothing (what you see is what hurts, so the hit width follows).
@@ -276,7 +305,10 @@ public:
     static constexpr float GENESIS_WAVE_REACH = 4.76f;    // wave radius / base (plates reach ~2.45)
     static constexpr float GENESIS_WAVE_FALLOFF = 0.75f;  // each next wave's share of the last
     static constexpr float QUASAR_BEAM_RADIUS = 55.0f;
-    static constexpr float QUASAR_BEAM_DPS = 45.0f;
+    // Beam damage lands in clear hits: BEAM_DPS x QUASAR_BEAM_TICK (15) each
+    // QUASAR_BEAM_TICK inside the beam (was a 45/s trickle, up to ~135 a beam).
+    static constexpr float QUASAR_BEAM_DPS = 30.0f;
+    static constexpr float QUASAR_BEAM_TICK = 0.5f;
     // While firing, the beam turns very slowly (at most this rate, rad/s)
     // toward the player. The beam runs both ways, so it turns whichever way
     // brings the nearer end onto the player.
@@ -297,6 +329,11 @@ public:
     static constexpr float QUASAR_PREDICT_LEAD_TIME = 0.5f;
     static constexpr float QUASAR_PREDICT_MAX_LEAD = 140.0f;
     static constexpr int QUASAR_FALL_COUNT = 18;
+    // Phase 3 (past the 1/3 gate): a smaller volley falls while the beam runs
+    // (2026-11-17 plan stage 8), so dodging the beam also means reading the
+    // landing spots. Its own clock (quasarFallClock), not quasarTimer.
+    static constexpr int QUASAR_SIDE_FALL_COUNT = 8;
+    static constexpr float QUASAR_SIDE_FALL_START = 0.5f;   // after the beam starts
     // Eruption: the Quasar lays a field of danger zones over the arena in
     // concentric rings around itself (a guard ring close in, more rings out to
     // the arena edge), each ring with two doors. Everything is shown at once,
@@ -433,7 +470,22 @@ public:
     // (generation 1), which split once more into the smallest (generation 2,
     // ANTARES_MAX_GEN); any two Antares that touch bounce off each other and
     // speed up.
-    enum class AntaresState { CHASE, SKID, STUNNED, REST };
+    // GATHER / AIM / DASH: phase patterns of the gated elite body (2026-11-17
+    // plan stage 8). Phase 2: gather (rings close in), six radial lines, dash
+    // down the one aimed at the player. Phase 3 adds a lance: the whole
+    // bouncing path is shown first, then a fast straight dash along it.
+    enum class AntaresState { CHASE, SKID, STUNNED, REST, GATHER, AIM, DASH };
+    static constexpr float ANTARES_GATHER_TIME = 1.0f;     // rings closing in
+    static constexpr float ANTARES_RADIAL_TIME = 0.5f;     // then the six lines
+    static constexpr int   ANTARES_RADIAL_COUNT = 6;
+    static constexpr float ANTARES_RADIAL_DRAW = 260.0f;   // length of the five decoy lines
+    static constexpr float ANTARES_BURST_SPEED = 1000.0f;
+    static constexpr float ANTARES_BURST_LENGTH = 900.0f;  // or to the edge
+    static constexpr float ANTARES_LANCE_AIM = 0.5f;       // path shown this long
+    static constexpr float ANTARES_LANCE_SPEED = 1100.0f;
+    static constexpr float ANTARES_LANCE_LENGTH = 1900.0f;
+    static constexpr int   ANTARES_LANCE_BOUNCES = 2;
+    static constexpr int   ANTARES_PATH_MAX = ANTARES_LANCE_BOUNCES + 2;
     static constexpr float ANTARES_ELITE_HP_MULT = 1.5f;
     static constexpr int ANTARES_SPLIT_COUNT = 2;
     static constexpr int ANTARES_MAX_GEN = 2;
@@ -514,6 +566,13 @@ public:
     // NORMA boss state (NormaBoss.h).
     float normaMaxHp = 0.0f;
     float eliteMaxHp = 0.0f;   // an elite's HP at spawn, for its HP bar (set by MakeKind)
+    // Phase gates (PhaseGate.h). Elites stop at 66% / 33%, OCTANS at 75% / 25%
+    // (ERIDANUS keeps its own in caelum::g).
+    int gatesPassed = 0;
+    float gateHold = 0.0f;          // elite: > 0 untouchable beat at a gate
+    float gateShow = 0.0f;          // elite: > 0 held at the line, still fighting
+    bool gateArmed = false;         // elite: reached the line, its hold / show runs
+    float quasarBeamTick = 0.0f;    // Quasar: > 0 until the beam may hurt again
     int normaPhase = 1;
     float normaPhaseFlash = 0.0f;   // > 0 right after entering phase 2
     float normaInvuln = 0.0f;       // > 0: holds still, takes no damage (phase change)
@@ -526,7 +585,9 @@ public:
     norma::Stage normaStage = norma::Stage::Recover;
     float normaTimer = 0.0f;        // seconds in the current stage
     int normaCount = 0;             // patterns started so far
-    norma::Pattern normaLastPattern = norma::Pattern::None;   // the one before, never repeated back to back
+    norma::Pattern normaLastPattern = norma::Pattern::None;
+    norma::Pattern normaGateForce = norma::Pattern::None;   // a gate was reached: this pattern runs next
+    bool normaGateRunning = false;  // the gate's pattern is running   // the one before, never repeated back to back
     float normaFireTimer = 0.0f;
     float normaSpin = 0.0f;         // stream and ring angle
     // Written by the game loop when it serves an Ask: the pane the boss uses
@@ -558,9 +619,14 @@ public:
     float normaRingShow = 0.0f;
     float normaVelX = 0.0f, normaVelY = 0.0f;   // eased drift velocity, world px/s
 
+    // HOROLOGIUM clock elite state (HorologiumMob.h).
+    horologium::Brain horologium;
     EnemyShieldState regulusShield;
     float regulusBaseHp = 0.0f;
     float regulusShieldRegenTimer = 0.0f;
+    float regulusExposed = 0.0f;      // phase 3: seconds left of the opening
+    bool regulusDeathSeen = false;    // a buffed mob's death was already counted
+    bool regulusReserved = false;     // a phase-2 laser is on its way to this mob
     float regulusVisualAngle = 0.0f;
     float regulusDriftAngle = 0.0f;
     float regulusDriftTimer = 0.0f;
@@ -613,6 +679,31 @@ public:
     int antaresFamily = 0;            // shared by an Antares and all its fragments
     int genesisId = 0;                // owner key for the per-Genesis thrown cap
     // Alternate the existing Swarm volley with rear-produced Rotor launches.
+    // Phase patterns of the gated elite (2026-11-17 plan stage 8).
+    // Phase 2, lane volley: six straight paths fan out from the Genesis past
+    // the player, 120 px apart where the player stands, one of seven left
+    // empty (the lane). All six are shown from the start of the wind-up; the
+    // Rotors then fly them in quick order from one end, and a Rotor hurts
+    // whoever its path crosses (not only where it lands).
+    // Phase 3, landing marks: each thrown Swarm leaves a ring where it lands
+    // that hurts while the player stands in it.
+    static constexpr int   GENESIS_LANE_SLOTS = GENESIS_ROTOR_COUNT + 1;
+    static constexpr float GENESIS_LANE_SPACING = 120.0f;   // at the player's distance
+    static constexpr float GENESIS_LANE_OVERSHOOT = 450.0f; // paths run on past the player
+    static constexpr float GENESIS_LANE_HIT_RADIUS = 60.0f; // = half the spacing: no strip between paths
+    static constexpr float GENESIS_LANE_DAMAGE = 10.0f;
+    static constexpr float GENESIS_LANE_GAP = 0.12f;        // between shots (a normal volley: GENESIS_ROTOR_GAP)
+    static constexpr float GENESIS_MARK_RADIUS = 60.0f;
+    static constexpr float GENESIS_MARK_TIME = 2.0f;
+    static constexpr float GENESIS_MARK_DAMAGE = 6.0f;
+    static constexpr float GENESIS_MARK_TICK = 0.5f;
+    bool genesisLaneVolley = false;
+    bool genesisLaneShot = false;     // a Rotor flying a lane path (hurts along it)
+    bool genesisLaneHit = false;      // that path already hit the player
+    std::array<glm::vec2, GENESIS_ROTOR_COUNT> genesisLaneTargets{};
+    std::array<glm::vec2, GENESIS_STACKS> genesisMarkPos{};
+    std::array<float, GENESIS_STACKS> genesisMarkAge{ 99.0f, 99.0f, 99.0f };   // < 0 in flight, 0..TIME on the ground
+    float genesisMarkTick = 0.0f;
     // Owner phases: 4 prepare, 5 burst, 6 recover. Child: 1 feed, 2 fly, 3 settle.
     bool genesisNextRotor = false;
     bool genesisRotorLoaded = false;
@@ -695,7 +786,11 @@ public:
     unsigned quasarFallTargetsMask = 0;
     unsigned quasarFallImpacts = 0;
     unsigned quasarFallPredictedMask = 0;   // shots aimed at the player's predicted spot
+    float quasarFallClock = 0.0f;           // time base of the running volley
+    int quasarFallCount = QUASAR_FALL_COUNT;   // shots in the running volley
+    bool quasarSideFall = false;            // phase 3: a volley running alongside the beam
     int quasarReflections = 0;              // beam wall bounces (set at spawn from the difficulty)
+    bool quasarReflectFixed = false;        // QA override: the phase gates do not cap the bounces
     glm::vec4 quasarBounds{0.0f};           // arena (minX, minY, maxX, maxY) seen last frame
     glm::vec2 quasarPlayerPrev{0.0f};
     glm::vec2 quasarPlayerVel{0.0f};
@@ -750,6 +845,15 @@ public:
     int antaresBounces = 0;           // edge reflections so far
     float antaresBounceCd = 0.0f;     // after bouncing off another Antares
     glm::vec4 antaresBounds{0.0f};    // map rect inset by the body radius
+    int antaresRuns = 0;              // runs started (picks the phase pattern)
+    std::array<glm::vec2, ANTARES_PATH_MAX> antaresPath{};   // GATHER/AIM/DASH path
+    int antaresPathCount = 0;
+    float antaresDashLeft = 0.0f;     // px still to travel in a DASH
+    float antaresDashSpeed = 0.0f;
+    // Nightmare wake (AntaresWake.h): the run it belongs to (0 = not laying
+    // one) and where the piece being laid starts.
+    int antaresWakeRun = 0;
+    float antaresWakeX = 0.0f, antaresWakeY = 0.0f;
     // Per face: shots it can still stop, seconds since it broke (< 0 while
     // intact) and seconds since it last restored (drives the snap-back look).
     std::array<int, MAGNETAR_FACES> magnetarFaceHits{};
@@ -788,8 +892,19 @@ public:
         // Phase 1 is its own bar for NORMA too: no hit takes it past the line.
         if (kind == MobKind::NORMA && normaPhase == 1)
             damage = std::min(damage, std::max(0.0f, hp - normaMaxHp * norma::kPhase2Ratio));
+        // Phase gates: HP stops at the next gate line until its pattern has run.
+        if (kind == MobKind::NORMA)
+            damage = phase_gate::ClampToFloor(damage, hp, phase_gate::FloorFor(
+                phase_gate::kBossLines, phase_gate::kBossGateCount, gatesPassed, normaMaxHp));
+        if (UsesEliteGates()) {
+            if (gateHold > 0.0f) return 0.0f;
+            damage = phase_gate::ClampToFloor(damage, hp, phase_gate::FloorFor(
+                phase_gate::kEliteLines, phase_gate::kEliteGateCount, gatesPassed, eliteMaxHp));
+        }
         if (kind == MobKind::CAELUM) {
-            if (caelum::g.invuln > 0.0f) return 0.0f;
+            if (caelum::g.invuln > 0.0f || caelum::g.gateHold > 0.0f) return 0.0f;
+            damage = phase_gate::ClampToFloor(damage, hp, phase_gate::FloorFor(
+                phase_gate::kBossLines, phase_gate::kBossGateCount, caelum::g.gatesPassed, normaMaxHp));
             if (caelum::g.exposed > 0.0f) damage *= caelum::kExposeDamage;
             damage *= caelum::DealtFactor();   // the player is weakened by corruption
             // Phase 1 is its own bar: it drains to the phase-2 line and no
@@ -797,6 +912,8 @@ public:
             if (caelum::g.phase == 1)
                 damage = std::min(damage, std::max(0.0f, hp - normaMaxHp * caelum::kPhase2Ratio));
         }
+        if (kind == MobKind::REGULUS && regulusExposed > 0.0f) damage *= REGULUS_EXPOSE_DAMAGE;
+        if (kind == MobKind::HOROLOGIUM) damage *= horologium.DamageMult();   // winding rest
         const bool hadShield = regulusShield.hp > 0.0f;
         const float dealt = ApplyEnemyDamageWithShield(
             hp, alive, hitFlashTimer, regulusShield, damage,
@@ -804,7 +921,75 @@ public:
             kind == MobKind::REGULUS);
         if (hadShield && regulusShield.hp <= 0.0f && kind == MobKind::REGULUS)
             regulusShieldRegenTimer = REGULUS_SHIELD_REGEN_DELAY;
+        if (kind == MobKind::HOROLOGIUM) horologium.OnDamaged(dealt);   // can break its recall
         return dealt;
+    }
+
+    // Elites that stop at phase gates: the spawned elite itself, not its split
+    // pieces or a controlled summon.
+    bool UsesEliteGates() const {
+        return IsEliteMob(kind) && eliteMaxHp > 0.0f && antaresGen == 0 &&
+               !summoned && !genesisControlled && !genesisFromLauncher;
+    }
+
+    // True while a hit on this boss counts as landing in an opening.
+    bool InOpening() const {
+        if (kind == MobKind::NORMA) return normaExposed > 0.0f;
+        if (kind == MobKind::CAELUM) return caelum::g.exposed > 0.0f;
+        if (kind == MobKind::REGULUS) return regulusExposed > 0.0f;
+        if (kind == MobKind::HOROLOGIUM) return horologium.Resting();
+        return false;
+    }
+    int RegulusPhase() const { return UsesEliteGates() ? gatesPassed + 1 : 1; }
+    int HorologiumPhase() const { return UsesEliteGates() ? gatesPassed + 1 : 1; }
+    // Phase 3: a buffed ally fell. The shield drops and comes back after
+    // REGULUS_EXPOSE_TIME (or later, if it was already down for longer).
+    void ExposeRegulus() {
+        regulusExposed = REGULUS_EXPOSE_TIME;
+        if (regulusShield.hp > 0.0f) {
+            regulusShield.hp = 0.0f;
+            regulusShield.flashTimer = MOB_HIT_FLASH_TIME;
+        }
+        // Down for the whole opening, even if it was about to come back.
+        regulusShieldRegenTimer = std::max(regulusShieldRegenTimer, REGULUS_EXPOSE_TIME);
+        gamelog::FightPattern("EXPOSED");
+    }
+
+    // Elite phase gates, once a frame. At a line: untouchable for the hold (a
+    // flash), then held at the line for the show time while it keeps fighting.
+    // The Quasar winds up its beam at once and its show ends with the beam.
+    void TickEliteGate(float dt) {
+        if (!UsesEliteGates()) return;
+        if (!gateArmed) {
+            const float floor = phase_gate::FloorFor(phase_gate::kEliteLines,
+                phase_gate::kEliteGateCount, gatesPassed, eliteMaxHp);
+            if (!phase_gate::AtGate(hp, floor)) return;
+            gateArmed = true;
+            gateHold = phase_gate::kEliteHoldSeconds;
+            gateShow = kind == MobKind::QUASAR ? phase_gate::kQuasarShowMaxSeconds
+                                               : phase_gate::kEliteShowSeconds;
+            hitFlashTimer = std::max(hitFlashTimer, 0.25f);
+            eliteHitPulse = 1.0f;
+            gamelog::FightGate(gatesPassed + 1, hp / eliteMaxHp);
+            if (kind == MobKind::QUASAR && quasarState == 0 && !quasarEruptActive) {
+                quasarNextFall = false;   // the gate shows the beam: its wind-up starts now
+                quasarTimer = std::max(quasarTimer, QUASAR_COOLDOWN_TIME - QUASAR_PRECHARGE_TIME);
+            }
+            return;
+        }
+        if (gateHold > 0.0f) {
+            gateHold = std::max(0.0f, gateHold - dt);
+            if (gateHold > 0.0f) hitFlashTimer = std::max(hitFlashTimer, 0.05f);
+            return;
+        }
+        gateShow -= dt;
+        // The Quasar's beam has had its turn (it is in its recovery state).
+        const bool beamDone = kind == MobKind::QUASAR && quasarState == 4;
+        if (gateShow <= 0.0f || beamDone) {
+            gateArmed = false;
+            gateShow = 0.0f;
+            ++gatesPassed;
+        }
     }
 
     void MakeKind(MobKind requested) {
@@ -920,6 +1105,9 @@ public:
             quasarFallHitUntil = 0.0f;
             quasarFallTargetsMask = quasarFallImpacts = 0;
             quasarFallPredictedMask = 0;
+            quasarFallClock = 0.0f;
+            quasarFallCount = QUASAR_FALL_COUNT;
+            quasarSideFall = false;
             quasarPlayerSeen = false;
             quasarPlayerVel = glm::vec2(0.0f);
             quasarTimer = (float)(rand() % 120) * 0.01f;
@@ -951,7 +1139,7 @@ public:
             contactDmg = 0.0f;
             regulusBaseHp = hp;
             regulusShield = {};
-            regulusShield.maxHp = regulusBaseHp * 0.9f;
+            regulusShield.maxHp = regulusBaseHp * REGULUS_SHIELD_SHARE;
             regulusShield.hp = regulusShield.maxHp;
             regulusShieldRegenTimer = 0.0f;
             regulusVisualAngle = (float)(rand() % 628) * 0.01f;
@@ -992,6 +1180,16 @@ public:
             magnetarFaceRestored.fill(99.0f);
             magnetarVisualAngle = (float)(rand() % 628) * 0.01f;
             magnetarInterceptTimer = 0.0f;
+        } else if (kind == MobKind::HOROLOGIUM) {
+            color = glm::vec3(0.97f, 0.58f, 0.40f);   // warm brass
+            hp *= horologium::kBaseHp / 90.0f;
+            speed = horologium::kSpeed;
+            sizeScale = horologium::kSizeScale;
+            contactDmg = horologium::kContactDps;
+            horologium = {};
+            horologium.maxHp = hp;
+            horologium.minute = (float)(rand() % 628) * 0.01f;
+            horologium.hour = (float)(rand() % 628) * 0.01f;
         }
         if (IsEliteMob(kind)) eliteMaxHp = hp;
     }
@@ -1003,6 +1201,82 @@ public:
         if (antaresMoveSpeed >= 350.0f) return 3;
         if (antaresMoveSpeed >= 200.0f) return 2;
         return 1;
+    }
+
+    // 1 until the first gate, then 2 and 3 (the gated elite body only).
+    int AntaresPhase() const { return UsesEliteGates() ? gatesPassed + 1 : 1; }
+    // Per-difficulty numbers (EliteDifficulty.h); HARD keeps the constants.
+    static float AntaresTopSpeed() { return elite_diff::AntaresTopSpeed((int)g_Difficulty); }
+    static int AntaresMaxGen() { return elite_diff::AntaresMaxGen((int)g_Difficulty); }
+    static float AntaresGatherTime() {
+        return ANTARES_GATHER_TIME * elite_diff::AntaresTellScale((int)g_Difficulty);
+    }
+    static float AntaresRadialTime() {
+        return ANTARES_RADIAL_TIME * elite_diff::AntaresTellScale((int)g_Difficulty);
+    }
+    static float AntaresRestTime() { return elite_diff::AntaresRestTime((int)g_Difficulty); }
+    // Nightmare wake: the elite body only, never its fragments.
+    bool AntaresWakeUsed() const {
+        return UsesEliteGates() && elite_diff::AntaresWake((int)g_Difficulty);
+    }
+    // Lays the wake while the body is fast (called after it moved).
+    void LayAntaresWake() {
+        using S = AntaresState;
+        const bool fast = antaresState == S::DASH ||
+            ((antaresState == S::CHASE || antaresState == S::SKID) &&
+             antaresMoveSpeed >= antares_wake::kMinSpeed);
+        if (!fast || !AntaresWakeUsed()) {
+            if (antaresWakeRun != 0) {
+                const float lx = worldX - antaresWakeX, ly = worldY - antaresWakeY;
+                if (lx * lx + ly * ly > 64.0f)
+                    antares_wake::AddNode(antaresWakeX, antaresWakeY, worldX, worldY, antaresWakeRun);
+                antaresWakeRun = 0;
+            }
+            return;
+        }
+        if (antaresWakeRun == 0) {
+            antaresWakeRun = antares_wake::NewRun();
+            antaresWakeX = worldX; antaresWakeY = worldY;
+            return;
+        }
+        const float lx = worldX - antaresWakeX, ly = worldY - antaresWakeY;
+        if (lx * lx + ly * ly >= antares_wake::kNodeSpacing * antares_wake::kNodeSpacing) {
+            antares_wake::AddNode(antaresWakeX, antaresWakeY, worldX, worldY, antaresWakeRun);
+            antaresWakeX = worldX; antaresWakeY = worldY;
+        }
+    }
+    // The straight path of a dash from here along (dirX, dirY): up to
+    // maxBounces reflections off the map edges (the same edges ConfineAntares
+    // bounces it off), at most `length` px. Fills antaresPath and the length.
+    void BuildAntaresPath(float dirX, float dirY, float length, int maxBounces) {
+        glm::vec2 p(worldX, worldY), d(dirX, dirY);
+        const float dl = glm::length(d);
+        d = dl > 0.001f ? d / dl : glm::vec2(1.0f, 0.0f);
+        antaresPath[0] = p;
+        antaresPathCount = 1;
+        float left = length, used = 0.0f;
+        const glm::vec4 b = antaresBounds;
+        const bool bounded = b.z > b.x && b.w > b.y;
+        for (int k = 0; k <= maxBounces && left > 0.0f; ++k) {
+            float tx = 1e9f, ty = 1e9f;
+            if (bounded) {
+                if (d.x > 0.0001f) tx = (b.z - p.x) / d.x; else if (d.x < -0.0001f) tx = (b.x - p.x) / d.x;
+                if (d.y > 0.0001f) ty = (b.w - p.y) / d.y; else if (d.y < -0.0001f) ty = (b.y - p.y) / d.y;
+                tx = std::max(0.0f, tx); ty = std::max(0.0f, ty);
+            }
+            const float t = std::min(tx, ty);
+            if (t >= left || k == maxBounces) {
+                const float go = std::min(t, left);
+                p += d * go; used += go; left = 0.0f;
+                antaresPath[antaresPathCount++] = p;
+                break;
+            }
+            p += d * t; used += t; left -= t;
+            antaresPath[antaresPathCount++] = p;
+            if (tx <= ty) d.x = -d.x;
+            if (ty <= tx) d.y = -d.y;
+        }
+        antaresDashLeft = used;
     }
 
     // Frame edge plus the player's body, so a ram lands on touch, not overlap.
@@ -1032,18 +1306,24 @@ public:
         worldX = std::clamp(worldX, minX, maxX);
         worldY = std::clamp(worldY, minY, maxY);
         if ((antaresState == AntaresState::CHASE ||
-             antaresState == AntaresState::SKID) && AntaresStage() >= 2) {
+             antaresState == AntaresState::SKID ||
+             antaresState == AntaresState::DASH) && AntaresStage() >= 2) {
             if (outX) antaresHeadingX = -std::fabs(antaresHeadingX) * (worldX >= maxX ? 1.0f : -1.0f);
             if (outY) antaresHeadingY = -std::fabs(antaresHeadingY) * (worldY >= maxY ? 1.0f : -1.0f);
             ++antaresBounces;
             Audio::Play(Audio::Cue::EliteAntaresImpact);
+            if (antaresWakeRun != 0) {
+                antares_wake::AddNode(antaresWakeX, antaresWakeY, worldX, worldY, antaresWakeRun);
+                antares_wake::AddRing(worldX, worldY, antares_wake::kWidth, antaresWakeRun);
+                antaresWakeX = worldX; antaresWakeY = worldY;
+            }
         }
     }
 
     // 0-1 position between the slowest and the top speed.
     float AntaresSpeedRatio() const {
         return std::clamp((antaresMoveSpeed - ANTARES_MIN_SPEED) /
-                          (ANTARES_MAX_SPEED - ANTARES_MIN_SPEED), 0.0f, 1.0f);
+                          (AntaresTopSpeed() - ANTARES_MIN_SPEED), 0.0f, 1.0f);
     }
 
     // Afterimages grow with speed (0 at the slowest, 6 at the top) and fade
@@ -1248,6 +1528,7 @@ public:
         case MobKind::ROTOR: SpawnRotorDeathEffect(base, visualTime, reduced); break;
         case MobKind::SWARM: SpawnSwarmDeathEffect(base, visualTime, reduced); break;
         // Elites burst into particles only, at the kill (no body animation).
+        case MobKind::HOROLOGIUM:
         case MobKind::QUASAR:
             SpawnQuasarBlastBurst(base, reduced);
             if (animateBody && !noBlast) Audio::Play(Audio::Cue::EliteQuasarSupernova);   // 플레이어 사망 일괄 정리 땐 X
@@ -1446,6 +1727,10 @@ public:
     bool QuasarFalling() const {
         return alive && quasarState == QUASAR_FALL_STATE;
     }
+    // Shots in the air: the starfall pattern or the phase-3 volley.
+    bool QuasarFallShots() const {
+        return alive && (quasarState == QUASAR_FALL_STATE || quasarSideFall);
+    }
 
     static float QuasarEase(float x) {
         x = std::clamp(x, 0.0f, 1.0f);
@@ -1480,15 +1765,15 @@ public:
     }
 
     float QuasarFallPulse() const {
-        if (!QuasarFalling() || quasarFallFired == 0) return 0.0f;
-        return std::clamp(1.0f - (quasarTimer - quasarFallLaunchTimes[quasarFallFired - 1]) / 0.16f, 0.0f, 1.0f);
+        if (!QuasarFallShots() || quasarFallFired == 0) return 0.0f;
+        return std::clamp(1.0f - (quasarFallClock - quasarFallLaunchTimes[quasarFallFired - 1]) / 0.16f, 0.0f, 1.0f);
     }
 
     float QuasarPortVisibility(int port) const {
-        if (!QuasarFalling()) return 1.0f;
+        if (!QuasarFallShots()) return 1.0f;
         for (int i = quasarFallFired - 1; i >= 0; --i)
             if (i % 4 == port)
-                return std::clamp((quasarTimer - quasarFallLaunchTimes[i] - 0.08f) / 0.15f, 0.0f, 1.0f);
+                return std::clamp((quasarFallClock - quasarFallLaunchTimes[i] - 0.08f) / 0.15f, 0.0f, 1.0f);
         return 1.0f;
     }
 
@@ -1512,7 +1797,15 @@ public:
     // before the last bounced leg reached the edge and the beam stopped short
     // in the middle of the screen. The length now always covers the trip to
     // the far side of the arena, every bounce, and a last leg out past the edge.
+    // Bounces this beam makes: the difficulty's count, but none before the first
+    // phase gate and at most one before the second (QA overrides are kept).
+    int QuasarBounces() const {
+        if (quasarReflectFixed || !UsesEliteGates()) return quasarReflections;
+        return std::min(quasarReflections, gatesPassed);
+    }
+
     float QuasarBeamLength() const {
+        const int quasarReflections = QuasarBounces();
         float len = QUASAR_BEAM_LENGTH;
         if (quasarReflections > 0 && quasarBounds.z > quasarBounds.x && quasarBounds.w > quasarBounds.y) {
             const float w = quasarBounds.z - quasarBounds.x, h = quasarBounds.w - quasarBounds.y;
@@ -1531,6 +1824,7 @@ public:
     int QuasarBeamSegments(float reach, std::array<glm::vec4, QUASAR_BEAM_MAX_SEGMENTS>& out,
                            std::array<int, QUASAR_BEAM_MAX_SEGMENTS>* bounce = nullptr) const {
         int n = 0;
+        const int quasarReflections = QuasarBounces();
         const bool arena = quasarBounds.z > quasarBounds.x && quasarBounds.w > quasarBounds.y;
         for (int sgn = -1; sgn <= 1; sgn += 2) {
             glm::vec2 p(worldX, worldY), d(quasarAimX * (float)sgn, quasarAimY * (float)sgn);
@@ -1737,6 +2031,7 @@ public:
     // keeps two doors (one zone left out) so the player can cross between the
     // safe lanes; the whole pattern is turned by a random angle per cast.
     void BeginQuasarEruption() {
+        gamelog::FightPattern("ERUPTION");
         quasarEruptActive = true;
         quasarEruptTimer = 0.0f;
         quasarEruptBlasted = false;
@@ -1861,15 +2156,28 @@ public:
     }
 
     void BeginQuasarFall() {
+        gamelog::FightPattern("STARFALL");
         Audio::Play(Audio::Cue::EliteQuasarStarfallLaunch);   // 성단이 터지며 유성이 솟구침
         quasarState = QUASAR_FALL_STATE;
         quasarTimer = 0.0f;
         quasarAimSet = false;
+        ResetQuasarVolley(QUASAR_FALL_COUNT, QUASAR_FALL_SPLIT);
+        quasarSideFall = false;
+    }
+    void ResetQuasarVolley(int count, float firstShot) {
+        quasarFallClock = 0.0f;
+        quasarFallCount = count;
         quasarFallFired = 0;
-        quasarFallNextFire = QUASAR_FALL_SPLIT;
+        quasarFallNextFire = firstShot;
         quasarFallHitUntil = 0.0f;
         quasarFallTargetsMask = quasarFallImpacts = 0;
         quasarFallPredictedMask = 0;
+    }
+    // Phase 3: a short volley while the beam fires (the body stays in its
+    // beam state; the volley runs on its own clock).
+    void BeginQuasarSideFall() {
+        ResetQuasarVolley(QUASAR_SIDE_FALL_COUNT, QUASAR_SIDE_FALL_START);
+        quasarSideFall = true;
     }
 
     // Each shot samples the player's current location once. Most land near
@@ -1877,7 +2185,7 @@ public:
     void LaunchQuasarFall(float playerX, float playerY, const glm::vec4& bounds) {
         const int i = quasarFallFired++;
         quasarFallOrigins[i] = QuasarFlangeNode(i % 4);
-        quasarFallLaunchTimes[i] = quasarTimer;
+        quasarFallLaunchTimes[i] = quasarFallClock;
         const bool predicted = (i % QUASAR_PREDICT_EVERY) == QUASAR_PREDICT_EVERY - 1;
         glm::vec2 target;
         if (predicted) {
@@ -1932,30 +2240,35 @@ public:
 
     void UpdateQuasarFall(float playerX, float playerY, float& playerHP,
                           const glm::vec4& bounds) {
-        if (quasarFallFired < QUASAR_FALL_COUNT && quasarTimer + 0.00001f >= quasarFallNextFire) {
+        if (!quasarSideFall) quasarFallClock = quasarTimer;   // the starfall pattern runs on the body's clock
+        if (quasarFallFired < quasarFallCount && quasarFallClock + 0.00001f >= quasarFallNextFire) {
             LaunchQuasarFall(playerX, playerY, bounds);
             // No burst of overdue shots after a hitch: every shot still gets
             // its own full warning and a minimum firing gap.
-            quasarFallNextFire = quasarTimer + QuasarFallNextGap();
+            quasarFallNextFire = quasarFallClock + QuasarFallNextGap();
         }
         for (int i = 0; i < quasarFallFired; ++i) {
             const unsigned bit = 1u << i;
             if (!(quasarFallTargetsMask & bit) || (quasarFallImpacts & bit) ||
-                quasarTimer < QuasarFallImpactTime(i)) continue;
+                quasarFallClock < QuasarFallImpactTime(i)) continue;
             quasarFallImpacts |= bit;
             Audio::Play(Audio::Cue::EliteQuasarStarfallHit);
             const glm::vec2 d = glm::vec2(playerX, playerY) - quasarFallTargets[i];
-            if (quasarTimer >= quasarFallHitUntil &&
+            if (quasarFallClock >= quasarFallHitUntil &&
                 glm::dot(d, d) <= QuasarFallRadius(i) * QuasarFallRadius(i)) {
                 HurtPlayer(playerHP, QuasarFallDamage(i), "QUASAR_FALL");
-                quasarFallHitUntil = quasarTimer + QUASAR_FALL_HIT_GRACE;
+                quasarFallHitUntil = quasarFallClock + QUASAR_FALL_HIT_GRACE;
             }
         }
-        if (quasarFallFired == QUASAR_FALL_COUNT &&
-            quasarTimer >= QuasarFallImpactTime(QUASAR_FALL_COUNT - 1) + QUASAR_FALL_IMPACT_FX) {
-            quasarState = QUASAR_FALL_RECOVER_STATE;
-            quasarTimer = 0.0f;
+        if (quasarFallFired == quasarFallCount &&
+            quasarFallClock >= QuasarFallImpactTime(quasarFallCount - 1) + QUASAR_FALL_IMPACT_FX) {
             quasarFallTargetsMask = 0;
+            if (quasarSideFall) {
+                quasarSideFall = false;     // the body is in its beam cycle: nothing else to end
+            } else {
+                quasarState = QUASAR_FALL_RECOVER_STATE;
+                quasarTimer = 0.0f;
+            }
         }
     }
 
@@ -2037,6 +2350,46 @@ public:
     static float GenesisSmooth(float u) {
         u = std::clamp(u, 0.0f, 1.0f); return u*u*(3.0f-2.0f*u);
     }
+    int GenesisPhase() const { return UsesEliteGates() ? gatesPassed + 1 : 1; }
+    // Lays the lane row across the player, perpendicular to the aim. The gap
+    // is never the middle slot (where the player stands) nor an end one.
+    void PlanGenesisLane(float px, float py) {
+        glm::vec2 aim(px - worldX, py - worldY);
+        const float len = glm::length(aim);
+        aim = len > 0.001f ? aim / len : glm::vec2(1.0f, 0.0f);
+        const glm::vec2 across(-aim.y, aim.x);
+        static constexpr int kGaps[4] = { 1, 2, 4, 5 };
+        const int gap = kGaps[rand() % 4];
+        const bool reverse = rand() % 2 == 1;
+        int n = 0;
+        for (int j = 0; j < GENESIS_LANE_SLOTS; ++j) {
+            const int k = reverse ? GENESIS_LANE_SLOTS - 1 - j : j;
+            if (k == gap) continue;
+            const float off = ((float)k - 0.5f * (float)(GENESIS_LANE_SLOTS - 1)) * GENESIS_LANE_SPACING;
+            const glm::vec2 dir = glm::normalize(aim * std::max(len, 1.0f) + across * off);
+            genesisLaneTargets[n++] = glm::vec2(worldX, worldY) + dir * (len + GENESIS_LANE_OVERSHOOT);
+        }
+        genesisLaneVolley = true;
+    }
+    void AddGenesisMark(int i, float x, float y, float flight) {
+        if (i < 0 || i >= GENESIS_STACKS) return;
+        genesisMarkPos[i] = glm::vec2(x, y);
+        genesisMarkAge[i] = -flight;
+    }
+    void UpdateGenesisMarks(float dt, float px, float py, float& hp) {
+        genesisMarkTick = std::max(0.0f, genesisMarkTick - dt);
+        for (int i = 0; i < GENESIS_STACKS; ++i) {
+            if (genesisMarkAge[i] >= GENESIS_MARK_TIME) continue;
+            genesisMarkAge[i] += dt;
+            if (genesisMarkAge[i] < 0.0f || genesisMarkAge[i] >= GENESIS_MARK_TIME) continue;
+            const glm::vec2 d = glm::vec2(px, py) - genesisMarkPos[i];
+            if (genesisMarkTick <= 0.0f && singularityGrace <= 0.0f &&
+                glm::dot(d, d) <= GENESIS_MARK_RADIUS * GENESIS_MARK_RADIUS) {
+                HurtPlayer(hp, GENESIS_MARK_DAMAGE, "GENESIS_MARK");
+                genesisMarkTick = GENESIS_MARK_TICK;   // one hit per tick, however many rings overlap
+            }
+        }
+    }
     bool GenesisRotorWaiting() const { return hivePhase==0 && genesisNextRotor; }
     bool GenesisRotorMode() const { return GenesisRotorWaiting() || hivePhase>=4; }
     float GenesisRotorPose() const {
@@ -2107,6 +2460,15 @@ public:
             worldX=thrownStartX+cosf(thrownHeading)*distance;
             worldY=thrownStartY+sinf(thrownHeading)*distance;
             const glm::vec2 step=glm::vec2(worldX,worldY)-before;
+            if(genesisLaneShot && !genesisLaneHit && singularityGrace<=0) {   // phase-2 lane: the whole path hurts
+                const float l2=glm::dot(step,step);
+                const float u=l2>0.0001f ? std::clamp(glm::dot(glm::vec2(px,py)-before,step)/l2,0.0f,1.0f) : 0.0f;
+                const glm::vec2 d=before+step*u-glm::vec2(px,py);
+                if(glm::dot(d,d)<=GENESIS_LANE_HIT_RADIUS*GENESIS_LANE_HIT_RADIUS) {
+                    HurtPlayer(hp,GENESIS_LANE_DAMAGE,"GENESIS_LANE");
+                    genesisLaneHit=true;
+                }
+            }
             // Continuous angle; spin slows with actual translation on landing.
             thrownSpin+=glm::length(step)*0.006f;
             if(dt>0 && thrownTimer>=thrownDuration) {
@@ -2217,6 +2579,37 @@ public:
             ? threshold : 26.0f * sizeScale;
         if (distance < contactRange)
             HurtPlayer(playerHP, dps * deltaTime, MobKindName(kind));
+    }
+
+    // HOROLOGIUM: the clock elite (HorologiumMob.h): reverse volley, stasis
+    // field, winding rest; recall from phase 2, tempo from phase 3. Its hit
+    // bursts become particles here.
+    void UpdateHorologium(float playerCX, float playerCY, float distance, float deltaTime,
+                          float& playerHP, float speedMult,
+                          float gateWX, float gateWY, float gateWW, float gateWH,
+                          const glm::vec4& bounds) {
+        auto hurt = [&](float dmg, const char* src) { HurtPlayer(playerHP, dmg, src); };
+        horologium.Step(worldX, worldY, playerCX, playerCY, deltaTime, HorologiumPhase(),
+                        bounds.x, bounds.y, bounds.z, bounds.w, speedMult, hurt);
+        for (int i = 0; i < horologium.burstCount; ++i) {
+            const auto& b = horologium.bursts[i];
+            EnemyParticleBurst burst;
+            burst.count = b.big ? 22 : 10;
+            burst.life = b.big ? 0.45f : 0.28f;
+            burst.speedMin = b.big ? 220.0f : 140.0f;
+            burst.speedMax = b.big ? 520.0f : 300.0f;
+            burst.sizeMin = 2.0f; burst.sizeMax = b.big ? 5.0f : 4.0f;
+            burst.colorLift = 0.35f;
+            burst.randomPlacement = true;
+            SpawnEnemyParticleBurst(b.x, b.y, color, b.big ? 40.0f : 18.0f, burst);
+        }
+        if (horologium.tickCue) Audio::Play(Audio::Cue::ResultWaveTick);   // the tempo is about to switch
+        if (horologium.pattern) {
+            if (UsesEliteGates()) gamelog::FightPattern(horologium.pattern);
+            horologium.pattern = nullptr;
+        }
+        TryContact(distance, playerHP, contactDmg, deltaTime,
+                   -1.0f, gateWX, gateWY, gateWW, gateWH);
     }
 
     // TRIANGULUM: walks at the player and does nothing else (TriangulumMob.h).
@@ -2415,7 +2808,7 @@ public:
         if (normaInvuln > 0.0f) {
             normaInvuln = std::max(0.0f, normaInvuln - deltaTime);
             if (normaInvuln <= 0.0f) {
-                norma::g_Asks.push_back(norma::Ask::PhaseSpray);
+                // (No spray of new panes here: the next pattern's refill opens them, a batch at a time.)
                 norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 1.4f });
             }
             // Holds still meanwhile: the drift eases to a stop.
@@ -2426,6 +2819,21 @@ public:
             worldY += normaVelY * deltaTime;
             normaPhaseFlash = std::max(normaPhaseFlash, 0.05f);
             return;
+        }
+        // Phase gate (75% / 25%): HP stops at the line; the pattern in hand
+        // finishes, then the gate's pattern runs next (StartNormaPattern).
+        if (!normaGateRunning && normaGateForce == Pattern::None &&
+            phase_gate::AtGate(hp, phase_gate::FloorFor(phase_gate::kBossLines,
+                phase_gate::kBossGateCount, gatesPassed, normaMaxHp))) {
+            normaGateForce = gatesPassed == 0 ? Pattern::Wall : Pattern::Crash;
+            normaPhaseFlash = std::max(normaPhaseFlash, 0.6f);
+            norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 1.6f });
+            gamelog::FightGate(gatesPassed + 1, normaMaxHp > 0.0f ? hp / normaMaxHp : 0.0f);
+        }
+        // The gate's pattern has run and it is back between patterns.
+        if (normaGateRunning && normaStage == Stage::Recover) {
+            normaGateRunning = false;
+            ++gatesPassed;
         }
         {
             const float hideTo = normaHidden ? 1.0f
@@ -2512,9 +2920,11 @@ public:
                 // No pane to be had (spent by rams, closed by the player, or
                 // a Wall already up): blow what is left and open fresh ones
                 // instead, so the fallback is not a free extra barrage.
-                normaPattern = Pattern::Reinforce;
-                normaLastPattern = normaPattern;
-                enter(Stage::Telegraph);
+                // (2026-11-17: this used to be a Reinforce turn, two seconds of
+                // nothing. Now fresh panes open and a pattern that needs none
+                // runs at once.)
+                // (2026-11-23: nothing reopens here; panes come with a refill as a pattern starts.)
+                StartNormaPattern(norma::g_Deck.prev == Pattern::Aim ? Pattern::Throw : Pattern::Aim);
             }
             break;
         case Stage::Telegraph:
@@ -2580,6 +2990,13 @@ public:
                     norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.9f });
                     enter(Stage::Act);
                 }
+            } else if (normaPattern == Pattern::Stretch) {
+                // The game loop marks the side that will shoot out.
+                hover();
+                if (normaTimer >= norma::kStretchWarn) {
+                    norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.7f });
+                    enter(Stage::Act);
+                }
             } else {   // CloseWindow: the game loop runs the countdown
                 hover();
                 if (normaTimer >= norma::kCloseCountdown + 0.3f) enter(Stage::Recover);
@@ -2604,11 +3021,34 @@ public:
                     norma::g_Events.push_back({ norma::Fx::Muzzle, worldX + cosf(normaAimAngle) * muzzle,
                                                 worldY + sinf(normaAimAngle) * muzzle, normaAimAngle });
                 }
+                // The cut: a fan ahead of where the player is walking, so one
+                // steady walk does not clear the whole stream.
+                const auto crossed = [&](float at) { return normaTimer >= at && normaTimer - deltaTime < at; };
+                if (crossed(norma::kAimCutAt) ||
+                    (norma::ActFor(hp, normaMaxHp) >= 3 && crossed(norma::kAimCutAt2))) {
+                    const float pv = std::sqrt(normaPlayerVX * normaPlayerVX + normaPlayerVY * normaPlayerVY);
+                    if (pv >= norma::kAimCutMinSpeed) {
+                        const float lead = norma::LeadAngle(worldX, worldY, worldX + dx, worldY + dy,
+                                                            normaPlayerVX, normaPlayerVY,
+                                                            norma::kAimCutSpeed, norma::kAimCutLead);
+                        const float muzzle = 18.0f * sizeScale * norma::kAimMuzzle;
+                        for (int i = 0; i < norma::kAimCutShots; ++i)
+                            FireNormaShot(bullets, lead + norma::kAimCutGap *
+                                          ((float)i - (float)(norma::kAimCutShots - 1) * 0.5f),
+                                          norma::kAimCutSpeed, muzzle);
+                        normaRecoil = norma::kRecoilSeconds * 1.4f;
+                        norma::g_Events.push_back({ norma::Fx::Burst, worldX, worldY, 0.6f });
+                    }
+                }
                 if (normaTimer >= norma::kAimSeconds) enter(Stage::Recover);
             } else if (normaPattern == Pattern::Throw) {
                 // The game loop flies and bursts the box; the boss holds fire.
                 hover();
                 if (normaTimer >= norma::kThrowSeconds) enter(Stage::Recover);
+            } else if (normaPattern == Pattern::Stretch) {
+                // The game loop grows the side out and draws it back.
+                hover();
+                if (normaTimer >= norma::StretchSeconds()) enter(Stage::Recover);
             } else if (normaPattern == Pattern::Detonate || normaPattern == Pattern::Reinforce) {
                 // New panes snap open (the game loop); then back to business.
                 hover();
@@ -2635,8 +3075,21 @@ public:
                     enter(Stage::Recover);
                 }
             } else if (normaPattern == Pattern::Wall) {
-                // The game loop pushes the wall; the boss holds fire.
+                // The game loop stands the wall; behind it the boss fires a
+                // slow aimed stream (the wall's panes stop it: the wall is cover).
                 hover();
+                TurnNormaAim(atan2f(dy, dx), norma::kAimTrackTelegraph * deltaTime);
+                if (normaTimer >= norma::kWallStreamFrom) {
+                    normaFireTimer += deltaTime;
+                    while (normaFireTimer >= norma::kWallStreamInterval) {
+                        normaFireTimer -= norma::kWallStreamInterval;
+                        const float muzzle = 18.0f * sizeScale * norma::kAimMuzzle;
+                        FireNormaShot(bullets, normaAimAngle, norma::kWallStreamSpeed, muzzle);
+                        normaRecoil = norma::kRecoilSeconds * 0.6f;
+                        norma::g_Events.push_back({ norma::Fx::Muzzle, worldX + cosf(normaAimAngle) * muzzle,
+                                                    worldY + sinf(normaAimAngle) * muzzle, normaAimAngle });
+                    }
+                }
                 if (normaTimer >= norma::kWallSeconds) enter(Stage::Recover);
             } else if (normaPattern == Pattern::Ram) {
                 // The game loop flies the pane; the boss holds fire.
@@ -2646,21 +3099,29 @@ public:
                 normaFireTimer += deltaTime;
                 while (normaFireTimer >= norma::kRefugeWaveInterval) {
                     normaFireTimer -= norma::kRefugeWaveInterval;
-                    const float offset = normaSpin;
-                    normaSpin += 0.5f * 6.2831853f / (float)norma::kRefugeShots;
+                    // Each ring is turned so one of its shots runs dead on the
+                    // player: no lane in the open stays clear, and standing
+                    // still outside a shelter is hit by every wave (a random
+                    // turn still left a still player unhit, 2026-11-17 smoke).
+                    const float offset = atan2f(dy, dx);
+                    normaSpin = offset;
                     for (int i = 0; i < norma::kRefugeShots; ++i)
                         FireNormaShot(bullets, offset + 6.2831853f * (float)i /
                                       (float)norma::kRefugeShots, norma::kRefugeShotSpeed);
-                    // Every other wave carries a slower inner ring on the gaps.
-                    if (++normaWaveIndex % 2 == 0)
-                        for (int i = 0; i < norma::kRefugeShots / 2; ++i)
-                            FireNormaShot(bullets, offset + 6.2831853f * ((float)i + 0.5f) /
-                                          (float)(norma::kRefugeShots / 2),
-                                          norma::kRefugeShotSpeed * 0.62f);
+                    // Every wave carries a slower inner ring on the gaps.
+                    ++normaWaveIndex;
+                    for (int i = 0; i < norma::kRefugeShots / 2; ++i)
+                        FireNormaShot(bullets, offset + 6.2831853f * ((float)i + 0.5f) /
+                                      (float)(norma::kRefugeShots / 2),
+                                      norma::kRefugeShotSpeed * 0.62f);
                     norma::g_Events.push_back({ norma::Fx::Wave, worldX, worldY,
                                                 norma::kRefugeShotSpeed });
                     normaRecoil = norma::kRecoilSeconds * 1.4f;
                 }
+                // The shelter hop, once per flood (the game loop lights the
+                // player's shelter and brings another within reach).
+                if (normaTimer >= norma::kRefugeHopAt && normaTimer - deltaTime < norma::kRefugeHopAt)
+                    norma::g_Asks.push_back(norma::Ask::RefugeHop);
                 if (normaTimer >= norma::kRefugeSeconds) enter(Stage::Exit);
             }
             break;
@@ -2684,9 +3145,27 @@ public:
     // forced: a pattern to run instead of the next in turn (smoke captures).
     void StartNormaPattern(norma::Pattern forced = norma::Pattern::None) {
         using norma::Pattern;
+        if (forced == Pattern::None && normaGateForce != Pattern::None) {
+            forced = normaGateForce;   // a phase gate's pattern
+            normaGateForce = Pattern::None;
+            normaGateRunning = true;
+        }
+        if (normaCount == 0) norma::g_Deck = {};   // a new boss: a fresh deck
+        ++normaCount;
+        const int act = norma::ActFor(hp, normaMaxHp);
         normaPattern = forced != Pattern::None ? forced
-                     : norma::NextPattern(normaCount++, normaPhase, rand(), normaLastPattern);
+                     : norma::DrawPattern(norma::g_Deck, act, normaLastPattern, norma::g_Deck.prev,
+                                          nullptr, norma::g_PaneCount);
+        norma::g_Deck.prev = normaLastPattern;
         normaLastPattern = normaPattern;
+        // Its panes as this pattern starts (NormaBoss.h): short of them, a
+        // batch opens; otherwise, with a pattern that needs none, one or two
+        // may be lit to blow while it runs. Served before the pattern's own Ask.
+        if (norma::RefillCount(norma::g_PaneCount, normaPhase) > 0)
+            norma::g_Asks.push_back(norma::Ask::ReopenPanes);
+        else if (norma::TailFor(normaPattern, norma::g_PaneCount, rand()) == norma::Tail::Partial)
+            norma::g_Asks.push_back(norma::Ask::DetonateSome);
+        gamelog::FightPattern(norma::PatternName(normaPattern));
         normaTimer = 0.0f;
         normaFireTimer = 0.0f;
         normaPaneId = 0;
@@ -2721,6 +3200,10 @@ public:
         case Pattern::Wall:
             norma::g_Asks.push_back(norma::Ask::BuildWall);
             normaStage = norma::Stage::Wait;   // refused while the last wall still stands
+            break;
+        case Pattern::Stretch:
+            norma::g_Asks.push_back(norma::Ask::StretchPane);
+            normaStage = norma::Stage::Wait;
             break;
         case Pattern::Ram:
             norma::g_Asks.push_back(norma::Ask::RamWindow);
@@ -2928,7 +3411,7 @@ public:
             const float next = current + std::clamp(turn, -maxTurn, maxTurn);
             antaresHeadingX = cosf(next);
             antaresHeadingY = sinf(next);
-            antaresMoveSpeed = std::min(ANTARES_MAX_SPEED,
+            antaresMoveSpeed = std::min(AntaresTopSpeed(),
                                         antaresMoveSpeed + ACCEL * deltaTime);
 
             // Touching the player is a ram at any speed: damage and knockback
@@ -2960,6 +3443,51 @@ public:
                     antaresSkidDecel = (antaresMoveSpeed - ANTARES_MIN_SPEED) / SKID_TIME;
                 }
             }
+        } else if (antaresState == AntaresState::GATHER) {
+            // Rings close in, then the six lines: the bright one is aimed at
+            // the player when the lines appear and does not follow after.
+            antaresMoveSpeed = 0.0f;
+            if (antaresPathCount == 0 && antaresStateTimer >= AntaresGatherTime()) {
+                antaresHeadingX = toX;
+                antaresHeadingY = toY;
+                BuildAntaresPath(toX, toY, ANTARES_BURST_LENGTH, 0);
+            }
+            if (antaresStateTimer >= AntaresGatherTime() + AntaresRadialTime()) {
+                antaresState = AntaresState::DASH;
+                antaresStateTimer = 0.0f;
+                antaresDashSpeed = ANTARES_BURST_SPEED;
+                Audio::Play(Audio::Cue::EliteAntaresCharge);
+            }
+        } else if (antaresState == AntaresState::AIM) {
+            antaresMoveSpeed = 0.0f;
+            if (antaresStateTimer >= ANTARES_LANCE_AIM) {
+                antaresState = AntaresState::DASH;
+                antaresStateTimer = 0.0f;
+                antaresDashSpeed = ANTARES_LANCE_SPEED;
+                Audio::Play(Audio::Cue::EliteAntaresCharge);
+            }
+        } else if (antaresState == AntaresState::DASH) {
+            // Straight along the shown path; the edges bounce it exactly as
+            // drawn (ConfineAntares). A touch is a ram, as in a run.
+            antaresMoveSpeed = antaresDashSpeed;
+            antaresDashLeft -= antaresMoveSpeed * speedMult * deltaTime;
+            if (singularityGrace <= 0.0f && distance < AntaresRamRange()) {
+                HurtPlayer(playerHP, IMPACT_DAMAGE * antaresMoveSpeed / ANTARES_MAX_SPEED,
+                           "ANTARES_DASH");
+                const float knock = KNOCK_PER_SPEED * ANTARES_MAX_SPEED;
+                antaresKnockX += toX * knock;
+                antaresKnockY += toY * knock;
+                Audio::Play(Audio::Cue::EliteAntaresImpact);
+                antaresState = AntaresState::STUNNED;
+                antaresStateTimer = 0.0f;
+                antaresMoveSpeed = 0.0f;
+                antaresPathCount = 0;
+            } else if (antaresDashLeft <= 0.0f) {
+                antaresState = AntaresState::SKID;
+                antaresStateTimer = 0.0f;
+                antaresSkidDecel = (antaresMoveSpeed - ANTARES_MIN_SPEED) / SKID_TIME;
+                antaresPathCount = 0;
+            }
         } else if (antaresState == AntaresState::SKID) {
             antaresMoveSpeed = std::max(ANTARES_MIN_SPEED,
                                         antaresMoveSpeed - antaresSkidDecel * deltaTime);
@@ -2972,15 +3500,37 @@ public:
             // STUNNED and REST hold still, then turn to the player and start
             // a fresh run from stage 1.
             const float hold = antaresState == AntaresState::STUNNED
-                ? ANTARES_STUN_TIME : ANTARES_REST_TIME;
+                ? ANTARES_STUN_TIME : AntaresRestTime();
             antaresMoveSpeed = 0.0f;
             if (antaresStateTimer >= hold) {
-                Audio::Play(Audio::Cue::EliteAntaresCharge);   // 새 돌진 시작
-                antaresState = AntaresState::CHASE;
+                // Phase 2: every other run is a gather-and-burst. Phase 3:
+                // run, gather-and-burst, lance, in turn. Below HARD there is
+                // no lance (EliteDifficulty.h): phase 3 keeps the phase-2 turn.
+                ++antaresRuns;
+                const int phase = AntaresPhase();
+                const bool lance = phase >= 3 && elite_diff::AntaresLance((int)g_Difficulty);
+                int pick = 0;
+                if (lance) pick = antaresRuns % 3;
+                else if (phase >= 2) pick = antaresRuns % 2;
                 antaresStateTimer = 0.0f;
-                antaresMoveSpeed = ANTARES_MIN_SPEED;
                 antaresHeadingX = toX;
                 antaresHeadingY = toY;
+                antaresPathCount = 0;
+                if (pick == 1) {
+                    antaresState = AntaresState::GATHER;
+                    antaresMoveSpeed = 0.0f;
+                    gamelog::FightPattern("GATHER_BURST");
+                } else if (pick == 2) {
+                    antaresState = AntaresState::AIM;
+                    antaresMoveSpeed = 0.0f;
+                    BuildAntaresPath(toX, toY, ANTARES_LANCE_LENGTH, ANTARES_LANCE_BOUNCES);
+                    gamelog::FightPattern("LANCE");
+                } else {
+                    Audio::Play(Audio::Cue::EliteAntaresCharge);   // 새 돌진 시작
+                    antaresState = AntaresState::CHASE;
+                    antaresMoveSpeed = ANTARES_MIN_SPEED;
+                    if (phase >= 2) gamelog::FightPattern("RUN");
+                }
             }
         }
         antaresPrevFacing = antaresHeadingX * toX + antaresHeadingY * toY;
@@ -2993,6 +3543,7 @@ public:
         const float step = antaresMoveSpeed * speedMult * deltaTime;
         worldX += antaresHeadingX * step;
         worldY += antaresHeadingY * step;
+        LayAntaresWake();
 
         antaresTrailTimer += deltaTime;
         // Fixed-interval samples space the ghosts by distance travelled, so a
@@ -3022,6 +3573,7 @@ public:
             return;
         }
         hitStunCooldown = std::max(0.0f, hitStunCooldown - deltaTime);
+        TickEliteGate(deltaTime);
         eliteHitPulse = std::max(0.0f, eliteHitPulse - deltaTime / ELITE_HIT_PULSE_TIME);
         eliteHitSwell = std::min(eliteHitPulse,
                                  eliteHitSwell + deltaTime / ELITE_HIT_RISE_TIME);
@@ -3039,7 +3591,7 @@ public:
             regulusShieldRegenTimer = std::max(0.0f,
                                                regulusShieldRegenTimer - deltaTime);
             if (regulusShieldRegenTimer <= 0.0f) {
-                regulusShield.hp = regulusShield.maxHp;
+                regulusShield.hp = regulusShield.maxHp * REGULUS_SHIELD_REGEN_SHARE;
                 regulusShield.flashTimer = MOB_HIT_FLASH_TIME;
                 Audio::Play(Audio::Cue::EliteRegulusShield);   // 자기 보호막 재생성
             }
@@ -3090,6 +3642,11 @@ public:
         }
         if (kind == MobKind::TRIANGULUM) {
             UpdateTriangulum(dx, dy, distance, deltaTime, speedMult);
+            return;
+        }
+        if (kind == MobKind::HOROLOGIUM) {
+            UpdateHorologium(playerCX, playerCY, distance, deltaTime, playerHP, speedMult,
+                             gateWX, gateWY, gateWW, gateWH, attackBounds);
             return;
         }
 
@@ -3202,6 +3759,7 @@ public:
             static constexpr float BEAM_DPS = QUASAR_BEAM_DPS;
 
             quasarTimer += deltaTime;
+            quasarBeamTick = std::max(0.0f, quasarBeamTick - deltaTime);
             quasarBounds = attackBounds;
             // The eruption condition: the player staying close for QUASAR_ERUPT_TRIGGER_TIME.
             quasarEruptCooldown = std::max(0.0f, quasarEruptCooldown - deltaTime);
@@ -3233,6 +3791,10 @@ public:
             if (quasarEruptActive) {
                 quasarEruptTimer += deltaTime;
                 UpdateQuasarEruption(playerCX, playerCY, playerHP);
+            }
+            if (quasarSideFall) {
+                quasarFallClock += deltaTime;
+                UpdateQuasarFall(playerCX, playerCY, playerHP, attackBounds);
             }
             if (quasarState == 0) {
                 quasarMoveTimer -= deltaTime;
@@ -3282,6 +3844,12 @@ public:
                 if (quasarTimer >= LOCK_TIME) {
                     quasarState = 3;
                     quasarTimer = 0.0f;
+                    if (gatesPassed >= 2 && UsesEliteGates()) {
+                        BeginQuasarSideFall();
+                        gamelog::FightPattern("BEAM_STARFALL");
+                    } else {
+                        gamelog::FightPattern("BEAM");
+                    }
                     Audio::Play(Audio::Cue::EliteQuasarBeam);
                 }
             } else if (quasarState == 3) {
@@ -3314,7 +3882,11 @@ public:
                     const float hy = ay + aby * u - playerCY;
                     const float hitR = BEAM_RADIUS * QuasarBeamWidth();      // thins out with the beam
                     if (hx * hx + hy * hy <= hitR * hitR) {
-                        HurtPlayer(playerHP, BEAM_DPS * deltaTime, "QUASAR_BEAM");   // once per frame
+                        // A clear hit every QUASAR_BEAM_TICK while inside, not a trickle.
+                        if (quasarBeamTick <= 0.0f) {
+                            HurtPlayer(playerHP, BEAM_DPS * QUASAR_BEAM_TICK, "QUASAR_BEAM");
+                            quasarBeamTick = QUASAR_BEAM_TICK;
+                        }
                         break;
                     }
                 }
@@ -3323,6 +3895,7 @@ public:
                     quasarTimer = 0.0f;
                 }
             } else if (quasarState == QUASAR_FALL_STATE) {
+                quasarFallClock = quasarTimer;
                 UpdateQuasarFall(playerCX, playerCY, playerHP, attackBounds);
             } else if (quasarState == QUASAR_FALL_RECOVER_STATE) {
                 if (quasarTimer >= QUASAR_FALL_RECOVER - QUASAR_FALL_IMPACT_FX) {
@@ -3354,6 +3927,7 @@ public:
         }
 
         if (kind == MobKind::REGULUS) {
+            regulusExposed = std::max(0.0f, regulusExposed - deltaTime);
             regulusVisualAngle += deltaTime * 0.32f;
             regulusDriftTimer -= deltaTime;
             if (regulusDriftTimer <= 0.0f) {
@@ -3381,6 +3955,7 @@ public:
         }
 
         if (kind == MobKind::GENESIS) {
+            UpdateGenesisMarks(deltaTime, playerCX, playerCY, playerHP);
             if (hivePhase >= 4) return;
             const float ax = spawnAnchorX - worldX;
             const float ay = spawnAnchorY - worldY;

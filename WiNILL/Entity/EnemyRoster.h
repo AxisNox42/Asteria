@@ -83,6 +83,16 @@ inline float ScopeRateMult(int wave, int difficulty) {
     return 0.0f;
 }
 
+// From the third set on (wave 9: every schedule's second elite wave is 8) the
+// ranged enemies take a bigger share, so late waves ask for more than
+// walking in circles (plan stage 6): Scope spawns x kLateRangedMult as often
+// and Lynx's odds rise by the same factor (its cap too).
+inline constexpr int kLateRangedFromWave = 9;
+inline constexpr float kLateRangedMult = 1.5f;
+inline float LateRangedMult(int wave) {
+    return wave >= kLateRangedFromWave ? kLateRangedMult : 1.0f;
+}
+
 // ROTOR takes whatever share the others leave once it is in the pool.
 // SCOPE only gates the separate ranged spawn path; it has no regular odds.
 inline constexpr RosterEntry kEnemyRoster[] = {
@@ -120,7 +130,9 @@ inline int RosterBaseChancePct(RosterKind kind, int wave, int difficulty) {
     if (kind == RosterKind::GIMBAL) return GimbalChancePct(wave, difficulty);
     const RosterEntry& entry = RosterEntryFor(kind);
     const int grown = entry.startPct + 2 * (wave - RosterFirstWave(kind, difficulty));
-    return std::min(entry.capPct, grown);
+    const int odds = std::min(entry.capPct, grown);
+    if (kind == RosterKind::LYNX) return (int)std::lround((float)odds * LateRangedMult(wave));
+    return odds;
 }
 
 // The balance table's odds x for a kind (ROTOR keeps the remainder).

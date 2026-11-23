@@ -122,10 +122,12 @@ inline bool SweptBy(int shotSpace, float prevX, float prevY, float x, float y, i
     return false;
 }
 
-// A pane only stops shots fired after it stood: a pane that opens over shots
-// already in flight (Detonate reopening its panes) lets them through.
-inline bool Absorbs(int paneId, float firedAt) {
-    if (paneId <= 0) return true;
+// A pane only stops enemy shots fired after it stood: a pane that opens over
+// enemy shots already in flight (Detonate reopening its panes) lets them through.
+// The player's shots are stopped by every pane, however new: otherwise a shot
+// fired just before OCTANS opened a pane flew straight through it.
+inline bool Absorbs(int paneId, float firedAt, bool enemyShot = true) {
+    if (paneId <= 0 || !enemyShot) return true;
     for (const Region& r : g_Regions)
         if (r.id == paneId) return firedAt >= r.bornAt;
     return true;

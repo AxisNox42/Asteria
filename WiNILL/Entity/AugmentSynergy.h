@@ -158,8 +158,6 @@ inline const std::vector<Aug>& Table() {
         T_TRAIL, 0, false, Fx{}.proc_(0.35f)},
     {"V_HOVER",   "공중 정지탄",     "피해 +70%, 연사 -10% — 4○ 날아가면 0.8초 멈췄다가 다시 날아감", Rar::Epic, Role::Verb,
         T_HOVER, 0, false, Fx{}.rate_(0.9f).dmg_(1.7f)},
-    {"V_RETURN",  "왕복 되돌이탄",   "6.5○ 날아가면 플레이어에게 되돌아옴 (돌아올 때도 적을 맞힘) · 샷건·레이저의 사거리 제한이 사라짐", Rar::Legendary, Role::Verb,
-        T_RETURN, 0, false, Fx{}.extraPass_(0.8f)},
     // ── 트리거 / 페이오프 ──
     {"T_NTH",     "박자 추가탄",   "6번째 사격마다 탄 1발 추가 (추가 탄도 관통·튕김 등 지금 탄의 효과를 그대로 가짐)", Rar::Rare, Role::Trigger,
         T_NTH, 0, false, Fx{}.nth_(5)},
@@ -203,7 +201,7 @@ inline const std::vector<Aug>& Table() {
         T_MARK, 0, false, Fx{}.dmgAdd_(0.2f)},
     {"V_BURN",    "불씨 점화탄",     "맞힌 적이 3초간 불탐 (초당 공격력 20%)", Rar::Rare, Role::Verb,
         T_BURN, 0, false, Fx{}.proc_(0.35f)},
-    {"V_HUNTER",  "집요한 사냥탄",     "강하게 휘는 유도탄 — 6.5○ 날아가면 되돌아오며 다시 맞힘 · 샷건·레이저의 사거리 제한이 사라짐", Rar::Legendary, Role::Verb,
+    {"V_HUNTER",  "집요한 사냥탄",     "강하게 휘는 관통 유도탄 — 13○ 날아가면 되돌아오며 다시 맞힘 · 샷건·레이저의 사거리 제한이 사라짐", Rar::Legendary, Role::Verb,
         T_HOMING | T_RETURN, 0, false, Fx{}.extraPass_(0.5f).homing_(0.10f)},
     {"V_SPRAY",   "부채꼴 산개탄",     "사격마다 좌우로 탄 2발 추가 (피해 35%)", Rar::Rare, Role::Verb,
         T_SPREAD, 0, false, Fx{}.bullets_(1.6f).dmg_(0.76f)},

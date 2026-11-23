@@ -18,7 +18,6 @@
 #include "Juice.h"
 #include "LaserFx.h"
 #include "LineFx.h"
-#include "DiscUnion.h"
 #include "StrikeFx.h"
 #include "MonsterManager.h"
 #include "PassiveHooks.h"
@@ -48,14 +47,46 @@ static_assert(sizeof(Flags) == kCards * sizeof(bool), "Flags must be a plain boo
 struct Zone  { float x, y, r, life, pct, tick, blastAtEnd, cr, cg, cb;   // pct: % of attack per second
                int chain = 0;            // Afterimage Trail: the ribbon it belongs to (0 = a plain zone)
                bool burns = false;       // Afterimage Trail dropped by a burning shot: sets enemies alight
-               bool broke = false;       // Afterimage Trail: its tail end has shattered (no longer hurts)
                float age = 0.0f; };
-// Afterimage Trail: the ribbon hurts and shows for kTrailShow s, then the tail
-// end shatters into square fragments over the last kTrailBreak s.
-constexpr float kTrailShow = 1.2f, kTrailBreak = 0.4f;
-constexpr float kTrailR = 0.36f, kTrailG = 0.79f, kTrailB = 0.65f;   // teal, apart from ERIDANUS's amber
-struct Shard { float x, y, vx, vy, size, life, maxLife, spin; };
-constexpr int kMaxShards = 120;
+// Afterimage Trail as a comet tail in the shot's own colour (agreed 2026-11-17):
+// one outline, wide at the shot and tapering to a point at the old end, a faint
+// wash inside (the user asked for a touch of fill here), a bright core line
+// fading back from the shot, and small stardust crosses peeling off the edges.
+constexpr float kTrailLife = 1.2f;
+constexpr float kTrailOutline = 0.8f;     // outline alpha
+constexpr float kTrailFill  = 0.12f;      // wash alpha at the shot end
+constexpr float kTrailCore  = 0.95f;      // core line alpha at the shot end
+constexpr float kTrailHalfWidth = 0.6f;   // of the zone radius, at the shot
+constexpr float kTrailHead = 100.0f;      // px: the head's width halves about every 70 px back from the shot
+constexpr float kTrailThin = 0.18f;       // the lingering tail's width, as a share of the head's
+constexpr float kTrailOutlineCut = 0.12f; // the outline covers the head down to this share
+constexpr float kTrailHeadFade = 0.12f;   // s: the head melts away this fast after its shot is gone
+constexpr float kTrailTip = 24.0f;        // px: the front narrows to a point over this once the shot is gone
+constexpr float kTrailNose = 16.0f;       // px: the front closes onto the live shot over this
+constexpr float kTrailZoneR = 26.0f;      // the hurt zones' radius (the width the tail is sized from)
+// The drawn tail is its own record, apart from the hurt zones: every shot keeps
+// the path it really flew (a point every kStreakStep px, and one at every turn
+// sharper than kStreakTurn, so a bounce keeps its corner). A jump no flight can
+// make (a returning or orbiting shot put back by the ship, an echo) starts a new
+// tail instead of drawing a line to where the shot reappeared.
+struct StreakPt { float x, y, age; };
+struct Streak {
+    int id = 0;
+    std::vector<StreakPt> pts;          // old -> new
+    float lastX = 0, lastY = 0;         // the shot last step
+    float dirX = 1, dirY = 0;           // its heading at the last point
+    float cr = 1, cg = 1, cb = 1;
+    bool  live = true, seen = true;
+    float sinceLive = 0.0f;             // s since its shot was last seen
+};
+constexpr float kStreakStep = 10.0f;
+constexpr float kStreakTurnCos = 0.966f;  // cos 15 deg
+constexpr int   kMaxStreaks = 160;
+constexpr int   kMaxStreakPts = 120;
+struct Mote { float x, y, vx, vy, life, cr, cg, cb; };
+constexpr int   kMaxMotes = 90;
+constexpr float kMoteLife = 0.6f;
+constexpr float kMoteRate = 0.7f;         // per tail point per second
 struct Mine  { float x, y, life, pct, pulse; };
 struct Burn  { float t, tick; };
 // 과부하 레이저: stacking burn. t = time left at this stack count, gain = cooldown to the next stack,
@@ -124,7 +155,8 @@ struct State {
           lastWallSaved = false;   // 최후의 방벽: the one lethal hit it blocks this run
     float dashDropped = 0, dashLastX = 0, dashLastY = 0;
     std::vector<Zone>  zones;
-    std::vector<Shard> shards;                            // Afterimage Trail tail fragments
+    std::vector<Mote>  motes;                             // Afterimage Trail stardust
+    std::vector<Streak> streaks;                          // Afterimage Trail drawn tails
     int   trailChains = 0;
     std::vector<Mine>  mines;
     std::vector<Echo>  echoes;
@@ -203,29 +235,12 @@ void AddZone(float x, float y, float r, float life, float pct, float blastAtEnd 
 
 // Afterimage Trail: one piece of a shot's ribbon. No opening ring: the ribbon
 // itself shows it, and a fast gun would fill the screen with rings.
-void AddTrailZone(float x, float y, float r, float pct, int chain, bool burns) {
+void AddTrailZone(float x, float y, float r, float pct, int chain, bool burns, glm::vec3 col) {
     if (s.zones.size() > 300) return;
-    Zone z{ x, y, r, kTrailShow + kTrailBreak, pct, 0.0f, 0.0f, kTrailR, kTrailG, kTrailB };
+    Zone z{ x, y, r, kTrailLife, pct, 0.0f, 0.0f, col.r, col.g, col.b };
     z.chain = chain;
     z.burns = burns;
     s.zones.push_back(z);
-}
-
-// The tail end of a ribbon breaking: a few square outlines thrown off along the
-// shot's way, fading out.
-void ShatterTrail(const Zone& z, float dirX, float dirY) {
-    for (int i = 0; i < 3 && (int)s.shards.size() < kMaxShards; ++i) {
-        const float a = Rand01() * 6.2831853f, sp = 20.0f + 50.0f * Rand01();
-        Shard sh;
-        sh.x = z.x + (Rand01() - 0.5f) * z.r * 1.2f;
-        sh.y = z.y + (Rand01() - 0.5f) * z.r * 1.2f;
-        sh.vx = std::cos(a) * sp + dirX * 40.0f;
-        sh.vy = std::sin(a) * sp + dirY * 40.0f;
-        sh.size = 4.0f + 7.0f * Rand01();
-        sh.maxLife = sh.life = 0.5f + 0.4f * Rand01();
-        sh.spin = (Rand01() - 0.5f) * 3.0f;
-        s.shards.push_back(sh);
-    }
 }
 
 bool IsBoss(const Monster& m) { return IsBossMob(m.kind) || IsEliteMob(m.kind); }
@@ -411,7 +426,8 @@ void ApplyVerbs(Bullet& b, float tx, float ty, const VerbRoll& rolled) {
     if (o.V_BURN) b.synFlags |= synf::Burn;
     if (o.V_GROW) { b.synFlags |= synf::Grow; b.synGrowBase = b.sizeScale; }
     if (o.V_HOVER) b.synFlags |= synf::Hover;
-    if (o.V_RETURN || o.V_HUNTER) { b.synFlags |= synf::Return; b.maxRange = 0.0f; }
+    // Relentless Hunter Rounds always pierce, on the way out as well as back.
+    if (o.V_HUNTER) { b.synFlags |= synf::Return; b.maxRange = 0.0f; b.piercing = true; }
     if (o.V_TRAIL) b.synFlags |= synf::Trail;
     if (o.V_GRAVITY || o.Y_SINGULAR) b.synFlags |= synf::Gravity;
     if (o.V_ABSORB) b.synFlags |= synf::Absorb;
@@ -620,63 +636,179 @@ void ForgetEnemy(const void* enemy) {
     s.laserBurns.erase(enemy);
 }
 
-// Afterimage Trail: every shot's zones (and the shot itself, as the live head)
-// joined into one ribbon, all ribbons drawn as one union like ERIDANUS's
-// corruption: an outline, scanlines inside, a few flickering square pixels,
-// lines only. The broken tail end is drawn as its square fragments.
-void DrawTrailRibbons() {
-    namespace lf = line_fx;
-    using disc_union::Disc;
-    const lf::Rgb col{ kTrailR, kTrailG, kTrailB };
-    const lf::Rgb lit{ kTrailR + (1.0f - kTrailR) * 0.5f, kTrailG + (1.0f - kTrailG) * 0.5f,
-                       kTrailB + (1.0f - kTrailB) * 0.5f };
-    std::vector<Disc> discs;
-    std::vector<int> done;
-    for (const Zone& z : s.zones) {
-        if (z.chain == 0 || z.broke) continue;
-        if (std::find(done.begin(), done.end(), z.chain) != done.end()) continue;
-        done.push_back(z.chain);
-        std::vector<Disc> ctl;
-        for (const Zone& o : s.zones)
-            if (o.chain == z.chain && !o.broke)
-                ctl.push_back({ o.x, o.y, o.r * std::min(1.0f, o.age / 0.12f) });
-        for (const Bullet& b : g_Bullets)
-            if (b.active && b.synTrailChain == z.chain) { ctl.push_back({ b.x, b.y, z.r * 0.6f }); break; }
-        disc_union::ChainDiscs(ctl, discs, 5);
+Streak* FindStreak(int id) {
+    for (Streak& st : s.streaks) if (st.id == id) return &st;
+    return nullptr;
+}
+
+Streak& NewStreak(Bullet& b) {
+    if ((int)s.streaks.size() >= kMaxStreaks) s.streaks.erase(s.streaks.begin());   // the oldest goes
+    b.synTrailChain = ++s.trailChains;
+    Streak st;
+    st.id = b.synTrailChain;
+    st.pts.push_back({ b.x, b.y, 0.0f });
+    st.lastX = b.x; st.lastY = b.y;
+    st.dirX = b.dirX; st.dirY = b.dirY;
+    st.cr = b.color.r; st.cg = b.color.g; st.cb = b.color.b;
+    s.streaks.push_back(std::move(st));
+    return s.streaks.back();
+}
+
+// Once per step for every shot with Afterimage Trail.
+void RecordStreak(Bullet& b, float dt) {
+    Streak* st = b.synTrailChain > 0 ? FindStreak(b.synTrailChain) : nullptr;
+    if (!st) { NewStreak(b); return; }
+    const float moved = std::hypot(b.x - st->lastX, b.y - st->lastY);
+    if (moved > std::max(40.0f, b.speed * dt * 3.0f)) {   // a jump, not a flight: close this tail, start anew
+        st->live = false;
+        NewStreak(b);
+        return;
     }
-    disc_union::Field f;
-    if (disc_union::Build(discs, f, 6.0f, 40000.0f)) {
-        disc_union::Rows(f, 2, 3.0f, [&](float x0, float y, float x1, float) {
-            lf::Line(x0 + 2.0f, y, x1 - 2.0f, y, 1.0f, col, 0.30f);
-        });
-        disc_union::March(f, [](float, float, float, float, float, float) {},
-            [&](float x0, float y0, float x1, float y1) { lf::Line(x0, y0, x1, y1, 1.4f, col, 0.9f); });
+    st->seen = true;
+    // A sharp turn (a bounce): pin the corner where the shot was just before it.
+    const float dot = b.dirX * st->dirX + b.dirY * st->dirY;
+    if (dot < kStreakTurnCos) {
+        const StreakPt& last = st->pts.back();
+        if (std::hypot(st->lastX - last.x, st->lastY - last.y) > 1.0f) st->pts.push_back({ st->lastX, st->lastY, 0.0f });
+        st->dirX = b.dirX; st->dirY = b.dirY;
     }
-    // Glitch pixels: a small square flickers on now and then inside the ribbon.
-    const unsigned frame = (unsigned)(s.clock * 12.0f);
-    for (const Zone& z : s.zones) {
-        if (z.chain == 0 || z.broke || z.age < 0.12f) continue;
-        const unsigned h = ((unsigned)(int)(z.x * 7.0f) * 73856093u) ^ (frame * 19349663u) ^ ((unsigned)z.chain * 83492791u);
-        if (h % 11u != 0u) continue;
-        const float px = z.x + (float)((int)((h >> 8) % 21u) - 10), py = z.y + (float)((int)((h >> 16) % 17u) - 8);
-        const float hs = 2.0f;
-        lf::Line(px - hs, py - hs, px + hs, py - hs, 1.0f, lit, 0.85f);
-        lf::Line(px + hs, py - hs, px + hs, py + hs, 1.0f, lit, 0.85f);
-        lf::Line(px + hs, py + hs, px - hs, py + hs, 1.0f, lit, 0.85f);
-        lf::Line(px - hs, py + hs, px - hs, py - hs, 1.0f, lit, 0.85f);
+    const StreakPt& last = st->pts.back();
+    if (std::hypot(b.x - last.x, b.y - last.y) >= kStreakStep) {
+        st->pts.push_back({ b.x, b.y, 0.0f });
+        st->dirX = b.dirX; st->dirY = b.dirY;
     }
-    // The broken tail: square outlines that drift, turn a little and fade.
-    for (const Shard& sh : s.shards) {
-        const float k = std::clamp(sh.life / 0.3f, 0.0f, 1.0f);
-        const float hs = 0.5f * sh.size * (0.6f + 0.4f * k);
-        const float a = sh.spin * (sh.maxLife - sh.life);
-        const float ca = std::cos(a) * hs, sa = std::sin(a) * hs;
-        const float cx[4] = { -ca + sa, ca + sa, ca - sa, -ca - sa };
-        const float cy[4] = { -sa - ca, sa - ca, sa + ca, -sa + ca };
-        for (int i = 0; i < 4; ++i) {
-            const int n = (i + 1) & 3;
-            lf::Line(sh.x + cx[i], sh.y + cy[i], sh.x + cx[n], sh.y + cy[n], 1.2f, col, 0.9f * k);
+    if ((int)st->pts.size() > kMaxStreakPts) st->pts.erase(st->pts.begin());
+    st->lastX = b.x; st->lastY = b.y;
+}
+
+// Ages the tails (points expire one by one, so a tail shortens from its old
+// end) and lets stardust peel off them.
+void StepStreaks(float dt) {
+    for (Streak& st : s.streaks) {
+        if (!st.seen) st.live = false;
+        st.seen = false;
+        if (!st.live) st.sinceLive += dt;
+        for (StreakPt& p : st.pts) p.age += dt;
+        size_t drop = 0;
+        while (drop < st.pts.size() && st.pts[drop].age >= kTrailLife) ++drop;
+        if (drop) st.pts.erase(st.pts.begin(), st.pts.begin() + (long long)drop);
+        // Stardust: now and then a small cross leaves the tail's edge and drifts outward.
+        for (size_t i = 1; i < st.pts.size(); ++i) {
+            if ((int)s.motes.size() >= kMaxMotes || Rand01() >= dt * kMoteRate) continue;
+            const StreakPt& p0 = st.pts[i - 1];
+            const StreakPt& p1 = st.pts[i];
+            const float dx = p1.x - p0.x, dy = p1.y - p0.y, len = std::hypot(dx, dy);
+            if (len < 0.5f) continue;
+            const float ux = dx / len, uy = dy / len;
+            const float k = std::clamp(1.0f - p1.age / kTrailLife, 0.0f, 1.0f);
+            const float w = kTrailZoneR * kTrailHalfWidth * kTrailThin * k;   // the edge of the lingering tail
+            const float side = Rand01() < 0.5f ? -1.0f : 1.0f;
+            const float nx = -uy * side, ny = ux * side;
+            const float sp = 18.0f + 16.0f * Rand01();
+            s.motes.push_back({ p1.x + nx * w, p1.y + ny * w, nx * sp - ux * 10.0f, ny * sp - uy * 10.0f,
+                                kMoteLife * (0.7f + 0.3f * Rand01()), st.cr, st.cg, st.cb });
         }
+    }
+    s.streaks.erase(std::remove_if(s.streaks.begin(), s.streaks.end(),
+                                   [](const Streak& st) { return st.pts.empty() || (!st.live && st.pts.size() < 2); }),
+                    s.streaks.end());
+    for (Mote& m : s.motes) { m.life -= dt; m.x += m.vx * dt; m.y += m.vy * dt; }
+    s.motes.erase(std::remove_if(s.motes.begin(), s.motes.end(), [](const Mote& m) { return m.life <= 0.0f; }), s.motes.end());
+}
+
+// An open stroke through any number of points (miter::Path takes at most
+// kMaxPoints), in overlapping pieces so it stays unbroken.
+void LongPath(const std::vector<float>& x, const std::vector<float>& y, float w, float r, float g, float b, float a) {
+    const int n = (int)x.size();
+    constexpr int kPiece = miter::kMaxPoints;
+    for (int start = 0; start + 1 < n; start += kPiece - 1) {
+        const int m = std::min(kPiece, n - start);
+        miter::Path(x.data() + start, y.data() + start, m, w, r, g, b, a);
+    }
+}
+
+// Afterimage Trail: every tail drawn as a comet (see kTrail*): a head that is
+// widest just behind the shot and closes round onto it, a thin tail behind,
+// a faint wash, an outline round the head, a bright core and stardust. Many
+// tails at once (a fast gun) would add up to a bright beam, so each gets
+// fainter the more there are and the total stays about the same.
+void DrawTrailStreaks() {
+    namespace lf = line_fx;
+    const float dim = std::clamp(2.2f / std::sqrt((float)std::max<size_t>(1, s.streaks.size())), 0.6f, 1.0f);
+    const float half = kTrailZoneR * kTrailHalfWidth;
+    std::vector<float> px, py, pk, ph, lx, ly, rx, ry, bx, by;
+    for (const Streak& st : s.streaks) {
+        // The points, with the shot itself as the live head.
+        px.clear(); py.clear(); pk.clear();
+        for (const StreakPt& p : st.pts) {
+            px.push_back(p.x); py.push_back(p.y);
+            pk.push_back(std::min(1.0f, (1.0f - p.age / kTrailLife) / 0.3f));   // fades over the last 30% of life
+        }
+        if (st.live && std::hypot(st.lastX - px.back(), st.lastY - py.back()) > 0.5f) {
+            px.push_back(st.lastX); py.push_back(st.lastY); pk.push_back(1.0f);
+        }
+        const int n = (int)px.size();
+        if (n < 2) continue;
+        // Once the shot is gone (it hit something), the head melts into the thin
+        // tail within a moment and the front draws out into a point.
+        const float headFade = st.live ? 1.0f : std::exp(-st.sinceLive / kTrailHeadFade);
+        // Distance back from the head along the path.
+        ph.assign(n, 0.0f);
+        std::vector<float> dist(n, 0.0f);
+        for (int i = n - 2; i >= 0; --i) dist[i] = dist[i + 1] + std::hypot(px[i + 1] - px[i], py[i + 1] - py[i]);
+        lx.assign(n, 0.0f); ly.assign(n, 0.0f); rx.assign(n, 0.0f); ry.assign(n, 0.0f);
+        for (int i = 0; i < n; ++i) {
+            const int a = std::max(0, i - 1), b = std::min(n - 1, i + 1);
+            float dx = px[b] - px[a], dy = py[b] - py[a];
+            const float len = std::hypot(dx, dy);
+            if (len < 0.01f) { dx = 1.0f; dy = 0.0f; } else { dx /= len; dy /= len; }
+            const float h = std::exp(-dist[i] / kTrailHead) * headFade;   // 1 at the shot, falling off behind it
+            // The front closes round onto the shot (a teardrop, never a blunt box).
+            const float tip = std::sqrt(std::min(1.0f, dist[i] / (st.live ? kTrailNose : kTrailTip)));
+            const float w = half * (kTrailThin + (1.0f - kTrailThin) * h) * pk[i] * tip;
+            ph[i] = h;
+            lx[i] = px[i] - dy * w; ly[i] = py[i] + dx * w;
+            rx[i] = px[i] + dy * w; ry[i] = py[i] - dx * w;
+        }
+        const float lr = st.cr + (1.0f - st.cr) * 0.6f, lg = st.cg + (1.0f - st.cg) * 0.6f, lb = st.cb + (1.0f - st.cb) * 0.6f;
+        // Wash: strongest in the head, a thin glow behind it.
+        for (int i = 1; i < n; ++i) {
+            const float h = 0.5f * (ph[i - 1] + ph[i]), k = 0.5f * (pk[i - 1] + pk[i]);
+            const float a = kTrailFill * dim * (0.3f + 0.7f * h) * k;
+            if (a < 0.004f) continue;
+            BatchTri(lx[i - 1], ly[i - 1], rx[i - 1], ry[i - 1], lx[i], ly[i], st.cr, st.cg, st.cb, a);
+            BatchTri(rx[i - 1], ry[i - 1], rx[i], ry[i], lx[i], ly[i], st.cr, st.cg, st.cb, a);
+        }
+        // Outline: the head only, out one side, round the shot and back the other.
+        {
+            int h0 = n;
+            while (h0 > 0 && ph[h0 - 1] > kTrailOutlineCut) --h0;
+            if (n - h0 >= 2) {
+                bx.clear(); by.clear();
+                for (int i = h0; i < n; ++i) { bx.push_back(lx[i]); by.push_back(ly[i]); }
+                for (int i = n - 1; i >= h0; --i) { bx.push_back(rx[i]); by.push_back(ry[i]); }
+                LongPath(bx, by, 1.3f, st.cr, st.cg, st.cb, kTrailOutline * dim);
+            }
+        }
+        // Core: brightest at the shot, in a few unbroken steps back along the tail.
+        static const float kCut[5] = { 0.0f, 0.08f, 0.3f, 0.7f, 1.01f };   // by head share h
+        static const float kCoreA[4] = { 0.10f, 0.22f, 0.45f, 1.0f };
+        for (int band = 0; band < 4; ++band) {
+            bx.clear(); by.clear();
+            float kk = 0.0f;
+            for (int i = 0; i < n; ++i)
+                if (ph[i] >= kCut[band] - 0.02f && ph[i] <= kCut[band + 1]) { bx.push_back(px[i]); by.push_back(py[i]); kk += pk[i]; }
+            if (bx.size() < 2) continue;
+            LongPath(bx, by, 1.4f, lr, lg, lb, kTrailCore * dim * kCoreA[band] * (kk / (float)bx.size()));
+        }
+    }
+    // Stardust: small crosses that shrink and fade as they drift off.
+    for (const Mote& m : s.motes) {
+        const float k = std::clamp(m.life / kMoteLife, 0.0f, 1.0f);
+        const float sz = 0.6f + 2.2f * k;
+        const lf::Rgb c{ m.cr + (1.0f - m.cr) * 0.6f, m.cg + (1.0f - m.cg) * 0.6f, m.cb + (1.0f - m.cb) * 0.6f };
+        lf::Line(m.x - sz, m.y, m.x + sz, m.y, 1.1f, c, 0.8f * k * dim);
+        lf::Line(m.x, m.y - sz, m.x, m.y + sz, 1.1f, c, 0.8f * k * dim);
     }
 }
 
@@ -708,7 +840,7 @@ void DrawWorld() {
     for (const Zone& z : s.zones)
         if (z.chain == 0)
             lf::Circle(z.x, z.y, z.r, 1.2f, { z.cr, z.cg, z.cb }, 0.45f * std::min(1.0f, z.life / 0.3f));
-    DrawTrailRibbons();
+    DrawTrailStreaks();
     // Mines: a small diamond in a diamond.
     for (const Mine& m : s.mines) {
         lf::Diamond(m.x, m.y, 9.0f, 1.5f, { 1.0f, 0.45f, 0.35f }, 0.95f);
@@ -815,7 +947,7 @@ void PickupFx(int augIdx) {
 struct CardClash { const char* a; const char* b; };
 static const CardClash kClashes[] = {
     { "F_MORTAR", "V_BOUNCE" }, { "F_MORTAR", "V_RICOCHET" }, { "F_MORTAR", "V_PIERCE" },
-    { "F_MORTAR", "V_RETURN" }, { "F_MORTAR", "V_HUNTER" }, { "F_MORTAR", "V_BLAST" },
+    { "F_MORTAR", "V_HUNTER" }, { "F_MORTAR", "V_BLAST" },
     { "F_MORTAR", "Y_ETERNAL" }, { "F_MORTAR", "T_ANCHOR" },   // no bounces to count / a fixed landing blast, no direct hits
     { "F_MORTAR", "T_CRITECHO" }, { "F_MORTAR", "Y_FATE" },    // the landing blast never crits
     { "F_WAVE", "V_PIERCE" }, { "F_WAVE", "V_RICOCHET" },
@@ -847,20 +979,13 @@ static bool ClashesWithOwned(int card) {
     return false;
 }
 
-// Relentless Hunter Rounds is Boomerang Rounds plus strong homing: both set the same return flag, so
-// the second one would add nothing. Once either is owned the other is not offered.
-static bool ClashesWithReturn(int card) {
-    const int ret = Index("V_RETURN"), hunter = Index("V_HUNTER");
-    return (card == ret && s.own[hunter] > 0) || (card == hunter && s.own[ret] > 0);
-}
-
 bool CanOffer(int augIdx) {
     if (augIdx < 0 || augIdx >= AUG_TOTAL || !AugIsSynergy(ALL_AUGS[augIdx].type)) return false;
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards || s.own[i] > 0) return false;
     if (T()[i].role == synergy::Role::Frame && s.frame != 0) return false;   // one frame per run
     if ((T()[i].needs & s.tags) != T()[i].needs) return false;                // a card that would do nothing
-    return !ClashesWithOwned(i) && !ClashesWithReturn(i);
+    return !ClashesWithOwned(i);
 }
 
 namespace {
@@ -915,6 +1040,13 @@ void Acquire(int augIdx) {
     Rebuild();
     if (s.on.G_LASTWALL && !s.lastWallGiven) { s.lastWallGiven = true; AddShield(220.0f); }
     if (i == Index("G_MIRROR") && s.own[i] == 1) AddShield(90.0f);   // once, when the card itself is taken
+}
+
+void Release(int augIdx) {
+    const int i = SynergyIndex(ALL_AUGS[augIdx].type);
+    if (i < 1 || i > kCards || s.own[i] <= 0) return;
+    --s.own[i];
+    Rebuild();
 }
 
 // ───────────────────────── fire path ─────────────────────────
@@ -1090,13 +1222,6 @@ float ShotDamageMult() { return s.any ? s.dmg : 1.0f; }
 float CardDamageMult() {
     if (!s.any) return 1.0f;
     const Flags& o = s.on;
-void Release(int augIdx) {
-    const int i = SynergyIndex(ALL_AUGS[augIdx].type);
-    if (i < 1 || i > kCards || s.own[i] <= 0) return;
-    --s.own[i];
-    Rebuild();
-}
-
     float m = s.cardDmg * (1.0f + s.dmgAdd);
     if (o.T_COMBO) m *= 1.0f + std::min(0.40f, 0.02f * (float)s.combo);
     if (o.C_RITUAL) m *= 1.0f + std::min(0.40f, 0.08f * (float)s.quietWaves);
@@ -1184,6 +1309,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             c.dmgMult = b.dmgMult * b.splitDmg;
             c.sizeScale = b.sizeScale * 0.75f;
             c.splitCount = 0; c.splitSpent = true; c.synRicochet = 0;
+            c.synTrailChain = 0; c.synTrailAt = c.traveled;   // its own tail, from the split point
             if (!b.piercing && c.pierceLeft > 0) --c.pierceLeft;   // the parent spends one on this hit
             if (b.synFlags & synf::Hitscan) {
                 // A beam segment lies still from its start to the beam's end: its children
@@ -1493,28 +1619,6 @@ void Step(const passive::StepInput& in) {
     // Zones (trails, wall clouds, dash afterimages).
     for (Zone& z : s.zones) {
         z.life -= dt; z.tick -= dt; z.age += dt;
-        if (z.chain > 0 && !z.broke && z.life <= kTrailBreak) {
-            // The tail end shatters; the fragments drift along the ribbon's way.
-            float dx = 0.0f, dy = 0.0f;
-            for (const Zone& o : s.zones)
-                if (&o != &z && o.chain == z.chain && o.age < z.age) {
-                    const float l = std::hypot(o.x - z.x, o.y - z.y);
-                    if (l > 1.0f) { dx = (o.x - z.x) / l; dy = (o.y - z.y) / l; }
-                    break;
-                }
-            z.broke = true;
-            // Only where the ribbon really ends: a spot another live piece still
-            // covers (a later shot along the same line) stays whole.
-            bool covered = false;
-            for (const Zone& o : s.zones)
-                if (&o != &z && o.chain > 0 && !o.broke && o.life > kTrailBreak &&
-                    (o.x - z.x) * (o.x - z.x) + (o.y - z.y) * (o.y - z.y) < (o.r * 0.8f) * (o.r * 0.8f)) {
-                    covered = true;
-                    break;
-                }
-            if (!covered) ShatterTrail(z, dx, dy);
-        }
-        if (z.broke) continue;
         if (z.tick <= 0.0f) {
             z.tick += 0.3f;
             const float dmg = passive::AttackPower() * z.pct * 0.3f / 100.0f * passive::AllDamageMult();
@@ -1531,13 +1635,7 @@ void Step(const passive::StepInput& in) {
         if (z.life <= 0.0f && z.blastAtEnd > 0.0f) Burst(z.x, z.y, z.r * 1.4f, z.blastAtEnd);
     }
     s.zones.erase(std::remove_if(s.zones.begin(), s.zones.end(), [](const Zone& z) { return z.life <= 0.0f; }), s.zones.end());
-    for (Shard& sh : s.shards) {
-        sh.life -= dt;
-        sh.x += sh.vx * dt; sh.y += sh.vy * dt;
-        const float drag = std::pow(0.08f, dt);
-        sh.vx *= drag; sh.vy *= drag;
-    }
-    s.shards.erase(std::remove_if(s.shards.begin(), s.shards.end(), [](const Shard& sh) { return sh.life <= 0.0f; }), s.shards.end());
+    StepStreaks(dt);
 
     // Mines.
     for (size_t i = 0; i < s.mines.size(); ++i) {
@@ -1569,6 +1667,7 @@ void Step(const passive::StepInput& in) {
                 if (g_Bullets.size() >= 800) break;
                 if ((b.synFlags & synf::Orbit) && CountOrbiters() >= 2 + (o.Y_HALO ? 2 : 0)) continue;   // the cap holds for echoes too
                 b.x = b.prevX = in.px; b.y = b.prevY = in.py; b.splitSpent = false;
+                b.synTrailChain = 0;   // an echo flies its own tail
                 g_Bullets.push_back(b);
             }
         }
@@ -1600,12 +1699,12 @@ void Step(const passive::StepInput& in) {
             b.sizeScale = std::max(b.sizeScale, b.synGrowBase * (1.0f + std::min(1.5f, b.traveled / (Rings(13) / 1.5f))));
             ClampPlayerBulletSize(b);
         }
+        if (f & synf::Trail) RecordStreak(b, dt);
         if ((f & synf::Trail) && b.traveled - b.synTrailAt >= 60.0f) {
             b.synTrailAt = b.traveled;
-            if (b.synTrailChain == 0) b.synTrailChain = ++s.trailChains;
             // With Ember Rounds (a burning shot) the afterimage sets enemies alight too.
             // 40% of the shot's own damage: a fast, light gun (minigun) lays many thin trails, not many full ones.
-            AddTrailZone(b.x, b.y, 26.0f, 40.0f * b.dmgMult * s.dmg, b.synTrailChain, (f & synf::Burn) != 0);
+            AddTrailZone(b.x, b.y, kTrailZoneR, 40.0f * b.dmgMult * s.dmg, b.synTrailChain, (f & synf::Burn) != 0, b.color);
         }
         if ((f & synf::Hover) && !(f & synf::Hovered)) {
             if (!(f & synf::Hovering) && b.traveled >= Rings(4)) {
@@ -1617,12 +1716,12 @@ void Step(const passive::StepInput& in) {
                 }
             }
         }
-        if ((f & synf::Return) && !(f & synf::Returning) && b.traveled >= Rings(6.5f)) {
+        if ((f & synf::Return) && !(f & synf::Returning) && b.traveled >= Rings(13.0f)) {
             b.synFlags |= synf::Returning; b.ClearHits(); b.homing = false; b.piercing = true;
         }
         if (b.synFlags & synf::Returning) {
             const float dx = in.px - b.x, dy = in.py - b.y, d = std::sqrt(dx * dx + dy * dy);
-            if (d < 26.0f || b.traveled > 1600.0f) b.active = false;
+            if (d < 26.0f || b.traveled > 2800.0f) b.active = false;   // 13○ out and back is 2080px
             else { b.dirX = dx / d; b.dirY = dy / d; }
         }
         if (f & synf::Orbit) {

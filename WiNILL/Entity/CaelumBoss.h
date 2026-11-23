@@ -60,25 +60,29 @@
 #include <vector>
 
 #include "NormaBoss.h"
+#include "PhaseGate.h"
 #include "PlayerStats.h"
 #include "../System/Audio.h"
 
 namespace caelum {
 
-constexpr float kBaseHp = 24000.0f;         // before the run's HP scaling (NORMA is 30000)
+constexpr float kBaseHp = 30000.0f;         // before the run's HP scaling; same as NORMA (was 24000 until 2026-11-17)
 constexpr float kPhase2Ratio = 0.50f;        // each phase holds half the HP, like OCTANS
 constexpr float kSizeScale = 3.0f;
 constexpr float kContactDps = 10.0f;
 constexpr float kPhaseInvuln = 1.6f;
 constexpr float kPhaseFlashSeconds = 1.2f;
 constexpr float kRecoverSeconds = 0.8f, kRecoverPhase2 = 0.5f;
-constexpr float kExposeSeconds = 1.1f;      // opening after every pattern
-constexpr float kExposeDamage = 1.5f;
+constexpr float kExposeSeconds = 1.5f;      // opening after every pattern (was 1.1 until 2026-11-17)
+constexpr float kExposeDamage = 2.0f;       // was 1.5 until 2026-11-17
+// Phase gates (PhaseGate.h, at 75% / 25%): the beat it holds still before the
+// gate's pattern.
+constexpr float kGateHold = 1.2f;
 constexpr int   kHealthHandles = 8;
 
 enum class Pattern { None = 0, Spread = 1, Scanline = 2, Smear = 3, Shot = 4, Siphon = 6 };
 // Window: a = 0 when a puddle is lifted, 1 when it is dropped. Morph: a = the new form.
-enum class Fx { Seed, Window, Fire, Overflow, Wave, Morph, PhaseShift, Plug, Swallow, Spout };
+enum class Fx { Seed, Window, Fire, Overflow, Wave, Morph, PhaseShift, Plug, Swallow, Spout, Gate };
 struct Event { Fx fx; float x = 0.0f, y = 0.0f, a = 0.0f; };
 inline std::vector<Event> g_Events;
 
@@ -149,6 +153,17 @@ constexpr float kBadDps = 40.0f;
 constexpr float kBadWeak = 0.55f;          // damage dealt while in one
 constexpr float kBadMove = 0.75f;          // move while in one
 
+// ── Acts ────────────────────────────────────────────────────
+// The fight in four stretches of HP, split at the gates and the phase change
+// (75 / 50 / 25%), as with OCTANS (norma::ActFor). The board patterns change
+// shape with the act: Spread seeds ahead of the player (every act), the
+// Scanline's gap steps aside (act 2 on), the Smear splashes where it is let
+// go (act 3 on).
+constexpr int   kScanShiftAct = 2, kSmearSplashAct = 3;
+constexpr float kSpreadAheadSpeed = 60.0f;  // px/s: a slower player gets a random seed instead
+constexpr float kScanShiftWarn = 0.35f;     // extra warning on the old gap as it closes
+constexpr float kSmearSplashWarn = 0.5f;
+
 // ── 1 Spread ────────────────────────────────────────────────
 // Seeds (the first under the player) warn and corrupt; every generation each
 // cell of the last one infects one clean neighbour (a short creeping vine).
@@ -203,7 +218,7 @@ constexpr int   kCurTrail = 8;
 constexpr int   kSnipes = 5, kSnipesP2 = 7;
 constexpr float kSnipeFirst = 0.50f;        // the first shot fires this far in
 constexpr float kSnipeStep = 0.50f, kSnipeStepP2 = 0.38f;
-constexpr float kSnipeAim = 0.40f, kSnipeLock = 0.12f;
+constexpr float kSnipeAim = 0.40f, kSnipeLock = 0.30f;   // lock was 0.12 until 2026-11-17 (too short to read)
 constexpr float kShotSpeed = 1700.0f, kShotRadius = 12.0f;
 constexpr float kShotDamage = 18.0f;
 constexpr float kShotOvershoot = 160.0f;
@@ -260,7 +275,7 @@ constexpr float kSiphonStagger = 0.40f;
 constexpr float kSiphonHead = 0.80f, kSiphonLag = 0.30f, kSiphonTail = 1.00f;
 constexpr float kSiphonSwirl = 1.10f;       // radians it turns on the way in
 constexpr float kSiphonTailEnd = 0.30f;     // seconds after the last drop
-constexpr float kSiphonExpose = 2.0f;       // open this long after (others: kExposeSeconds)
+constexpr float kSiphonExpose = 2.5f;       // open this long after (others: kExposeSeconds); was 2.0
 constexpr int   kSiphonMin = 3;
 constexpr float kSiphonPull = 130.0f;       // px/s the player is drawn in
 constexpr float kSiphonPullNear = 140.0f, kSiphonPullFull = 280.0f;   // no pull this close
@@ -315,11 +330,12 @@ inline void SetDifficulty(int d) {
         t.erodeAfter = 0.0f;
         t.overflowDamage = 15.0f; t.smearSpeed = 270.0f; t.siphonPull = 70.0f;
         t.spoutMax = 3; t.spoutSwell = 0.70f;
-    } else if (d == 1) {   // NORMAL
-        t.warn = 0.9f; t.warnP2 = 0.7f; t.corruptDps = 15.0f; t.badDps = 30.0f;
-        t.seeds = 2; t.seedsP2 = 2; t.snipes = 4; t.snipesP2 = 5; t.shotSpeed = 1500.0f;
-        t.waveEvery = 4.5f; t.waveEveryP2 = 3.5f; t.maxBad = 3;
-        t.erodeAfter = 2.4f;
+    } else if (d == 1) {   // NORMAL (about halfway to HARD since 2026-11-17: it was won too
+                           // easily. Before: dps 15, snipes 4 / 5, shot 1500, wave 4.5 / 3.5, erode 2.4)
+        t.warn = 0.9f; t.warnP2 = 0.7f; t.corruptDps = 18.0f; t.badDps = 30.0f;
+        t.seeds = 2; t.seedsP2 = 2; t.snipes = 5; t.snipesP2 = 6; t.shotSpeed = 1600.0f;
+        t.waveEvery = 4.0f; t.waveEveryP2 = 3.2f; t.maxBad = 3;
+        t.erodeAfter = 2.0f;
         t.overflowDamage = 20.0f; t.smearSpeed = 300.0f; t.siphonPull = 100.0f;
         t.spoutMax = 4; t.spoutSwell = 0.60f;
     } else if (d >= 3) {   // NIGHTMARE
@@ -335,18 +351,28 @@ inline void SetDifficulty(int d) {
 
 // ── State ───────────────────────────────────────────────────
 // A stretch [from, from + len) of a row (horiz) or column; gap is an index along the line.
-struct Scan { bool horiz = true; int line = 0; int from = 0, len = 0; int dir = 1; int gap = 0; float head = 0.0f; int done = 0; };
+struct Scan { bool horiz = true; int line = 0; int from = 0, len = 0; int dir = 1; int gap = 0; float head = 0.0f; int done = 0;
+              bool shifted = false; };   // the gap has stepped aside (act 2 on)
 struct State {
     bool    active = false;
     int     phase = 1;
     float   phaseFlash = 0.0f;
     float   invuln = 0.0f;
     float   exposed = 0.0f;         // > 0: open to extra damage, holding still
+    // Phase gates (PhaseGate.h): HP stops at the gate line until the gate's
+    // pattern has run once.
+    int     gatesPassed = 0;
+    Pattern gateForce = Pattern::None;   // reached a line: this pattern runs next
+    float   gateHold = 0.0f;        // > 0: the beat before it, untouchable
+    bool    gateRunning = false;    // the gate's pattern is running
     Pattern pattern = Pattern::None, last = Pattern::None;
     bool    acting = false;
     float   t = 0.0f;               // seconds in the current pattern
     float   recoverT = 0.0f;
     int     count = 0;
+    // The board patterns' deck (PickPattern): a shuffled hand, dealt one by one.
+    Pattern bag[4] = { Pattern::None, Pattern::None, Pattern::None, Pattern::None };
+    int     bagPos = 4;             // 4: spent, shuffle a new hand
     int     step = 0;               // pattern-local counter
     float   time = 0.0f;
     float   prevX = 0.0f, prevY = 0.0f;
@@ -664,6 +690,10 @@ inline void TickCells(float dt, float px, float py, float& playerHP) {
 
 // ── Patterns ────────────────────────────────────────────────
 inline void EndPattern() {
+    if (g.gateRunning) {   // the gate's pattern has run: the next stretch of HP opens
+        g.gateRunning = false;
+        ++g.gatesPassed;
+    }
     g.acting = false;
     g.recoverT = 0.0f;
     g.exposed = kExposeSeconds;
@@ -674,24 +704,30 @@ inline void EndPattern() {
 inline Form FormFor(Pattern p) { return p == Pattern::Shot ? Form::Sniper : Form::Corrupt; }
 
 // Two board patterns (corrupt form), then a snipe (sniper form), and again.
+// The board patterns come from a deck: the four of them shuffled and dealt one
+// by one, then shuffled again, so the order differs every round (it was one
+// fixed 12-step list until 2026-11-17: a long fight ran the same minute over
+// and over). Never the same one twice running; the siphon waits until the
+// board has filled (kSiphonMin puddles). Looking does not deal: StartPattern
+// takes the card.
 inline Pattern PickPattern() {
-    // The siphon comes after the board has filled (it needs kSiphonMin
-    // puddles, else the next one runs).
-    static const Pattern p1[] = { Pattern::Spread, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Smear, Pattern::Siphon, Pattern::Shot,
-                                  Pattern::Spread, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Smear, Pattern::Siphon, Pattern::Shot };
-    // Phase 2: the same patterns in another order.
-    static const Pattern p2[] = { Pattern::Spread, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Smear, Pattern::Siphon, Pattern::Shot,
-                                  Pattern::Smear, Pattern::Scanline, Pattern::Shot,
-                                  Pattern::Spread, Pattern::Siphon, Pattern::Shot };
-    const Pattern* list = g.phase == 2 ? p2 : p1;
-    const int n = g.phase == 2 ? (int)(sizeof(p2) / sizeof(p2[0])) : (int)(sizeof(p1) / sizeof(p1[0]));
-    Pattern pick = list[g.count % n];
-    if (pick == g.last || (pick == Pattern::Siphon && CorruptCount() < kSiphonMin))
-        pick = list[(g.count + 1) % n];
-    return pick;
+    if (g.count % 3 == 2) return Pattern::Shot;
+    static constexpr Pattern kBoard[4] = { Pattern::Spread, Pattern::Scanline, Pattern::Smear, Pattern::Siphon };
+    const auto fits = [](Pattern p) {
+        return p != g.last && !(p == Pattern::Siphon && CorruptCount() < kSiphonMin);
+    };
+    if (g.bagPos >= 4) {
+        for (int i = 0; i < 4; ++i) g.bag[i] = kBoard[i];
+        for (int i = 3; i > 0; --i) std::swap(g.bag[i], g.bag[rand() % (i + 1)]);
+        g.bagPos = 0;
+    }
+    // The next card that fits comes to the front of what is left.
+    for (int i = g.bagPos; i < 4; ++i)
+        if (fits(g.bag[i])) { std::swap(g.bag[g.bagPos], g.bag[i]); return g.bag[g.bagPos]; }
+    // Nothing left in the hand fits (only the siphon, on a clean board): any other.
+    for (Pattern p : kBoard)
+        if (p != Pattern::Siphon && p != g.last) return p;
+    return Pattern::Spread;
 }
 
 // Snipe: seconds into the pattern when shot k fires.
@@ -704,6 +740,16 @@ inline void StartSpread(float px, float py) {
     g.seeds.clear();
     g.clicked = 0;
     const int here = CellAt(px, py);
+    // The first of them is the cell the player is walking into (one cell
+    // ahead), so the way on is closing as well as the spot they stand on.
+    const float pv = std::hypot(g.pvx, g.pvy);
+    if (SeedCount() >= 2 && pv >= kSpreadAheadSpeed) {
+        const float ax = px + g.pvx / pv * kCell, ay = py + g.pvy / pv * kCell;
+        if (ax >= 0.0f && ay >= 0.0f && ax < g_W && ay < g_H) {
+            const int ahead = CellAt(ax, ay);
+            if (ahead != here && g.cells[ahead].state == CellState::Clean) g.seeds.push_back(ahead);
+        }
+    }
     for (int tries = 0; tries < 60 && (int)g.seeds.size() < SeedCount() - 1; ++tries) {
         const int i = rand() % CellCount();
         if (i == here || g.cells[i].state != CellState::Clean) continue;
@@ -772,6 +818,26 @@ inline bool TickScans(float dt) {
             ++s.done;
         }
         if (s.done < len) running = true;
+        // Act 2 on: once the line is written the gap steps one cell aside (to
+        // the side away from the player, never onto their own cell). The cell
+        // it moves to clears; the old gap warns a little longer, then closes.
+        else if (!s.shifted && norma::ActFor(g.hpRatio, 1.0f) >= kScanShiftAct) {
+            s.shifted = true;
+            const auto cellOf = [&](int k) { return s.horiz ? s.line * Cols() + k : k * Cols() + s.line; };
+            const int playerCell = CellAt(g.prevX, g.prevY);
+            const int playerAt = s.horiz ? playerCell % Cols() : playerCell / Cols();
+            const int away = s.gap >= playerAt ? 1 : -1;
+            for (const int step : { away, -away }) {
+                const int to = s.gap + step;
+                if (to < s.from || to >= s.from + len) continue;
+                Cell& c = g.cells[cellOf(to)];
+                if (cellOf(to) == playerCell || c.bad || c.state != CellState::Warn) continue;
+                c = Cell{};                                   // the new gap: clean again
+                Infect(cellOf(s.gap), WarnTime() + kScanShiftWarn);   // the old one closes
+                s.gap = to;
+                break;
+            }
+        }
     }
     return running;
 }
@@ -846,6 +912,11 @@ inline void TickSmear(float dt, float px, float py) {
             g.step = 2;
             g.carrying = false;
             Infect(CellAt(g.carryX, g.carryY), 0.3f);
+            if (norma::ActFor(g.hpRatio, 1.0f) >= kSmearSplashAct) {   // the splash: a cross round it
+                int nb[4];
+                const int n = Neighbours(CellAt(g.carryX, g.carryY), nb);
+                for (int k = 0; k < n; ++k) Infect(nb[k], kSmearSplashWarn);
+            }
             Click(g.carryX, g.carryY);
             g_Events.push_back({ Fx::Window, g.carryX, g.carryY, 1.0f });
             g.carryEndT = t;
@@ -1180,7 +1251,13 @@ inline void TickBody(float dt, float px, float py) {
 }
 inline void StartPattern(float px, float py, Pattern force = Pattern::None) {
     g.pattern = force != Pattern::None ? force : PickPattern();
+    if (g.bagPos < 4 && g.bag[g.bagPos] == g.pattern) ++g.bagPos;   // the deck's card is played
     ++g.count;
+    {
+        static const char* const kNames[] = { "NONE", "SPREAD", "SCANLINE", "SMEAR", "SNIPE", "?", "SIPHON" };
+        const int i = (int)g.pattern;
+        gamelog::FightPattern(i >= 0 && i <= 6 ? kNames[i] : "?");
+    }
     g.acting = true;
     g.t = 0.0f;
     g.step = 0;
@@ -1466,6 +1543,37 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
         g_Events.push_back({ Fx::PhaseShift, bx, by, 0.0f });
     }
     if (g.invuln > 0.0f) { g.invuln = std::max(0.0f, g.invuln - dt); return; }
+    // Phase gate: HP has reached the next line. The pattern in hand finishes;
+    // then it holds still for kGateHold and runs the gate's pattern.
+    if (!g.gateRunning && g.gateForce == Pattern::None &&
+        phase_gate::AtGate(hp, phase_gate::FloorFor(phase_gate::kBossLines, phase_gate::kBossGateCount,
+                                                    g.gatesPassed, maxHp))) {
+        g.gateForce = g.gatesPassed == 0 ? Pattern::Smear
+                    : (CorruptCount() >= kSiphonMin ? Pattern::Siphon : Pattern::Scanline);
+        // Not the pattern that is running (or just ran): the gate's pattern
+        // would come twice in a row (a played fight got two smears, 20 s, 2026-11-17).
+        const Pattern ran = g.acting ? g.pattern : g.last;
+        if (g.gateForce == ran) g.gateForce = ran == Pattern::Scanline ? Pattern::Spread : Pattern::Scanline;
+        gamelog::FightGate(g.gatesPassed + 1, maxHp > 0.0f ? hp / maxHp : 0.0f);
+    }
+    if (g.gateHold > 0.0f) {
+        g.gateHold = std::max(0.0f, g.gateHold - dt);
+        if (g.gateHold <= 0.0f) {   // the gate's pattern, in its form
+            const Pattern p = g.gateForce;
+            g.gateForce = Pattern::None;
+            g.gateRunning = true;
+            g.recoverT = 0.0f;
+            if (FormFor(p) == g.form) StartPattern(px, py, p);
+            else {
+                g.form = FormFor(p);
+                g.next = p;
+                g.morph = 0.0f;
+                g_Events.push_back({ Fx::Morph, bx, by, (float)g.form });
+                Audio::Play(Audio::Cue::BossEridanusMorph);
+            }
+        }
+        return;
+    }
 
     // The cell CAELUM is in is corrupted (kept fresh while it stays): a trail.
     {
@@ -1485,6 +1593,12 @@ inline void Step(float dt, float hp, float maxHp, float bx, float by,
     if (g.pattern == Pattern::Scanline) TickScans(dt);
     if (g.exposed > 0.0f) { g.exposed = std::max(0.0f, g.exposed - dt); return; }
     if (!g.acting) {
+        if (g.gateForce != Pattern::None && g.morph < 0.0f) {   // between patterns: the gate's beat
+            g.gateHold = kGateHold;
+            g.phaseFlash = std::max(g.phaseFlash, 0.6f);
+            g_Events.push_back({ Fx::Gate, bx, by, 0.0f });
+            return;
+        }
         if (g.morph >= 0.0f) {   // changing form, then the pattern it is for
             g.morph += dt;
             if (g.morph >= kMorph) { g.morph = -1.0f; StartPattern(px, py, g.next); }

@@ -98,6 +98,7 @@ static Monster* AddMob(World& w, Target t) {
               : t == Target::Quasar ? MobKind::QUASAR : MobKind::SWARM);
     m->genesisThrown = t == Target::ThrownSwarm;
     m->hp = 0.01f;
+    m->gatesPassed = phase_gate::kEliteGateCount;   // elites: past the phase gates
     w.manager.monsters.push_back(m);
     return m;
 }
@@ -281,6 +282,7 @@ static void CheckAntaresFamily() {
         if (family) m->antaresFamily = family;
         m->antaresGen = gen;
         m->hp = 0.01f;
+        m->gatesPassed = phase_gate::kEliteGateCount;
         w.manager.monsters.push_back(m);
         return m;
     };

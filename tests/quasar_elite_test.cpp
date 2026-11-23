@@ -20,6 +20,7 @@ static Monster MakeQuasar(float x, float y, float aimX, float aimY, int reflecti
     q.quasarAimY = aimY / len;
     q.quasarAimSet = true;
     q.quasarReflections = reflections;
+    q.quasarReflectFixed = true;   // geometry only: the phase gates do not cap the bounces
     q.quasarBounds = kArena;
     return q;
 }
@@ -32,6 +33,19 @@ static void CheckReflectionsByDifficulty() {
     assert(Monster::QuasarReflectionsFor(2) == 1);   // HARD
     assert(Monster::QuasarReflectionsFor(3) == 2);   // NIGHTMARE
     std::printf("reflections per difficulty ok\n");
+}
+
+// The phase gates cap the bounces: none before the first gate, one before
+// the second, the difficulty's count after both.
+static void CheckBouncesByGate() {
+    Monster q = MakeQuasar(500.0f, 300.0f, 1.0f, 0.0f, 2);
+    q.quasarReflectFixed = false;
+    assert(q.QuasarBounces() == 0);
+    q.gatesPassed = 1;
+    assert(q.QuasarBounces() == 1);
+    q.gatesPassed = 2;
+    assert(q.QuasarBounces() == 2);
+    std::printf("bounces by phase gate ok\n");
 }
 
 // Both ends bounce; legs are chained, mirrored at the arena edge, and the
@@ -578,6 +592,7 @@ static void CheckHoldsPosition() {
 
 int main() {
     CheckReflectionsByDifficulty();
+    CheckBouncesByGate();
     CheckSegments();
     CheckReflectedLegHurts();
     CheckVelocityEstimate();

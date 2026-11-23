@@ -271,7 +271,7 @@ inline void SaveGame() {
     auto add = [&](const char* fmt, long long v) {
         std::snprintf(ln, sizeof(ln), fmt, v); buf += ln;
     };
-    add("savever=%lld\n",   4);   // 형식 버전. 로더는 모르는 키를 무시하므로 키 추가는 호환된다
+    add("savever=%lld\n",   5);   // 형식 버전. 로더는 모르는 키를 무시하므로 키 추가는 호환된다
     add("lang=%lld\n",      (int)g_Language);
     add("fps=%lld\n",       g_FpsCap);
     add("crosshair=%lld\n", g_ShowCrosshair     ? 1 : 0);
@@ -538,10 +538,16 @@ inline void LoadGame() {
     }
     // 버전 3 이하: 자리바꿈탄(SYN_V_SWAP)이 지금의 SYN_V_MINE 번호에 있었다.
     // 그 카드는 버리고, 뒤의 카드는 한 칸씩 당긴다.
+    // 버전 4 이하: 왕복 되돌이탄(SYN_V_RETURN)이 지금의 SYN_T_NTH 번호에 있었다. 같은 방식으로 버린다.
     const int kRemovedSwap = (int)AugType::SYN_V_MINE;
+    const int kRemovedReturn = (int)AugType::SYN_T_NTH;
     for (int ai : augSeenKeys) {
-        if (saveVer < 4 && ai >= kRemovedSwap) {
-            if (ai == kRemovedSwap) continue;
+        if (saveVer < 4 && ai >= kRemovedSwap + 1) {   // +1: 그때는 되돌이탄이 앞에 한 칸 더 있었다
+            if (ai == kRemovedSwap + 1) continue;
+            --ai;
+        }
+        if (saveVer < 5 && ai >= kRemovedReturn) {
+            if (ai == kRemovedReturn) continue;
             --ai;
         }
         if (ai >= 0 && ai < AUG_TOTAL) g_AugSeen[ai] = true;

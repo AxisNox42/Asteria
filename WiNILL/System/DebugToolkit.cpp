@@ -98,7 +98,7 @@ float Clamp01(float v) {
 //   0-9 mobs as before, 10 NORMA, 11 NORMA's test window.
 int SpawnEntries(int category, const int*& ids) {
     static const int kRegular[] = { 0, 2, 3, 5, 6, 9, 13, 14, 15 };
-    static const int kElite[] = { 1, 4, 7, 8 };
+    static const int kElite[] = { 1, 4, 7, 8, 18 };
     static const int kBoss[] = { 10, 12, 11 };
     static const int kTest[] = { 16, 17 };
     switch (category) {
@@ -476,7 +476,7 @@ const wchar_t* DebugToolkit::MobLabel(int index) {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
         L"Gimbal", L"Regulus", L"안타레스", L"MAGNETAR",
         L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS", L"LYNX", L"MIRA", L"TRIGON",
-        L"허수아비", L"허수아비 모두 제거"
+        L"허수아비", L"허수아비 모두 제거", L"HOROLOGIUM"
     };
     if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
         return L"알 수 없음";
@@ -1058,6 +1058,11 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 case 15:
                     if (context_.spawnMob)
                         spawned = context_.spawnMob((int)MobKind::TRIANGULUM,
+                                                    spawnCount_);
+                    break;
+                case 18:
+                    if (context_.spawnMob)
+                        spawned = context_.spawnMob((int)MobKind::HOROLOGIUM,
                                                     spawnCount_);
                     break;
                 case 10:

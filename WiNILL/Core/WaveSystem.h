@@ -21,7 +21,9 @@ inline constexpr float WAVE_CURVE_SECONDS = 120.0f;
 
 // Regular spawn interval x this on elite waves (boss waves spawn none at all).
 // 1.0 = the regular-wave pace; raise it to thin the mobs around the elite.
-inline constexpr float SPECIAL_WAVE_SPAWN_STRETCH = 1.0f;
+// 2.5 since 2026-11-17: the mobs buried the elite's tells (Regulus waves are
+// filled like regular waves and keep their pace).
+inline constexpr float SPECIAL_WAVE_SPAWN_STRETCH = 2.5f;
 
 // Regular waves: kills to clear the first one, the rise per regular wave in
 // the first set, and how much that rise grows after each elite wave.
@@ -139,11 +141,16 @@ inline int EliteWavesBefore(int wave, Difficulty difficulty) {
     return count;
 }
 
-// Every enemy's HP (regular, elite, boss) climbs once per elite wave behind
-// the run: +kWaveHpStep of the starting HP each time, so wave 1 is x1.
-inline constexpr float kWaveHpStep = 0.30f;
+// Every enemy's HP (regular, elite, boss) climbs a little every wave:
+// +kWaveHpStep of the starting HP per wave, so wave 1 is x1. Until 2026-11-17
+// it was +30% in one step per elite wave behind, which made the first wave of
+// each set the hardest and the end of a set the easiest (plan stage 6).
+// Wave 13 lands where the old steps put it (about x1.9); elites now get the
+// in-between waves too (wave 4 x1.24, was x1.0), which lengthens their fights.
+inline constexpr float kWaveHpStep = 0.08f;
 inline float WaveHpRamp(int wave, Difficulty difficulty) {
-    return 1.0f + kWaveHpStep * (float)EliteWavesBefore(wave, difficulty);
+    (void)difficulty;
+    return 1.0f + kWaveHpStep * (float)std::max(0, wave - 1);
 }
 
 // Base spawn rate multiplier for every wave (regular and ranged mobs).
@@ -158,6 +165,62 @@ inline float WaveSpawnRamp(int wave, Difficulty difficulty) {
 inline int RegularWaveMinAlive(int wave, Difficulty difficulty) {
     return kRegularWaveMinAlive + kRegularWaveMinAliveStep * EliteWavesBefore(wave, difficulty);
 }
+
+// ─── Mob supply follows the kill rate (2026-11-17 plan, stage 3) ─────────────
+// A fixed refill floor capped kills at about one a second however strong the
+// build. The floor now rises with the kills of the last kSupplyWindowSeconds:
+// the field holds about kSupplyLeadSeconds of them, so a stronger build meets
+// more mobs and clears its quota sooner. A separate cap keeps the screen
+// readable and the frame rate steady.
+inline constexpr float kSupplyWindowSeconds = 5.0f;
+inline constexpr float kSupplyLeadSeconds = 6.0f;
+inline constexpr int kRegularFieldCap = 24;
+inline constexpr int kRegularFieldCapStep = 4;   // + per elite wave behind
+inline int RegularWaveFieldCap(int wave, Difficulty difficulty) {
+    return kRegularFieldCap + kRegularFieldCapStep * EliteWavesBefore(wave, difficulty);
+}
+// How many regular mobs the refill keeps alive at this kill rate.
+inline int RegularWaveFieldTarget(int wave, Difficulty difficulty, float killsPerSecond) {
+    const int floor = RegularWaveMinAlive(wave, difficulty);
+    const int cap = std::max(floor, RegularWaveFieldCap(wave, difficulty));
+    const float want = std::max(0.0f, killsPerSecond) * kSupplyLeadSeconds;
+    const int target = static_cast<int>(want + 0.999f);
+    return std::min(cap, std::max(floor, target));
+}
+
+// Kills per second over the last kSupplyWindowSeconds, from the run's kill
+// count sampled every half second. Reset it when a wave starts.
+struct KillRateMeter {
+    static constexpr float kSlotSeconds = 0.5f;
+    static constexpr int kSlots = static_cast<int>(kSupplyWindowSeconds / kSlotSeconds) + 1;
+    long long kills[kSlots] = {};
+    float at[kSlots] = {};
+    int head = 0;          // next slot to write = the oldest one once full
+    int filled = 0;
+    float clock = 0.0f, next = 0.0f;
+    void Reset(long long runKills) {
+        head = 0; filled = 0; clock = 0.0f; next = 0.0f;
+        Push(runKills);
+    }
+    void Push(long long runKills) {
+        kills[head] = runKills; at[head] = clock;
+        head = (head + 1) % kSlots;
+        if (filled < kSlots) ++filled;
+        next = clock + kSlotSeconds;
+    }
+    void Step(float dt, long long runKills) {
+        if (filled == 0) Reset(runKills);
+        clock += dt;
+        if (clock >= next) Push(runKills);
+    }
+    float PerSecond(long long runKills) const {
+        if (filled == 0) return 0.0f;
+        const int oldest = filled < kSlots ? 0 : head;
+        const float span = clock - at[oldest];
+        if (span < 1.0f) return 0.0f;   // too soon to tell: the floor holds
+        return (float)(runKills - kills[oldest]) / span;
+    }
+};
 
 // About when a wave begins in a typical run, for HP ramps that need a time
 // without a real run behind them (debug bosses).
@@ -197,8 +260,11 @@ enum class WaveRewardTier { Common, Rare, Epic, Legendary };
 
 // Kill time (seconds since the target entered) that still earns each tier.
 struct WaveRewardTimes { float legendary, epic, rare; };
-inline constexpr WaveRewardTimes kEliteRewardTimes = { 30.0f,  60.0f,  90.0f };
-inline constexpr WaveRewardTimes kBossRewardTimes  = { 60.0f, 120.0f, 180.0f };
+// The phase gates (Entity/PhaseGate.h) add about 10 s to an elite and 15 s to
+// a boss whatever the build, so the bands moved out by that (2026-11-17; were
+// 30/60/90 and 60/120/180).
+inline constexpr WaveRewardTimes kEliteRewardTimes = { 40.0f,  70.0f, 100.0f };
+inline constexpr WaveRewardTimes kBossRewardTimes  = { 75.0f, 135.0f, 195.0f };
 
 // Highest augment tier (0 Common .. 4 Mythic) a clear of `wave` may offer,
 // by how far through the run it is: the first quarter tops out at Rare, then

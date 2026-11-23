@@ -1488,22 +1488,8 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
                             (0.65f + 0.25f * pulse + 0.1f * eaten) * horizonIn * (1.0f - 0.3f * collapse) + 0.3f * collapse);
         lf::Circle(o.x, o.y, 9.0f * hr, 1.2f, hi, (0.4f + 0.6f * eaten) * horizonIn * a);
     }
-    // ── the inhale: streaks rushing in from the field's edge, rings snapping inward ──
+    // ── the inhale: rings snapping inward from the field's edge ──
     if (suckLin > 0.0f && collapse < 1.0f) {
-        uint32_t sd = lf::SeedAt(o.y, o.x);
-        for (int i = 0; i < 28; ++i) {
-            const float ang = lf::Rnd(sd) * lf::kTwoPi;
-            const float off = lf::Rnd(sd);
-            // Each streak starts at the field's edge and falls in, faster and faster.
-            const float p = std::fmod(suckLin * (1.6f + 1.4f * lf::Rnd(sd)) + off, 1.0f);
-            const float head = kFieldR * (1.0f - p * p) + 20.0f;
-            const float len = 40.0f + 160.0f * p * suckLin;
-            const float tail = std::min(kFieldR * 1.05f, head + len);
-            const float bend = 0.25f * (1.0f - p);   // curls round as it falls
-            lf::Line(o.x + std::cos(ang + bend) * tail, o.y + std::sin(ang + bend) * tail,
-                     o.x + std::cos(ang) * head, o.y + std::sin(ang) * head,
-                     i % 4 == 0 ? 1.8f : 1.1f, i % 4 == 0 ? white : hi, (0.35f + 0.55f * suckLin) * std::sin(lf::kPi * p));
-        }
         for (int i = 0; i < 3; ++i) {
             const float u = std::clamp(suckLin * 1.5f - 0.25f * (float)i, 0.0f, 1.0f);
             if (u <= 0.0f || u >= 1.0f) continue;

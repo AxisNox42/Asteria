@@ -26,6 +26,7 @@
 #include <glm/glm.hpp>
 
 #include "../Entity/Bullet.h"
+#include "../Entity/SpaceRules.h"
 
 namespace laser_fx {
 
@@ -45,6 +46,7 @@ inline constexpr int   kReleaseSteps = 24;     // the release's segments (Bullet
 inline constexpr float kHold = 0.05f;          // a flash beam stays this long ...
 inline constexpr float kFade = 0.16f;          // ... then thins out over this long (the main beam too)
 inline constexpr int   kMaxFlashes = 64;
+inline constexpr float kTurnRate = 1.6f;       // rad/s: the standing beam turns toward the aim at this fixed rate
 // The beam (and its hit band) grows with each laser card: 레이저 / + 집속 / + 과부하.
 // Big steps on purpose: each tier must read as a clearly heavier beam at a glance.
 inline constexpr float kTierWidth[4] = { 1.0f, 1.0f, 1.9f, 2.8f };
@@ -55,8 +57,37 @@ struct Rect { float minX = 0, maxX = 1920, minY = 0, maxY = 1080; };
 
 // The beam's path from (x, y) along (dx, dy): stops at the arena edge, or turns back
 // there while bounces are left. pts gets the corners, the start first.
+// OCTANS panes (SpaceRules.h) stop the beam like any shot: it ends where its path
+// first leaves the space it started in. Returns the pane that stopped it (0 = none).
+inline int ClipToSpace(std::vector<glm::vec2>& pts) {
+    if (!space::Active() || pts.size() < 2) return 0;
+    const int from = space::SpaceAt(pts[0].x, pts[0].y);
+    constexpr float kProbe = 4.0f;   // px between checks along the beam
+    for (size_t k = 0; k + 1 < pts.size(); ++k) {
+        const glm::vec2 p0 = pts[k], p1 = pts[k + 1];
+        const float len = glm::length(p1 - p0);
+        const int n = std::max(1, (int)std::ceil(len / kProbe));
+        for (int i = 1; i <= n; ++i) {
+            const glm::vec2 q = p0 + (p1 - p0) * ((float)i / (float)n);
+            const int now = space::SpaceAt(q.x, q.y);
+            if (now == from) continue;
+            // Narrow down to the border between the last point inside and this one.
+            float lo = (float)(i - 1) / (float)n, hi = (float)i / (float)n;
+            for (int it = 0; it < 10; ++it) {
+                const float mid = 0.5f * (lo + hi);
+                const glm::vec2 m = p0 + (p1 - p0) * mid;
+                if (space::SpaceAt(m.x, m.y) == from) lo = mid; else hi = mid;
+            }
+            pts.resize(k + 1);
+            pts.push_back(p0 + (p1 - p0) * lo);
+            return space::AbsorbingPane(from, now);
+        }
+    }
+    return 0;
+}
+
 inline void Path(float x, float y, float dx, float dy, float range, int bounces, const Rect& a,
-                 std::vector<glm::vec2>& pts) {
+                 std::vector<glm::vec2>& pts, int* stoppedBy = nullptr) {
     pts.clear();
     x = std::clamp(x, a.minX, a.maxX); y = std::clamp(y, a.minY, a.maxY);
     pts.emplace_back(x, y);
@@ -75,6 +106,13 @@ inline void Path(float x, float y, float dx, float dy, float range, int bounces,
         --bounces;
         if (wall == 1) dx = -dx; else dy = -dy;
     }
+    const int pane = ClipToSpace(pts);
+    if (stoppedBy) *stoppedBy = pane;
+}
+
+// A beam a pane stopped wears that pane, like a shot it absorbs.
+inline void WearPane(int pane, const std::vector<glm::vec2>& pts) {
+    if (pane > 0 && !pts.empty()) space::g_Absorbed.push_back({ pane, pts.back().x, pts.back().y, false });
 }
 
 // The main beam (the one held from the ship).
@@ -151,7 +189,19 @@ inline bool Hold(bool held, float px, float py, float tx, float ty, float dt, in
     m.tier = std::max(1, tier);
     m.px = px; m.py = py;
     if (held) {
-        if (std::hypot(tx - px, ty - py) > 1.0f) m.aim = std::atan2(ty - py, tx - px);
+        if (std::hypot(tx - px, ty - py) > 1.0f) {
+            const float want = std::atan2(ty - py, tx - px);
+            if (!m.on) m.aim = want;   // charging: the beam opens toward the aim
+            else {                     // standing: turns toward it at kTurnRate, the short way
+                float d = want - m.aim;
+                while (d > 3.14159265f) d -= 6.2831853f;
+                while (d < -3.14159265f) d += 6.2831853f;
+                const float step = kTurnRate * dt;
+                m.aim += std::clamp(d, -step, step);
+                if (m.aim > 3.14159265f) m.aim -= 6.2831853f;
+                else if (m.aim < -3.14159265f) m.aim += 6.2831853f;
+            }
+        }
         if (!m.on && m.charge <= 0.0f) m.evCharge = true;   // a fresh press starts the charge
         m.charge = std::min(ChargeTime(), m.charge + dt);
         const bool was = m.on;
@@ -251,7 +301,9 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
             b.dmgMult *= 1.0f + kHeatDamage * heat;
             b.sizeScale = std::min(kMaxLaserScale, b.sizeScale * (1.0f + kHeatWidth * heat));
         }
-        Path(b.x, b.y, b.dirX, b.dirY, range, bounces, arena, pts);
+        int pane = 0;
+        Path(b.x, b.y, b.dirX, b.dirY, range, bounces, arena, pts, &pane);
+        WearPane(pane, pts);
         if (!main && (int)g_Flashes.size() < kMaxFlashes) {
             Flash f; f.pts = pts; f.halfW = halfW; f.color = b.color;
             f.alpha = (b.synFlags & synf::Echo) ? 0.5f : 1.0f;
@@ -271,7 +323,9 @@ inline float FireRelease(std::vector<Bullet>& bullets) {
     if (heat <= 0.0f || !m.hasShot) { m.releaseHeat = 0.0f; return 0.0f; }
     m.releaseHeat = 0.0f;
     static std::vector<glm::vec2> pts;
-    Path(m.px, m.py, std::cos(m.aim), std::sin(m.aim), kWallRange, m.bounces, g_Arena, pts);
+    int pane = 0;
+    Path(m.px, m.py, std::cos(m.aim), std::sin(m.aim), kWallRange, m.bounces, g_Arena, pts, &pane);
+    WearPane(pane, pts);
     const float halfW = m.baseHalfW * (1.4f + 1.6f * heat);   // full heat ~ the Quasar beam (55 px)
     Bullet proto = m.lastShot;
     // The last tick's one-shot bonuses (정지 반응, 박자 사격 ...) are not multiplied again.

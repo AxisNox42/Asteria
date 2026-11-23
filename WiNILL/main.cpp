@@ -628,6 +628,14 @@ static void DrawEliteBar(float sw, float scale, float topY) {
         ellipse(hx, y, 24.0f * scale * pulse, 8.0f * scale, tt * 1.5f, 2.0f * scale, hc, 0.95f * ha);
         ellipse(hx, y, 24.0f * scale * pulse, 8.0f * scale, -tt * 1.1f + 1.05f, 2.0f * scale, hot, 0.8f * ha);
         hud_lines::Segment(hx - 4.5f * scale, y, hx + 4.5f * scale, y, 2.6f * scale, white, 0.9f * ha);
+    } else if (s_kind == MobKind::HOROLOGIUM) {
+        // The dial with its two hands, and the tilted orbit around it.
+        const float r = 10.0f * scale * pulse;
+        poly(hx, y, r, 24, 0.0f, 2.4f * scale, hc, ha, 0.0f);
+        ellipse(hx, y, 21.0f * scale * pulse, 6.5f * scale, -0.35f + tt * 0.25f, 1.6f * scale, hot, 0.85f * ha);
+        const float mA = tt * 1.6f, hA = tt * 0.14f;
+        hud_lines::Segment(hx, y, hx + 8.0f * scale * sinf(mA), y - 8.0f * scale * cosf(mA), 2.0f * scale, white, 0.9f * ha);
+        hud_lines::Segment(hx, y, hx + 5.0f * scale * sinf(hA), y - 5.0f * scale * cosf(hA), 2.4f * scale, white, 0.9f * ha);
     } else if (s_kind == MobKind::GENESIS) {
         // The core, and a Swarm triangle circling it. Along the bar, five
         // forged Swarm triangles go out one by one as health falls.
@@ -660,6 +668,33 @@ static void DrawEliteBar(float sw, float scale, float topY) {
         const hud_lines::Rgb nc = mix(base, white, 0.2f);
         g_TextS.Draw(name, cx - fullW * 0.5f, y - 14.0f * scale - nh, ts,
                      nc.r, nc.g, nc.b, rise * fade);
+    }
+
+    // HOROLOGIUM tempo: what it is (when it starts) and the current state,
+    // under the bar's right end, so the speed change never comes unexplained.
+    if (s_kind == MobKind::HOROLOGIUM && horologium::TempoOn()) {
+        const bool slow = horologium::TempoSlow();
+        const int li = std::max(0, std::min(2, LangIndex()));
+        static const wchar_t* kSlow[3] = { L"박자 · 느림", L"TEMPO · SLOW", L"テンポ · 遅い" };
+        static const wchar_t* kFast[3] = { L"박자 · 빠름", L"TEMPO · FAST", L"テンポ · 速い" };
+        static const wchar_t* kHow[3] = { L"2초마다 이동 속도가 느림↔빠름으로 바뀝니다",
+                                          L"Your speed swings slow / fast every 2 s",
+                                          L"2秒ごとに移動速度が遅い↔速いに切り替わります" };
+        const float ts = 0.46f * scale;
+        const wchar_t* state = slow ? kSlow[li] : kFast[li];
+        const float sw2 = g_TextS.Width(state, ts);
+        const hud_lines::Rgb sc2 = slow ? hud_lines::Rgb{ 0.72f, 0.76f, 0.84f } : mix(base, white, 0.35f);
+        const float ty = y + 14.0f * scale;
+        const float left = horologium::g_player.beatLeft;
+        const float blink = left <= horologium::kTempoWarn ? 0.55f + 0.45f * (fmodf(left * 8.0f, 1.0f) < 0.5f ? 1.0f : 0.0f) : 1.0f;
+        g_TextS.Draw(state, cx + fullW * 0.5f - sw2, ty, ts, sc2.r, sc2.g, sc2.b, fade * blink);
+        if (horologium::g_player.announce > 0.0f) {
+            const float a = std::min(1.0f, horologium::g_player.announce / 0.5f);
+            const float hs = 0.42f * scale;
+            const float hw = g_TextS.Width(kHow[li], hs);
+            g_TextS.Draw(kHow[li], cx + fullW * 0.5f - hw, ty + g_TextS.Height(state, ts) + 6.0f * scale, hs,
+                         1.0f, 1.0f, 1.0f, fade * a);
+        }
     }
 }
 
@@ -845,6 +880,7 @@ static void DrawPaneHop(const os_pane::Pane& p);
 static void DrawWarpCracks(const os_pane::Pane& p);
 static bool DrawWallWarning();
 static bool DrawIdleWarning();
+static bool DrawStretchWarning();
 static bool ThrowPayloadFor(int id, int& count, float& turn);
 static void DrawThrowAppear();
 static bool FuseFor(int id, float& share);
@@ -1064,6 +1100,7 @@ static void DrawPaneBrackets() {
     }
     if (DrawWallWarning() && !any) { BindMainShader(); any = true; }
     if (DrawIdleWarning() && !any) { BindMainShader(); any = true; }
+    if (DrawStretchWarning() && !any) { BindMainShader(); any = true; }
     g_PaneCover.clear();
     if (CrashActive()) {
         if (!any) { BindMainShader(); any = true; }
@@ -1319,6 +1356,8 @@ static void StartPaneDrift(int id) {
 
 static bool PaneRamBusy(int id);
 static bool PaneWarpBusy(int id);
+static bool PaneWallBusy(int id);
+static bool PaneStretchBusy(int id);
 static void LightPaneFuse(int id);
 static void PickPaneSpot(float w, float h, float psx, float psy, float& x, float& y, int selfId = 0);
 static float PaneOverlapScore(float x, float y, float w, float h, int selfId);
@@ -1351,6 +1390,7 @@ static void DriftNormaPanes(float dt, float psx, float psy) {
             if (d.pullLeft <= 0.0f) { d.stage = 0; d.timer = 0.0f; }
             continue;
         }
+        if (PaneWallBusy(d.id) || PaneStretchBusy(d.id)) { d.stage = 0; d.timer = 0.0f; continue; }
         d.timer += dt;
         if (d.stage == 0) {
             if (d.timer < d.holdFor) continue;
@@ -1455,10 +1495,13 @@ static PaneRam* RamOf(int id) {
 static bool PaneRamBusy(int id) { return RamOf(id) != nullptr; }
 
 // 13 Wall: panes popped open in a cascade, standing still (screen px).
-struct WallPane { int id = 0; float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f; };
+// srcId: the boss pane that glides to this spot; id: set once it stands there.
+// (ox, oy): where it stood before the wall, and goes back to when it is let go.
+struct WallPane { int id = 0; float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f; int srcId = 0;
+                  float ox = 0.0f, oy = 0.0f; };
 struct PaneWall {
     bool active = false;
-    int stage = 0;               // 0 popping open, 1 standing, 2 fuses lit
+    int stage = 0;               // 0 gathering and locking, 1 standing, 2 let go (red fading, gliding back)
     float timer = 0.0f;
     int opened = 0;
     bool hitPlayer = false;
@@ -1470,6 +1513,12 @@ static PaneWall g_Wall;
 // shut before they blew (norma::kDefuseCount of them leave the boss open).
 static std::vector<int> g_DetonateLit;
 static int g_DetonateDefused = 0;
+static int g_DetonateNeed = 0;   // how many of the batch to shut for the opening
+// Refill: asked for but held until norma::kRefillAfterClose after the last
+// pane closed; g_PaneLastSeen / g_PaneClosedAt track that.
+static bool g_RefillPending = false;
+static int g_PaneLastSeen = 0;
+static float g_PaneClosedAt = -100.0f;
 
 // "Not responding" (norma::kIdleRadius notes): the error window that pops up
 // on a player who stays put.
@@ -1482,6 +1531,38 @@ struct IdlePop {
     int id = 0;
 };
 static IdlePop g_Idle;
+static bool PaneWallBusy(int id) {
+    if (!g_Wall.active || id == 0) return false;
+    for (const WallPane& w : g_Wall.panes) if (w.id == id || w.srcId == id) return true;
+    return false;
+}
+
+// 18 Stretch: a pane whose one side shoots out to the screen edge and draws
+// back (screen px). The pane never closes.
+struct PaneStretch {
+    int id = 0;
+    int side = 0;              // 0 left, 1 right, 2 up, 3 down
+    int stage = 0;             // 0 warning, 1 growing, 2 standing, 3 drawing back
+    float timer = 0.0f;
+    os_pane::Rect from;        // the pane before it stretched
+    float reach = 0.0f;        // how far the side goes
+    bool playerInside = false, hitPlayer = false;
+};
+static std::vector<PaneStretch> g_Stretches;
+static bool PaneStretchBusy(int id) {
+    for (const PaneStretch& st : g_Stretches) if (st.id == id && id != 0) return true;
+    return false;
+}
+// The pane's frame with its side k (0..1) of the way out.
+static os_pane::Rect StretchRect(const PaneStretch& st, float k) {
+    os_pane::Rect r = st.from;
+    const float d = st.reach * std::clamp(k, 0.0f, 1.0f);
+    if (st.side == 0) { r.x -= d; r.w += d; }
+    else if (st.side == 1) r.w += d;
+    else if (st.side == 2) { r.y -= d; r.h += d; }
+    else r.h += d;
+    return r;
+}
 
 // 14 Warp: the pane the boss hides in and the one it will smash out of.
 struct PaneWarp {
@@ -1586,10 +1667,22 @@ static float RamRedFor(int id) {
         const float flicker = 0.5f + 0.5f * sinf(g_GameTime * (10.0f + 22.0f * k));
         return std::clamp(0.25f + 0.55f * k + 0.2f * flicker * k, 0.0f, 1.0f);
     }
-    if (g_Wall.active && g_Wall.stage < 2)   // wall panes are red: no one can stand inside
+    if (g_Wall.active && g_Wall.stage == 2) {   // let go: the red drains out as it glides back
         for (const WallPane& wp : g_Wall.panes)
-            if (wp.id == id) return 1.0f;
-    if (g_Idle.id == id && id != 0) return 1.0f;   // the "not responding" error window
+            if (wp.id == id)
+                return 1.0f - std::clamp(g_Wall.timer / norma::kWallRelease, 0.0f, 1.0f);
+    }
+    if (g_Wall.active && g_Wall.stage < 2)   // wall panes are red: no one can stand inside
+        for (const WallPane& wp : g_Wall.panes) {
+            if (wp.id == id) return 1.0f;   // locked in the wall: red, solid
+            // On its way there it keeps its own colour, and only reddens in the
+            // last kWallRedden before it locks: a player fighting beside the
+            // pane is not next to a red one the moment the wall is called.
+            if (wp.srcId == id)
+                return std::clamp((g_Wall.timer - (norma::kWallWarn - norma::kWallRedden)) / norma::kWallRedden,
+                                  0.0f, 1.0f);
+        }
+    if (PaneStretchBusy(id)) return 0.45f;   // a stretching pane is not a red one: inside it is safe
     const PaneRam* ram = RamOf(id);
     if (!ram) return 0.0f;
     if (ram->stage == 0) {
@@ -1729,7 +1822,7 @@ static void BringShelterWithinReach(Monster& boss, float psx, float psy, int exc
             }
             d.pullLeft = norma::kRefugePull;
         }
-    } else if (usable < norma::MaxBossPanesFor(boss.normaPhase)) {
+    } else if (false && usable < norma::MaxBossPanesFor(boss.normaPhase)) {   // (2026-11-23: panes only open with a refill batch)
         const float w = std::min(sw * norma::kPaneMaxShareW, RandRange(norma::kRefugeMinW, norma::kRefugeMaxW));
         const float h = std::min(sh * norma::kPaneMaxShareH, RandRange(norma::kRefugeMinH, norma::kRefugeMaxH));
         const float a0 = RandRange(0.0f, 6.2831853f);
@@ -1758,6 +1851,9 @@ static void ServeNormaAsks(const SpatialBounds& player) {
     asks.swap(norma::g_Asks);
     if (!boss) {
         ReleaseNormaPanes();
+        g_RefillPending = false;
+        g_PaneLastSeen = 0;
+        g_PaneClosedAt = -100.0f;
         g_NormaCountdown = {};
         if (g_ThrowBox.id != 0) os_pane::Close(g_ThrowBox.id);
         g_ThrowBox = {};
@@ -1768,6 +1864,14 @@ static void ServeNormaAsks(const SpatialBounds& player) {
     g_NormaPanes.erase(std::remove_if(g_NormaPanes.begin(), g_NormaPanes.end(),
         [](int id) { return PaneById(id) == nullptr; }), g_NormaPanes.end());
     norma::g_PaneCount = (int)NormaOwnPanes().size();
+    if (norma::g_PaneCount < g_PaneLastSeen) g_PaneClosedAt = g_GameTime;   // one closed just now
+    g_PaneLastSeen = norma::g_PaneCount;
+    // A refill asked for earlier starts once the wait after the last close is over.
+    if (g_RefillPending && g_Spray.left <= 0 && g_GameTime - g_PaneClosedAt >= norma::kRefillAfterClose) {
+        g_RefillPending = false;
+        const int n = norma::RefillCount(norma::g_PaneCount, boss->normaPhase);
+        if (n > 0) g_Spray = { n, 0.0f };
+    }
     const float sw = (float)screenWidth, sh = (float)screenHeight;
     const float psx = W2SX(player.x + player.width * 0.5f);
     const float psy = W2SY(player.y + player.height * 0.5f);
@@ -1778,6 +1882,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             // a countdown is using.
             g_DetonateLit.clear();
             g_DetonateDefused = 0;
+            g_DetonateNeed = norma::kDefuseCount;
             for (const os_pane::Pane* pane : NormaOwnPanes()) {
                 if (PaneRamBusy(pane->id) || pane->id == g_NormaCountdown.id) continue;
                 FlashNormaPane(pane->id, *boss);
@@ -1785,16 +1890,93 @@ static void ServeNormaAsks(const SpatialBounds& player) {
                 g_DetonateLit.push_back(pane->id);
             }
             break;
-        case norma::Ask::ReopenPanes: {
-            // Fresh panes at fresh spots, up to the phase's count.
-            const int want = norma::MaxBossPanesFor(boss->normaPhase);
-            while ((int)NormaOwnPanes().size() < want) {
-                const int before = (int)NormaOwnPanes().size();
-                const int id = OpenNormaPane(*boss, psx, psy);
-                if (id <= 0) break;
-                FlashNormaPane(id, *boss);
-                if ((int)NormaOwnPanes().size() == before) break;
+        case norma::Ask::DetonateSome: {
+            // Partial: one or two panes are lit, and not replaced. First the
+            // one the player stands in, then one they are using as cover (it
+            // lies between them and the boss), then the nearest to them.
+            const float bsx = W2SX(boss->worldX), bsy = W2SY(boss->worldY);
+            std::vector<std::pair<float, int>> cands;
+            for (const os_pane::Pane* pane : NormaOwnPanes()) {
+                float fuse = 0.0f;
+                if (PaneRamBusy(pane->id) || PaneWarpBusy(pane->id) || PaneWallBusy(pane->id) ||
+                    PaneStretchBusy(pane->id) || pane->id == g_NormaCountdown.id ||
+                    pane->minimized || pane->flying || FuseFor(pane->id, fuse)) continue;
+                const os_pane::Rect& r = pane->frame;
+                const float gx = std::max({ r.x - psx, 0.0f, psx - (r.x + r.w) });
+                const float gy = std::max({ r.y - psy, 0.0f, psy - (r.y + r.h) });
+                float score = std::sqrt(gx * gx + gy * gy);
+                if (pane->id == space::g_PlayerSpace) score = -2.0f;
+                else {
+                    // Cover: the line from the boss to the player crosses it.
+                    bool crosses = false;
+                    for (int k = 1; k < 12 && !crosses; ++k) {
+                        const float x = bsx + (psx - bsx) * (float)k / 12.0f, y = bsy + (psy - bsy) * (float)k / 12.0f;
+                        crosses = x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+                    }
+                    if (crosses) score = -1.0f;
+                }
+                cands.push_back({ score, pane->id });
             }
+            std::sort(cands.begin(), cands.end());
+            const int want = norma::PartialCountFor(norma::ActFor(boss->hp, boss->normaMaxHp));
+            g_DetonateLit.clear();
+            g_DetonateDefused = 0;
+            for (int k = 0; k < (int)cands.size() && k < want; ++k) {
+                FlashNormaPane(cands[k].second, *boss);
+                LightPaneFuse(cands[k].second);
+                g_DetonateLit.push_back(cands[k].second);
+            }
+            g_DetonateNeed = std::min(norma::kDefuseCount, (int)g_DetonateLit.size());
+            break;
+        }
+        case norma::Ask::StretchPane: {
+            // One pane (two from act 3, at right angles) shoots a side out
+            // toward the player. The nearest pane the player is not inside
+            // goes first; the side is the one facing them.
+            if (!g_Stretches.empty()) { boss->normaPaneId = -1; break; }
+            std::vector<std::pair<float, const os_pane::Pane*>> cands;
+            for (const os_pane::Pane* pane : NormaOwnPanes()) {
+                float fuse = 0.0f;
+                if (PaneRamBusy(pane->id) || PaneWarpBusy(pane->id) || PaneWallBusy(pane->id) ||
+                    pane->id == g_NormaCountdown.id || pane->minimized || pane->flying ||
+                    FuseFor(pane->id, fuse)) continue;
+                const os_pane::Rect& r = pane->frame;
+                const float cx = r.x + r.w * 0.5f - psx, cy = r.y + r.h * 0.5f - psy;
+                cands.push_back({ (pane->id == space::g_PlayerSpace ? 1.0e9f : 0.0f) + cx * cx + cy * cy, pane });
+            }
+            std::sort(cands.begin(), cands.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
+            const int want = norma::StretchCountFor(norma::ActFor(boss->hp, boss->normaMaxHp));
+            int axis = -1;   // 0 sideways, 1 up and down: the second pane takes the other
+            for (const auto& cand : cands) {
+                if ((int)g_Stretches.size() >= want) break;
+                const os_pane::Rect& r = cand.second->frame;
+                const bool inRows = psy >= r.y && psy <= r.y + r.h, inCols = psx >= r.x && psx <= r.x + r.w;
+                const float ox = psx - (r.x + r.w * 0.5f), oy = psy - (r.y + r.h * 0.5f);
+                int a = inRows && !inCols ? 0 : inCols && !inRows ? 1
+                      : std::fabs(ox) / std::max(1.0f, r.w) >= std::fabs(oy) / std::max(1.0f, r.h) ? 0 : 1;
+                if (axis >= 0) a = 1 - axis;
+                PaneStretch st;
+                st.id = cand.second->id;
+                st.from = r;
+                st.side = a == 0 ? (ox >= 0.0f ? 1 : 0) : (oy >= 0.0f ? 3 : 2);
+                st.reach = st.side == 0 ? r.x : st.side == 1 ? sw - (r.x + r.w)
+                         : st.side == 2 ? r.y : sh - (r.y + r.h);
+                if (st.reach < 80.0f) continue;   // already against that edge
+                axis = a;
+                g_Stretches.push_back(st);
+                FlashNormaPane(st.id, *boss);
+            }
+            if (g_Stretches.empty()) { boss->normaPaneId = -1; break; }
+            boss->normaPaneId = g_Stretches[0].id;
+            Audio::Play(Audio::Cue::BossOctansAlert);
+            break;
+        }
+        case norma::Ask::ReopenPanes: {
+            // Refill: the missing panes open at fresh spots as one batch, one
+            // every norma::kRefillStagger (TickPhaseSpray). Not while a batch runs.
+            // It waits out norma::kRefillAfterClose first (served at the top of this function).
+            if (g_Spray.left <= 0) g_RefillPending = true;
             break;
         }
         case norma::Ask::OpenRefuges:
@@ -1810,6 +1992,13 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             bool own = false;
             for (const os_pane::Pane* pane : NormaOwnPanes()) own = own || pane->id == here;
             if (!own) break;   // in the open: the flood itself is the threat
+            // (Only with another pane to cross to: nothing opens for it.)
+            int others = 0;
+            for (const os_pane::Pane* pane : NormaOwnPanes()) {
+                float fuse = 0.0f;
+                if (pane->id != here && !pane->minimized && !pane->flying && !FuseFor(pane->id, fuse)) ++others;
+            }
+            if (others == 0) break;
             FlashNormaPane(here, *boss);
             LightPaneFuse(here);
             BringShelterWithinReach(*boss, psx, psy, here, false);
@@ -1972,6 +2161,7 @@ static void ServeNormaAsks(const SpatialBounds& player) {
             // every pane the boss has blows.
             EndPaneWall();
             g_PaneRams.clear();
+            g_Stretches.clear();
             g_Warp = {};
             if (g_NormaCountdown.id != 0) os_pane::SetLocked(g_NormaCountdown.id, false);
             g_NormaCountdown = {};
@@ -2006,34 +2196,67 @@ static void ServeNormaAsks(const SpatialBounds& player) {
         }
         case norma::Ask::BuildWall: {
             if (g_Wall.active) { boss->normaPaneId = -1; break; }
-            // A cascade of big panes over the ground between the boss and the
-            // player, leaning one way or the other.
+            // The wall is made of the panes already standing: they turn red and
+            // glide into a line over the ground between the boss and the player
+            // (no new window opens). Fewer than two: no wall.
+            std::vector<const os_pane::Pane*> use;
+            for (const os_pane::Pane* pane : NormaOwnPanes()) {
+                float fuse = 0.0f;
+                if (PaneRamBusy(pane->id) || PaneWarpBusy(pane->id) || PaneStretchBusy(pane->id) ||
+                    pane->id == g_NormaCountdown.id || pane->minimized || pane->flying ||
+                    FuseFor(pane->id, fuse)) continue;
+                use.push_back(pane);
+            }
+            if ((int)use.size() < 2) { boss->normaPaneId = -1; break; }
             const float bsx = W2SX(boss->worldX), bsy = W2SY(boss->worldY);
-            const int n = norma::WallCountFor(boss->normaPhase, (int)g_Difficulty);
+            const int n = (int)use.size();
             const float spread = norma::WallSpreadFor(n);
-            // Panes of random size, strewn across the line from the boss to the
-            // player (spread sideways and at random depth), so each run's
-            // barricade and footprints differ.
             const float ddx = psx - bsx, ddy = psy - bsy;
             const float len = std::max(1.0f, std::sqrt(ddx * ddx + ddy * ddy));
             const float ux = ddx / len, uy = ddy / len, nx = -uy, ny = ux;
             const auto frand = [](float a, float b) { return a + (b - a) * ((float)(rand() % 1001) / 1000.0f); };
-            const float maxW = sw * norma::kWallMaxShareW, maxH = sh * norma::kWallMaxShareH;
             g_Wall = {};
             g_Wall.active = true;
             boss->normaPaneId = 1;
             for (int i = 0; i < n; ++i) {
                 WallPane p;
-                p.w = std::min(maxW, frand(norma::kWallMinW, norma::kWallMaxW));
-                p.h = std::min(maxH, frand(norma::kWallMinH, norma::kWallMaxH));
-                const float along = len * frand(0.25f, 0.75f);
+                p.srcId = use[i]->id;
+                p.ox = use[i]->frame.x;
+                p.oy = use[i]->frame.y;
+                p.w = use[i]->frame.w;
+                p.h = use[i]->frame.h;
+                const float along = len * frand(0.3f, 0.7f);
                 const float side = ((float)i - (float)(n - 1) * 0.5f) * spread +
                                    frand(-norma::kWallJitter, norma::kWallJitter);
                 const float cx = bsx + ux * along + nx * side, cy = bsy + uy * along + ny * side;
                 p.x = std::clamp(cx - p.w * 0.5f, 0.0f, std::max(0.0f, sw - p.w));
                 p.y = std::clamp(cy - p.h * 0.5f, 0.0f, std::max(0.0f, sh - p.h));
+                // Never onto the player (nor within kWallClear of them): the spot
+                // backs off toward the boss until it is clear; a pane with no
+                // clear spot stays out of this wall.
+                const auto onPlayer = [&]() {
+                    return psx > p.x - norma::kWallClear && psx < p.x + p.w + norma::kWallClear &&
+                           psy > p.y - norma::kWallClear && psy < p.y + p.h + norma::kWallClear;
+                };
+                for (int tries = 0; tries < 14 && onPlayer(); ++tries) {
+                    p.x = std::clamp(p.x - ux * 45.0f, 0.0f, std::max(0.0f, sw - p.w));
+                    p.y = std::clamp(p.y - uy * 45.0f, 0.0f, std::max(0.0f, sh - p.h));
+                }
+                if (onPlayer()) continue;
                 g_Wall.panes.push_back(p);
+                // It glides there during the warning (the Refuge pull).
+                for (PaneDrift& d : g_PaneDrifts) {
+                    if (d.id != p.srcId) continue;
+                    d.fromX = d.x = use[i]->frame.x;
+                    d.fromY = d.y = use[i]->frame.y;
+                    d.placed = true;
+                    d.toX = p.x;
+                    d.toY = p.y;
+                    d.pullLeft = norma::kRefugePull;
+                }
+                FlashNormaPane(p.srcId, *boss);
             }
+            if (g_Wall.panes.empty()) { g_Wall = {}; boss->normaPaneId = -1; }   // no clear spot at all
             break;
         }
         case norma::Ask::RamWindow: {
@@ -2557,7 +2780,7 @@ static void TickPhaseSpray(float dt) {
     if (!boss) { g_Spray = {}; return; }
     g_Spray.timer -= dt;
     while (g_Spray.left > 0 && g_Spray.timer <= 0.0f) {
-        g_Spray.timer += norma::kPhaseSprayStagger;
+        g_Spray.timer += norma::kRefillStagger;
         --g_Spray.left;
         const int id = OpenNormaPane(*boss, W2SX(g_NormaPlayerX), W2SY(g_NormaPlayerY));
         if (id <= 0) continue;
@@ -2569,15 +2792,10 @@ static void TickPhaseSpray(float dt) {
     }
 }
 
-// 13 Wall: the panes pop open one by one, the line stands, then every pane
-// is lit to blow (the same fuse and burst as Detonate).
+// 13 Wall: the boss's panes glide into a line, lock there one by one (red,
+// solid), stand, and are let go again. No window opens or closes for it
+// (2026-11-23); a pane the player shoots to pieces is the only one that goes.
 static void EndPaneWall() {
-    for (const WallPane& p : g_Wall.panes)
-        if (p.id > 0)
-            if (const os_pane::Pane* pane = PaneById(p.id)) {
-                CollapsePane(*pane);
-                os_pane::Close(p.id);
-            }
     g_Wall = {};
 }
 
@@ -2629,7 +2847,7 @@ static void KeepMobsOutOfWall(float dt) {
 // centre in, world centre out): walking or dashing at the wall stops at its
 // edge, and knockback stops there too.
 static void KeepPlayerOutOfWall(float& pcx, float& pcy) {
-    if (!g_Wall.active) return;
+    if (!g_Wall.active || g_Wall.stage >= 2) return;   // let go: no longer solid
     const std::vector<os_pane::Rect> rects = WallRects();
     if (rects.empty()) return;
     PushOutOfWall(rects, pcx, pcy, norma::kWallPlayerMargin, 0.0f, 0.0f, 0.0f);
@@ -2640,7 +2858,7 @@ static void TickPaneWall(float dt) {
     if (!wall.active) return;
     if (!FindNorma()) { EndPaneWall(); return; }
     wall.timer += dt;
-    KeepMobsOutOfWall(dt);
+    if (wall.stage < 2) KeepMobsOutOfWall(dt);
     if (wall.stage == 0) {
         const float t = wall.timer - norma::kWallWarn;   // the footprints show first
         if (t < 0.0f) return;
@@ -2648,9 +2866,11 @@ static void TickPaneWall(float dt) {
         while (wall.opened < (int)wall.panes.size() &&
                t >= (float)wall.opened * norma::kWallStagger) {
             WallPane& p = wall.panes[wall.opened];
-            p.id = os_pane::Open(p.x, p.y, p.w, p.h);
+            // The pane that glided here locks in place (gone meanwhile: no pane).
+            p.id = PaneById(p.srcId) ? p.srcId : 0;
             if (p.id > 0) {
-                Audio::Play(Audio::Cue::BossOctansPaneOpen);   // 벽 창이 하나씩 열림
+                os_pane::Place(p.id, std::round(p.x), std::round(p.y));
+                Audio::Play(Audio::Cue::BossOctansPaneOpen);   // 벽 창이 하나씩 자리에 섬
                 const float cx = ScreenToWorldX(p.x + p.w * 0.5f), cy = ScreenToWorldY(p.y + p.h * 0.5f);
                 SpawnSparks(cx, cy, 8, 1.0f, 0.45f, 0.38f, 300.0f);
                 // The pane bursts open: its frame pushes out a little past the footprint.
@@ -2686,21 +2906,134 @@ static void TickPaneWall(float dt) {
         return;
     }
     if (wall.stage == 1) {
+        // Standing: then the panes are let go (not blown). Each unlocks with
+        // a frame that springs out in the boss's own colour, the red drains
+        // from it over kWallRelease and it glides back to where it came from.
         if (wall.timer < norma::kWallStand) return;
-        for (const WallPane& p : wall.panes)
-            if (p.id > 0 && PaneById(p.id)) LightPaneFuse(p.id);
         wall.stage = 2;
         wall.timer = 0.0f;
+        Audio::Play(Audio::Cue::BossOctansLeavePane);
+        for (const WallPane& p : wall.panes) {
+            const os_pane::Pane* pane = p.id > 0 ? PaneById(p.id) : nullptr;
+            if (!pane) continue;
+            const os_pane::Rect& r = pane->frame;
+            norma_fx::Frame(ScreenToWorldX(r.x), ScreenToWorldY(r.y), ScreenToWorldX(r.x + r.w),
+                            ScreenToWorldY(r.y + r.h), 22.0f, norma::kWallRelease, norma_fx::kIce);
+            SpawnSparks(ScreenToWorldX(r.x + r.w * 0.5f), ScreenToWorldY(r.y + r.h * 0.5f), 6, 0.72f, 0.94f, 1.0f, 220.0f);
+            for (PaneDrift& d : g_PaneDrifts) {
+                if (d.id != p.id) continue;
+                d.fromX = d.x = r.x;
+                d.fromY = d.y = r.y;
+                d.placed = true;
+                d.toX = p.ox;
+                d.toY = p.oy;
+                d.pullLeft = norma::kRefugePull;
+            }
+        }
         return;
     }
-    // Fuses burning: done once every pane has gone (or the player closed them).
-    bool any = false;
-    for (const WallPane& p : wall.panes)
-        if (p.id > 0 && PaneById(p.id)) any = true;
-    if (!any || wall.timer > 3.0f) EndPaneWall();
+    if (wall.timer >= norma::kWallRelease) EndPaneWall();
 }
 
-// "Not responding": watches for a player who stays put (acts 2-4), marks the
+// 18 Stretch: the warning, the side shooting out, the stand and the draw-back.
+static void TickPaneStretch(float dt) {
+    if (g_Stretches.empty()) return;
+    const bool bossHere = FindNorma() != nullptr;
+    const float psx = W2SX(g_NormaPlayerX), psy = W2SY(g_NormaPlayerY);
+    for (PaneStretch& st : g_Stretches) {
+        const os_pane::Pane* pane = PaneById(st.id);
+        if (!pane || pane->minimized) { st.id = 0; continue; }
+        const auto apply = [&](float k) {
+            const os_pane::Rect r = StretchRect(st, k);
+            os_pane::Resize(st.id, std::round(r.x), std::round(r.y), std::round(r.w), std::round(r.h));
+            return r;
+        };
+        if (!bossHere) { apply(0.0f); st.id = 0; continue; }
+        st.timer += dt;
+        if (st.stage == 0) {
+            if (st.timer < norma::kStretchWarn) continue;
+            st.stage = 1;
+            st.timer = 0.0f;
+            st.playerInside = psx >= st.from.x && psx <= st.from.x + st.from.w &&
+                              psy >= st.from.y && psy <= st.from.y + st.from.h;
+            os_pane::RaiseToFront(st.id);
+            Audio::Play(Audio::Cue::BossOctansRam);
+            continue;
+        }
+        if (st.stage == 1) {
+            const float k = std::clamp(st.timer / norma::kStretchGrow, 0.0f, 1.0f);
+            const os_pane::Rect r = apply(k * k);   // sets off slowly, arrives fast
+            // The side running over the player: hurt, and shoved its way.
+            const bool now = psx >= r.x && psx <= r.x + r.w && psy >= r.y && psy <= r.y + r.h;
+            if (now && !st.playerInside && !st.hitPlayer) {
+                st.hitPlayer = true;
+                const float kx = st.side == 0 ? -1.0f : st.side == 1 ? 1.0f : 0.0f;
+                const float ky = st.side == 2 ? -1.0f : st.side == 3 ? 1.0f : 0.0f;
+                {
+                    space::HurtSourceScope source(space::kUntracked);
+                    HurtPlayer(g_GameManager.playerHP, norma::kStretchDamage, "NORMA_STRETCH");
+                }
+                ApplyPlayerKnockback(kx * norma::kStretchKnock, ky * norma::kStretchKnock);
+                Audio::Play(Audio::Cue::SfxKnockback);
+                SpawnSparks(g_NormaPlayerX, g_NormaPlayerY, 14, 1.0f, 0.40f, 0.34f, 380.0f);
+                Shake(0.25f, 12.0f);
+                TriggerHitStop(0.05f);
+            }
+            st.playerInside = now;
+            if (k >= 1.0f) { st.stage = 2; st.timer = 0.0f; Shake(0.12f, 7.0f); }
+            continue;
+        }
+        if (st.stage == 2) {
+            if (st.timer >= norma::kStretchHold) { st.stage = 3; st.timer = 0.0f; }
+            continue;
+        }
+        const float k = 1.0f - std::clamp(st.timer / norma::kStretchShrink, 0.0f, 1.0f);
+        apply(k);
+        if (k <= 0.0f) st.id = 0;
+    }
+    g_Stretches.erase(std::remove_if(g_Stretches.begin(), g_Stretches.end(),
+        [](const PaneStretch& st) { return st.id == 0; }), g_Stretches.end());
+}
+
+// The side about to shoot out: red brackets at its two corners and two thin
+// lines along the band it will sweep, to the screen edge.
+static bool DrawStretchWarning() {
+    bool any = false;
+    const hud_lines::Rgb red{ 1.0f, 0.30f, 0.26f };
+    for (const PaneStretch& st : g_Stretches) {
+        if (st.stage != 0) continue;
+        any = true;
+        const float k = std::clamp(st.timer / norma::kStretchWarn, 0.0f, 1.0f);
+        const os_pane::Rect& r = st.from;
+        const os_pane::Rect full = StretchRect(st, 1.0f);
+        const float arm = std::min(46.0f, std::min(r.w, r.h) * 0.2f);
+        const float wide = 2.0f + 1.5f * k, a = 0.35f + 0.6f * k, la = 0.18f + 0.45f * k;
+        if (st.side == 0 || st.side == 1) {
+            const float ex = st.side == 1 ? r.x + r.w : r.x;          // the side that moves
+            const float fx = st.side == 1 ? full.x + full.w : full.x; // where it ends
+            const float out = st.side == 1 ? 1.0f : -1.0f;
+            for (const float y : { r.y, r.y + r.h }) {
+                const float in = y == r.y ? 1.0f : -1.0f;
+                PaneSeg(ex, y, ex + out * arm, y, wide, red, a);
+                PaneSeg(ex, y, ex, y + in * arm, wide, red, a);
+                PaneSeg(ex + out * arm, y, fx, y, 1.2f, red, la);
+            }
+        } else {
+            const float ey = st.side == 3 ? r.y + r.h : r.y;
+            const float fy = st.side == 3 ? full.y + full.h : full.y;
+            const float out = st.side == 3 ? 1.0f : -1.0f;
+            for (const float x : { r.x, r.x + r.w }) {
+                const float in = x == r.x ? 1.0f : -1.0f;
+                PaneSeg(x, ey, x, ey + out * arm, wide, red, a);
+                PaneSeg(x, ey, x + in * arm, ey, wide, red, a);
+                PaneSeg(x, ey + out * arm, x, fy, 1.2f, red, la);
+            }
+        }
+    }
+    return any;
+}
+
+// "Not responding": watches for a player who stays put, marks the
 // spot, then pops an error window open on it (norma::kIdleRadius notes).
 static void EndIdlePop() {
     if (g_Idle.id > 0)
@@ -2711,7 +3044,13 @@ static void EndIdlePop() {
     g_Idle = {};
 }
 
-static void TickIdlePop(float dt) {
+static void TickIdlePop(float) {
+    // Runs on game time, not frame time: while play is frozen (the debug
+    // console, a hit-stop) the player cannot move, so the clock must not run
+    // (2026-11-17: three windows hit a player who was typing in the console).
+    static float s_last = -1.0f;
+    const float dt = s_last < 0.0f ? 0.0f : std::clamp(g_GameTime - s_last, 0.0f, 0.1f);
+    s_last = g_GameTime;
     IdlePop& idle = g_Idle;
     const Monster* boss = FindNorma();
     if (!boss) { if (idle.stage != 0 || idle.id != 0 || idle.still > 0.0f) EndIdlePop(); return; }
@@ -2744,12 +3083,14 @@ static void TickIdlePop(float dt) {
     idle.timer += dt;
     if (idle.stage == 1) {
         if (idle.timer < norma::kIdleWarn) return;
-        const os_pane::Rect& p = idle.spot;
-        idle.id = os_pane::Open(p.x, p.y, p.w, p.h);
+        const os_pane::Rect p = idle.spot;
+        // (No window opens for it since 2026-11-23: a red frame bursts out of
+        // the marked spot, drawn in the game.)
         idle.stage = 2;
         idle.timer = 0.0f;
-        if (idle.id <= 0) { g_Idle = {}; return; }
         Audio::Play(Audio::Cue::BossOctansPaneOpen);
+        norma_fx::Frame(ScreenToWorldX(p.x), ScreenToWorldY(p.y), ScreenToWorldX(p.x + p.w),
+                        ScreenToWorldY(p.y + p.h), 60.0f, 0.55f, norma_fx::kRed);
         SpawnSparks(ScreenToWorldX(p.x + p.w * 0.5f), ScreenToWorldY(p.y + p.h * 0.5f), 8, 1.0f, 0.45f, 0.38f, 300.0f);
         norma_fx::Frame(ScreenToWorldX(p.x), ScreenToWorldY(p.y), ScreenToWorldX(p.x + p.w),
                         ScreenToWorldY(p.y + p.h), 26.0f, 0.40f, norma_fx::kRed);
@@ -2774,7 +3115,7 @@ static void TickIdlePop(float dt) {
         }
         return;
     }
-    if (idle.timer >= norma::kIdleStay || !PaneById(idle.id)) EndIdlePop();
+    if (idle.timer >= norma::kIdleStay) EndIdlePop();
 }
 
 // The spot about to get the "not responding" window: red corner brackets (the
@@ -3309,7 +3650,7 @@ static void ApplyPaneAbsorbs() {
         os_pane::SetWear(p.id, left, FuseOf(p.id) != nullptr);
         // The job a pattern gives this pane shows as a system dialog.
         bool wall = false;
-        for (const WallPane& w : g_Wall.panes) wall = wall || (g_Wall.active && w.id == p.id);
+        for (const WallPane& w : g_Wall.panes) wall = wall || (g_Wall.active && g_Wall.stage < 2 && w.id == p.id);
         if (CrashSafePane(p.id)) {
             // TickCrash keeps the safe-mode dialog's count.
         } else if (g_NormaCountdown.id == p.id && p.id != 0) {
@@ -3318,7 +3659,7 @@ static void ApplyPaneAbsorbs() {
             const float total = (float)(norma::kThrowRing + norma::kThrowInner);
             const float share = g_ThrowBox.stage == 0 ? std::min(1.0f, g_ThrowBox.timer / norma::kThrowFill) : 1.0f;
             os_pane::SetRole(p.id, os_pane::PaneRole::Copy, std::floor(total * share), total);
-        } else if (wall || (g_Idle.id == p.id && p.id != 0)) {
+        } else if (wall) {
             os_pane::SetRole(p.id, os_pane::PaneRole::Error);
         } else {
             os_pane::SetRole(p.id, os_pane::PaneRole::Plain);
@@ -3351,7 +3692,7 @@ static void TickPaneFuses(float dt) {
         g_DetonateLit.erase(it);
         Monster* boss = FindNorma();
         if (!boss || boss->normaInvuln > 0.0f || boss->normaHidden) return;
-        if (++g_DetonateDefused != norma::kDefuseCount) return;
+        if (++g_DetonateDefused != std::max(1, g_DetonateNeed)) return;
         boss->normaExposed = std::max(boss->normaExposed, norma::kDefuseExpose);
         norma::g_Events.push_back({ norma::Fx::Burst, boss->worldX, boss->worldY, 1.0f });
         SpawnSparks(boss->worldX, boss->worldY, 16, 0.92f, 0.99f, 1.0f, 360.0f);
@@ -4600,7 +4941,7 @@ int main() {
     const auto debugSpawnMob = [&](int mobKind, int count) {
         if ((mobKind < 0 || mobKind > (int)MobKind::MAGNETAR) &&
             mobKind != (int)MobKind::LYNX && mobKind != (int)MobKind::MIRA &&
-            mobKind != (int)MobKind::TRIANGULUM) return 0;
+            mobKind != (int)MobKind::TRIANGULUM && mobKind != (int)MobKind::HOROLOGIUM) return 0;
         int spawned = 0;
         for (int i = 0; i < count; ++i) {
             const size_t before = g_MonsterManager.monsters.size();
@@ -4923,6 +5264,7 @@ int main() {
             TickPaneRam(delta);
             TickPaneWall(delta);
             TickIdlePop(delta);
+            TickPaneStretch(delta);
             TickPaneWarp(delta);
             TickPhaseSpray(delta);
             TickCrash(delta);
@@ -5875,7 +6217,7 @@ int main() {
                         // player, for capturing a specific enemy's visuals.
                         const int kind = std::atoi(step.c_str() + 6);
                         const size_t before = g_MonsterManager.monsters.size();
-                        if ((kind >= 0 && kind <= (int)MobKind::MAGNETAR) || kind == (int)MobKind::LYNX || kind == (int)MobKind::MIRA || kind == (int)MobKind::TRIANGULUM)
+                        if ((kind >= 0 && kind <= (int)MobKind::MAGNETAR) || kind == (int)MobKind::LYNX || kind == (int)MobKind::MIRA || kind == (int)MobKind::TRIANGULUM || kind == (int)MobKind::HOROLOGIUM)
                             g_MonsterManager.SpawnMob(screenWidth, screenHeight, 160);
                         if (g_MonsterManager.monsters.size() > before) {
                             Monster* mob = g_MonsterManager.monsters.back();
@@ -6023,6 +6365,7 @@ int main() {
                                                        : arg == "WARP" ? norma::Pattern::Warp
                                                        : arg == "REFUGE" ? norma::Pattern::Refuge
                                                        : arg == "CRASH" ? norma::Pattern::Crash
+                                                       : arg == "STRETCH" ? norma::Pattern::Stretch
                                                        : norma::Pattern::None;
                                 if (arg == "PANES") norma::g_Asks.push_back(norma::Ask::ReopenPanes);
                                 if (p != norma::Pattern::None) boss->StartNormaPattern(p);
@@ -6506,11 +6849,27 @@ int main() {
                     playerWin.x, playerWin.y,
                     mv.up, mv.down, mv.left, mv.right,
                     playerControl, MOVE_SPEED * g_Stats.moveSpeedMult *
-                        caelum::MoveFactor() * mira::MoveFactor(),   // weakened by corruption
+                        caelum::MoveFactor() * mira::MoveFactor() *   // weakened by corruption
+                        horologium::MoveFactor(),                     // HOROLOGIUM freeze / tempo
                     FIXED_DT, g_PlayerRuntime.dashActive, mvX, mvY);
                 // CAELUM's siphon draws the player toward its body while it drinks.
                 playerWin.x += caelum::g.pullX * FIXED_DT;
                 playerWin.y += caelum::g.pullY * FIXED_DT;
+                // HOROLOGIUM recall: pulled back onto the mark (centre on it).
+                {
+                    float rx, ry;
+                    if (horologium::TakeRecall(rx, ry)) {
+                        // A brass streak along the way it was pulled back.
+                        const float fx = playerWin.x + playerWin.width * 0.5f, fy = playerWin.y + playerWin.height * 0.5f;
+                        const float dx = rx - fx, dy = ry - fy, len = std::sqrt(dx * dx + dy * dy);
+                        if (len > 1.0f)
+                            for (int k = 0; k <= 8; ++k)
+                                SpawnTrail(fx + dx * (float)k / 8.0f, fy + dy * (float)k / 8.0f,
+                                           dx / len, dy / len, 0.97f, 0.58f, 0.40f);
+                        playerWin.x = rx - playerWin.width * 0.5f;
+                        playerWin.y = ry - playerWin.height * 0.5f;
+                    }
+                }
                 if (playerControl && mlen > 0.001f && !g_PlayerRuntime.dashActive) {
                     // ?�동 ?�상(afterimage) ???�정 간격?�로 ?�레?�어 중심???��? ?�안 ?�상
                     static float s_trailAcc = 0.0f;
@@ -7399,6 +7758,7 @@ CollisionSystem::Update(pCX, pCY,
                 ? spaceBaseAlpha * 0.35f : spaceBaseAlpha;
         };
         DrawMiraZones();   // under the bodies, so the cores stay readable
+        DrawAntaresWake(); // nightmare Antares wake, also under the bodies
         // Lynx aim lines first, apart from the bodies: a telegraph must stay
         // readable under the Regulus stealth buff.
         for (auto m : g_MonsterManager.monsters) {

@@ -24,6 +24,8 @@
 // ─────────────────────────────────────────────────────────────
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <utility>
 #include <vector>
 
 namespace norma {
@@ -77,6 +79,15 @@ constexpr float kRefugeWaveInterval = 0.6f;
 constexpr int   kRefugeShots = 30;
 constexpr float kRefugeShotSpeed = 290.0f;
 constexpr float kRefugeLinger = 1.0f;       // pause before the next pattern
+// Each flood ring is turned so one shot runs dead on the player (and every
+// wave carries the slower inner ring), so no spot outside a shelter stays
+// between the lanes: standing in the open is hit by every wave (was a fixed
+// half-step turn until 2026-11-17, which left lanes a still player was never
+// hit in).
+// Shelter hop: kRefugeHopAt into the flood, the shelter the player stands in
+// is lit to blow (the usual fuse) and another pane is brought within reach:
+// the player has to cross the flood to it instead of waiting the flood out.
+constexpr float kRefugeHopAt = 1.2f;
 // 12 Detonate: the panes in use are shut down on purpose (their fuse, see
 // space::kFuseSeconds), then the boss opens new ones.
 constexpr float kDetonateFuseWait = 1.8f;   // fuse plus a beat for the panes to fold shut
@@ -99,12 +110,27 @@ constexpr float kCloseMobDamage = 200.0f;   // to mobs left inside
 constexpr float kAimTelegraph = 0.8f;
 constexpr float kAimSeconds = 3.5f;
 constexpr float kAimStreamInterval = 0.11f;
-constexpr float kAimStreamSpeed = 500.0f;
+constexpr float kAimStreamSpeed = 600.0f;      // was 500 until 2026-11-17
 constexpr float kAimTrackTelegraph = 4.0f;  // rad/s while warning
 constexpr float kAimTrackRate = 1.8f;       // rad/s while firing
-constexpr float kAimJitter = 0.04f;         // rad, alternating
+// 0.04 until 2026-11-17: at the hover distance that was 17 px either side, and
+// a played fight dodged every stream by stepping aside a little at a time.
+// 0.10 is about 42 px either side: clearing the stream takes a real move.
+constexpr float kAimJitter = 0.10f;         // rad, alternating
 constexpr float kAimMuzzle = 1.8f;          // muzzle star distance, in body units (base)
 constexpr float kAimDrill = 1.6f;           // rad/s the cube turns about the aim while firing
+// The cut: kAimCutAt into the stream (and again at kAimCutAt2 from act 3) a
+// fan of kAimCutShots shots leaves at once, aimed ahead of where the
+// player is walking: at the spot they reach when the fan does (kAimCutLead 1 =
+// the true meeting point). Walking one way the whole stream runs into it: the
+// player has to turn back once. (Until 2026-11-17 it led 1.8 times over with
+// slower shots, about 600 px ahead: only a dash ever reached it.)
+constexpr float kAimCutAt = 1.4f, kAimCutAt2 = 2.6f;
+constexpr int   kAimCutShots = 9;
+constexpr float kAimCutGap = 0.045f;        // rad between the fan's shots (0.075 let a walking player through, 2026-11-17 smoke)
+constexpr float kAimCutLead = 1.0f;
+constexpr float kAimCutSpeed = 600.0f;        // the stream's own speed
+constexpr float kAimCutMinSpeed = 60.0f;    // px/s: a player slower than this gets no cut (the stream has them)
 
 // 8 Throw: the box grows out of the boss's body to its spot (kThrowAppear),
 // opens there, sits while it fills, flies at where the player
@@ -208,9 +234,25 @@ constexpr float kWallMinH = 200.0f, kWallMaxH = 400.0f;
 constexpr float kWallMaxShareW = 0.45f, kWallMaxShareH = 0.5f;
 constexpr float kWallSpread = 200.0f, kWallJitter = 60.0f;
 constexpr float kWallWarn = 1.2f;           // red brackets mark the footprints before any pane opens
-constexpr float kWallStand = 2.5f;          // seconds the wall stays up before it is lit
+// 2026-11-23 (the wall is made of the boss's own panes now): a pane keeps its own
+// colour while it glides to its spot and reddens only kWallRedden before it
+// locks; no spot is marked within kWallClear px of where the player stands.
+constexpr float kWallRedden = 0.35f;
+// Let go: the red drains out and the pane glides back to where it stood
+// before the wall, over this long (the Refuge pull's time). Not solid meanwhile.
+constexpr float kWallRelease = 0.8f;
+constexpr float kWallClear = 90.0f;         // screen px
+constexpr float kWallStand = 1.5f;          // seconds the wall stays up before it is lit (was 2.5 until 2026-11-17)
 constexpr float kWallBuildSeconds = 1.0f;   // the boss's telegraph
-constexpr float kWallSeconds = 4.5f;        // the boss's share of the pattern
+constexpr float kWallSeconds = 3.5f;        // the boss's share of the pattern (was 4.5 until 2026-11-17)
+// The boss does not hold fire behind its wall: from kWallStreamFrom into the
+// stand it fires a slow aimed stream. The wall's panes stop those shots like
+// any others, so the wall is cover as well as a barricade. A wall pane the
+// player shoots to pieces folds away without its burst (main.cpp).
+constexpr float kWallHitWear = 12.0f;       // a player shot wears a wall pane this many hits' worth
+constexpr float kWallStreamFrom = 0.9f;
+constexpr float kWallStreamInterval = 0.20f;
+constexpr float kWallStreamSpeed = 400.0f;
 inline int WallCountFor(int phase, int difficulty) {
     return (phase >= 2 ? kWallCountPhase2 : kWallCount) +
            kWallCountByDifficulty[difficulty < 0 ? 0 : difficulty > 3 ? 3 : difficulty];
@@ -235,7 +277,7 @@ constexpr float kWarpStreamDelay = 0.45f;
 constexpr float kWarpStreamInterval = 0.22f;
 constexpr float kWarpStreamSpeed = 420.0f;
 constexpr float kWarpTremble = 7.0f;
-constexpr float kWarpExpose = 1.2f;         // open after smashing out
+constexpr float kWarpExpose = 2.5f;          // was 1.2 until 2026-11-17         // open after smashing out
 constexpr float kWarpDamage = 25.0f;
 constexpr float kWarpKnock = 260.0f;        // world px of shove
 constexpr float kWarpBurstShare = 0.5f;     // share of a thrown box's load
@@ -265,11 +307,11 @@ constexpr float kCrashBlue = 1.1f;          // the blue screen, with its progres
 constexpr float kCrashCrack = 0.45f;        // cracks spreading over it
 constexpr float kCrashShatter = 0.55f;      // its shards flying off
 constexpr float kCrashSafeLinger = 0.8f;
-constexpr float kCrashExpose = 2.0f;
+constexpr float kCrashExpose = 2.5f;   // was 2.0 until 2026-11-17
 constexpr float kCrashDamage = 45.0f;
 constexpr float kCrashMobDamage = 300.0f;
 constexpr float kCrashKnock = 260.0f;       // world px of shove, away from the safe pane
-constexpr int   kCrashPanes[4] = { 14, 14, 14, 14 };   // EASY, NORMAL, HARD, NIGHTMARE
+constexpr int   kCrashPanes[4] = { 10, 10, 10, 10 };   // was 14 each until 2026-11-23 (fewer windows popping at once)   // EASY, NORMAL, HARD, NIGHTMARE
 constexpr int   kCrashOpenPerFrame = 4;     // OS window creation is spread over frames
 constexpr float kCrashMinW = 240.0f, kCrashMaxW = 420.0f;
 constexpr float kCrashMinH = 150.0f, kCrashMaxH = 260.0f;
@@ -277,6 +319,35 @@ constexpr float kCrashSafeW = 400.0f, kCrashSafeH = 250.0f;
 inline int CrashPanesFor(int difficulty) { return kCrashPanes[difficulty < 0 ? 0 : difficulty > 3 ? 3 : difficulty]; }
 // Raised by the game loop as the blue screen shatters: the boss turns open.
 inline bool g_CrashOver = false;
+
+// Acts: the fight in four stretches of HP, split at the phase gates and the
+// phase change (75 / 50 / 25%). Act 1 is the plain patterns; each later act
+// adds to them (Docs/Plans/2026-11-17_보스전_15분_집중도.md).
+inline int ActFor(float hp, float maxHp) {
+    if (maxHp <= 0.0f) return 1;
+    const float share = hp / maxHp;
+    return share > 0.75f ? 1 : share > 0.50f ? 2 : share > 0.25f ? 3 : 4;
+}
+
+// "Not responding" (every act, always on; from act 1 since 2026-11-17, when a
+// played fight showed act 1 took 43 damage in two minutes): a player who stays within
+// kIdleRadius of one spot for IdleSecondsFor(act) gets an error window there:
+// red brackets mark it for kIdleWarn, then the pane pops open on the spot,
+// hurting and throwing out whoever is still in it (the wall's hit), stands
+// kIdleStay and folds away. Standing still is itself a threat. Off while the
+// boss is open (the opening is for standing and shooting), during Refuge and
+// the blue screen (both ask the player to hold a spot).
+constexpr float kIdleRadius = 120.0f;       // world px
+constexpr float kIdleSecondsFirst = 3.5f, kIdleSeconds = 2.5f, kIdleSecondsLate = 1.8f;   // act 1, acts 2-3, act 4
+constexpr float kIdleWarn = 1.0f;
+constexpr float kIdleStay = 0.8f;
+constexpr float kIdleW = 300.0f, kIdleH = 220.0f;   // screen px
+inline float IdleSecondsFor(int act) { return act <= 1 ? kIdleSecondsFirst : act >= 4 ? kIdleSecondsLate : kIdleSeconds; }
+
+// Lit panes (Detonate) the player shuts in time are worth an opening: at
+// kDefuseCount of one batch closed before they blow, the boss is left open.
+constexpr int   kDefuseCount = 2;
+constexpr float kDefuseExpose = 1.5f;
 
 // Panes belong to patterns: Detonate blows the boss's panes and opens
 // fresh ones, and Refuge opens one when none is near; nothing opens them on a clock. The
@@ -297,8 +368,8 @@ constexpr float kPaneHopMove = 0.5f;
 
 // Opening to hit the boss: when a rammed pane hits the screen edge it holds
 // still, exposed, taking extra damage.
-constexpr float kExposeAfterRam = 2.0f;
-constexpr float kExposeDamage = 1.5f;
+constexpr float kExposeAfterRam = 2.5f;   // was 2.0 until 2026-11-17
+constexpr float kExposeDamage = 2.0f;     // was 1.5 until 2026-11-17 (worth aiming for)
 
 // Laser flash and bracket snap when the boss claims or opens a pane.
 constexpr float kLaserSeconds = 0.25f;
@@ -307,14 +378,33 @@ constexpr float kSnapGrow = 0.6f;           // brackets start 1.6x and close in
 
 enum class Pattern { None = 0, Refuge = 2, CloseWindow = 3, Aim = 7,
                      Throw = 8, Ram = 10, Detonate = 12, Wall = 13, Warp = 14,
-                     Reinforce = 15, Crash = 16 };
+                     Reinforce = 15, Crash = 16, Stretch = 18 };
 enum class Stage { Recover, Wait, Telegraph, Act, Exit };
+
+// Pattern name for the balance log (System/GameLog.h).
+inline const char* PatternName(Pattern p) {
+    switch (p) {
+    case Pattern::Refuge:      return "REFUGE";
+    case Pattern::CloseWindow: return "CLOSE_WINDOW";
+    case Pattern::Aim:         return "AIM";
+    case Pattern::Throw:       return "THROW";
+    case Pattern::Ram:         return "RAM";
+    case Pattern::Detonate:    return "DETONATE";
+    case Pattern::Wall:        return "WALL";
+    case Pattern::Warp:        return "WARP";
+    case Pattern::Reinforce:   return "REINFORCE";
+    case Pattern::Crash:       return "CRASH";
+    case Pattern::Stretch:     return "STRETCH";
+    default:                   return "NONE";
+    }
+}
 
 // Requests from the boss to the game loop, served once per frame.
 enum class Ask { OpenRefuges, ClosePlayerWindow, ReleaseWindows,
                  ThrowBox, RamWindow, DetonatePanes,
-                 ReopenPanes, BuildWall, WarpPlan, WarpSmash,
-                 PhaseBlow, PhaseSpray, CrashStart };
+                 ReopenPanes, BuildWall, WarpPlan, WarpSmash, RefugeHop,
+                 PhaseBlow, PhaseSpray, CrashStart,
+                 DetonateSome, StretchPane };
 inline std::vector<Ask> g_Asks;
 
 // Effect cues from the boss; the game loop turns them into shockwaves,
@@ -405,32 +495,121 @@ inline float HoverSpeedSmooth(float distance) {
     return (edge >= 0.0f ? 1.0f : -1.0f) * eased * kMoveSpeed;
 }
 
-// The pattern after `count` earlier ones: window patterns on even turns,
-// the aimed stream on odd ones (the boss is built around its panes). CloseWindow
-// joins the window pool in phase 2.
-inline Pattern NextPattern(int count, int phase, int roll, Pattern last = Pattern::None) {
-    const int r = roll < 0 ? -roll : roll;
-    if (phase >= 2 && count % 9 == 6) return Pattern::Crash;   // the blue screen, now and then
-    if (count % 4 == 3) return Pattern::Aim;   // the stream is the exception, not every other turn
-    const int windowKinds = phase >= 2 ? 7 : 5;
-    const auto kind = [&](int k) {
-        switch (k % windowKinds) {
-        case 0:  return Pattern::Refuge;
-        case 1:  return Pattern::Throw;
-        case 2:  return Pattern::Ram;
-        case 3:  return Pattern::Detonate;
-        case 4:  return Pattern::Wall;
-        case 5:  return Pattern::Warp;
-        default: return Pattern::CloseWindow;
-        }
+// ── The boss's panes: refilled in a batch, lit a few at a time (2026-11-23) ──
+// Panes used to be opened one by one whenever the boss was short, often a
+// second after one had closed (tiring to watch). Now:
+//   refill   when the boss is kRefillShort or more below its count as a
+//            pattern starts, it opens the missing ones, kRefillMax at most,
+//            one every kRefillStagger: a batch that reads as one event
+//   partial  with two or more standing and a pattern that needs none of them
+//            (the stream, the thrown box), every other time one or two are lit
+//            to blow (PartialCountFor): the one the player shelters in or
+//            behind first. A refill replaces them later
+// (A full cycle of deploy, purge and a bare stretch was tried the same day and
+// taken out again: the user did not want it.)
+constexpr int   kRefillShort = 2;
+constexpr int   kRefillMax = 3;
+constexpr float kRefillStagger = 0.7f;      // between one pane opening and the next
+// A batch does not start until this long after the last pane closed, so a
+// window never opens the moment another has gone (the game loop waits).
+constexpr float kRefillAfterClose = 2.0f;
+// How many panes to open now; 0: none. paneCount < 0 (unknown): none.
+inline int RefillCount(int paneCount, int phase) {
+    if (paneCount < 0) return 0;
+    const int missing = MaxBossPanesFor(phase) - paneCount;
+    return missing >= kRefillShort ? std::min(missing, kRefillMax) : 0;
+}
+inline int PartialCountFor(int act) { return act >= 3 ? 2 : 1; }
+
+// 18 Stretch: one side of a pane shoots out to the screen edge, stands a
+// moment and draws back; the pane itself never closes. Brackets on that side
+// and two thin lines along the sweep warn for kStretchWarn. The growing side
+// hurts and shoves whoever it runs over (the wall's numbers); inside the pane
+// is safe. NOT IN THE DECK (2026-11-23: built, then left out when the pane
+// cycle was removed); it only runs from the smoke step NORMATEST=STRETCH.
+constexpr float kStretchWarn = 0.8f;
+constexpr float kStretchGrow = 0.6f, kStretchHold = 0.5f, kStretchShrink = 0.6f;
+constexpr float kStretchDamage = 20.0f;
+constexpr float kStretchKnock = 260.0f;
+inline int StretchCountFor(int act) { return act >= 3 ? 2 : 1; }
+inline float StretchSeconds() { return kStretchGrow + kStretchHold + kStretchShrink; }
+
+// How many of its own panes a pattern needs to run at all.
+inline int PanesNeeded(Pattern p) {
+    switch (p) {
+    case Pattern::Refuge: case Pattern::Ram: case Pattern::Stretch: case Pattern::CloseWindow: return 1;
+    case Pattern::Wall: case Pattern::Warp: return 2;
+    default: return 0;
+    }
+}
+// paneCount < 0: unknown, anything goes.
+inline bool CanRun(Pattern p, int paneCount) { return paneCount < 0 || paneCount >= PanesNeeded(p); }
+// With nothing in the hand that can run: the stream and the thrown box take turns.
+inline Pattern BarePattern(Pattern last) { return last == Pattern::Aim ? Pattern::Throw : Pattern::Aim; }
+
+// The pattern deck: each phase's patterns are a hand of cards, shuffled and
+// dealt out one by one; when the hand is spent it is shuffled again. So every
+// pattern shows once per round in a new order, and none comes back within two
+// turns. A card whose pattern cannot run with the panes left (PanesNeeded)
+// waits in the hand for a later turn.
+//   acts 1, 2  Refuge, Throw, Ram, Wall, Aim
+//   acts 3, 4  + Warp, CloseWindow (phase 2)
+// The blue screen is not in the deck: it is the 25% gate's pattern only.
+// Detonate and Reinforce are not turns of their own.
+struct Deck {
+    Pattern cards[7] = {};
+    int n = 0, pos = 0, phase = 0;   // phase: the act this hand was dealt for
+    Pattern prev = Pattern::None;   // the pattern before the last one (kept by the boss)
+};
+inline Deck g_Deck;
+inline int DeckCards(int act, Pattern* out) {
+    static constexpr Pattern kAll[] = { Pattern::Refuge, Pattern::Throw, Pattern::Ram, Pattern::Wall, Pattern::Aim,
+                                        Pattern::Warp, Pattern::CloseWindow };
+    const int n = act >= 3 ? 7 : 5;
+    for (int i = 0; i < n; ++i) out[i] = kAll[i];
+    return n;
+}
+// roll: a source of random ints (rand by default; tests pass their own).
+// paneCount: the boss's panes now (-1: not known, every card can run).
+inline Pattern DrawPattern(Deck& d, int act, Pattern last = Pattern::None,
+                           Pattern last2 = Pattern::None, int (*roll)() = nullptr, int paneCount = -1) {
+    const auto r = [&]() { const int v = roll ? roll() : rand(); return v < 0 ? -v : v; };
+    // A hand is dealt for acts 1-2 or for acts 3-4: crossing 75% or 25% keeps the hand.
+    const int key = act >= 3 ? 3 : 1;
+    const auto deal = [&]() {
+        d.n = DeckCards(act, d.cards);
+        d.pos = 0;
+        d.phase = key;
+        for (int i = d.n - 1; i > 0; --i) std::swap(d.cards[i], d.cards[r() % (i + 1)]);
     };
-    // Short of panes: open more. All panes up: blow them (every other time).
-    if (g_PaneCount >= 0 && last != Pattern::Reinforce && g_PaneCount <= kReinforceBelow && r % 3 != 0)
-        return Pattern::Reinforce;
-    if (g_PaneCount >= MaxBossPanesFor(phase) && last != Pattern::Detonate && r % 2 == 0)
-        return Pattern::Detonate;
-    // Never the same window pattern twice running.
-    return kind(r) == last ? kind(r + 1) : kind(r);
+    // The next card in the hand that can run and is not one of the last two
+    // played comes to the front; failing that, any that can run.
+    const auto pick = [&]() {
+        for (int pass = 0; pass < 2; ++pass)
+            for (int i = d.pos; i < d.n; ++i) {
+                const Pattern c = d.cards[i];
+                if (!CanRun(c, paneCount)) continue;
+                if (pass == 0 && (c == last || c == last2)) continue;
+                std::swap(d.cards[d.pos], d.cards[i]);
+                return true;
+            }
+        return false;
+    };
+    if (d.pos >= d.n || d.phase != key) deal();
+    if (!pick()) {          // nothing left in the hand can run: a new hand
+        deal();
+        if (!pick()) return BarePattern(last);
+    }
+    return d.cards[d.pos++];
+}
+
+// What the boss does with its panes as `next` starts (when it is not
+// refilling): see "partial" above.
+enum class Tail { None, Partial };
+inline Tail TailFor(Pattern next, int paneCount, int roll) {
+    if (paneCount < 2) return Tail::None;
+    const bool free = next == Pattern::Aim || next == Pattern::Throw;
+    return free && (roll < 0 ? -roll : roll) % 2 == 0 ? Tail::Partial : Tail::None;
 }
 
 } // namespace norma

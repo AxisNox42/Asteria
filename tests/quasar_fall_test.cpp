@@ -160,6 +160,7 @@ int main() {
             assert(glm::length(q.QuasarFallPosition(i,end)-target) < 0.001f);
         }
         const int fired=q.quasarFallFired;
+        q.gatesPassed = phase_gate::kEliteGateCount;   // past its phase gates: one hit kills
         q.ApplyDamage(100000);
         Tick(q,{600,400},10,hp);
         assert(!q.QuasarFalling() && q.quasarFallFired==fired && hp==100);
