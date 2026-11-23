@@ -240,7 +240,7 @@ static void RememberOffer(GameManager& gm) {
 // nothing Rare or better, one slot is Rare or better for sure (and the shop's First
 // Card Boon does the same for the run's first pick).
 void GameManager::PickRewardChoices() {
-    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    for (int i = 0; i < kAugChoiceMax; i++) { augChoices[i] = -1; augChoiceBranch[i] = -1; }
     augChoiceCount = 0;
     bool used[AUG_TOTAL] = {};
     bool recent[AUG_TOTAL] = {};
@@ -304,20 +304,45 @@ void GameManager::PickRewardChoices() {
 
 // Wave clear: up to five owned cards that can still go up a stage, the last one
 // upgraded always among them.
-void GameManager::PickUpgradeChoices() {
-    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
-    augChoiceCount = 0;
-    std::vector<int> cands;
+// Wave clear: three upgrade offers, each one branch of an owned card (RewardRules.h).
+static std::vector<reward::UpgradeOffer> OpenUpgradeOffers() {
+    std::vector<reward::UpgradeOffer> all;
     for (int i = 0; i < AUG_TOTAL; ++i)
-        if (syn::CanUpgrade(i)) cands.push_back(i);
-    const std::vector<int> picked = reward::PickUpgradeCards(cands, lastUpgraded,
-                                                             std::min((int)kAugChoiceMax, reward::kUpgradeChoices), RollN);
-    for (const int a : picked) augChoices[augChoiceCount++] = a;
+        for (int b = 0; b < 3; ++b)
+            if (syn::CanTakeBranch(i, b)) all.push_back({ i, b });
+    return all;
+}
+
+void GameManager::SetUpgradeOffers(const std::vector<reward::UpgradeOffer>& offers) {
+    for (int i = 0; i < kAugChoiceMax; i++) { augChoices[i] = -1; augChoiceBranch[i] = -1; }
+    augChoiceCount = 0;
+    for (const reward::UpgradeOffer& o : offers) {
+        if (augChoiceCount >= kAugChoiceMax) break;
+        augChoices[augChoiceCount] = o.card;
+        augChoiceBranch[augChoiceCount] = o.branch;
+        ++augChoiceCount;
+    }
+}
+
+void GameManager::PickUpgradeChoices() {
+    SetUpgradeOffers(reward::PickUpgradeOffers(OpenUpgradeOffers(), lastUpgraded,
+                                               std::min((int)kAugChoiceMax, reward::kUpgradeChoices), RollN));
+}
+
+// A reroll can show something new: an open branch that is not on screen now.
+bool GameManager::CanRerollUpgrade() const {
+    if (!ActiveIsUpgrade() || upgradeRerollsLeft <= 0) return false;
+    for (const reward::UpgradeOffer& o : OpenUpgradeOffers()) {
+        bool shown = false;
+        for (int k = 0; k < augChoiceCount; ++k) shown = shown || (augChoices[k] == o.card && augChoiceBranch[k] == o.branch);
+        if (!shown) return true;
+    }
+    return false;
 }
 
 // Run start: three frames.
 void GameManager::PickFrameChoices() {
-    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    for (int i = 0; i < kAugChoiceMax; i++) { augChoices[i] = -1; augChoiceBranch[i] = -1; }
     augChoiceCount = 0;
     syn::SetFramePick(true);
     int pool[AUG_TOTAL], n = 0;
@@ -332,7 +357,7 @@ void GameManager::PickFrameChoices() {
 }
 
 void GameManager::PickStatChoices() {
-    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    for (int i = 0; i < kAugChoiceMax; i++) { augChoices[i] = -1; augChoiceBranch[i] = -1; }
     augChoiceCount = 0;
     int pool[AUG_TOTAL], n = 0;
     // Glass Cannon fixes max HP at 30: Max HP Up would do nothing there.
@@ -361,34 +386,23 @@ void GameManager::QueueFramePick() {
 }
 
 bool GameManager::RerollUpgrade() {
-    if (!ActiveIsUpgrade() || upgradeRerollsLeft <= 0) return false;
-    // Five fresh cards where there are enough; the kept card stays (it is always offered).
-    int shown[kAugChoiceMax];
-    const int shownCount = augChoiceCount;
-    for (int i = 0; i < shownCount; ++i) shown[i] = augChoices[i];
-    std::vector<int> fresh, all;
-    for (int i = 0; i < AUG_TOTAL; ++i) {
-        if (!syn::CanUpgrade(i)) continue;
-        all.push_back(i);
+    if (!CanRerollUpgrade()) return false;
+    // New offers first; the ones on screen only fill what is left.
+    std::vector<reward::UpgradeOffer> fresh, shown;
+    for (const reward::UpgradeOffer& o : OpenUpgradeOffers()) {
         bool was = false;
-        for (int k = 0; k < shownCount; ++k) was = was || shown[k] == i;
-        if (!was) fresh.push_back(i);
+        for (int k = 0; k < augChoiceCount; ++k) was = was || (augChoices[k] == o.card && augChoiceBranch[k] == o.branch);
+        (was ? shown : fresh).push_back(o);
     }
-    if (all.size() <= (size_t)shownCount && fresh.empty()) return false;   // nothing else to show
-    std::vector<int> picked = reward::PickUpgradeCards(fresh, lastUpgraded, reward::kUpgradeChoices, RollN);
-    // Too few fresh cards: fill with the ones shown before.
-    for (int k = 0; k < shownCount && (int)picked.size() < reward::kUpgradeChoices; ++k)
-        if (std::find(picked.begin(), picked.end(), shown[k]) == picked.end()) picked.push_back(shown[k]);
-    if (lastUpgraded >= 0 && syn::CanUpgrade(lastUpgraded) &&
-        std::find(picked.begin(), picked.end(), lastUpgraded) == picked.end()) {
-        if ((int)picked.size() >= reward::kUpgradeChoices) picked.back() = lastUpgraded;
-        else picked.push_back(lastUpgraded);
+    std::vector<reward::UpgradeOffer> picked = reward::PickUpgradeOffers(fresh, lastUpgraded, reward::kUpgradeChoices, RollN);
+    while ((int)picked.size() < reward::kUpgradeChoices && !shown.empty()) {
+        const int j = RollN((int)shown.size());
+        picked.push_back(shown[(size_t)j]);
+        shown.erase(shown.begin() + j);
     }
     --upgradeRerollsLeft;
-    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
-    augChoiceCount = 0;
-    for (const int a : picked) if (augChoiceCount < kAugChoiceMax) augChoices[augChoiceCount++] = a;
-    gamelog::Event("AUG_REROLL", "cards=%d,rerolls_left=%d", augChoiceCount, upgradeRerollsLeft);
+    SetUpgradeOffers(picked);
+    gamelog::Event("AUG_REROLL", "offers=%d,rerolls_left=%d", augChoiceCount, upgradeRerollsLeft);
     ResetCardScreenAfterReroll();
     return true;
 }
@@ -448,7 +462,7 @@ bool GameManager::ActivateNextAugmentReward() {
             cards += d.name;
             cards += ":";
             cards += AugRarityName(d.rarity);
-            if (activeRewardKind == RewardKind::Upgrade) { cards += ":S"; cards += std::to_string(syn::Stage(augChoices[i])); }
+            if (activeRewardKind == RewardKind::Upgrade) { cards += ":"; cards += "ABC"[std::clamp(augChoiceBranch[i], 0, 2)]; }
         }
         static const char* const kKind[3] = { "level_up", "wave_upgrade", "run_frame" };
         gamelog::Event("AUG_OFFER", "reward=%s,cards=%s,level=%d,pending_new=%d,pending_up=%d",
@@ -477,7 +491,7 @@ void GameManager::ClearAugmentRewardQueue() {
     levelUpTransition.Cancel();
     augmentRewardActive = false;
     augChoiceCount = 0;
-    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    for (int i = 0; i < kAugChoiceMax; i++) { augChoices[i] = -1; augChoiceBranch[i] = -1; }
     augmentKeyboardFocus = false;
 }
 

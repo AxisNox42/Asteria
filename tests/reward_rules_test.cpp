@@ -5,6 +5,8 @@
 #include "SynergyUpgrade.h"
 
 #include <cmath>
+#include <cwchar>
+#include <cwctype>
 #include <cstdio>
 #include <cstdlib>
 #include <random>
@@ -71,19 +73,24 @@ int main() {
     {
         std::mt19937 rng(3);
         auto roll = [&](int n) { return (int)(rng() % (unsigned)n); };
-        std::vector<int> cands = { 10, 11, 12, 13, 14, 15, 16, 17 };
-        for (int k = 0; k < 200; ++k) {
-            const std::vector<int> got = PickUpgradeCards(cands, 15, kUpgradeChoices, roll);
-            EXPECT((int)got.size() == kUpgradeChoices, "five cards when there are enough");
-            EXPECT(std::set<int>(got.begin(), got.end()).size() == got.size(), "no card twice");
-            bool kept = false;
-            for (int a : got) kept = kept || a == 15;
-            EXPECT(kept, "the last upgraded card is always offered");
+        // One card, three branches open: all three show (the first wave's single card).
+        const std::vector<UpgradeOffer> one = PickUpgradeOffers({ { 7, 0 }, { 7, 1 }, { 7, 2 } }, -1, kUpgradeChoices, roll);
+        EXPECT(one.size() == 3, "a single card shows its three branches");
+        // Many cards: three offers, no offer twice, at most two per card, the last card kept.
+        std::vector<UpgradeOffer> many;
+        for (int c = 10; c < 16; ++c) for (int b = 0; b < 3; ++b) many.push_back({ c, b });
+        for (int k = 0; k < 300; ++k) {
+            const std::vector<UpgradeOffer> got = PickUpgradeOffers(many, 12, kUpgradeChoices, roll);
+            EXPECT((int)got.size() == kUpgradeChoices, "three offers when there are enough");
+            std::set<int> keys; int per[32] = {}; bool kept = false;
+            for (const UpgradeOffer& o : got) { keys.insert(o.card * 4 + o.branch); ++per[o.card]; kept = kept || o.card == 12; }
+            EXPECT(keys.size() == got.size(), "no offer twice");
+            for (int c = 10; c < 16; ++c) EXPECT(per[c] <= kMaxOffersPerCard, "at most two branches of one card");
+            EXPECT(kept, "a branch of the last upgraded card is offered");
         }
-        const std::vector<int> few = PickUpgradeCards({ 4, 5 }, -1, kUpgradeChoices, roll);
-        EXPECT(few.size() == 2, "fewer cards than slots: all of them");
-        const std::vector<int> gone = PickUpgradeCards({ 4, 5 }, 9, kUpgradeChoices, roll);
-        EXPECT(gone.size() == 2, "a last card that cannot be upgraded any more is not forced in");
+        // Two cards, one branch left on one: still three offers (the other card fills).
+        const std::vector<UpgradeOffer> two = PickUpgradeOffers({ { 3, 2 }, { 4, 0 }, { 4, 1 }, { 4, 2 } }, -1, kUpgradeChoices, roll);
+        EXPECT(two.size() == 3, "slots filled past the per-card limit when nothing else is open");
     }
     EXPECT(std::fabs(LevelDamageMult(1) - 1.0f) < 1e-6f && std::fabs(LevelDamageMult(14) - 1.26f) < 1e-4f,
            "+2% damage per level gained");
@@ -93,9 +100,13 @@ int main() {
     const synergy::UpRow* rows = synergy::UpRows(n);
     std::set<std::string> codes;
     for (int i = 0; i < n; ++i) {
-        EXPECT(codes.insert(rows[i].code).second, "one row per card");
-        EXPECT(rows[i].a1 != rows[i].b1, "an upgrade changes its key number");
-        EXPECT(synergy::FindCode(rows[i].code) >= 0, "every row names a real card");
+        char msg[128];
+        std::snprintf(msg, sizeof msg, "%s: one row, real card, A and B change, a family", rows[i].code);
+        EXPECT(codes.insert(rows[i].code).second, msg);
+        EXPECT(synergy::FindCode(rows[i].code) >= 0, msg);
+        EXPECT(rows[i].A.on() && rows[i].A.a != rows[i].A.b, msg);
+        EXPECT(rows[i].B.on() && rows[i].B.a != rows[i].B.b, msg);
+        EXPECT(rows[i].fam != synergy::Family::None, msg);
     }
     const auto& t = synergy::Table();
     int upgradable = 0;
@@ -110,32 +121,69 @@ int main() {
         if (!none || a.role == synergy::Role::Chance) ++upgradable;
     }
     EXPECT(upgradable >= 90, "most of the pool can be upgraded");
-    // Text for every row in every language.
-    for (int i = 0; i < n; ++i)
+    for (int l = 1; l < (int)synergy::UpLabel::Count_; ++l)
         for (int lang = 0; lang < 3; ++lang)
-            EXPECT(!synergy::UpPart(rows[i].l1, rows[i].u1, rows[i].a1, rows[i].b1, lang).empty(), "upgrade text");
-    // Chance cards: an upgrade never shows a chance past 100% (user 2026-11-23: "95% → 142.5%").
-    {
-        struct Ch { const char* code; int pct; };
-        static const Ch kRows[] = {
-#define CH(c, k, n, p) { #c, p },
+            EXPECT(*synergy::UpLabelText((synergy::UpLabel)l, lang) != 0, "every label has text in every language");
+    for (int f = 1; f < (int)synergy::Family::Count; ++f)
+        for (int lang = 0; lang < 3; ++lang)
+            EXPECT(*synergy::ShapeText((synergy::Family)f, lang) != 0 && *synergy::FamilyName((synergy::Family)f, lang) != 0,
+                   "every shape has text");
+
+    // ── every branch line, every language: nothing that makes no sense ──
+    // (user 2026-11-23: "95% → 142.5%"; review: "결과 2 → 3", "×1 → ×1.6", an empty label)
+    struct Ch { const char* code; synergy::ChKind kind; synergy::ChCond cond; int pct; };
+    static const Ch kChance[] = {
+#define CH(c, k, n_, p) { #c, synergy::ChKind::k, synergy::ChCond::n_, p },
 #include "SynergyChance.inc"
 #undef CH
-        };
-        int grows = 0;
-        for (const Ch& c : kRows) {
-            const synergy::ChanceUp up = synergy::ChanceUpgrade(c.pct);
-            char msg[96];
-            std::snprintf(msg, sizeof msg, "%s: %d%% upgrades to %d%% (<= 100)", c.code, c.pct, up.pct);
-            EXPECT(up.pct <= 100, msg);
-            EXPECT(up.effectGrows ? up.pct == c.pct : up.pct > c.pct, "either the chance rises or the effect grows");
-            grows += up.effectGrows ? 1 : 0;
+    };
+    int lines = 0, grows = 0;
+    auto audit = [&](const char* code, const std::wstring& s, int branch, int lang) {
+        char msg[160];
+        std::snprintf(msg, sizeof msg, "%s branch %c lang %d", code, "ABC"[branch], lang);
+        ++lines;
+        EXPECT(!s.empty(), msg);
+        EXPECT(!s.empty() && s[0] != L' ', msg);                     // a number without a label
+        EXPECT(s.find(L"×1 →") == std::wstring::npos, msg);          // a multiplier that starts at 1
+        // No percentage past 100 after "확률" / "Chance" / "確率".
+        for (const wchar_t* key : { L"확률", L"Chance", L"確率" }) {
+            const size_t at = s.find(key);
+            if (at == std::wstring::npos) continue;
+            for (size_t p = at; p < s.size(); ++p)
+                if (iswdigit(s[p])) {
+                    const int v = (int)std::wcstol(s.c_str() + p, nullptr, 10);
+                    EXPECT(v <= 100, msg);
+                    while (p < s.size() && (iswdigit(s[p]) || s[p] == L'.')) ++p;
+                }
         }
-        EXPECT(synergy::ChanceUpgrade(65).pct == 98 && !synergy::ChanceUpgrade(65).effectGrows, "65% -> 98%");
-        EXPECT(synergy::ChanceUpgrade(95).pct == 95 && synergy::ChanceUpgrade(95).effectGrows, "95% keeps 95%, effect grows");
-        EXPECT(synergy::ChanceUpgrade(66).pct == 99 && synergy::ChanceUpgrade(67).effectGrows, "the 100% line");
-        std::printf("chance cards: %d grow their effect, %d raise their chance\n", grows, (int)(sizeof(kRows) / sizeof(kRows[0])) - grows);
+    };
+    for (int i = 0; i < n; ++i)
+        for (int b = 0; b < 3; ++b)
+            for (int lang = 0; lang < 3; ++lang)
+                audit(rows[i].code, synergy::BranchLine(&rows[i], false, synergy::ChKind::Crit, synergy::ChCond::Still, 0, b, lang), b, lang);
+    for (const Ch& c : kChance) {
+        const synergy::ChanceUp up = synergy::ChanceUpgrade(c.pct);
+        char msg[96];
+        std::snprintf(msg, sizeof msg, "%s: %d%% upgrades to %d%% (<= 100)", c.code, c.pct, up.pct);
+        EXPECT(up.pct <= 100, msg);
+        EXPECT(up.effectGrows ? up.pct == c.pct : up.pct > c.pct, "either the chance rises or the effect grows");
+        grows += up.effectGrows ? 1 : 0;
+        for (int b = 0; b < 3; ++b)
+            for (int lang = 0; lang < 3; ++lang)
+                audit(c.code, synergy::BranchLine(nullptr, true, c.kind, c.cond, c.pct, b, lang), b, lang);
     }
+    EXPECT(synergy::ChanceUpgrade(65).pct == 98 && !synergy::ChanceUpgrade(65).effectGrows, "65% -> 98%");
+    EXPECT(synergy::ChanceUpgrade(95).pct == 95 && synergy::ChanceUpgrade(95).effectGrows, "95% keeps 95%, effect grows");
+    EXPECT(synergy::ChanceUpgrade(66).pct == 99 && synergy::ChanceUpgrade(67).effectGrows, "the 100% line");
+    // Sample lines read as meant.
+    const synergy::ChKind k0 = synergy::ChKind::Crit;
+    const synergy::ChCond c0 = synergy::ChCond::Still;
+    EXPECT(synergy::BranchLine(synergy::FindUp("V_DICE"), false, k0, c0, 0, 0, 0) == L"관통·튕김 결과 +2 → +3", "dice A");
+    EXPECT(synergy::BranchLine(synergy::FindUp("V_HOMING"), false, k0, c0, 0, 0, 0) == L"유도 세기 +60%", "homing A");
+    EXPECT(synergy::BranchLine(synergy::FindUp("C_GLASS"), false, k0, c0, 0, 0, 0) == L"피해 ×3.1 → ×3.6 · 최대 체력 30 → 25", "glass A");
+    EXPECT(synergy::BranchLine(synergy::FindUp("G_CHARGER"), false, k0, c0, 0, 1, 0) == L"보호막 동안 받는 피해 -10%", "charger B");
+    std::printf("upgrade text: %d lines checked; chance cards: %d grow their effect, %d raise their chance\n",
+                lines, grows, (int)(sizeof(kChance) / sizeof(kChance[0])) - grows);
     EXPECT(synergy::UpNumber(synergy::UpUnit::Pct, 0.12f, 0) == L"12%", "pct text");
     EXPECT(synergy::UpNumber(synergy::UpUnit::Sec, 0.45f, 0) == L"0.45초", "sec text");
     EXPECT(synergy::UpNumber(synergy::UpUnit::Ring, 2.25f, 1) == L"2.25○", "ring text");

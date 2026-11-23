@@ -9,6 +9,7 @@
 #include "Experience.h"
 #include "LevelUpTransition.h"
 #include "WaveSystem.h"
+#include "RewardRules.h"
 
 enum class GameState {
     MAIN_MENU,         // 시작 메뉴 (시작/설정/종료)
@@ -49,6 +50,9 @@ public:
     // clear upgrades owned ones (up to five cards), and the run opens with a frame pick.
     static constexpr int kAugChoiceMax = 5;   // cards per pick (card draw screen)
     int       augChoices[kAugChoiceMax] = {-1,-1,-1,-1,-1}; // indices into ALL_AUGS for current pick
+    // Upgrade picks: the branch each slot offers (0 A, 1 B, 2 C; -1 on other picks). The same card
+    // can sit in two slots with different branches.
+    int       augChoiceBranch[kAugChoiceMax] = {-1,-1,-1,-1,-1};
     int       augChoiceCount = 0;
     int       augmentSelectionSerial = 0;
     bool      augmentKeyboardFocus = false;
@@ -103,6 +107,8 @@ public:
     void QueueFramePick();
     // The open upgrade pick deals five new cards (once per pick). False when none is left.
     bool RerollUpgrade();
+    bool CanRerollUpgrade() const;   // a reroll would show an open branch not on screen now
+    void SetUpgradeOffers(const std::vector<reward::UpgradeOffer>& offers);
     void ResetCardScreenAfterReroll();
     bool ActiveIsUpgrade() const { return augmentRewardActive && activeRewardKind == RewardKind::Upgrade; }
     bool ActiveIsFrame() const { return augmentRewardActive && activeRewardKind == RewardKind::Frame; }

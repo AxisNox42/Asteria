@@ -26,12 +26,16 @@ void RefreshStats();                   // re-apply the cards' stat changes after
 bool IsFrame(int augIdx);              // a frame card (picked at run start, never in a reward)
 void SetFramePick(bool on);            // while on, CanOffer shows frames only (the run-start pick)
 bool HasFrame();                       // a frame is owned this run
-int  Stage(int augIdx);                // 0 not owned, 1 base, 2 upgraded
-int  MaxStage(int augIdx);             // 1 = never upgraded (frames, mythics, laser amps)
-bool CanUpgrade(int augIdx);           // owned and below its max stage
-void Upgrade(int augIdx);              // one stage up
-// "튕김 1 → 2" style line for the card's next stage ("" when it has none).
-std::wstring UpgradeLine(int augIdx, int lang);
+// Three branches per card (0 A key number, 1 B second number, 2 C family shape), each once.
+int  Stage(int augIdx);                // 0 not owned, else 1 + branches taken (stars)
+int  MaxStage(int augIdx);             // 1 = never upgraded (frames, mythics, laser amps), else 4
+int  Branches(int augIdx);             // taken branches: bit 1 A, 2 B, 4 C
+bool CanTakeBranch(int augIdx, int branch);   // owned, branch not taken (C: its family's shape still off)
+bool CanUpgrade(int augIdx);           // any branch left
+void Upgrade(int augIdx, int branch);  // take one branch
+int  CardFamilyOf(int augIdx);         // synergy::Family of the card's branch C
+// The branch's line on the card ("튕김 2 → 3", or the shape) — "" when it has none.
+std::wstring UpgradeLine(int augIdx, int branch, int lang);
 // The small line under a card's name: its role, the tags it gives and the tags it needs (lang 0 KR, 1 EN, 2 JP).
 std::wstring MetaLine(int augIdx, int lang);
 

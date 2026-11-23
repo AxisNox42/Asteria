@@ -5,8 +5,8 @@
 // can check them without linking the game:
 //   * run start  : one frame out of three (the bare gun among them);
 //   * level-up   : one new augment out of three, its rarity set by the level;
-//   * wave clear : upgrade one owned augment out of five (two on an elite or
-//                  boss wave), with one reroll.
+//   * wave clear : take one of three upgrade branches of the cards you hold
+//                  (two picks on an elite or boss wave), with one reroll.
 // Docs/QA/2026-11-17_구조분석/Asteria_증강구조_개선안_2026-11-17.docx, 2·3·8장.
 
 #include <algorithm>
@@ -15,7 +15,7 @@
 namespace reward {
 
 inline constexpr int kNewCardChoices = 3;      // a level-up's new augments
-inline constexpr int kUpgradeChoices = 5;      // a wave clear's upgrade cards
+inline constexpr int kUpgradeChoices = 3;      // a wave clear's upgrade offers (card, branch)
 inline constexpr int kFrameChoices = 3;        // the run-start frame pick
 inline constexpr int kUpgradeRerolls = 1;      // per upgrade pick
 
@@ -58,26 +58,47 @@ inline int UpgradePicks(bool specialWave, bool fastest, int upgradable) {
     return std::max(0, std::min(n, upgradable));
 }
 
-// Up to `count` different cards out of `candidates` for an upgrade pick. The
-// card upgraded last time (`last`, -1 = none) is always among them when it can
-// still be upgraded, so a build that digs into one card is not left to luck.
-// `roll(n)` returns 0..n-1.
+// An upgrade offer: one branch (0 A, 1 B, 2 C) of one owned card (2026-11-23: every card
+// has three branches, each taken once).
+struct UpgradeOffer {
+    int card = -1, branch = 0;
+    bool operator==(const UpgradeOffer& o) const { return card == o.card && branch == o.branch; }
+};
+inline constexpr int kMaxOffersPerCard = 2;   // when more than one card can be upgraded
+
+// Up to `count` offers out of `candidates` (every branch still open). One branch of the
+// card upgraded last (`lastCard`, -1 = none) is among them when it has one left, so a
+// build that digs into one card is not left to luck. With several cards, one card shows at
+// most kMaxOffersPerCard branches while others can fill the slots; with a single card all
+// of its branches show. `roll(n)` returns 0..n-1.
 template <class Roll>
-std::vector<int> PickUpgradeCards(std::vector<int> candidates, int last, int count, Roll&& roll) {
-    std::vector<int> out;
-    if (count <= 0) return out;
-    auto it = std::find(candidates.begin(), candidates.end(), last);
-    if (last >= 0 && it != candidates.end()) {
-        out.push_back(last);
-        candidates.erase(it);
+std::vector<UpgradeOffer> PickUpgradeOffers(std::vector<UpgradeOffer> candidates, int lastCard, int count, Roll&& roll) {
+    std::vector<UpgradeOffer> out;
+    if (count <= 0 || candidates.empty()) return out;
+    auto perCard = [&](int card) {
+        int n = 0;
+        for (const UpgradeOffer& o : out) n += o.card == card ? 1 : 0;
+        return n;
+    };
+    auto take = [&](size_t j) { out.push_back(candidates[j]); candidates.erase(candidates.begin() + (long)j); };
+    {
+        std::vector<size_t> mine;
+        for (size_t j = 0; j < candidates.size(); ++j)
+            if (lastCard >= 0 && candidates[j].card == lastCard) mine.push_back(j);
+        if (!mine.empty()) take(mine[(size_t)roll((int)mine.size())]);
     }
-    while ((int)out.size() < count && !candidates.empty()) {
-        const int j = roll((int)candidates.size());
-        out.push_back(candidates[(size_t)j]);
-        candidates.erase(candidates.begin() + j);
+    for (int pass = 0; pass < 2 && (int)out.size() < count; ++pass) {
+        // pass 0 keeps to kMaxOffersPerCard per card; pass 1 fills what is left with anything.
+        while ((int)out.size() < count) {
+            std::vector<size_t> open;
+            for (size_t j = 0; j < candidates.size(); ++j)
+                if (pass == 1 || perCard(candidates[j].card) < kMaxOffersPerCard) open.push_back(j);
+            if (open.empty()) break;
+            take(open[(size_t)roll((int)open.size())]);
+        }
     }
-    // The kept card takes a random slot rather than always the first.
-    if (out.size() > 1 && last >= 0 && out[0] == last) {
+    // The kept offer takes a random slot rather than always the first.
+    if (out.size() > 1) {
         const int at = roll((int)out.size());
         std::swap(out[0], out[(size_t)at]);
     }

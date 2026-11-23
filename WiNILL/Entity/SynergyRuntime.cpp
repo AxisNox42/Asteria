@@ -116,13 +116,16 @@ constexpr int kChanceRows = (int)(sizeof(kChance) / sizeof(kChance[0]));
 
 // The chance and dice outcomes one shot gets (a laser rolls once per beam and keeps them).
 struct VerbRoll { int pierce = 0, bounce = 0; bool split = false, blast = false; int dice = -1;
-                  bool splitUp = false, blastUp = false; };   // an upgraded 100% split / blast chance
+                  bool splitUp = false, blastUp = false;   // an upgraded 100% split / blast chance
+                  int dice2 = -1; };                       // 주사위탄 branch B: a second outcome
 
 struct State {
     int   own[kCards + 1] = {};      // copies taken, by table index
-    int   stage[kCards + 1] = {};    // upgrade stage of an owned card (1 base, 2 upgraded)
+    // Upgrade branches taken (SynergyUpgrade.h): bit 1 A (key number), 2 B (second number), 4 C (shape).
+    unsigned char branch[kCards + 1] = {};
     Flags on;                        // owned and switched on (its needs are met)
-    Flags up;                        // owned and upgraded (stage 2)
+    Flags upA, upB;                  // owned with branch A / B taken
+    bool  shape[(int)synergy::Family::Count] = {};   // family shapes switched on (a card's branch C)
     bool  framePick = false;         // the run-start frame pick is open: only frames are offered
     uint64_t tags = 0;
     int   frame = 0;                 // table index of the owned frame, 0 = the bare gun
@@ -130,7 +133,8 @@ struct State {
 
     // Chance cards.
     std::vector<int> chanceRows;     // owned chance cards (index into kChance)
-    std::vector<bool> chanceUp;      // ...and whether each is upgraded
+    std::vector<bool> chanceUp;      // ...and whether each has branch A (chance or effect)
+    std::vector<bool> chanceEase;    // ...and branch B (its condition eased)
     float chance[6] = {};            // the chance of each kind that holds right now (0..1+)
     // Upgraded chance cards whose chance would pass 100% keep it and grow their effect
     // (synergy::ChanceUpgrade): their chances, kept apart so a hit from them gets the bigger
@@ -139,6 +143,8 @@ struct State {
     int   appliedChanceCrit = 0;
     float appliedChanceCritMul = 0;
     float sinceDash = 99.0f, sinceHurt = 99.0f, nearest = 1e9f;
+    float sinceKill = 99.0f, sinceShield = 99.0f;   // eased conditions (branch B)
+    float trackAt = -9.0f, critBlastAt = -9.0f;     // shapes: last lightning / crit blast (clock)
     int   crowd = 0, enemiesLeft = 0, nearBullets = 0;
     bool  bossUp = false;
 
@@ -163,7 +169,8 @@ struct State {
     std::unordered_map<const void*, glm::vec2> seen;        // enemies alive last step, to notice deaths
     std::unordered_set<const void*> counted;                // kills already handled this step
     bool  stillCharged = false, prevDash = false, revived = false, lastWallGiven = false,
-          lastWallSaved = false;   // 최후의 방벽: the one lethal hit it blocks this run
+          lastWallSaved = false;   // 최후의 방벽: the lethal hits it blocks this run (branch B: two)
+    int   lastWallSaves = 0;
     float dashDropped = 0, dashLastX = 0, dashLastY = 0;
     std::vector<Zone>  zones;
     std::vector<Mote>  motes;                             // Afterimage Trail stardust
@@ -194,16 +201,18 @@ State s;
 
 const std::vector<synergy::Aug>& T() { return synergy::Table(); }
 
-// The upgrade table (SynergyUpgrade.h): UPV(code) is the card's key number at its stage,
-// UPV2 the second one. Each use looks its row up once.
+// The upgrade table (SynergyUpgrade.h): UPA(code) is the card's key number (branch A),
+// UPA2 what grows with it, UPB its second number (branch B). Each use looks its row up once.
 const synergy::UpRow& UpRowOf(const char* code) {
-    static const synergy::UpRow kNone{ "", synergy::UpLabel::Count_, synergy::UpUnit::Count, 0.0f, 0.0f };
+    static const synergy::UpRow kNone{ "", synergy::Family::None, {}, {}, {} };
     const synergy::UpRow* r = synergy::FindUp(code);
     return r ? *r : kNone;
 }
 #define UPROW(code) ([]() -> const synergy::UpRow& { static const synergy::UpRow& r_ = UpRowOf(#code); return r_; }())
-#define UPV(code)  (s.up.code ? UPROW(code).b1 : UPROW(code).a1)
-#define UPV2(code) (s.up.code ? UPROW(code).b2 : UPROW(code).a2)
+#define UPA(code)  (s.upA.code ? UPROW(code).A.b : UPROW(code).A.a)
+#define UPA2(code) (s.upA.code ? UPROW(code).A2.b : UPROW(code).A2.a)
+#define UPB(code)  (s.upB.code ? UPROW(code).B.b : UPROW(code).B.a)
+bool ShapeOn(synergy::Family f) { return s.shape[(int)f]; }
 int Index(const char* code) { return synergy::FindCode(code); }
 // MSVC's RAND_MAX is 32767: `rand() % 10000` only reached 0..0.33 and chances fired ~3x too often.
 float Rand01() { return (float)std::rand() / ((float)RAND_MAX + 1.0f); }
@@ -238,7 +247,9 @@ Bullet MakeShot(float x, float y, float ang, float dmgMult, float range) {
 }
 
 void AddShield(float amount) {
-    g_PlayerShield = std::min(220.0f, g_PlayerShield + amount);
+    // The shield holds up to 220, or 최후의 방벽's own shield when it is owned (330 upgraded).
+    const float cap = s.on.G_LASTWALL ? std::max(220.0f, UPA(G_LASTWALL)) : 220.0f;
+    g_PlayerShield = std::min(cap, g_PlayerShield + amount);
     g_PlayerShieldTimer = 1.0e9f;
 }
 
@@ -312,44 +323,81 @@ void KillEvent(float x, float y, const void* target) {
     s.combo += 1;
     s.comboT = COMBO_WINDOW + g_ComboWindowBonus;   // the same window as the HUD's combo (shop Combo Focus included)
     ++s.kills;
-    if (o.T_KILLBURST && passive::Chance(UPV(T_KILLBURST))) {
-        const int n = (int)UPV2(T_KILLBURST);
+    s.sinceKill = 0.0f;
+    if (o.T_KILLBURST && passive::Chance(UPA(T_KILLBURST))) {
+        const int n = (int)UPB(T_KILLBURST);
         for (int i = 0; i < n; ++i)
             s.pending.push_back(MakeShot(x, y, 2.0f * kPi * (float)i / (float)n + 0.4f, 0.6f, 520.0f));
     }
     // An enemy the lightning itself killed sets off no new chain (a packed crowd chained without end).
     const auto struck = s.chainStruck.find(target);
     const bool chainKill = struck != s.chainStruck.end() && s.clock - struck->second < 0.5f;
-    if (o.V_CHAIN && !chainKill) Chain(x, y, target, (int)UPV(V_CHAIN), 280.0f, 80.0f, 0.0f);
-    if (o.G_CIRCUIT && s.kills % 40 == 0 && g_PlayerShield < 2.0f * UPV(G_CIRCUIT)) AddShield(UPV(G_CIRCUIT));
+    if (o.V_CHAIN && !chainKill) Chain(x, y, target, (int)UPA(V_CHAIN), 280.0f, UPB(V_CHAIN) * 100.0f, 0.0f);
+    if (o.G_CIRCUIT && s.kills % std::max(1, (int)UPB(G_CIRCUIT)) == 0 && g_PlayerShield < 2.0f * UPA(G_CIRCUIT))
+        AddShield(UPA(G_CIRCUIT));
+    // Shape (추적): lightning to two nearby enemies, at most every 0.5 s.
+    if (ShapeOn(synergy::Family::Track) && !chainKill && s.clock - s.trackAt >= 0.5f) {
+        s.trackAt = s.clock;
+        Chain(x, y, target, 2, 280.0f, 50.0f, 0.0f);
+    }
+    // Shape (원소): enemies within 1.5 rings catch fire for 3 s.
+    if (ShapeOn(synergy::Family::Element))
+        ForEachEnemy([&](auto& e, float ex, float ey) {
+            if ((const void*)&e == target || (ex - x) * (ex - x) + (ey - y) * (ey - y) > Rings(1.5f) * Rings(1.5f)) return;
+            auto [it, fresh] = s.burns.try_emplace(&e, Burn{ 3.0f, 0.5f });
+            if (!fresh) it->second.t = std::max(it->second.t, 3.0f);
+        });
 }
 
 // What a dash's end sets off. A swap shot ends one at once.
 void DashEnded() {
     const Flags& o = s.on;
     if (o.T_FIREWORK) {
-        const int n = (int)UPV(T_FIREWORK);
+        const int n = (int)UPA(T_FIREWORK);
         for (int i = 0; i < n; ++i)
-            s.pending.push_back(MakeShot(s.in.px, s.in.py, 2.0f * kPi * (float)i / (float)n, 0.6f, 520.0f));
+            s.pending.push_back(MakeShot(s.in.px, s.in.py, 2.0f * kPi * (float)i / (float)n, UPB(T_FIREWORK), 520.0f));
     }
-    if (o.G_PARRY) passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(3));
+    if (o.G_PARRY) passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(UPB(G_PARRY)));
+    // Shape (기동): a blast where the dash ends.
+    if (ShapeOn(synergy::Family::Mobility)) Burst(s.in.px, s.in.py, Rings(1.5f), 150.0f);
 }
 
-// An upgraded card whose numbers go straight into the gun: its stage-2 numbers (SynergyUpgrade.h).
-void UpgradeFx(const char* code, synergy::Fx& f) {
+// An upgraded card whose numbers go straight into the gun: its branch A / B numbers (SynergyUpgrade.h).
+void UpgradeFx(const char* code, synergy::Fx& f, bool a, bool b) {
     const synergy::UpRow* r = synergy::FindUp(code);
     if (!r) return;
     const std::string c = code;
-    if (c == "V_BOUNCE") f.bounce = (int)r->b1;
-    else if (c == "V_PIERCE") f.pierce = (int)r->b1;
-    else if (c == "V_SPLIT") { f.split = (int)r->b1; f.splitDmg = r->b2; }
-    else if (c == "V_TWIN") f.dmg = r->b1;
-    else if (c == "V_HOVER") f.dmg = 1.0f + r->b1;
-    else if (c == "C_GLASS") { f.dmg = r->b1; f.hpSet = r->b2; }
-    else if (c == "C_HERESY") { f.rate = 1.0f + r->b1; f.hpDelta = -r->b2; }
-    else if (c == "C_RECKLESS") f.dmgAdd = r->b1;
-    else if (c == "C_ASCETIC") f.dmg = 1.0f + r->b1;
-    else if (c == "A_COLLECTOR" || c == "A_REACTOR" || c == "A_GAMBLER") f.perTag = r->b1;
+    if (a) {
+        if (c == "V_BOUNCE") f.bounce = (int)r->A.b;
+        else if (c == "V_PIERCE") f.pierce = (int)r->A.b;
+        else if (c == "V_SPLIT") f.split = (int)r->A.b;
+        else if (c == "V_TWIN") f.dmg = r->A.b;
+        else if (c == "V_HOVER") f.dmg = 1.0f + r->A.b;
+        else if (c == "C_GLASS") { f.dmg = r->A.b; f.hpSet = r->A2.b; }
+        else if (c == "C_HERESY") { f.rate = 1.0f + r->A.b; f.hpDelta = r->A2.b; }
+        else if (c == "C_RECKLESS") f.dmgAdd = r->A.b;
+        else if (c == "C_ASCETIC") f.dmg = 1.0f + r->A.b;
+        else if (c == "A_COLLECTOR" || c == "A_REACTOR" || c == "A_GAMBLER") f.perTag = r->A.b;
+    }
+    if (b) {
+        if (c == "V_PIERCE") f.dmg *= 1.0f + r->B.b;
+        else if (c == "V_SPLIT") f.splitDmg = r->B.b;
+        else if (c == "V_TWIN" || c == "V_HOVER") f.rate *= (1.0f + r->B.b) / (1.0f + r->B.a);
+        else if (c == "C_GLASS") f.hpSet += r->B.b;
+        else if (c == "C_HERESY") f.dmgAdd = r->B.b;
+    }
+}
+
+// A card's family (its branch C shape): the upgrade table, or a chance card's kind.
+synergy::Family CardFamily(int i) {
+    const synergy::Aug& a = T()[i];
+    if (a.role == synergy::Role::Chance) {
+        for (int r = 0; r < kChanceRows; ++r)
+            if (std::string(kChance[r].code) == a.code) return synergy::ChanceFamily((synergy::ChKind)(int)kChance[r].kind);
+        return synergy::Family::None;
+    }
+    const synergy::UpRow* r = synergy::FindUp(a.code);
+    return r ? r->fam : synergy::Family::None;
 }
 
 bool Uses(const std::string& code) {
@@ -373,15 +421,23 @@ void Rebuild() {
         }
     s.chanceRows.clear();
     s.chanceUp.clear();
+    s.chanceEase.clear();
     for (int i = 1; i <= kCards; ++i)
         if (s.own[i] > 0 && t[i].role == synergy::Role::Chance)
             for (int r = 0; r < kChanceRows; ++r)
                 if (std::string(kChance[r].code) == t[i].code) {
                     s.chanceRows.push_back(r);
-                    s.chanceUp.push_back(s.stage[i] >= 2);
+                    s.chanceUp.push_back((s.branch[i] & 1) != 0);
+                    s.chanceEase.push_back((s.branch[i] & 2) != 0);
                 }
-    bool* upFlags = reinterpret_cast<bool*>(&s.up);
-    for (int i = 1; i <= kCards; ++i) upFlags[i - 1] = s.own[i] > 0 && s.stage[i] >= 2;
+    bool* upFlags = reinterpret_cast<bool*>(&s.upA);
+    bool* upBFlags = reinterpret_cast<bool*>(&s.upB);
+    for (bool& f : s.shape) f = false;
+    for (int i = 1; i <= kCards; ++i) {
+        upFlags[i - 1] = s.own[i] > 0 && (s.branch[i] & 1) != 0;
+        upBFlags[i - 1] = s.own[i] > 0 && (s.branch[i] & 2) != 0;
+        if (s.own[i] > 0 && (s.branch[i] & 4) != 0) s.shape[(int)CardFamily(i)] = true;
+    }
     bool* flags = reinterpret_cast<bool*>(&s.on);
     s.any = false;
     for (int i = 1; i <= kCards; ++i) {
@@ -396,7 +452,7 @@ void Rebuild() {
     for (int i = 1; i <= kCards; ++i) {
         if (!flags[i - 1] || !Uses(t[i].code)) continue;
         synergy::Fx f = t[i].fx;
-        if (upFlags[i - 1]) UpgradeFx(t[i].code, f);
+        if (upFlags[i - 1] || upBFlags[i - 1]) UpgradeFx(t[i].code, f, upFlags[i - 1], upBFlags[i - 1]);
         // Cost cards (Glass Cannon, Ascetic) raise all damage; frames and verbs only the bullet.
         if (t[i].role == synergy::Role::Cost) s.cardDmg *= f.dmg; else s.dmg *= f.dmg;
         s.rate *= f.rate; s.acc *= f.acc; s.move *= f.move; s.bullets *= f.bullets;
@@ -414,7 +470,10 @@ void Rebuild() {
             } else {
                 for (uint64_t m = s.tags & t[i].scales; m; m &= m - 1) ++n;
             }
-            s.dmgAdd += f.perTag * (float)std::min(n, 6);
+            // Branch B raises the cap (6 → 8).
+            const synergy::UpRow* ur = synergy::FindUp(t[i].code);
+            const int cap = upBFlags[i - 1] && ur ? (int)ur->B.b : 6;
+            s.dmgAdd += f.perTag * (float)std::min(n, cap);
         }
     }
     // Persistent changes to the player's stats, applied as differences.
@@ -462,6 +521,8 @@ VerbRoll RollVerbs(const Bullet& b) {
         if (!lob) pool[n++] = 2;                     // blast
         pool[n++] = 3;                               // split
         r.dice = pool[std::rand() % n];
+        // Branch B: a second, different outcome.
+        if (UPB(V_DICE) >= 2.0f && n > 1) { do r.dice2 = pool[std::rand() % n]; while (r.dice2 == r.dice); }
     }
     return r;
 }
@@ -472,17 +533,18 @@ void ApplyVerbs(Bullet& b, float tx, float ty, const VerbRoll& rolled) {
     b.bouncesLeft += s.bounce;
     b.pierceLeft += s.pierce;
     if (s.split > 0) { b.splitCount = s.split; b.splitDmg = s.splitDmg; }
-    if (o.V_RICOCHET) b.synRicochet = (int)UPV(V_RICOCHET);
+    if (o.V_RICOCHET) b.synRicochet = (int)UPA(V_RICOCHET);
     // Tracking Rounds only bends gently (1.5 rad/s, was 3.0: it hit almost everything); Hunter stays strong.
     // A mortar shell is not steered: it lands on the aimed spot.
-    if ((o.V_HOMING || o.V_HUNTER) && !(b.synFlags & synf::Lob)) { b.homing = true; b.homingTurn = o.V_HUNTER ? 4.0f : 1.5f * UPV(V_HOMING); }
-    if (o.V_BLAST) b.blastPct = UPV(V_BLAST);
+    if ((o.V_HOMING || o.V_HUNTER) && !(b.synFlags & synf::Lob)) { b.homing = true; b.homingTurn = o.V_HUNTER ? 4.0f * (1.0f + UPB(V_HUNTER)) : 1.5f * (1.0f + UPA(V_HOMING));
+        if (!o.V_HUNTER) b.dmgMult *= 1.0f + UPB(V_HOMING); }
+    if (o.V_BLAST) b.blastPct = UPA(V_BLAST);
     if (o.V_MARK) b.synFlags |= synf::Mark;
     if (o.V_BURN) b.synFlags |= synf::Burn;
     if (o.V_GROW) { b.synFlags |= synf::Grow; b.synGrowBase = b.sizeScale; }
     if (o.V_HOVER) b.synFlags |= synf::Hover;
     // Relentless Hunter Rounds always pierce, on the way out as well as back.
-    if (o.V_HUNTER) { b.synFlags |= synf::Return; b.maxRange = 0.0f; b.piercing = true; b.dmgMult *= UPV(V_HUNTER); }
+    if (o.V_HUNTER) { b.synFlags |= synf::Return; b.maxRange = 0.0f; b.piercing = true; b.dmgMult *= 1.0f + UPA(V_HUNTER); }
     if (o.V_TRAIL) b.synFlags |= synf::Trail;
     if (o.V_GRAVITY || o.Y_SINGULAR) b.synFlags |= synf::Gravity;
     if (o.V_ABSORB) b.synFlags |= synf::Absorb;
@@ -493,10 +555,11 @@ void ApplyVerbs(Bullet& b, float tx, float ty, const VerbRoll& rolled) {
         b.splitDmg = rolled.splitUp ? synergy::kChanceUpSplitDmg : 0.28f;
     }
     if (rolled.blast) b.blastPct = std::max(b.blastPct, rolled.blastUp ? synergy::kChanceUpBlastPct : 0.30f);
-    if (o.V_DICE && rolled.dice >= 0) {
-        const int r = rolled.dice;
-        if (r == 0) b.bouncesLeft += (int)UPV(V_DICE);
-        else if (r == 1) b.pierceLeft += (int)UPV(V_DICE);
+    for (int d = 0; d < 2 && o.V_DICE; ++d) {
+        const int r = d == 0 ? rolled.dice : rolled.dice2;
+        if (r < 0) continue;
+        if (r == 0) b.bouncesLeft += (int)UPA(V_DICE);
+        else if (r == 1) b.pierceLeft += (int)UPA(V_DICE);
         else if (r == 2) b.blastPct = std::max(b.blastPct, 0.30f);
         else { b.splitCount = std::max(b.splitCount, 3); b.splitDmg = std::max(b.splitDmg, 0.28f); }
     }
@@ -538,30 +601,33 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
 void Explode(float x, float y, float radius, float pct, bool pull, float pullRadius = 0.0f);
 
 // Which chances hold right now: the conditions of the owned chance cards, summed per kind.
-bool CondHolds(const ChanceRow& row, const passive::StepInput& in) {
+// `eased`: the card's branch B (synergy::ChanceCondB) loosens its condition.
+bool CondHolds(const ChanceRow& row, const passive::StepInput& in, bool eased = false) {
+    const synergy::ChanceEase e = synergy::ChanceCondB((synergy::ChCond)(int)row.cond);
+    const float v = eased ? e.b : e.a;
     switch (row.cond) {
-        case CCond::Still:   return !in.moving && s.stillT >= 0.5f;
-        case CCond::Moving:  return in.moving;
-        case CCond::LowHp:   return Hp01() <= 0.5f;
-        case CCond::FullHp:  return Hp01() >= 0.999f;
-        case CCond::Shield:  return g_PlayerShield > 0.0f;
+        case CCond::Still:   return !in.moving && s.stillT >= v;
+        case CCond::Moving:  return in.moving || (eased && s.stillT < v);
+        case CCond::LowHp:   return Hp01() <= v;
+        case CCond::FullHp:  return Hp01() >= std::min(v, 0.999f);
+        case CCond::Shield:  return g_PlayerShield > 0.0f || (eased && s.sinceShield < v);
         // 도약 연발 / 도약 폭발 hold 1 s (2 s kept them on most of the time); 도약 도탄 2 s.
-        case CCond::Dash:    return s.sinceDash < ((row.kind == CKind::Extra || row.kind == CKind::Blast) ? 1.0f : 2.0f);
-        case CCond::Kill:    return s.comboT > 0.0f;
-        case CCond::Wave:    return s.waveAge < 5.0f;
-        case CCond::Crowd:   return s.crowd >= 8;
+        case CCond::Dash:    return s.sinceDash < ((row.kind == CKind::Extra || row.kind == CKind::Blast) ? 1.0f : 2.0f) * v;
+        case CCond::Kill:    return s.comboT > 0.0f || (eased && s.sinceKill < v);
+        case CCond::Wave:    return s.waveAge < v;
+        case CCond::Crowd:   return s.crowd >= (int)v;
         case CCond::Few: {   // a regular wave: once 90% of its kill quota is in; other waves: 1~3 enemies left
             const int quota = RegularWaveKillQuota(g_GameManager.currentWave, g_Difficulty);
-            if (quota > 0) return g_GameManager.waveKills * 10 >= quota * 9;
-            return s.enemiesLeft >= 1 && s.enemiesLeft <= 3;
+            if (quota > 0) return (float)g_GameManager.waveKills >= (float)quota * v;
+            return s.enemiesLeft >= 1 && s.enemiesLeft <= (eased ? 5 : 3);
         }
-        case CCond::Boss:    return s.bossUp;
-        case CCond::Far:     return s.enemiesLeft > 0 && s.nearest > Rings(4.5f);
-        case CCond::Barrage: return s.nearBullets >= 3;
-        case CCond::Clean:   return s.waveDamage < 0.01f;
-        case CCond::Hurt:    return s.sinceHurt < 3.0f;
-        case CCond::Combo:   return s.combo >= 5;
-        case CCond::Long:    return s.waveAge >= 20.0f;
+        case CCond::Boss:    return s.bossUp || (eased && IsEliteWaveNumber(g_GameManager.currentWave, g_Difficulty));
+        case CCond::Far:     return s.enemiesLeft > 0 && s.nearest > Rings(v);
+        case CCond::Barrage: return s.nearBullets >= (int)v;
+        case CCond::Clean:   return s.waveDamage < std::max(0.01f, v);
+        case CCond::Hurt:    return s.sinceHurt < v;
+        case CCond::Combo:   return s.combo >= (int)v;
+        case CCond::Long:    return s.waveAge >= v;
     }
     return false;
 }
@@ -587,7 +653,7 @@ void UpdateChances(const passive::StepInput& in) {
             }
         for (size_t k = 0; k < s.chanceRows.size(); ++k) {
             const int r = s.chanceRows[k];
-            const bool holds = CondHolds(kChance[r], in);
+            const bool holds = CondHolds(kChance[r], in, k < s.chanceEase.size() && s.chanceEase[k]);
             if (holds) {
                 const CKind kind = kChance[r].kind;
                 float p = (float)kChance[r].pct / 100.0f;
@@ -1118,10 +1184,9 @@ void Acquire(int augIdx) {
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards) return;
     ++s.own[i];
-    s.stage[i] = std::max(1, s.stage[i]);
     Rebuild();
-    if (s.on.G_LASTWALL && !s.lastWallGiven) { s.lastWallGiven = true; AddShield(UPV(G_LASTWALL)); }
-    if (i == Index("G_MIRROR") && s.own[i] == 1) AddShield(UPV(G_MIRROR));   // once, when the card itself is taken
+    if (s.on.G_LASTWALL && !s.lastWallGiven) { s.lastWallGiven = true; AddShield(UPA(G_LASTWALL)); }
+    if (i == Index("G_MIRROR") && s.own[i] == 1) AddShield(UPA(G_MIRROR));   // once, when the card itself is taken
 }
 
 // ───────────────────────── upgrades (augment rework) ─────────────────────────
@@ -1140,69 +1205,78 @@ bool IsFrame(int augIdx) {
 void SetFramePick(bool on) { s.framePick = on; }
 bool HasFrame() { return s.frame != 0; }
 
+static bool Upgradable(int i) {
+    const synergy::Aug& a = T()[i];
+    if (a.role == synergy::Role::Frame || a.rar == synergy::Rar::Mythic) return false;
+    return a.role == synergy::Role::Chance || synergy::FindUp(a.code) != nullptr;
+}
+
 int MaxStage(int augIdx) {
     const int i = CardOf(augIdx);
-    if (i < 0) return 1;
-    const synergy::Aug& a = T()[i];
-    if (a.role == synergy::Role::Frame || a.rar == synergy::Rar::Mythic) return 1;
-    if (a.role == synergy::Role::Chance) return 2;
-    return synergy::FindUp(a.code) ? 2 : 1;
+    return i > 0 && Upgradable(i) ? 4 : 1;
 }
 
 int Stage(int augIdx) {
     const int i = CardOf(augIdx);
-    return i > 0 && s.own[i] > 0 ? std::max(1, s.stage[i]) : 0;
+    if (i < 0 || s.own[i] <= 0) return 0;
+    int n = 1;
+    for (int b = 0; b < 3; ++b) n += (s.branch[i] >> b) & 1;
+    return n;
+}
+
+int Branches(int augIdx) {
+    const int i = CardOf(augIdx);
+    return i > 0 ? s.branch[i] : 0;
+}
+
+bool CanTakeBranch(int augIdx, int branch) {
+    const int i = CardOf(augIdx);
+    if (i < 0 || branch < 0 || branch > 2 || s.own[i] <= 0 || !Upgradable(i)) return false;
+    if (s.branch[i] & (1 << branch)) return false;
+    if (branch == 2) {   // a family's shape is switched on once
+        const synergy::Family f = CardFamily(i);
+        if (f == synergy::Family::None || s.shape[(int)f]) return false;
+    }
+    return true;
 }
 
 bool CanUpgrade(int augIdx) {
-    const int st = Stage(augIdx);
-    return st > 0 && st < MaxStage(augIdx);
+    for (int b = 0; b < 3; ++b) if (CanTakeBranch(augIdx, b)) return true;
+    return false;
 }
 
-void Upgrade(int augIdx) {
-    if (!CanUpgrade(augIdx)) return;
+void Upgrade(int augIdx, int branch) {
+    if (!CanTakeBranch(augIdx, branch)) return;
     const int i = CardOf(augIdx);
-    ++s.stage[i];
+    s.branch[i] |= (unsigned char)(1 << branch);
     Rebuild();
 }
 
-std::wstring UpgradeLine(int augIdx, int lang) {
+std::wstring UpgradeLine(int augIdx, int branch, int lang) {
     const int i = CardOf(augIdx);
     if (i < 0) return L"";
     lang = std::clamp(lang, 0, 2);
     const synergy::Aug& a = T()[i];
     if (a.role == synergy::Role::Chance) {
-        for (int r = 0; r < kChanceRows; ++r) {
-            if (std::string(kChance[r].code) != a.code) continue;
-            const ChanceRow& row = kChance[r];
-            const synergy::ChanceUp up = synergy::ChanceUpgrade(row.pct);
-            if (up.effectGrows) {
-                static const wchar_t* const kText[6][3] = {
-                    { L"조건 동안 치명타 피해 +40%", L"Crit damage +40% while it holds", L"条件中 会心ダメージ+40%" },
-                    { L"추가 탄 1발 → 2발", L"Extra shots 1 → 2", L"追加弾 1発 → 2発" },
-                    { L"관통 +1 → +2", L"Pierce +1 → +2", L"貫通 +1 → +2" },
-                    { L"벽 튕김 +1 → +2", L"Wall bounce +1 → +2", L"壁跳弾 +1 → +2" },
-                    { L"분열 3갈래 28% → 4갈래 35%", L"Split 3-way 28% → 4-way 35%", L"分裂 3方向28% → 4方向35%" },
-                    { L"폭발 피해 30% → 45%", L"Blast damage 30% → 45%", L"爆発ダメージ 30% → 45%" } };
-                return kText[(int)row.kind][lang];
-            }
-            return synergy::UpPart(synergy::UpLabel::Chance, synergy::UpUnit::Pct,
-                                   (float)row.pct / 100.0f, (float)up.pct / 100.0f, lang);
-        }
+        for (int r = 0; r < kChanceRows; ++r)
+            if (std::string(kChance[r].code) == a.code)
+                return synergy::BranchLine(nullptr, true, (synergy::ChKind)(int)kChance[r].kind,
+                                           (synergy::ChCond)(int)kChance[r].cond, kChance[r].pct, branch, lang);
         return L"";
     }
-    const synergy::UpRow* r = synergy::FindUp(a.code);
-    if (!r || MaxStage(augIdx) < 2) return L"";
-    std::wstring line = synergy::UpPart(r->l1, r->u1, r->a1, r->b1, lang);
-    if (r->l2 != synergy::UpLabel::Count_) line += L" · " + synergy::UpPart(r->l2, r->u2, r->a2, r->b2, lang);
-    return line;
+    return synergy::BranchLine(synergy::FindUp(a.code), false, synergy::ChKind::Crit, synergy::ChCond::Still, 0, branch, lang);
+}
+
+int CardFamilyOf(int augIdx) {
+    const int i = CardOf(augIdx);
+    return i > 0 ? (int)CardFamily(i) : 0;
 }
 
 void Release(int augIdx) {
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards || s.own[i] <= 0) return;
     --s.own[i];
-    if (s.own[i] <= 0) s.stage[i] = 0;
+    if (s.own[i] <= 0) s.branch[i] = 0;
     Rebuild();
 }
 
@@ -1219,7 +1293,8 @@ int LaserTier() {
 float FireIntervalMult() {
     if (!s.any) return 1.0f;
     float m = s.rate;
-    if (s.on.T_BERSERK) m *= 1.0f + UPV(T_BERSERK) * (1.0f - Hp01());
+    if (s.on.T_BERSERK)   // branch B: the full bonus already at UPB of HP left
+        m *= 1.0f + UPA(T_BERSERK) * std::clamp((1.0f - Hp01()) / std::max(0.05f, 1.0f - UPB(T_BERSERK)), 0.0f, 1.0f);
     return std::max(0.2f, m);
 }
 
@@ -1242,19 +1317,20 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
 
     float boost = 1.0f;
     if (s.absorbed > 0.0f && o.V_ABSORB) {
-        boost += std::min(1.0f, s.absorbed * UPV(V_ABSORB));
+        boost += std::min(UPB(V_ABSORB), s.absorbed * UPA(V_ABSORB));   // the card's "최대 +50%" (was +100% in code)
         s.absorbed = 0.0f;
     }
     if (newShot) {
         s.beamBoost = 1.0f;
         // 정지 반응: the x3 is spent; another full second still charges the next one.
-        if (o.T_STILL && s.stillCharged) { s.beamBoost *= UPV(T_STILL); s.stillCharged = false; s.stillChargeT = 0.0f; }
-        if (o.T_RHYTHM && ++s.rhythm >= 4) { s.rhythm = 0; s.beamBoost *= UPV(T_RHYTHM); Audio::Play(Audio::Cue::ProcCounterFull); }
+        if (o.T_STILL && s.stillCharged) { s.beamBoost *= UPA(T_STILL); s.stillCharged = false; s.stillChargeT = 0.0f; }
+        if (o.T_RHYTHM && ++s.rhythm >= std::max(2, (int)UPB(T_RHYTHM))) { s.rhythm = 0; s.beamBoost *= UPA(T_RHYTHM); Audio::Play(Audio::Cue::ProcCounterFull); }
     }
-    boost *= s.beamBoost;
+    // Shape (박자): a boosted shot (stillness, beat) deals +50%.
+    boost *= s.beamBoost * (ShapeOn(synergy::Family::Beat) && s.beamBoost > 1.0f ? 1.5f : 1.0f);
     if (s.dashBoostT > 0.0f) boost *= 1.3f;
     if (o.T_GRUDGE && s.stored > 0.0f) {
-        const float pct = std::min(6000.0f * UPV(T_GRUDGE), s.stored * 100.0f * UPV(T_GRUDGE));
+        const float pct = std::min(UPB(T_GRUDGE) * 100.0f * UPA(T_GRUDGE), s.stored * 100.0f * UPA(T_GRUDGE));
         // The grudge leaves the ship as a red bolt and bursts where it is aimed.
         strike_fx::Zap(s.in.px, s.in.py, tx, ty, { 1.0f, 0.30f, 0.30f }, 3.0f, 0.0f, 0.0f);
         Burst(tx, ty, 120.0f, pct, { 1.0f, 0.30f, 0.30f }, strike_fx::BlastStyle::Discharge);
@@ -1280,28 +1356,33 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
             ApplyVerbs(b, tx, ty, s.beamRoll);
         }
         if (o.T_ANCHOR && s.stillT > 0.5f) {
-            b.sizeScale *= 1.0f + UPV(T_ANCHOR) * std::min(s.stillT, 4.0f);
-            if (s.stillT > 1.0f) b.pierceLeft += 1;
+            b.sizeScale *= 1.0f + UPA(T_ANCHOR) * std::min(s.stillT, 4.0f);
+            if (s.stillT > 1.0f) b.pierceLeft += (int)UPB(T_ANCHOR);
         }
         out.push_back(b);
     }
     // Side shots of the spray: weak, but they carry the verbs.
     if (o.V_SPRAY) {
-        for (int side = -1; side <= 1; side += 2) {
+        const int pairs = std::max(1, (int)UPB(V_SPRAY) / 2);   // branch B: two pairs
+        for (int k = 0; k < pairs * 2; ++k) {
+            const int side = (k % 2) ? 1 : -1;
             Bullet b = out.front();
-            const float ang = aim + 0.22f * (float)side;
+            const float ang = aim + 0.22f * (float)(k / 2 + 1) * (float)side;
             b.dirX = std::cos(ang); b.dirY = std::sin(ang);
-            b.dmgMult *= UPV(V_SPRAY);
+            b.dmgMult *= UPA(V_SPRAY);
             out.push_back(b);
         }
     }
     // Every few shots one extra bullet that inherits the verbs.
-    if (newShot) s.beamNth = s.shots % std::max(2, (int)UPV(T_NTH)) == 0;
+    if (newShot) s.beamNth = s.shots % std::max(2, (int)UPA(T_NTH)) == 0;
     if (o.T_NTH && s.beamNth) {
-        Bullet b = out.front();
-        const float ang = aim + 0.06f;
-        b.dirX = std::cos(ang); b.dirY = std::sin(ang);
-        out.push_back(b);
+        for (int k = 0; k < std::max(1, (int)UPB(T_NTH)); ++k) {
+            Bullet b = out.front();
+            const float ang = aim + 0.06f * (float)(k % 2 ? -1 : 1) * (float)(k / 2 + 1);
+            b.dirX = std::cos(ang); b.dirY = std::sin(ang);
+            if (ShapeOn(synergy::Family::Beat)) b.dmgMult *= 1.5f;
+            out.push_back(b);
+        }
     }
     // Chance of an extra bullet (the chance cards).
     if (newShot) {
@@ -1315,26 +1396,29 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         Bullet b = out.front();
         const float ang = aim + off;
         b.dirX = std::cos(ang); b.dirY = std::sin(ang);
+        if (ShapeOn(synergy::Family::Beat)) b.dmgMult *= 1.5f;
         out.push_back(b);
     }
     // The opening salvo: every shot goes out twice for 3 s from the wave's first hit
     // (from the wave's start it was mostly spent before any enemy was in reach).
-    if (o.T_OPENING && s.openingAt >= 0.0f && s.clock - s.openingAt < UPV(T_OPENING)) {
+    if (o.T_OPENING && s.openingAt >= 0.0f && s.clock - s.openingAt < UPA(T_OPENING)) {
         const size_t m = out.size();
-        for (size_t i = 0; i < m; ++i) {
-            Bullet b = out[i];
-            const float ang = std::atan2(b.dirY, b.dirX) + 0.05f;
-            b.dirX = std::cos(ang); b.dirY = std::sin(ang);
-            out.push_back(b);
-        }
+        const int copies = std::max(1, (int)UPB(T_OPENING) - 1);   // branch B: three shots each
+        for (int c = 1; c <= copies; ++c)
+            for (size_t i = 0; i < m; ++i) {
+                Bullet b = out[i];
+                const float ang = std::atan2(b.dirY, b.dirX) + 0.05f * (float)c;
+                b.dirX = std::cos(ang); b.dirY = std::sin(ang);
+                out.push_back(b);
+            }
     }
     // Orbit: every fifth shot is held around the player instead of flying off.
     if ((o.V_ORBIT || o.Y_HALO) && newShot && ++s.orbitShots >= (o.Y_HALO ? 3 : 5)) {
         s.orbitShots = 0;
-        const int cap = (o.V_ORBIT ? (int)UPV(V_ORBIT) : 2) + (o.Y_HALO ? 2 : 0);
+        const int cap = (o.V_ORBIT ? (int)UPA(V_ORBIT) : 2) + (o.Y_HALO ? 2 : 0);
         if (CountOrbiters() < cap) {
             Bullet b = out.front();
-            b.synFlags |= synf::Orbit; b.synOrbitAngle = Rand01() * 2.0f * kPi; b.synOrbitLeft = 4.5f;
+            b.synFlags |= synf::Orbit; b.synOrbitAngle = Rand01() * 2.0f * kPi; b.synOrbitLeft = o.Y_HALO ? 4.5f : UPB(V_ORBIT);
             if (o.Y_HALO) b.synFlags |= synf::Halo;
             b.speed = 0.0f; b.piercing = true; b.maxRange = 0.0f; b.sizeScale *= 1.2f;
             b.splitCount = 0;   // an orbiter hits again every 0.4 s; its split children inherited Orbit and broke the cap
@@ -1347,7 +1431,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         }
     }
     // Mines: every third shot adds one that sticks in front of the aimed spot instead of flying on.
-    if (o.V_MINE && newShot && ++s.mineShots >= 3) {
+    if (o.V_MINE && newShot && ++s.mineShots >= std::max(1, (int)UPB(V_MINE))) {
         s.mineShots = 0;
         Bullet b = base;
         b.dmgMult = base.dmgMult * boost;
@@ -1369,9 +1453,11 @@ float DamageMult(const Bullet& b, const void* target) {
     const Flags& o = s.on;
     float m = s.dmg;
     auto mk = s.marks.find(target);
-    if (mk != s.marks.end() && mk->second > 0.0f) m *= 1.0f + UPV(V_MARK);
-    if (b.synFlags & synf::Grow) { const float g = UPV(V_GROW) - 1.0f; m *= 1.0f + std::min(g, b.traveled / (Rings(13) / g)); }
-    if (b.synBounces > 0) m *= 1.0f + (float)b.synBounces * (o.Y_ETERNAL ? 0.22f : 0.0f);
+    if (mk != s.marks.end() && mk->second > 0.0f) m *= 1.0f + UPA(V_MARK);
+    if (b.synFlags & synf::Grow) { const float g = UPA(V_GROW) - 1.0f; m *= 1.0f + std::min(g, b.traveled / (Rings(UPB(V_GROW)) / g)); }
+    // Shape (관통): +15% for every enemy the shot has passed.
+    if (ShapeOn(synergy::Family::Pierce) && b.synPierced > 0) m *= 1.0f + 0.15f * (float)b.synPierced;
+    if (b.synBounces > 0) m *= 1.0f + (float)b.synBounces * ((o.Y_ETERNAL ? 0.22f : 0.0f) + (o.V_BOUNCE ? UPB(V_BOUNCE) : 0.0f));
     return m;
 }
 
@@ -1382,18 +1468,19 @@ float CardDamageMult() {
     if (!s.any) return 1.0f;
     const Flags& o = s.on;
     float m = s.cardDmg * (1.0f + s.dmgAdd);
-    if (o.T_COMBO) m *= 1.0f + std::min(UPV(T_COMBO), UPV(T_COMBO) / 20.0f * (float)s.combo);
-    if (o.C_RITUAL) m *= 1.0f + std::min(5.0f * UPV(C_RITUAL), UPV(C_RITUAL) * (float)s.quietWaves);
-    if (o.T_LASTSTAND && Hp01() <= 0.30f) m *= 1.0f + UPV(T_LASTSTAND);
+    if (o.T_COMBO) m *= 1.0f + std::min(UPA(T_COMBO), UPB(T_COMBO) * (float)s.combo);
+    if (o.C_RITUAL) m *= 1.0f + std::min(5.0f * UPA(C_RITUAL), UPA(C_RITUAL) * (float)s.quietWaves);
+    if (o.T_LASTSTAND && Hp01() <= UPB(T_LASTSTAND)) m *= 1.0f + UPA(T_LASTSTAND);
     return m;
 }
 
 float DamageTakenMult() {
     if (!s.any) return 1.0f;
     float m = 1.0f;
-    if (s.on.C_ASCETIC) m *= 1.0f + UPV2(C_ASCETIC);
+    if (s.on.C_ASCETIC) m *= 1.0f + UPA2(C_ASCETIC) + UPB(C_ASCETIC);
     if (s.on.C_RECKLESS) m *= 2.0f;
-    if (s.on.C_REVIVE && s.revived) m *= 1.08f;
+    if (s.on.C_REVIVE && s.revived) m *= 1.0f + UPB(C_REVIVE);
+    if (s.on.G_CHARGER && g_PlayerShield > 0.0f) m *= 1.0f + UPB(G_CHARGER);
     return m;
 }
 
@@ -1423,10 +1510,10 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
                 if (dealt > 0.0f) SpawnDamageNumber(ex, ey, dealt, false);
             });
     }
-    if (b.synFlags & synf::Mark) s.marks[target] = 5.0f;
+    if (b.synFlags & synf::Mark) s.marks[target] = UPB(V_MARK);
     if (b.synFlags & synf::Burn) {   // refresh the 3s without restarting the 0.5s tick: hits faster than 0.5s never burned
-        auto [it, fresh] = s.burns.try_emplace(target, Burn{ 3.0f, 0.5f });
-        if (!fresh) it->second.t = 3.0f;
+        auto [it, fresh] = s.burns.try_emplace(target, Burn{ UPB(V_BURN), 0.5f });
+        if (!fresh) it->second.t = UPB(V_BURN);
     }
     if ((b.synFlags & (synf::FrameLaser | synf::LaserBlast)) && o.A_LASER_OVERLOAD) {
         auto [it, fresh] = s.laserBurns.try_emplace(target, LaserBurn{ 0.0f, 0.25f, 0.0f, x, y, 0.0f, 0 });
@@ -1443,8 +1530,10 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
     // as a mortar shell's landing already does: a flat % of attack made fast frames multiply them.
     const float shotMult = b.dmgMult * s.dmg;
     if (b.blastPct > 0.0f) {
-        const float r = 80.0f;
+        const float r = 80.0f * (1.0f + (o.V_BLAST ? UPB(V_BLAST) : 0.0f));
         Burst(x, y, r, b.blastPct * 100.0f * shotMult);
+        // Shape (폭발): the same spot goes off again 0.5 s later at half the damage.
+        if (ShapeOn(synergy::Family::Blast)) AddZone(x, y, r * 0.8f, 0.5f, 0.0f, b.blastPct * 50.0f * shotMult);
     }
     if (b.synFlags & synf::Gravity) {
         // 특이점 붕괴 탄두: at most one implosion per enemy per 0.15 s (piercing, split and beam hits
@@ -1454,7 +1543,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             auto [it, fresh] = s.singularAt.try_emplace(target, s.clock);
             if (!fresh) { if (s.clock - it->second < 0.15f) go = false; else it->second = s.clock; }
         }
-        if (go) Explode(x, y, o.Y_SINGULAR ? Rings(1.5f) : 75.0f * UPV(V_GRAVITY) / 1.5f, o.Y_SINGULAR ? 150.0f * shotMult : 0.0f, true, o.Y_SINGULAR ? Rings(2.5f) : 0.0f);
+        if (go) Explode(x, y, o.Y_SINGULAR ? Rings(1.5f) : 75.0f * UPA(V_GRAVITY) / 1.5f, o.Y_SINGULAR ? 150.0f * shotMult : UPB(V_GRAVITY) * 100.0f * shotMult, true, o.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     }
     if (b.splitCount > 0 && !b.splitSpent && s.pending.size() < 64) {
         b.splitSpent = true;
@@ -1480,6 +1569,8 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
                 c.traveled = 0.0f; c.synTrailAt = 0.0f;
                 c.hitscanLeft = 0;
             }
+            // Shape (분열): split shots curve toward the nearest enemy.
+            if (ShapeOn(synergy::Family::Split) && !(c.synFlags & synf::Lob)) { c.homing = true; c.homingTurn = std::max(c.homingTurn, 3.0f); }
             c.ClearHits(); c.RememberHit(target);
             s.pending.push_back(c);
         }
@@ -1489,10 +1580,18 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         // From the ship at the enemy nearest to it (the hit spot if none is left).
         float ex = x, ey = y;
         g_MonsterManager.FindNearestEnemy(s.in.px, s.in.py, ex, ey);
-        Bullet e = MakeShot(s.in.px, s.in.py, std::atan2(ey - s.in.py, ex - s.in.px), UPV(T_CRITECHO), 0.0f);
-        e.bouncesLeft = b.bouncesLeft; e.pierceLeft = b.pierceLeft;
-        e.synFlags |= synf::CritEchoShot;
-        s.pending.push_back(e);
+        const int shots = std::max(1, (int)UPB(T_CRITECHO));   // branch B: two
+        for (int k = 0; k < shots; ++k) {
+            Bullet e = MakeShot(s.in.px, s.in.py, std::atan2(ey - s.in.py, ex - s.in.px) + 0.08f * (float)k, UPA(T_CRITECHO), 0.0f);
+            e.bouncesLeft = b.bouncesLeft; e.pierceLeft = b.pierceLeft;
+            e.synFlags |= synf::CritEchoShot;
+            s.pending.push_back(e);
+        }
+    }
+    // Shape (치명): a crit sets off a small blast, at most every 0.1 s.
+    if (crit && ShapeOn(synergy::Family::Crit) && s.clock - s.critBlastAt >= 0.1f) {
+        s.critBlastAt = s.clock;
+        Burst(x, y, 55.0f, 40.0f * shotMult);
     }
     if (killed) KillEvent(x, y, target);
 }
@@ -1512,6 +1611,7 @@ bool Redirect(Bullet& b, const void* hitTarget) {
     const float dx = bx - b.x, dy = by - b.y, d = std::sqrt(dx * dx + dy * dy);
     b.dirX = dx / d; b.dirY = dy / d;
     b.ClearHits(); b.RememberHit(hitTarget);
+    if (s.on.V_RICOCHET) b.dmgMult *= 1.0f + UPB(V_RICOCHET);   // branch B
     OnBounce(b, false);   // a turn off a target is a bounce for the bounce cards too
     return true;
 }
@@ -1521,6 +1621,8 @@ void OnBounce(Bullet& b, bool wall) {
     ++b.synBounces;
     const Flags& o = s.on;
     (void)wall;
+    // Shape (튕김): a small blast at every bounce.
+    if (ShapeOn(synergy::Family::Bounce) && !b.isEnemy) Burst(b.x, b.y, 60.0f, 30.0f * b.dmgMult * s.dmg);
     if (o.Y_ETERNAL && !b.isEnemy) {
         // 영겁의 반사탄: each bounce adds +22%, so each one shows — a ring more on the shot
         // (EntityDraw DrawCardMarks) and a small crystal spark where it turned, in the shot's colour.
@@ -1540,18 +1642,18 @@ void OnHurt(float dmg) {
     const Flags& o = s.on;
     s.waveDamage += dmg;
     s.sinceHurt = 0.0f;
-    if (s.waveDamage >= 10.0f) s.quietWaves = 0;
-    if (o.T_GRUDGE) s.stored = std::min(60.0f, s.stored + dmg);
+    if (s.waveDamage >= (o.C_RITUAL ? UPB(C_RITUAL) : 10.0f)) s.quietWaves = 0;
+    if (o.T_GRUDGE) s.stored = std::min(UPB(T_GRUDGE), s.stored + dmg);
     if (o.T_REVENGE) {
         s.revengeAcc += dmg;
-        if (s.revengeAcc >= 20.0f) {
-            s.revengeAcc -= 20.0f;   // the overflow counts toward the next one
+        if (s.revengeAcc >= UPB(T_REVENGE)) {
+            s.revengeAcc -= UPB(T_REVENGE);   // the overflow counts toward the next one
             strike_fx::Implode(s.in.px, s.in.py, 120.0f, { 1.0f, 0.40f, 0.30f }, 0.0f, 0.16f);
             passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(4));
-            passive::DamageRadius(s.in.px, s.in.py, Rings(4), UPV(T_REVENGE) * 100.0f, 1.0f, 0.4f, 0.3f);
+            passive::DamageRadius(s.in.px, s.in.py, Rings(4), UPA(T_REVENGE) * 100.0f, 1.0f, 0.4f, 0.3f);
         }
     }
-    if (o.T_CAKE && s.cakeUsed + s.cakeArmed < 2) {
+    if (o.T_CAKE && s.cakeUsed + s.cakeArmed < (int)UPB(T_CAKE)) {
         s.cakeAcc += dmg;
         if (s.cakeAcc >= 20.0f) { s.cakeAcc -= 20.0f; ++s.cakeArmed; }   // the overflow counts toward the next one
     }
@@ -1564,23 +1666,23 @@ void OnDashStarted() {
     s.sinceDash = 0.0f;
     if (o.C_RECKLESS)
     {
-        g_PlayerRuntime.dashCooldown = std::max(0.4f, g_PlayerRuntime.dashCooldown - 1.5f);
+        g_PlayerRuntime.dashCooldown = std::max(0.4f, g_PlayerRuntime.dashCooldown - UPB(C_RECKLESS));
         g_PlayerRuntime.dashCooldownMax = g_PlayerRuntime.dashCooldown;   // the HUD ring starts empty, not half full
     }
-    if (o.G_PARRY) g_PlayerRuntime.dashInvulnerability = std::max(g_PlayerRuntime.dashInvulnerability, UPV(G_PARRY));
+    if (o.G_PARRY) g_PlayerRuntime.dashInvulnerability = std::max(g_PlayerRuntime.dashInvulnerability, UPA(G_PARRY));
 }
 
 void OnWaveCleared() {
     if (!s.any) return;
     const Flags& o = s.on;
-    if (o.G_CHARGER) AddShield(UPV(G_CHARGER));
-    if (o.G_FORCEFIELD) AddShield(UPV(G_FORCEFIELD));
+    if (o.G_CHARGER) AddShield(UPA(G_CHARGER));
+    if (o.G_FORCEFIELD) AddShield(UPA(G_FORCEFIELD));
     // Only while Precise Ritual is owned: quiet waves banked before the pick made it start at up to +40%.
-    if (o.C_RITUAL && s.waveDamage < 10.0f) s.quietWaves = std::min(8, s.quietWaves + 1);
+    if (o.C_RITUAL && s.waveDamage < UPB(C_RITUAL)) s.quietWaves = std::min(8, s.quietWaves + 1);
     s.waveDamage = 0.0f;
     if (o.T_CAKE && s.cakeArmed > 0) {
         --s.cakeArmed; ++s.cakeUsed;
-        g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + UPV(T_CAKE));
+        g_GameManager.playerHP = std::min(g_Stats.maxHP, g_GameManager.playerHP + UPA(T_CAKE));
         Audio::Play(Audio::Cue::SfxHealSmall);
     }
 }
@@ -1595,7 +1697,8 @@ static void Saved() {
 bool TryRevive() {
     // 최후의 방벽 blocks one lethal hit per run before any revive card is spent:
     // the hit is cut down to leave 1 HP, with a shield break around the ship.
-    if (s.on.G_LASTWALL && !s.lastWallSaved) {
+    if (s.on.G_LASTWALL && s.lastWallSaves < (int)UPB(G_LASTWALL)) {
+        ++s.lastWallSaves;
         s.lastWallSaved = true;
         Audio::Play(Audio::Cue::SfxShieldBreak);
         strike_fx::Implode(s.in.px, s.in.py, 120.0f, { 0.55f, 0.85f, 1.0f }, 0.0f, 0.30f);
@@ -1608,7 +1711,7 @@ bool TryRevive() {
     s.revived = true;
     Audio::Play(Audio::Cue::SfxRevive);
     strike_fx::Revive(s.in.px, s.in.py, { 0.55f, 1.0f, 0.75f });
-    g_GameManager.playerHP = std::min(g_Stats.maxHP, UPV(C_REVIVE));
+    g_GameManager.playerHP = std::min(g_Stats.maxHP, UPA(C_REVIVE));
     Saved();
     return true;
 }
@@ -1680,7 +1783,8 @@ void Step(const passive::StepInput& in) {
     s.clock += dt;
     s.stillGuardCd = std::max(0.0f, s.stillGuardCd - dt);
     s.dashBoostT = std::max(0.0f, s.dashBoostT - dt);
-    s.sinceDash += dt; s.sinceHurt += dt;
+    s.sinceDash += dt; s.sinceHurt += dt; s.sinceKill += dt;
+    s.sinceShield = g_PlayerShield > 0.0f ? 0.0f : s.sinceShield + dt;
     UpdateChances(in);
     g_PlayerDmgMult = DamageTakenMult();
 
@@ -1695,9 +1799,9 @@ void Step(const passive::StepInput& in) {
     if (in.moving) { s.stillT = 0.0f; s.stillChargeT = 0.0f; s.stillCharged = false; }
     else {
         s.stillT += dt; s.stillChargeT += dt;
-        if (o.T_STILL && s.stillChargeT >= 1.0f) s.stillCharged = true;
-        if (o.G_STILLGUARD && s.stillT >= 2.0f && s.stillGuardCd <= 0.0f && g_PlayerShield < UPV(G_STILLGUARD)) {
-            AddShield(UPV(G_STILLGUARD) - g_PlayerShield); s.stillGuardCd = 20.0f;
+        if (o.T_STILL && s.stillChargeT >= UPB(T_STILL)) s.stillCharged = true;
+        if (o.G_STILLGUARD && s.stillT >= 2.0f && s.stillGuardCd <= 0.0f && g_PlayerShield < UPA(G_STILLGUARD)) {
+            AddShield(UPA(G_STILLGUARD) - g_PlayerShield); s.stillGuardCd = UPB(G_STILLGUARD);
         }
     }
     // Per-enemy timers kept only as long as they matter.
@@ -1710,7 +1814,7 @@ void Step(const passive::StepInput& in) {
     if (in.dashActive && o.T_AFTERIMAGE) {
         s.dashDropped += std::hypot(in.px - s.dashLastX, in.py - s.dashLastY);
         s.dashLastX = in.px; s.dashLastY = in.py;
-        if (s.dashDropped >= 40.0f) { s.dashDropped = 0.0f; AddZone(in.px, in.py, 34.0f, 2.0f, UPV(T_AFTERIMAGE) * 100.0f, 0.0f, 0.75f, 0.55f, 1.0f); }
+        if (s.dashDropped >= 40.0f) { s.dashDropped = 0.0f; AddZone(in.px, in.py, 34.0f, UPB(T_AFTERIMAGE), UPA(T_AFTERIMAGE) * 100.0f, 0.0f, 0.75f, 0.55f, 1.0f); }
     }
     if (s.prevDash && !in.dashActive) DashEnded();
     s.prevDash = in.dashActive;
@@ -1718,10 +1822,12 @@ void Step(const passive::StepInput& in) {
     // Shield: breaking it.
     if (s.shieldPrev > 0.0f && g_PlayerShield <= 0.0f) {
         Audio::Play(Audio::Cue::SfxShieldBreak);
+        // Shape (방벽): a breaking shield erases the enemy shots around the ship.
+        if (ShapeOn(synergy::Family::Guard)) passive::ClearEnemyBullets(in.px, in.py, Rings(3.5f));
         if (o.G_MIRROR)
             for (Bullet& b : g_Bullets)
                 if (b.active && b.isEnemy &&
-                    (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < Rings(3.5f) * Rings(3.5f)) {
+                    (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < Rings(UPB(G_MIRROR)) * Rings(UPB(G_MIRROR))) {
                     b.isEnemy = false; b.dirX = -b.dirX; b.dirY = -b.dirY; b.dmgMult = 1.0f;
                     b.color = glm::vec3(0.7f, 0.9f, 1.0f);
                 }
@@ -1741,16 +1847,21 @@ void Step(const passive::StepInput& in) {
                 b.synFlags |= synf::GrazeNear;
             } else if ((b.synFlags & synf::GrazeNear) && d >= hitR + 18.0f) {
                 b.synFlags |= synf::Grazed;
-                if (++s.grazes >= 30) { s.grazes = 0; AddShield(UPV(T_GRAZE)); Audio::Play(Audio::Cue::ProcCounterFull); }
+                if (++s.grazes >= std::max(1, (int)UPB(T_GRAZE))) { s.grazes = 0; AddShield(UPA(T_GRAZE)); Audio::Play(Audio::Cue::ProcCounterFull); }
             }
         }
     }
+    // Shape (궤도): orbiting and hovering shots erase the enemy shots they touch.
+    if (ShapeOn(synergy::Family::Orbit))
+        for (const Bullet& b : g_Bullets)
+            if (b.active && !b.isEnemy && (b.synFlags & (synf::Orbit | synf::Hovering)))
+                passive::ClearEnemyBullets(b.x, b.y, 22.0f * b.sizeScale, false);
     // Force field: enemy bullets that come close slow down.
     if (o.G_FORCEFIELD)
         for (Bullet& b : g_Bullets)
             if (b.active && b.isEnemy && !(b.synFlags & synf::Slowed) &&
                 (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < Rings(2) * Rings(2)) {
-                b.synFlags |= synf::Slowed; b.speed *= 0.8f;
+                b.synFlags |= synf::Slowed; b.speed *= 1.0f - UPB(G_FORCEFIELD);
             }
 
     // Marks and burns.
@@ -1759,7 +1870,7 @@ void Step(const passive::StepInput& in) {
     s.shieldPulse -= dt;
     if (s.shieldPulse <= 0.0f && g_PlayerShield > 0.0f) { s.shieldPulse = 0.9f; Pulse(in.px, in.py, 36.0f, 0.4f, 0.45f, 0.85f, 1.0f); }
     if (!s.burns.empty()) {
-        const float dmg = passive::AttackPower() * UPV(V_BURN) * 0.5f * passive::AllDamageMult();
+        const float dmg = passive::AttackPower() * UPA(V_BURN) * 0.5f * passive::AllDamageMult();
         ForEachEnemy([&](auto& e, float ex, float ey) {
             auto it = s.burns.find(&e);
             if (it == s.burns.end()) return;
@@ -1855,7 +1966,7 @@ void Step(const passive::StepInput& in) {
         const uint32_t f = b.synFlags;
         if (f & synf::Grow) {
             // The same curve as its damage (DamageMult): full size where the damage is full, at 13 rings.
-            b.sizeScale = std::max(b.sizeScale, b.synGrowBase * (1.0f + std::min(1.5f, b.traveled / (Rings(13) / 1.5f))));
+            b.sizeScale = std::max(b.sizeScale, b.synGrowBase * (1.0f + std::min(UPA(V_GROW) - 1.0f, b.traveled / (Rings(UPB(V_GROW)) / (UPA(V_GROW) - 1.0f)))));
             ClampPlayerBulletSize(b);
         }
         if (f & synf::Trail) RecordStreak(b, dt);
@@ -1863,7 +1974,7 @@ void Step(const passive::StepInput& in) {
             b.synTrailAt = b.traveled;
             // With Ember Rounds (a burning shot) the afterimage sets enemies alight too.
             // 40% of the shot's own damage: a fast, light gun (minigun) lays many thin trails, not many full ones.
-            AddTrailZone(b.x, b.y, kTrailZoneR, UPV(V_TRAIL) * 100.0f * b.dmgMult * s.dmg, b.synTrailChain, (f & synf::Burn) != 0, b.color);
+            AddTrailZone(b.x, b.y, kTrailZoneR * (1.0f + UPB(V_TRAIL)), UPA(V_TRAIL) * 100.0f * b.dmgMult * s.dmg, b.synTrailChain, (f & synf::Burn) != 0, b.color);
         }
         if ((f & synf::Hover) && !(f & synf::Hovered)) {
             if (!(f & synf::Hovering) && b.traveled >= Rings(4)) {
@@ -1926,7 +2037,7 @@ void Step(const passive::StepInput& in) {
         if (f & synf::Mine) {
             if (b.traveled >= b.synLandDist - 2.0f) {
                 b.active = false;
-                if (s.mines.size() < 40) s.mines.push_back({ b.x, b.y, 8.0f, UPV(V_MINE) * 100.0f * b.dmgMult * s.dmg, 0.0f });   // Burst adds the card part
+                if (s.mines.size() < 40) s.mines.push_back({ b.x, b.y, 8.0f, UPA(V_MINE) * 100.0f * b.dmgMult * s.dmg, 0.0f });   // Burst adds the card part
             }
         }
     }

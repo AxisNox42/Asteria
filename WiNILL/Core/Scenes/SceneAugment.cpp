@@ -12,6 +12,7 @@
 #include "Input.h"
 #include "Augment.h"
 #include "SynergyRuntime.h"
+#include "SynergyUpgrade.h"
 #include "../../System/Audio.h"
 #include "DrawPrim.h"
 #include "TextRenderer.h"
@@ -513,7 +514,7 @@ struct CardText {
 // Icon on top, then the title; everything under it is description text: the
 // kind and cooldown line first, then the effect. Shrinks the description
 // until it fits above the key hint.
-CardText LayoutCardText(const AugDef& def, float ui) {
+CardText LayoutCardText(const AugDef& def, float ui, int slot = -1) {
     CardText t;
     const float inner = (ac::kCardW - 44.0f) * ui;
     float f = ui;
@@ -530,15 +531,21 @@ CardText LayoutCardText(const AugDef& def, float ui) {
     else if (!synMeta.empty()) swprintf_s(meta, L"%ls", synMeta.c_str());
     else swprintf_s(meta, L"%ls", kPassive[CurLangIdx()]);
     t.meta = meta;
-    // Augment rework: on a wave clear's upgrade pick the card shows what the upgrade does
-    // first ("강화 ★ → ★★: 튕김 1 → 2"), then its own text.
+    // Augment rework: on a wave clear's upgrade pick the card shows which branch it offers and
+    // what it does first ("강화 ★ → ★★ · 수치 A", "▲ 튕김 2 → 3" / "◆ <shape>"), then its own text.
     const int augIdx = (int)(&def - ALL_AUGS);
     std::wstring descText = AugDesc(def);
-    if (g_GameManager.ActiveIsUpgrade()) {
-        static const wchar_t* kUp[3] = { L"강화 ★ → ★★", L"Upgrade ★ → ★★", L"強化 ★ → ★★" };
-        t.meta = kUp[CurLangIdx()];
-        const std::wstring line = syn::UpgradeLine(augIdx, CurLangIdx());
-        if (!line.empty()) descText = L"▲ " + line + L" · " + descText;
+    const int branch = slot >= 0 && slot < GameManager::kAugChoiceMax ? g_GameManager.augChoiceBranch[slot] : -1;
+    if (g_GameManager.ActiveIsUpgrade() && branch >= 0) {
+        static const wchar_t* kUp[3] = { L"강화", L"Upgrade", L"強化" };
+        const int li = CurLangIdx();
+        const int stars = std::max(1, syn::Stage(augIdx));
+        t.meta = std::wstring(kUp[li]) + L" " + std::wstring((size_t)stars, L'★') + L" → " +
+                 std::wstring((size_t)stars + 1, L'★') + L" · " + synergy::BranchName(branch, li);
+        if (branch == 2)
+            t.meta += std::wstring(L" (") + synergy::FamilyName((synergy::Family)syn::CardFamilyOf(augIdx), li) + L")";
+        const std::wstring line = syn::UpgradeLine(augIdx, branch, li);
+        if (!line.empty()) descText = (branch == 2 ? L"◆ " : L"▲ ") + line + L" · " + descText;
     } else if (g_GameManager.ActiveIsFrame()) {
         static const wchar_t* kFrame[3] = { L"시작 무기 · 이번 런 동안 유지", L"Starting frame · kept all run", L"開始武器 · このラン中ずっと" };
         t.meta = kFrame[CurLangIdx()];
@@ -986,7 +993,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     if (texts.size() != (size_t)count || textLang != CurLangIdx() || std::fabs(textUi - ui) > 1e-4f) {
         texts.clear();
         for (int i = 0; i < count; ++i)
-            texts.push_back(defs[i] ? LayoutCardText(*defs[i], ui) : CardText{});
+            texts.push_back(defs[i] ? LayoutCardText(*defs[i], ui, i) : CardText{});
         textLang = CurLangIdx();
         textUi = ui;
     }
@@ -1359,7 +1366,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         // Augment rework: what this pick is, and the upgrade pick's one reroll.
         if (g_GameManager.ActiveIsUpgrade()) {
             std::wstring head = li == 0 ? L"웨이브 클리어 · 강화할 카드 1장" : li == 2 ? L"ウェーブクリア · 強化するカード1枚" : L"WAVE CLEAR · UPGRADE ONE CARD";
-            if (g_GameManager.upgradeRerollsLeft > 0 && ActionBound(GameAction::Reroll)) {
+            if (g_GameManager.CanRerollUpgrade() && ActionBound(GameAction::Reroll)) {
                 const std::wstring rk = KeyName(ActionKey(GameAction::Reroll));
                 head += li == 0 ? L" · " + rk + L" 다시 굴리기 (1회)" : li == 2 ? L" · " + rk + L"で引き直し (1回)" : L" · " + rk + L" TO REROLL (ONCE)";
             }

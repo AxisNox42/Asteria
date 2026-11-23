@@ -6763,11 +6763,12 @@ int main() {
                 const int selectedIdx = g_GameManager.augChoices[slot];
                 if (selectedIdx < 0 || selectedIdx >= AUG_TOTAL) return;
                 if (g_GameManager.ActiveIsUpgrade()) {
-                    syn::Upgrade(selectedIdx);
+                    const int branch = g_GameManager.augChoiceBranch[slot];
+                    syn::Upgrade(selectedIdx, branch);
                     g_GameManager.lastUpgraded = selectedIdx;
                     syn::PickupFx(selectedIdx);
-                    gamelog::Event("AUG_UPGRADE", "aug=%s,stage=%d,level=%d", ALL_AUGS[selectedIdx].name,
-                                   syn::Stage(selectedIdx), g_GameManager.playerLevel);
+                    gamelog::Event("AUG_UPGRADE", "aug=%s,branch=%c,stage=%d,level=%d", ALL_AUGS[selectedIdx].name,
+                                   "ABC"[std::clamp(branch, 0, 2)], syn::Stage(selectedIdx), g_GameManager.playerLevel);
                 } else {
                     passive::Acquire(selectedIdx);
                     MarkAugSeen(selectedIdx);
