@@ -125,7 +125,9 @@ struct State {
     unsigned char branch[kCards + 1] = {};
     Flags on;                        // owned and switched on (its needs are met)
     Flags upA, upB;                  // owned with branch A / B taken
-    bool  shape[(int)synergy::Family::Count] = {};   // family shapes switched on (a card's branch C)
+    // Family shapes: how many owned cards took branch C of each family. Every card keeps its
+    // three branches (user 2026-11-23); a second card's C on a family already on stacks it.
+    int   shape[(int)synergy::Family::Count] = {};
     bool  framePick = false;         // the run-start frame pick is open: only frames are offered
     uint64_t tags = 0;
     int   frame = 0;                 // table index of the owned frame, 0 = the bare gun
@@ -212,7 +214,8 @@ const synergy::UpRow& UpRowOf(const char* code) {
 #define UPA(code)  (s.upA.code ? UPROW(code).A.b : UPROW(code).A.a)
 #define UPA2(code) (s.upA.code ? UPROW(code).A2.b : UPROW(code).A2.a)
 #define UPB(code)  (s.upB.code ? UPROW(code).B.b : UPROW(code).B.a)
-bool ShapeOn(synergy::Family f) { return s.shape[(int)f]; }
+bool ShapeOn(synergy::Family f) { return s.shape[(int)f] > 0; }
+float ShapeLv(synergy::Family f) { return (float)s.shape[(int)f]; }   // 1 one card, 2 two cards ...
 int Index(const char* code) { return synergy::FindCode(code); }
 // MSVC's RAND_MAX is 32767: `rand() % 10000` only reached 0..0.33 and chances fired ~3x too often.
 float Rand01() { return (float)std::rand() / ((float)RAND_MAX + 1.0f); }
@@ -338,12 +341,13 @@ void KillEvent(float x, float y, const void* target) {
     // Shape (추적): lightning to two nearby enemies, at most every 0.5 s.
     if (ShapeOn(synergy::Family::Track) && !chainKill && s.clock - s.trackAt >= 0.5f) {
         s.trackAt = s.clock;
-        Chain(x, y, target, 2, 280.0f, 50.0f, 0.0f);
+        Chain(x, y, target, 2 * (int)ShapeLv(synergy::Family::Track), 280.0f, 50.0f, 0.0f);
     }
     // Shape (원소): enemies within 1.5 rings catch fire for 3 s.
     if (ShapeOn(synergy::Family::Element))
         ForEachEnemy([&](auto& e, float ex, float ey) {
-            if ((const void*)&e == target || (ex - x) * (ex - x) + (ey - y) * (ey - y) > Rings(1.5f) * Rings(1.5f)) return;
+            const float rr = Rings(1.0f + 0.5f * ShapeLv(synergy::Family::Element));   // 1.5 rings, +0.5 per stack
+            if ((const void*)&e == target || (ex - x) * (ex - x) + (ey - y) * (ey - y) > rr * rr) return;
             auto [it, fresh] = s.burns.try_emplace(&e, Burn{ 3.0f, 0.5f });
             if (!fresh) it->second.t = std::max(it->second.t, 3.0f);
         });
@@ -359,7 +363,7 @@ void DashEnded() {
     }
     if (o.G_PARRY) passive::ClearEnemyBullets(s.in.px, s.in.py, Rings(UPB(G_PARRY)));
     // Shape (기동): a blast where the dash ends.
-    if (ShapeOn(synergy::Family::Mobility)) Burst(s.in.px, s.in.py, Rings(1.5f), 150.0f);
+    if (ShapeOn(synergy::Family::Mobility)) Burst(s.in.px, s.in.py, Rings(1.5f), 150.0f * ShapeLv(synergy::Family::Mobility));
 }
 
 // An upgraded card whose numbers go straight into the gun: its branch A / B numbers (SynergyUpgrade.h).
@@ -432,11 +436,11 @@ void Rebuild() {
                 }
     bool* upFlags = reinterpret_cast<bool*>(&s.upA);
     bool* upBFlags = reinterpret_cast<bool*>(&s.upB);
-    for (bool& f : s.shape) f = false;
+    for (int& f : s.shape) f = 0;
     for (int i = 1; i <= kCards; ++i) {
         upFlags[i - 1] = s.own[i] > 0 && (s.branch[i] & 1) != 0;
         upBFlags[i - 1] = s.own[i] > 0 && (s.branch[i] & 2) != 0;
-        if (s.own[i] > 0 && (s.branch[i] & 4) != 0) s.shape[(int)CardFamily(i)] = true;
+        if (s.own[i] > 0 && (s.branch[i] & 4) != 0) ++s.shape[(int)CardFamily(i)];
     }
     bool* flags = reinterpret_cast<bool*>(&s.on);
     s.any = false;
@@ -1233,10 +1237,7 @@ bool CanTakeBranch(int augIdx, int branch) {
     const int i = CardOf(augIdx);
     if (i < 0 || branch < 0 || branch > 2 || s.own[i] <= 0 || !Upgradable(i)) return false;
     if (s.branch[i] & (1 << branch)) return false;
-    if (branch == 2) {   // a family's shape is switched on once
-        const synergy::Family f = CardFamily(i);
-        if (f == synergy::Family::None || s.shape[(int)f]) return false;
-    }
+    if (branch == 2 && CardFamily(i) == synergy::Family::None) return false;   // every card keeps all three
     return true;
 }
 
@@ -1252,6 +1253,18 @@ void Upgrade(int augIdx, int branch) {
     Rebuild();
 }
 
+// Branch C of a card whose family shape another card already switched on: it stacks
+// (" · 이미 켜짐: 효과 ×2"). Not for a card that took its own C (the build panel lists it).
+static std::wstring StackNote(int i, int branch, int lang) {
+    if (branch != 2 || (s.branch[i] & 4)) return L"";
+    const int lv = s.shape[(int)CardFamily(i)];
+    if (lv <= 0) return L"";
+    static const wchar_t* const k[3] = { L" · 이미 켜짐: 효과 ×%d", L" · already on: effect x%d", L" · 発動中: 効果 ×%d" };
+    wchar_t buf[64];
+    swprintf(buf, 64, k[std::clamp(lang, 0, 2)], lv + 1);
+    return buf;
+}
+
 std::wstring UpgradeLine(int augIdx, int branch, int lang) {
     const int i = CardOf(augIdx);
     if (i < 0) return L"";
@@ -1261,10 +1274,11 @@ std::wstring UpgradeLine(int augIdx, int branch, int lang) {
         for (int r = 0; r < kChanceRows; ++r)
             if (std::string(kChance[r].code) == a.code)
                 return synergy::BranchLine(nullptr, true, (synergy::ChKind)(int)kChance[r].kind,
-                                           (synergy::ChCond)(int)kChance[r].cond, kChance[r].pct, branch, lang);
+                                           (synergy::ChCond)(int)kChance[r].cond, kChance[r].pct, branch, lang) + StackNote(i, branch, lang);
         return L"";
     }
-    return synergy::BranchLine(synergy::FindUp(a.code), false, synergy::ChKind::Crit, synergy::ChCond::Still, 0, branch, lang);
+    std::wstring line = synergy::BranchLine(synergy::FindUp(a.code), false, synergy::ChKind::Crit, synergy::ChCond::Still, 0, branch, lang);
+    return line + StackNote(i, branch, lang);
 }
 
 int CardFamilyOf(int augIdx) {
@@ -1327,7 +1341,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         if (o.T_RHYTHM && ++s.rhythm >= std::max(2, (int)UPB(T_RHYTHM))) { s.rhythm = 0; s.beamBoost *= UPA(T_RHYTHM); Audio::Play(Audio::Cue::ProcCounterFull); }
     }
     // Shape (박자): a boosted shot (stillness, beat) deals +50%.
-    boost *= s.beamBoost * (ShapeOn(synergy::Family::Beat) && s.beamBoost > 1.0f ? 1.5f : 1.0f);
+    boost *= s.beamBoost * (s.beamBoost > 1.0f ? 1.0f + 0.5f * ShapeLv(synergy::Family::Beat) : 1.0f);
     if (s.dashBoostT > 0.0f) boost *= 1.3f;
     if (o.T_GRUDGE && s.stored > 0.0f) {
         const float pct = std::min(UPB(T_GRUDGE) * 100.0f * UPA(T_GRUDGE), s.stored * 100.0f * UPA(T_GRUDGE));
@@ -1380,7 +1394,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
             Bullet b = out.front();
             const float ang = aim + 0.06f * (float)(k % 2 ? -1 : 1) * (float)(k / 2 + 1);
             b.dirX = std::cos(ang); b.dirY = std::sin(ang);
-            if (ShapeOn(synergy::Family::Beat)) b.dmgMult *= 1.5f;
+            b.dmgMult *= 1.0f + 0.5f * ShapeLv(synergy::Family::Beat);
             out.push_back(b);
         }
     }
@@ -1396,7 +1410,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         Bullet b = out.front();
         const float ang = aim + off;
         b.dirX = std::cos(ang); b.dirY = std::sin(ang);
-        if (ShapeOn(synergy::Family::Beat)) b.dmgMult *= 1.5f;
+        b.dmgMult *= 1.0f + 0.5f * ShapeLv(synergy::Family::Beat);
         out.push_back(b);
     }
     // The opening salvo: every shot goes out twice for 3 s from the wave's first hit
@@ -1456,7 +1470,7 @@ float DamageMult(const Bullet& b, const void* target) {
     if (mk != s.marks.end() && mk->second > 0.0f) m *= 1.0f + UPA(V_MARK);
     if (b.synFlags & synf::Grow) { const float g = UPA(V_GROW) - 1.0f; m *= 1.0f + std::min(g, b.traveled / (Rings(UPB(V_GROW)) / g)); }
     // Shape (관통): +15% for every enemy the shot has passed.
-    if (ShapeOn(synergy::Family::Pierce) && b.synPierced > 0) m *= 1.0f + 0.15f * (float)b.synPierced;
+    if (ShapeOn(synergy::Family::Pierce) && b.synPierced > 0) m *= 1.0f + 0.15f * ShapeLv(synergy::Family::Pierce) * (float)b.synPierced;
     if (b.synBounces > 0) m *= 1.0f + (float)b.synBounces * ((o.Y_ETERNAL ? 0.22f : 0.0f) + (o.V_BOUNCE ? UPB(V_BOUNCE) : 0.0f));
     return m;
 }
@@ -1533,7 +1547,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         const float r = 80.0f * (1.0f + (o.V_BLAST ? UPB(V_BLAST) : 0.0f));
         Burst(x, y, r, b.blastPct * 100.0f * shotMult);
         // Shape (폭발): the same spot goes off again 0.5 s later at half the damage.
-        if (ShapeOn(synergy::Family::Blast)) AddZone(x, y, r * 0.8f, 0.5f, 0.0f, b.blastPct * 50.0f * shotMult);
+        if (ShapeOn(synergy::Family::Blast)) AddZone(x, y, r * 0.8f, 0.5f, 0.0f, b.blastPct * std::min(100.0f, 50.0f * ShapeLv(synergy::Family::Blast)) * shotMult);
     }
     if (b.synFlags & synf::Gravity) {
         // 특이점 붕괴 탄두: at most one implosion per enemy per 0.15 s (piercing, split and beam hits
@@ -1570,7 +1584,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
                 c.hitscanLeft = 0;
             }
             // Shape (분열): split shots curve toward the nearest enemy.
-            if (ShapeOn(synergy::Family::Split) && !(c.synFlags & synf::Lob)) { c.homing = true; c.homingTurn = std::max(c.homingTurn, 3.0f); }
+            if (ShapeOn(synergy::Family::Split) && !(c.synFlags & synf::Lob)) { c.homing = true; c.homingTurn = std::max(c.homingTurn, 3.0f * ShapeLv(synergy::Family::Split)); }
             c.ClearHits(); c.RememberHit(target);
             s.pending.push_back(c);
         }
@@ -1591,7 +1605,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
     // Shape (치명): a crit sets off a small blast, at most every 0.1 s.
     if (crit && ShapeOn(synergy::Family::Crit) && s.clock - s.critBlastAt >= 0.1f) {
         s.critBlastAt = s.clock;
-        Burst(x, y, 55.0f, 40.0f * shotMult);
+        Burst(x, y, 55.0f, 40.0f * ShapeLv(synergy::Family::Crit) * shotMult);
     }
     if (killed) KillEvent(x, y, target);
 }
@@ -1622,7 +1636,7 @@ void OnBounce(Bullet& b, bool wall) {
     const Flags& o = s.on;
     (void)wall;
     // Shape (튕김): a small blast at every bounce.
-    if (ShapeOn(synergy::Family::Bounce) && !b.isEnemy) Burst(b.x, b.y, 60.0f, 30.0f * b.dmgMult * s.dmg);
+    if (ShapeOn(synergy::Family::Bounce) && !b.isEnemy) Burst(b.x, b.y, 60.0f, 30.0f * ShapeLv(synergy::Family::Bounce) * b.dmgMult * s.dmg);
     if (o.Y_ETERNAL && !b.isEnemy) {
         // 영겁의 반사탄: each bounce adds +22%, so each one shows — a ring more on the shot
         // (EntityDraw DrawCardMarks) and a small crystal spark where it turned, in the shot's colour.
@@ -1823,7 +1837,7 @@ void Step(const passive::StepInput& in) {
     if (s.shieldPrev > 0.0f && g_PlayerShield <= 0.0f) {
         Audio::Play(Audio::Cue::SfxShieldBreak);
         // Shape (방벽): a breaking shield erases the enemy shots around the ship.
-        if (ShapeOn(synergy::Family::Guard)) passive::ClearEnemyBullets(in.px, in.py, Rings(3.5f));
+        if (ShapeOn(synergy::Family::Guard)) passive::ClearEnemyBullets(in.px, in.py, Rings(2.5f + 1.0f * ShapeLv(synergy::Family::Guard)));
         if (o.G_MIRROR)
             for (Bullet& b : g_Bullets)
                 if (b.active && b.isEnemy &&
@@ -1855,7 +1869,7 @@ void Step(const passive::StepInput& in) {
     if (ShapeOn(synergy::Family::Orbit))
         for (const Bullet& b : g_Bullets)
             if (b.active && !b.isEnemy && (b.synFlags & (synf::Orbit | synf::Hovering)))
-                passive::ClearEnemyBullets(b.x, b.y, 22.0f * b.sizeScale, false);
+                passive::ClearEnemyBullets(b.x, b.y, 22.0f * b.sizeScale * (0.5f + 0.5f * ShapeLv(synergy::Family::Orbit)), false);
     // Force field: enemy bullets that come close slow down.
     if (o.G_FORCEFIELD)
         for (Bullet& b : g_Bullets)

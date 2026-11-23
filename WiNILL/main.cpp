@@ -5884,6 +5884,14 @@ int main() {
                     } else if (step.rfind("NOQUOTA=", 0) == 0) {
                         // NOQUOTA=1: mass kills do not end the wave (no card screen mid-test).
                         g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
+                    } else if (step.rfind("UPBRANCH=", 0) == 0) {
+                        // UPBRANCH=<AugDef::name>#<0 A|1 B|2 C>: take that upgrade branch now.
+                        const std::string spec = step.substr(9);
+                        const size_t hash = spec.find('#');
+                        const std::string code = spec.substr(0, hash);
+                        const int branch = hash == std::string::npos ? 0 : std::atoi(spec.c_str() + hash + 1);
+                        for (int a = 0; a < AUG_TOTAL; ++a)
+                            if (code == ALL_AUGS[a].name) { syn::Upgrade(a, branch); break; }
                     } else if (step == "ELITEDOWN") {
                         // ELITEDOWN: the wave's target (elite / mid-boss) falls now, nothing else
                         // (an elite wave then still waits for its kill quota).

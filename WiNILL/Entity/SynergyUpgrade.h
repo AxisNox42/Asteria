@@ -3,7 +3,8 @@
 // Every upgradable card has three branches, each taken once (a card goes up to three times):
 //   A  its key number            (UpRow::A, a cost card's cost grows with it: UpRow::A2)
 //   B  a second number           (UpRow::B; chance cards: their condition is eased, ChanceCondB)
-//   C  a shape, shared by family (Family; once a family's shape is on, its other cards lose C)
+//   C  its family's shape (Family). Every card keeps all three branches (user 2026-11-23); a
+//      second card's C on a family that is already on stacks it (effect x2, x3 ...).
 // A wave clear shows three (card, branch) offers. This table is the only place the numbers
 // live: SynergyRuntime.cpp reads them (UPA / UPA2 / UPB) and the card text is built from it.
 //
