@@ -24,6 +24,9 @@ struct WaveClearInfo {
 };
 // Hands over the latest clear once (cleared = false when there is none).
 WaveClearInfo ConsumeWaveClear();
+// Elite wave, elite down, kill quota not met yet (EliteWaveKillQuota): the field
+// refills like a regular wave, at the regular pace. Set by the wave flow every frame.
+void SetEliteMopUp(bool on);
 // Seconds since `wave`'s target entered (0 before it has, or once it fell).
 float WaveFightSeconds(int wave, float gameTime);
 // `wave`'s target on the field is a boss (mid-run or final).

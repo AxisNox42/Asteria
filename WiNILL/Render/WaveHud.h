@@ -174,7 +174,8 @@ inline void DrawWaveHud(float sw, float hudScale, float hudTopY, float gameTime,
     // Regular wave: kills against the quota, the node filling as they add up.
     // Final wave: time left before the judgment. Elite / mid-boss waves: the
     // fight clock, the node filling over the elite's reward window.
-    const int quota = RegularWaveKillQuota(wave, difficulty);
+    // Elite waves show their kill quota too (EliteWaveKillQuota, 2026-11-23).
+    const int quota = WaveKillQuota(wave, difficulty);
     float clock = fight, remainFrac = 1.0f;
     if (quota > 0) {
         remainFrac = 1.0f - std::min(1.0f, (float)gm.waveKills / (float)quota);

@@ -37,30 +37,40 @@ public:
     bool      waveAdvancePending = false;
     float     waveClearDelay = 0.0f;      // beat between the kill and the reward
     bool      waveVictory = false;
+    // Elite wave (2026-11-23): its elite fell; the wave still waits for its kill quota.
+    bool      eliteDown = false;
+    float     eliteDownSeconds = 0.0f;    // the elite's kill time (the wave's reward speed)
     long long score      = 0;
     float     scoreAccum = 0.0f;
 
     XpAmount  xp           = 0;        // 현재 레벨 안의 EXP (0.001 XP 단위)
     int       playerLevel  = 1;        // 레벨 (시작 1)
-    static constexpr int kAugChoiceMax = 3;   // cards per pick (card draw screen)
-    int       augChoices[kAugChoiceMax] = {-1,-1,-1}; // indices into ALL_AUGS for current pick
+    // Augment rework (2026-11-23, Core/RewardRules.h): a level-up offers new augments, a wave
+    // clear upgrades owned ones (up to five cards), and the run opens with a frame pick.
+    static constexpr int kAugChoiceMax = 5;   // cards per pick (card draw screen)
+    int       augChoices[kAugChoiceMax] = {-1,-1,-1,-1,-1}; // indices into ALL_AUGS for current pick
     int       augChoiceCount = 0;
     int       augmentSelectionSerial = 0;
     bool      augmentKeyboardFocus = false;
     int       hoveredCard  = -1;       // AUG_SELECT 호버 인덱스 (-1=none)
-    int       pendingAugmentRewards = 0;   // wave clears: augment cards
-    // The wave clear's earned tier (AugRarity, -1 = none): the next augment
-    // pick guarantees one card of it, and rewardSpeed (0..1) tilts the rest up.
+    enum class RewardKind { NewCard, Upgrade, Frame };
+    int       pendingAugmentRewards = 0;   // level-ups: new augment cards
+    int       pendingUpgradeRewards = 0;   // wave clears: upgrades of owned cards
+    bool      pendingFramePick = false;    // run start: one frame out of three
+    bool      framePickOffered = false;    // this run's frame pick was queued (once per run)
+    RewardKind activeRewardKind = RewardKind::NewCard;   // what the open pick is
+    // Fastest-band wave clear (WaveRewardTier::Legendary): one more upgrade (RewardRules.h).
     int       rewardTier = -1;
     float     rewardSpeed = 0.0f;
-    int       rewardTierCap = 4;           // highest tier the pick may show (AugRarity)
-    int       rewardPityCount = 0;         // fastest clears since the last lucky bump
+    int       rewardTierCap = 4;           // kept for the logs (WAVE_CLEAR)
+    int       rewardPityCount = 0;
+    int       rewardLowStreak = 0;         // new-augment picks in a row with nothing Rare or better
+    int       lastUpgraded = -1;           // the card upgraded last (always among the next upgrade cards)
+    int       upgradeRerollsLeft = 0;      // rerolls left on the open upgrade pick
     // The cards of the last two picks (kept for the run): a card that was shown and not taken is
     // left out of the next picks while other cards of its tier can fill the slot.
     int       recentOffers[6] = { -1, -1, -1, -1, -1, -1 };
     int       recentOfferNext = 0;
-    int       pendingStatRewards = 0;      // level-ups: stat cards
-    bool      activeRewardIsStat = false;  // the open pick is a level-up's
     bool      augmentRewardActive = false;
     LevelUpTransition levelUpTransition;  // slow-mo before the reward opens
 
@@ -80,13 +90,23 @@ public:
                           float initialHp = 100.0f,
                           long long initialScore = 0);
     void AddScore(float amount);
-    // Wave-clear pick: augment cards by rarity weight.
+    // Level-up pick: three new augments, their rarity by the player's level.
     void PickRewardChoices();
-    // Level-up pick: three different stat cards.
+    // Wave-clear pick: up to five owned cards that can still be upgraded.
+    void PickUpgradeChoices();
+    // Run-start pick: three frames.
+    void PickFrameChoices();
+    // Legacy level-up stat cards (debug console only; no longer a reward).
     void PickStatChoices();
     void QueueAugmentReward();
-    void QueueStatReward();
-    int  PendingRewards() const { return pendingAugmentRewards + pendingStatRewards; }
+    void QueueUpgradeReward(int count = 1);
+    void QueueFramePick();
+    // The open upgrade pick deals five new cards (once per pick). False when none is left.
+    bool RerollUpgrade();
+    void ResetCardScreenAfterReroll();
+    bool ActiveIsUpgrade() const { return augmentRewardActive && activeRewardKind == RewardKind::Upgrade; }
+    bool ActiveIsFrame() const { return augmentRewardActive && activeRewardKind == RewardKind::Frame; }
+    int  PendingRewards() const { return pendingAugmentRewards + pendingUpgradeRewards + (pendingFramePick ? 1 : 0); }
     bool ActivateNextAugmentReward();
     // The open reward pick was taken: drop it from its queue.
     void ConsumeActiveReward();

@@ -38,6 +38,7 @@ struct EnemySpawnState {
     bool normaDefeated = false;          // the final boss fell: the run is won
     // The current wave's target, from the moment it entered.
     WaveObjective objective = WaveObjective::None;
+    bool eliteMopUp = false;   // elite wave after its elite fell: refill until the quota is met
     int objectiveWave = 0;
     float objectiveSpawnTime = 0.0f;
     // The target fell; ConsumeWaveClear hands this to the wave flow once.
@@ -261,6 +262,8 @@ static void TrackWaveObjective(float gameTime) {
     s.objectiveWave = 0;
 }
 
+void SetEliteMopUp(bool on) { g_EnemySpawnState.eliteMopUp = on; }
+
 WaveClearInfo ConsumeWaveClear() {
     const WaveClearInfo info = g_EnemySpawnState.clear;
     g_EnemySpawnState.clear = {};
@@ -396,7 +399,10 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
     const bool regularWave = IsRegularWave(wave, difficulty);
     const bool regulusWave = IsEliteWaveNumber(wave, difficulty) &&
                              ScheduledEliteKind(wave) == MobKind::REGULUS;
-    const bool fillField = regularWave || regulusWave;
+    // An elite wave whose elite fell but whose kill quota is not met yet refills
+    // like a regular wave, at the regular pace (EliteWaveKillQuota).
+    const bool mopUp = g_EnemySpawnState.eliteMopUp && IsEliteWaveNumber(wave, difficulty);
+    const bool fillField = regularWave || regulusWave || mopUp;
     const bool underBudget = fillField || g_EnemySpawnState.spawnedThisWave < waveSpawnCap;
     int aliveRegular = 0;
     if (fillField)
@@ -407,7 +413,7 @@ void UpdateEnemySpawns(MonsterManager& monsters, const PlayerStats& stats,
     if (fillField) gamelog::FieldTarget(fieldTarget);
     const bool refill = fillField && aliveRegular < fieldTarget;
     const float bossFight = 1.0f;
-    const float bossStretch = std::max(bossFight,
+    const float bossStretch = mopUp ? 1.0f : std::max(bossFight,
         SpecialWaveSpawnStretch(wave, difficulty, SpawnSource::Regular));
     const float rangedStretch = std::max(bossFight,
         SpecialWaveSpawnStretch(wave, difficulty, SpawnSource::Ranged));

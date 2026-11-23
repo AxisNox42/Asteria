@@ -21,6 +21,17 @@ bool CanOffer(int augIdx);             // may this synergy card appear in a pick
 void Acquire(int augIdx);              // a synergy card was taken
 void Release(int augIdx);              // F1 console: the card is taken back (one-time grants stay)
 void RefreshStats();                   // re-apply the cards' stat changes after another card moved the stats
+
+// Upgrades and the run-start frame pick (augment rework 2026-11-23, SynergyUpgrade.h).
+bool IsFrame(int augIdx);              // a frame card (picked at run start, never in a reward)
+void SetFramePick(bool on);            // while on, CanOffer shows frames only (the run-start pick)
+bool HasFrame();                       // a frame is owned this run
+int  Stage(int augIdx);                // 0 not owned, 1 base, 2 upgraded
+int  MaxStage(int augIdx);             // 1 = never upgraded (frames, mythics, laser amps)
+bool CanUpgrade(int augIdx);           // owned and below its max stage
+void Upgrade(int augIdx);              // one stage up
+// "튕김 1 → 2" style line for the card's next stage ("" when it has none).
+std::wstring UpgradeLine(int augIdx, int lang);
 // The small line under a card's name: its role, the tags it gives and the tags it needs (lang 0 KR, 1 EN, 2 JP).
 std::wstring MetaLine(int augIdx, int lang);
 

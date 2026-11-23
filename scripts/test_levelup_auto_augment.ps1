@@ -5,7 +5,7 @@ $exe = Join-Path $exeDir 'Asteria.exe'
 if (-not (Test-Path $exe)) { throw "build first: $exe" }
 $stateFile = Join-Path $exeDir 'Screenshots\reg04_state.txt'
 Remove-Item -LiteralPath $stateFile -ErrorAction SilentlyContinue
-$env:ASTERIA_SMOKE = 'RUN~0.3;XP=6~0.05;REG04DUMP=SIGNAL~0.9;REG04DUMP=OPEN~0.05;RUN~0.3;XP=120.125~0.9;REG04DUMP=MULTI~0.05'
+$env:ASTERIA_SMOKE = 'RUN~0.3;XP=35~0.05;REG04DUMP=SIGNAL~0.9;REG04DUMP=OPEN~0.05;RUN~0.3;XP=374.125~0.9;REG04DUMP=MULTI~0.05'
 $env:ASTERIA_SMOKE_TAG = 'levelup'
 $env:ASTERIA_SMOKE_SIZE = '1280x720'
 try {

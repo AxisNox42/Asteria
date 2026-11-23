@@ -7,6 +7,9 @@
 #include "Scenes.h"
 #include "ReadyLaunch.h"
 #include "PassiveAugments.h"
+#include "SynergyRuntime.h"
+#include "RewardRules.h"
+#include "../System/GameLog.h"
 #include "Input.h"
 #include "../System/Audio.h"
 #include <algorithm>
@@ -198,6 +201,12 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     rewardSpeed = 0.0f;
     rewardTierCap = 4;
     rewardPityCount = 0;
+    rewardLowStreak = 0;
+    framePickOffered = false;
+    eliteDown = false;
+    eliteDownSeconds = 0.0f;
+    lastUpgraded = -1;
+    upgradeRerollsLeft = 0;
     for (int& r : recentOffers) r = -1;
     recentOfferNext = 0;
     waveVictory = false;
@@ -209,101 +218,116 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     lastState = GameState::READY;
 }
 
-// Rarity weight by run progress (0 = wave 1, 1 = final wave): the odds slide
-// from mostly Common/Rare early to Epic/Legendary/Mythic late. Tiers above the
-// wave's cap (set by how far the run has come) never show.
-static float RarityWeight(AugRarity rarity, int cap, float progress) {
-    if ((int)rarity > cap) return 0.0f;
-    static const float kStart[5] = { 45.0f, 33.0f, 16.0f,  5.0f,  1.0f };
-    static const float kEnd[5]   = {  3.0f, 14.0f, 32.0f, 33.0f, 18.0f };
-    const int r = (int)rarity;
-    if (r < 0 || r > 4) return 0.0f;
-    const float t = std::clamp(progress, 0.0f, 1.0f);
-    return kStart[r] + (kEnd[r] - kStart[r]) * t;
+// ─── Reward picks (augment rework 2026-11-23, RewardRules.h) ──────────────────
+
+static float Roll01() { return (float)std::rand() / ((float)RAND_MAX + 1.0f); }
+static int RollN(int n) { return n > 0 ? std::min(n - 1, (int)(Roll01() * (float)n)) : 0; }
+
+static bool NewCardOfferable(int i) {
+    return !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i);
 }
 
-// Three different cards: a rarity by weight (among rarities that still have
-// an offerable card), then a card of that rarity at random. A wave clear's
-// earned tier puts one card of that tier (or the nearest lower one with an
-// offerable card) in a random slot, and its speed raises the other cards'
-// non-common weights (up to x3).
+static void RememberOffer(GameManager& gm) {
+    for (int i = 0; i < gm.augChoiceCount; ++i) {          // remember this pick for the next two
+        gm.recentOffers[gm.recentOfferNext] = gm.augChoices[i];
+        gm.recentOfferNext = (gm.recentOfferNext + 1) % 6;
+    }
+}
+
+// Level-up: three different new augments. Each slot rolls a rarity by weight (the
+// player's level sets the odds and the cap; only rarities that still have an offerable
+// card count), then a card of that rarity at random. After two picks in a row with
+// nothing Rare or better, one slot is Rare or better for sure (and the shop's First
+// Card Boon does the same for the run's first pick).
 void GameManager::PickRewardChoices() {
     for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
     augChoiceCount = 0;
     bool used[AUG_TOTAL] = {};
     bool recent[AUG_TOTAL] = {};
     for (const int r : recentOffers) if (r >= 0 && r < AUG_TOTAL) recent[r] = true;
-    // Shop First Card Boon: the run's first wave reward has a Rare or better card.
-    if (g_MetaFirstCardPending) {
-        g_MetaFirstCardPending = false;
-        rewardTier = std::max(rewardTier, (int)AugRarity::RARE);
-    }
-    const float luck = passive::LuckChanceMult() * (1.0f + 2.0f * std::clamp(rewardSpeed, 0.0f, 1.0f));
-    int guaranteed = -1;
-    const int cap = std::clamp(rewardTierCap, 0, (int)AugRarity::MYTHIC);
-    const float progress = (float)(std::max(1, currentWave) - 1) /
-                           (float)std::max(1, FinalWaveCount(g_Difficulty) - 1);
-    // The guaranteed card may sit one tier above the cap (a lucky bump).
-    for (int r = std::min(rewardTier, (int)AugRarity::MYTHIC); r >= 0 && guaranteed < 0; --r) {
-        int pool[AUG_TOTAL], n = 0;
-        for (int pass = 0; pass < 2 && n == 0; ++pass)   // pass 0 skips the cards shown last time
-            for (int i = 0; i < AUG_TOTAL; ++i)
-                if ((int)ALL_AUGS[i].rarity == r && !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i) &&
-                    (pass == 1 || !recent[i]))
-                    pool[n++] = i;
-        if (n > 0) guaranteed = pool[std::rand() % n];
-    }
-    rewardTier = -1;
-    rewardSpeed = 0.0f;
-    rewardTierCap = (int)AugRarity::MYTHIC;
-    if (guaranteed >= 0) used[guaranteed] = true;
-    for (int pass = 0; pass < 2; ++pass) {
-    if (pass == 1) {
-        // Not enough fresh cards: the ones shown last time may come back.
-        if (augChoiceCount + (guaranteed >= 0 ? 1 : 0) >= kAugChoiceMax) break;
-        for (int i = 0; i < AUG_TOTAL; ++i) recent[i] = false;
-    }
-    for (int slot = augChoiceCount + (guaranteed >= 0 ? 1 : 0); slot < kAugChoiceMax; ++slot) {
+    const int level = std::max(2, playerLevel);
+    const int cap = std::clamp(reward::LevelTierCap(level), 0, (int)AugRarity::MYTHIC);
+    const float progress = reward::LevelProgress(level);
+    const float luck = passive::LuckChanceMult();
+    bool needRare = reward::GuaranteeRare(rewardLowStreak);
+    if (g_MetaFirstCardPending) { g_MetaFirstCardPending = false; needRare = true; }
+
+    auto pickOfRarity = [&](int minRarity, int maxRarity, bool skipRecent) {
         float weights[5] = {};
         float total = 0.0f;
-        for (int r = 0; r < 5; ++r) {
+        for (int r = minRarity; r <= maxRarity; ++r) {
             bool any = false;
             for (int i = 0; i < AUG_TOTAL && !any; ++i)
-                any = !used[i] && !recent[i] && (int)ALL_AUGS[i].rarity == r &&
-                      !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i);
+                any = !used[i] && !(skipRecent && recent[i]) && (int)ALL_AUGS[i].rarity == r && NewCardOfferable(i);
             if (!any) continue;
-            float w = RarityWeight((AugRarity)r, cap, progress);
+            float w = reward::RarityWeight(r, cap, progress);
             if (r != (int)AugRarity::COMMON) w *= luck;
             weights[r] = w;
             total += w;
         }
-        if (total <= 0.0f) break;
-        // MSVC's RAND_MAX is 32767, so `rand() % 100000` only reached the first
-        // third of the weight sum and Rare and above almost never came up.
-        float roll = (float)std::rand() / ((float)RAND_MAX + 1.0f) * total;
-        int rarity = 0;
-        for (; rarity < 4 && roll >= weights[rarity]; ++rarity) roll -= weights[rarity];
-        while (weights[rarity] <= 0.0f && rarity > 0) --rarity;
+        if (total <= 0.0f) return -1;
+        float roll = Roll01() * total;
+        int rarity = minRarity;
+        for (; rarity < maxRarity && roll >= weights[rarity]; ++rarity) roll -= weights[rarity];
+        while (weights[rarity] <= 0.0f && rarity > minRarity) --rarity;
         int pool[AUG_TOTAL], n = 0;
         for (int i = 0; i < AUG_TOTAL; ++i)
-            if (!used[i] && !recent[i] && (int)ALL_AUGS[i].rarity == rarity &&
-                !AugIsStatCard(ALL_AUGS[i]) && passive::CanOffer(i))
+            if (!used[i] && !(skipRecent && recent[i]) && (int)ALL_AUGS[i].rarity == rarity && NewCardOfferable(i))
                 pool[n++] = i;
-        if (n == 0) break;
-        const int pick = pool[std::rand() % n];
-        used[pick] = true;
-        augChoices[augChoiceCount++] = pick;
-    }
-    }
-    if (guaranteed >= 0 && augChoiceCount < kAugChoiceMax) {
-        const int at = std::rand() % (augChoiceCount + 1);
+        return n > 0 ? pool[RollN(n)] : -1;
+    };
+
+    int guaranteed = -1;
+    if (needRare)
+        for (int pass = 0; pass < 2 && guaranteed < 0; ++pass)
+            guaranteed = pickOfRarity((int)AugRarity::RARE, cap, pass == 0);
+    if (guaranteed >= 0) used[guaranteed] = true;
+    const int want = reward::kNewCardChoices - (guaranteed >= 0 ? 1 : 0);
+    for (int pass = 0; pass < 2 && augChoiceCount < want; ++pass)   // pass 1: cards shown last time may come back
+        while (augChoiceCount < want) {
+            const int pick = pickOfRarity(0, cap, pass == 0);
+            if (pick < 0) break;
+            used[pick] = true;
+            augChoices[augChoiceCount++] = pick;
+        }
+    if (guaranteed >= 0) {
+        const int at = RollN(augChoiceCount + 1);
         for (int i = augChoiceCount; i > at; --i) augChoices[i] = augChoices[i - 1];
         augChoices[at] = guaranteed;
         ++augChoiceCount;
     }
-    for (int i = 0; i < augChoiceCount; ++i) {          // remember this pick for the next two
-        recentOffers[recentOfferNext] = augChoices[i];
-        recentOfferNext = (recentOfferNext + 1) % 6;
+    int best = -1;
+    for (int i = 0; i < augChoiceCount; ++i) best = std::max(best, (int)ALL_AUGS[augChoices[i]].rarity);
+    if (augChoiceCount > 0) rewardLowStreak = reward::NextLowStreak(rewardLowStreak, best);
+    RememberOffer(*this);
+}
+
+// Wave clear: up to five owned cards that can still go up a stage, the last one
+// upgraded always among them.
+void GameManager::PickUpgradeChoices() {
+    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    augChoiceCount = 0;
+    std::vector<int> cands;
+    for (int i = 0; i < AUG_TOTAL; ++i)
+        if (syn::CanUpgrade(i)) cands.push_back(i);
+    const std::vector<int> picked = reward::PickUpgradeCards(cands, lastUpgraded,
+                                                             std::min((int)kAugChoiceMax, reward::kUpgradeChoices), RollN);
+    for (const int a : picked) augChoices[augChoiceCount++] = a;
+}
+
+// Run start: three frames.
+void GameManager::PickFrameChoices() {
+    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    augChoiceCount = 0;
+    syn::SetFramePick(true);
+    int pool[AUG_TOTAL], n = 0;
+    for (int i = 0; i < AUG_TOTAL; ++i)
+        if (syn::IsFrame(i) && passive::CanOffer(i)) pool[n++] = i;
+    syn::SetFramePick(false);
+    for (int k = 0; k < reward::kFrameChoices && n > 0; ++k) {
+        const int j = RollN(n);
+        augChoices[augChoiceCount++] = pool[j];
+        pool[j] = pool[--n];
     }
 }
 
@@ -318,7 +342,7 @@ void GameManager::PickStatChoices() {
     for (int i = 0; i < AUG_TOTAL; ++i)
         if (AugIsStatCard(ALL_AUGS[i]) && !(glass && ALL_AUGS[i].type == AugType::S_MAX_HP)) pool[n++] = i;
     for (int k = 0; k < 3 && n > 0; ++k) {
-        const int j = std::rand() % n;
+        const int j = RollN(n);
         augChoices[augChoiceCount++] = pool[j];
         pool[j] = pool[--n];
     }
@@ -328,13 +352,53 @@ void GameManager::QueueAugmentReward() {
     ++pendingAugmentRewards;
 }
 
-void GameManager::QueueStatReward() {
-    ++pendingStatRewards;
+void GameManager::QueueUpgradeReward(int count) {
+    pendingUpgradeRewards += std::max(0, count);
+}
+
+void GameManager::QueueFramePick() {
+    pendingFramePick = true;
+}
+
+bool GameManager::RerollUpgrade() {
+    if (!ActiveIsUpgrade() || upgradeRerollsLeft <= 0) return false;
+    // Five fresh cards where there are enough; the kept card stays (it is always offered).
+    int shown[kAugChoiceMax];
+    const int shownCount = augChoiceCount;
+    for (int i = 0; i < shownCount; ++i) shown[i] = augChoices[i];
+    std::vector<int> fresh, all;
+    for (int i = 0; i < AUG_TOTAL; ++i) {
+        if (!syn::CanUpgrade(i)) continue;
+        all.push_back(i);
+        bool was = false;
+        for (int k = 0; k < shownCount; ++k) was = was || shown[k] == i;
+        if (!was) fresh.push_back(i);
+    }
+    if (all.size() <= (size_t)shownCount && fresh.empty()) return false;   // nothing else to show
+    std::vector<int> picked = reward::PickUpgradeCards(fresh, lastUpgraded, reward::kUpgradeChoices, RollN);
+    // Too few fresh cards: fill with the ones shown before.
+    for (int k = 0; k < shownCount && (int)picked.size() < reward::kUpgradeChoices; ++k)
+        if (std::find(picked.begin(), picked.end(), shown[k]) == picked.end()) picked.push_back(shown[k]);
+    if (lastUpgraded >= 0 && syn::CanUpgrade(lastUpgraded) &&
+        std::find(picked.begin(), picked.end(), lastUpgraded) == picked.end()) {
+        if ((int)picked.size() >= reward::kUpgradeChoices) picked.back() = lastUpgraded;
+        else picked.push_back(lastUpgraded);
+    }
+    --upgradeRerollsLeft;
+    for (int i = 0; i < kAugChoiceMax; i++) augChoices[i] = -1;
+    augChoiceCount = 0;
+    for (const int a : picked) if (augChoiceCount < kAugChoiceMax) augChoices[augChoiceCount++] = a;
+    gamelog::Event("AUG_REROLL", "cards=%d,rerolls_left=%d", augChoiceCount, upgradeRerollsLeft);
+    ResetCardScreenAfterReroll();
+    return true;
 }
 
 void GameManager::ConsumeActiveReward() {
-    int& queue = activeRewardIsStat ? pendingStatRewards : pendingAugmentRewards;
-    if (queue > 0) --queue;
+    switch (activeRewardKind) {
+    case RewardKind::Frame:   pendingFramePick = false; break;
+    case RewardKind::Upgrade: if (pendingUpgradeRewards > 0) --pendingUpgradeRewards; break;
+    case RewardKind::NewCard: if (pendingAugmentRewards > 0) --pendingAugmentRewards; break;
+    }
 }
 
 static void ResetCardScreen(GameManager& gm) {
@@ -346,22 +410,35 @@ static void ResetCardScreen(GameManager& gm) {
     g_AugExitSlot = -1;
 }
 
+void GameManager::ResetCardScreenAfterReroll() { ResetCardScreen(*this); }
+
 bool GameManager::ActivateNextAugmentReward() {
     // Opening a reward (or finding none) ends any level-up slow-motion.
     levelUpTransition.Cancel();
     if (augmentRewardActive) return true;
-    // A wave clear's augment pick opens ahead of queued level-ups.
-    while (pendingAugmentRewards > 0) {
-        activeRewardIsStat = false;
+    bool found = false;
+    // The run-start frame pick opens first, then a wave clear's upgrades, then queued level-ups.
+    if (pendingFramePick) {
+        activeRewardKind = RewardKind::Frame;
+        PickFrameChoices();
+        if (augChoiceCount > 0) found = true;
+        else pendingFramePick = false;   // every frame owned or none in the build
+    }
+    while (!found && pendingUpgradeRewards > 0) {
+        activeRewardKind = RewardKind::Upgrade;
+        PickUpgradeChoices();
+        if (augChoiceCount > 0) { found = true; upgradeRerollsLeft = reward::kUpgradeRerolls; break; }
+        // Nothing to upgrade (an early clear, or every card at its top stage): a new augment instead.
+        --pendingUpgradeRewards;
+        ++pendingAugmentRewards;
+    }
+    while (!found && pendingAugmentRewards > 0) {
+        activeRewardKind = RewardKind::NewCard;
         PickRewardChoices();
-        if (augChoiceCount > 0) break;
+        if (augChoiceCount > 0) { found = true; break; }
         ConsumeActiveReward();   // nothing left to offer
     }
-    if (pendingAugmentRewards <= 0) {
-        if (pendingStatRewards <= 0) return false;
-        activeRewardIsStat = true;
-        PickStatChoices();
-    }
+    if (!found) return false;
     augmentRewardActive = true;
     {
         std::string cards;
@@ -371,10 +448,12 @@ bool GameManager::ActivateNextAugmentReward() {
             cards += d.name;
             cards += ":";
             cards += AugRarityName(d.rarity);
+            if (activeRewardKind == RewardKind::Upgrade) { cards += ":S"; cards += std::to_string(syn::Stage(augChoices[i])); }
         }
-        gamelog::Event("AUG_OFFER", "reward=%s,cards=%s,pending_aug=%d,pending_stat=%d",
-                       activeRewardIsStat ? "level_up" : "wave_clear", cards.c_str(),
-                       pendingAugmentRewards, pendingStatRewards);
+        static const char* const kKind[3] = { "level_up", "wave_upgrade", "run_frame" };
+        gamelog::Event("AUG_OFFER", "reward=%s,cards=%s,level=%d,pending_new=%d,pending_up=%d",
+                       kKind[(int)activeRewardKind], cards.c_str(), playerLevel,
+                       pendingAugmentRewards, pendingUpgradeRewards);
     }
     ResetCardScreen(*this);
     return true;
@@ -382,17 +461,19 @@ bool GameManager::ActivateNextAugmentReward() {
 
 void GameManager::OpenTutorialChoice() {
     levelUpTransition.Cancel();
-    PickStatChoices();          // the tutorial's level-up
-    activeRewardIsStat = true;
-    pendingStatRewards = 1;
+    PickRewardChoices();        // the tutorial's level-up: new augments, as in a run
+    activeRewardKind = RewardKind::NewCard;
+    pendingAugmentRewards = 1;
     augmentRewardActive = true;
     ResetCardScreen(*this);
 }
 
 void GameManager::ClearAugmentRewardQueue() {
     pendingAugmentRewards = 0;
-    pendingStatRewards = 0;
-    activeRewardIsStat = false;
+    pendingUpgradeRewards = 0;
+    pendingFramePick = false;
+    activeRewardKind = RewardKind::NewCard;
+    upgradeRerollsLeft = 0;
     levelUpTransition.Cancel();
     augmentRewardActive = false;
     augChoiceCount = 0;

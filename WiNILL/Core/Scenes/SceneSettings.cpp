@@ -74,11 +74,14 @@ static const wchar_t* const kKeyActionLabels[GAME_ACTION_COUNT][3] = {
     { L"카드 2 선택",   L"CARD 2",     L"カード2選択" },
     { L"카드 3 선택",   L"CARD 3",     L"カード3選択" },
     { L"카드 용어 설명", L"CARD TERMS", L"カードの用語説明" },
+    { L"카드 4 선택",   L"CARD 4",     L"カード4選択" },
+    { L"카드 5 선택",   L"CARD 5",     L"カード5選択" },
+    { L"강화 다시 굴리기", L"REROLL UPGRADES", L"強化の引き直し" },
 };
 
 // Settings board capacity: rows per category, and left/right list entries
 // (5 headers + every row).
-constexpr int kSettingsRowMax = 16;
+constexpr int kSettingsRowMax = 18;
 constexpr int kSettingsListMax = 48;
 static_assert(GAME_ACTION_COUNT + 1 <= kSettingsRowMax, "CONTROLS rows overflow");
 

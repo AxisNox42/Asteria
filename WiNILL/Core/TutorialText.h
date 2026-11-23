@@ -71,11 +71,11 @@ inline const wchar_t* kReadyXpNote[LANG_COUNT] = {
 inline constexpr int READY_HUD_GUIDE_COUNT = 2;
 inline const wchar_t* kReadyHudGuide[LANG_COUNT][READY_HUD_GUIDE_COUNT][2] = {
     { { L"체력 링", L"함선 둘레의 파란 링이 체력이에요. 맞으면 줄어들고, 다 닳으면 판이 끝납니다." },
-      { L"경험치 줄", L"적을 처치하면 이 줄이 차요. 꽉 차면 레벨 업하고 능력치 카드를 고릅니다. 실전에선 화면 맨 아래에 있어요." } },
+      { L"경험치 줄", L"적을 처치하면 이 줄이 차요. 꽉 차면 레벨 업하고 새 증강 카드를 고릅니다. 실전에선 화면 맨 아래에 있어요." } },
     { { L"HEALTH RING", L"The blue ring around your ship is your health. Hits shrink it; when it runs out, the run ends." },
-      { L"XP LINE", L"Each kill fills this line. When it is full you level up and pick a stat card. In a run it sits along the bottom of the screen." } },
+      { L"XP LINE", L"Each kill fills this line. When it is full you level up and pick a new augment card. In a run it sits along the bottom of the screen." } },
     { { L"体力リング", L"艦の周りの青いリングが体力です。被弾で減り、尽きるとプレイ終了です。" },
-      { L"経験値ライン", L"敵を撃破するとこのラインが溜まります。満タンでレベルアップし能力値カードを選びます。実戦では画面のいちばん下にあります。" } },
+      { L"経験値ライン", L"敵を撃破するとこのラインが溜まります。満タンでレベルアップし新しい強化カードを選びます。実戦では画面のいちばん下にあります。" } },
 };
 inline const wchar_t* kReadyHudGuideNext[LANG_COUNT] = {
     L"{START} · 클릭  다음", L"{START} · click  next", L"{START} · クリック  次へ",
@@ -105,9 +105,9 @@ inline const wchar_t* kReadyExtraObjective[LANG_COUNT][READY_EXTRA_OBJECTIVE_COU
 // Hint inside the field: [0] level-up (card screen).
 inline constexpr int READY_EXTRA_HINT_COUNT = 1;
 inline const wchar_t* kReadyExtraHint[LANG_COUNT][READY_EXTRA_HINT_COUNT] = {
-    { L"레벨 업! 능력치 카드 3장 중 1장을 고르세요" },
-    { L"Level up! Pick 1 of 3 stat cards" },
-    { L"レベルアップ！能力値カード3枚から1枚を選ぼう" },
+    { L"레벨 업! 증강 카드 3장 중 1장을 고르세요" },
+    { L"Level up! Pick 1 of 3 augment cards" },
+    { L"レベルアップ！強化カード3枚から1枚を選ぼう" },
 };
 inline const wchar_t* ReadyExtraObjective(int i) {
     if (i < 0 || i >= READY_EXTRA_OBJECTIVE_COUNT) return L"";
@@ -131,17 +131,17 @@ inline const wchar_t* kReadyStepHint[LANG_COUNT][READY_STEP_HINT_COUNT] = {
     { L"{MOVE} 키로 함선을 움직여 보세요",
       L"마우스로 조준하고, 왼쪽 버튼을 누르고 있으면 사격합니다",
       L"{DASH} 키로 대시 — 순간 무적과 함께 빠르게 피합니다",
-      L"스웜 4마리를 처치하세요 — 경험치 줄이 꽉 차면 레벨 업하고 능력치 카드를 고릅니다",
+      L"스웜 4마리를 처치하세요 — 경험치 줄이 꽉 차면 레벨 업하고 증강 카드를 고릅니다",
       L"준비 완료! {START} 키로 쉬움 난이도에 출격하세요" },
     { L"Move your ship with {MOVE}",
       L"Aim with the mouse — hold the left button to fire",
       L"Press {DASH} to dash — a quick dodge with brief invulnerability",
-      L"Defeat 4 Swarms — a full XP line levels you up for a stat card",
+      L"Defeat 4 Swarms — a full XP line levels you up for an augment card",
       L"Ready! Press {START} to launch on Easy" },
     { L"{MOVE}で艦を動かしてみましょう",
       L"マウスで照準 — 左ボタン長押しで射撃",
       L"{DASH}でダッシュ — 一瞬の無敵で素早く回避",
-      L"スウォームを4体撃破 — 経験値ラインが満タンでレベルアップし能力値カードを選びます",
+      L"スウォームを4体撃破 — 経験値ラインが満タンでレベルアップし強化カードを選びます",
       L"準備完了！{START}でイージー出撃" },
 };
 // Step counter above the instruction ("STEP 2 / 4").
@@ -205,13 +205,13 @@ inline const wchar_t* ReadyStepShort(int step, int kills) {
 // title, text. Footer: [0] next, [1] on the last card.
 inline constexpr int READY_PICK_GUIDE_COUNT = 3;
 inline const wchar_t* kReadyPickGuide[LANG_COUNT][READY_PICK_GUIDE_COUNT][2] = {
-    { { L"카드 고르기", L"레벨 업하면 카드 3장 중 1장을 골라요. 실전에선 웨이브를 깰 때마다 같은 방식으로 증강 카드를 고릅니다." },
+    { { L"카드 고르기", L"레벨 업하면 새 증강 카드 3장 중 1장을 골라요. 실전에선 웨이브를 깰 때마다 가진 카드 중 하나를 강화합니다." },
       { L"등급과 설명", L"카드 위 다이아몬드 수가 등급이에요. 밑줄 친 단어에 마우스를 올리거나 {TERMS} 키를 누르면 뜻이 나와요." },
       { L"고르고 확정", L"카드를 클릭하면 바로 골라져요. 또는 {CARDS} 키로 고른 뒤 {START} 키로 확정해요." } },
-    { { L"PICK A CARD", L"Each level-up lets you take 1 of 3 cards. In a run, every wave clear offers augment cards the same way." },
+    { { L"PICK A CARD", L"Each level-up lets you take 1 of 3 new augment cards. In a run, every wave clear upgrades one of the cards you hold." },
       { L"RARITY & TEXT", L"The diamonds on top show the rarity. Hover an underlined word or press {TERMS} to see what it means." },
       { L"CHOOSE", L"Click a card to take it at once, or press {CARDS} to pick one and confirm with {START}." } },
-    { { L"カードを選ぶ", L"レベルアップすると3枚から1枚を選びます。実戦ではウェーブをクリアするたびに同じ方法で強化カードを選びます。" },
+    { { L"カードを選ぶ", L"レベルアップすると新しい強化カード3枚から1枚を選びます。実戦ではウェーブをクリアするたびに持っているカードを1枚強化します。" },
       { L"等級と説明", L"カード上のダイヤの数が等級です。下線の語にマウスを乗せるか{TERMS}キーで意味が出ます。" },
       { L"選んで確定", L"カードをクリックするとすぐ選ばれます。または{CARDS}キーで選んで{START}キーで確定します。" } },
 };
@@ -334,9 +334,10 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"ESC — 일시정지(재개·설정·메뉴) / Space — READY 화면에서 전투 시작, 일시정지 중 재개 / "
         L"마우스를 카드·아이콘 위에 올리면 상세 설명이 표시됩니다",
 
-        L"웨이브를 클리어할 때마다 증강 카드 3장이 열립니다. 빨리 깰수록 높은 등급이 나옵니다 / "
-        L"적 처치 → 경험치(EXP) → 레벨업하면 능력치 카드를 고릅니다 / "
-        L"숫자키 1~3으로 후보를 고르고 Space로 확정합니다. 고르기 전에는 다음 웨이브가 시작되지 않습니다 / "
+        L"런을 시작하면 이번 런의 무기(프레임) 3장 중 1장을 고릅니다 / "
+        L"적 처치 → 경험치(EXP) → 레벨업하면 새 증강 카드 3장 중 1장을 고릅니다 / "
+        L"웨이브를 클리어하면 가진 증강 중 하나를 강화합니다 (엘리트·보스 웨이브는 2번, 다시 굴리기 1회) / "
+        L"숫자키로 후보를 고르고 Space로 확정합니다. 고르기 전에는 다음 웨이브가 시작되지 않습니다 / "
         L"증강은 공격·방어·이동·스킬·경제 등 빌드를 결정합니다. 중복·시너지를 고려하세요 / "
         L"일부 증강은 {SKILLS} 액티브를 해금하거나 기존 스킬을 강화합니다 / "
         L"도감에서 이미 본 증강은 이름·효과를 미리 확인할 수 있습니다(미발견은 ???)",
@@ -344,7 +345,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"일반 웨이브는 정해진 수만큼 적을 처치하면 끝납니다. 웨이브 표시의 숫자(처치/목표)가 진행도입니다 / "
         L"일반 웨이브 3번마다 엘리트 웨이브가 옵니다. 엘리트를 쓰러뜨리면 끝납니다 / "
         L"마지막 웨이브는 보스입니다. 보스를 쓰러뜨리면 승리합니다 (악몽은 12웨이브에 중간 보스) / "
-        L"체력이 0이 되면 패배합니다. 증강과 레벨업으로 최대 체력·재생을 올릴 수 있습니다 / "
+        L"체력이 0이 되면 패배합니다. 증강과 강화로 최대 체력·보호막을 올릴 수 있습니다 / "
         L"엘리트·보스의 공격은 경고 표시가 먼저 뜹니다. 표시를 보고 피하세요 / "
         L"난이도에 따라 웨이브 수와 적 체력이 달라집니다",
 
@@ -355,7 +356,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"크리에이티브 모드에서는 시작 점수와 플레이 조건을 설정할 수 있습니다",
 
         L"플레이 중 획득한 스타더스트는 HUD에 표시되고 플레이 종료 시 정산됩니다 / "
-        L"웨이브 보상 증강과 레벨업 능력치로 빌드를 보완합니다 / "
+        L"레벨업 증강과 웨이브 강화로 빌드를 키웁니다 / "
         L"플레이가 끝나면 일부 성과가 코인으로 정산되어 메타 상점에 쓰입니다 / "
         L"메인 메뉴 상점 — 코인으로 영구 스탯과 테마를 해금 / "
         L"업적 달성 시 코인·해금 보상이 주어집니다",
@@ -380,9 +381,10 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"ESC — pause menu / Space — start from READY, resume from pause / "
         L"Hover cards and icons for full descriptions",
 
-        L"Every wave clear opens 3 augment cards; faster clears roll higher rarities / "
-        L"Kills → XP → level-up, which lets you pick a stat card / "
-        L"Keys 1-3 select; Space confirms. The next wave waits until you pick / "
+        L"A run opens with a pick of 1 of 3 frames (your weapon for the run) / "
+        L"Kills → XP → level-up, which lets you pick 1 of 3 new augment cards / "
+        L"A wave clear upgrades one augment you hold (twice on elite and boss waves, one reroll) / "
+        L"Number keys select; Space confirms. The next wave waits until you pick / "
         L"Augments define your build: damage, defense, mobility, skills, economy / "
         L"Some unlock or upgrade {SKILLS} actives / "
         L"Codex shows discovered augments in detail; unknown ones stay hidden",
@@ -390,7 +392,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"A regular wave ends after a set number of kills; the wave display shows kills / target / "
         L"Every third regular wave is followed by an elite wave, which ends when the elite falls / "
         L"The last wave is a boss; defeat it to win (Nightmare adds a mid boss at wave 12) / "
-        L"You lose when HP hits 0. Augments and level-ups raise max HP and regen / "
+        L"You lose when HP hits 0. Augments and their upgrades raise max HP and shields / "
         L"Elite and boss attacks are telegraphed first; watch the warnings and move / "
         L"Difficulty sets the wave count and enemy health",
 
@@ -401,7 +403,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"Creative mode lets you set the starting score and play conditions",
 
         L"Stardust earned mid-play is shown on the HUD and settled at play end / "
-        L"Wave-clear augments and level-up stat cards shape your build / "
+        L"Level-up augments and wave-clear upgrades shape your build / "
         L"End of play converts some progress into meta coins / "
         L"Main menu shop — permanent stats and display themes / "
         L"Achievements grant coins and unlocks",
@@ -426,9 +428,10 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"ESC — 一時停止 / Space — READYから開始、停止中は再開 / "
         L"カード·アイコンにホバーで詳細表示",
 
-        L"ウェーブをクリアするたびに強化カード3枚が開きます。早くクリアするほど高い等級が出ます / "
-        L"撃破→経験値→レベルアップすると能力値カードを選びます / "
-        L"1〜3で選択、Spaceで確定。選ぶまで次のウェーブは始まりません / "
+        L"ラン開始時にこのランの武器(フレーム)3枚から1枚を選びます / "
+        L"撃破→経験値→レベルアップすると新しい強化カード3枚から1枚を選びます / "
+        L"ウェーブをクリアすると持っている強化を1枚強化します(エリート·ボスは2回、引き直し1回) / "
+        L"数字キーで選択、Spaceで確定。選ぶまで次のウェーブは始まりません / "
         L"強化は攻撃·防御·移動·スキル·経済などビルドを決めます / "
         L"一部は{SKILLS}アクティブの解放·強化になります / "
         L"図鑑で発見済み強化の説明を確認(未発見は???)",
@@ -436,7 +439,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"通常ウェーブは決まった数の敵を倒すと終わります。ウェーブ表示の数字(撃破/目標)が進行度です / "
         L"通常ウェーブ3回ごとにエリートウェーブが来ます。エリートを倒すと終わります / "
         L"最後のウェーブはボスです。倒せば勝利です(ナイトメアは12ウェーブに中ボス) / "
-        L"体力が0になると敗北です。強化とレベルアップで最大体力·再生を上げられます / "
+        L"体力が0になると敗北です。強化カードとその強化で最大体力·シールドを上げられます / "
         L"エリート·ボスの攻撃は先に警告が出ます。表示を見て避けましょう / "
         L"難易度でウェーブ数と敵の体力が変わります",
 
@@ -448,7 +451,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"クリエイティブモードで開始条件·開始強化を設定可能",
 
         L"プレイ中に得たスターダストはHUDに表示され、終了時に精算 / "
-        L"ウェーブ報酬の強化とレベルアップの能力値でビルドを補強 / "
+        L"レベルアップの強化カードとウェーブの強化でビルドを育てる / "
         L"プレイ終了後、一部の成果がメタコインに換算 / "
         L"メニューショップ — 永久ステータス・テーマなど / "
         L"実績でコインと解禁報酬",
