@@ -203,6 +203,8 @@ void GameManager::ResetRunProgress(MonsterManager& mm,
     rewardPityCount = 0;
     rewardLowStreak = 0;
     framePickOffered = false;
+    eliteDown = false;
+    eliteDownSeconds = 0.0f;
     lastUpgraded = -1;
     upgradeRerollsLeft = 0;
     for (int& r : recentOffers) r = -1;

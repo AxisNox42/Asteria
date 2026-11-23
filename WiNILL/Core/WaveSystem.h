@@ -8,7 +8,8 @@
 //   R R R E | R R R E | ... | B
 // A regular wave (regular mobs only) ends once its kill quota is met; the
 // field refills as mobs fall, so fast killers fight more and finish sooner.
-// An elite wave ends when its elite falls. NIGHTMARE swaps one elite wave for
+// An elite wave ends when its elite falls and its own (smaller) kill quota is
+// met (EliteWaveKillQuota, 2026-11-23). NIGHTMARE swaps one elite wave for
 // a mid-run boss. The final wave's boss decides the run. Every wave clear
 // opens an augment reward, and the next wave waits until it is picked.
 
@@ -115,6 +116,25 @@ inline int RegularWaveKillQuota(int wave, Difficulty difficulty) {
         quota = quota == 0 ? kRegularKillQuotaBase : quota + step;
     }
     return quota;
+}
+
+// Elite waves (2026-11-23, user): the elite must fall AND this many kills must
+// be made before the wave clears: half the quota of the regular wave before it
+// (NORMAL: wave 4 30, wave 8 60, wave 12 98). Mid-boss and final boss waves
+// have none. While the elite lives the mobs stay thin (SPECIAL_WAVE_SPAWN_STRETCH);
+// once it falls the field refills like a regular wave until the quota is met.
+inline int EliteWaveKillQuota(int wave, Difficulty difficulty) {
+    if (!IsEliteWaveNumber(wave, difficulty)) return 0;
+    for (int w = wave - 1; w >= 1; --w)
+        if (IsRegularWave(w, difficulty))
+            return std::max(1, (RegularWaveKillQuota(w, difficulty) + 1) / 2);
+    return 0;
+}
+
+// Kills the wave asks for: a regular wave's quota or an elite wave's (0 on boss waves).
+inline int WaveKillQuota(int wave, Difficulty difficulty) {
+    return IsRegularWave(wave, difficulty) ? RegularWaveKillQuota(wave, difficulty)
+                                           : EliteWaveKillQuota(wave, difficulty);
 }
 
 // A wave's elite gets this much more HP than the wave's ramp alone gives it.

@@ -37,6 +37,9 @@ public:
     bool      waveAdvancePending = false;
     float     waveClearDelay = 0.0f;      // beat between the kill and the reward
     bool      waveVictory = false;
+    // Elite wave (2026-11-23): its elite fell; the wave still waits for its kill quota.
+    bool      eliteDown = false;
+    float     eliteDownSeconds = 0.0f;    // the elite's kill time (the wave's reward speed)
     long long score      = 0;
     float     scoreAccum = 0.0f;
 

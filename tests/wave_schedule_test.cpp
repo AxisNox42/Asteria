@@ -84,6 +84,22 @@ int main() {
         EXPECT(RegularWaveKillQuota(5, normal) == 80 && RegularWaveKillQuota(9, normal) == 145, "normal sets");
     }
 
+    // Elite waves (2026-11-23): half the regular wave before them, on top of the elite.
+    //   NORMAL: wave 4 (after 60) 30, wave 8 (after 120) 60, wave 12 (after 195) 98. Boss waves none.
+    EXPECT(EliteWaveKillQuota(4, normal) == 30 && EliteWaveKillQuota(8, normal) == 60 &&
+           EliteWaveKillQuota(12, normal) == 98, "normal elite quotas %d %d %d",
+           EliteWaveKillQuota(4, normal), EliteWaveKillQuota(8, normal), EliteWaveKillQuota(12, normal));
+    EXPECT(EliteWaveKillQuota(13, normal) == 0 && EliteWaveKillQuota(12, nightmare) == 0 &&
+           EliteWaveKillQuota(21, nightmare) == 0, "boss waves have no kill quota");
+    EXPECT(EliteWaveKillQuota(3, normal) == 0, "a regular wave has no elite quota");
+    for (int d = 0; d < DIFFICULTY_COUNT; ++d) {
+        const Difficulty diff = static_cast<Difficulty>(d);
+        for (int w = 1; w <= FinalWaveCount(diff); ++w) {
+            EXPECT((WaveKillQuota(w, diff) > 0) == !IsBossWave(w, diff), "kill quota on every wave but bosses d=%d w=%d", d, w);
+            if (IsRegularWave(w, diff)) EXPECT(WaveKillQuota(w, diff) == RegularWaveKillQuota(w, diff), "regular unchanged");
+        }
+    }
+
     // HP ramp: +kWaveHpStep every wave (smooth, not per elite wave).
     EXPECT(WaveHpRamp(1, normal) == 1.0f, "wave 1 is x1");
     EXPECT(std::fabs(WaveHpRamp(5, normal) - (1.0f + 4.0f * kWaveHpStep)) < 1e-5f, "per wave");

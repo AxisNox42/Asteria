@@ -4078,15 +4078,30 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     // A regular wave clears on its kill quota; elite and mid-boss waves when
     // their target falls (ConsumeWaveClear).
     gm.waveKills = (int)std::max(0LL, g_Stats.killCount - gm.waveKillStart);
-    const int quota = RegularWaveKillQuota(gm.currentWave, g_Difficulty);
-    const bool quotaMet = quota > 0 && gm.waveKills >= quota && !g_SmokeNoQuota;
-    if (((clear.cleared && clear.wave == gm.currentWave) || quotaMet) &&
+    // An elite wave (2026-11-23) needs its elite down AND its own kill quota
+    // (EliteWaveKillQuota): the elite's fall is kept until the quota is met too,
+    // and meanwhile the field refills like a regular wave (SetEliteMopUp).
+    const bool eliteWave = IsEliteWaveNumber(gm.currentWave, g_Difficulty);
+    const int quota = WaveKillQuota(gm.currentWave, g_Difficulty);
+    if (eliteWave && clear.cleared && clear.wave == gm.currentWave && !gm.eliteDown) {
+        gm.eliteDown = true;
+        gm.eliteDownSeconds = clear.killSeconds;
+    }
+    // NOQUOTA (smoke): a regular wave never ends on kills, an elite wave ends on its elite.
+    const bool eliteQuotaMet = quota > 0 && (gm.waveKills >= quota || g_SmokeNoQuota);
+    SetEliteMopUp(eliteWave && gm.eliteDown && !eliteQuotaMet && !gm.waveAdvancePending);
+    const bool quotaMet = !eliteWave && quota > 0 && gm.waveKills >= quota && !g_SmokeNoQuota;
+    const bool eliteDone = eliteWave && gm.eliteDown && eliteQuotaMet;
+    const bool objectiveDone = !eliteWave && clear.cleared && clear.wave == gm.currentWave;
+    if ((objectiveDone || quotaMet || eliteDone) &&
         !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
         // Augment rework: a clear upgrades owned cards (two on an elite or boss wave), the
         // fastest clear band one more (RewardRules.h). The new augments come from level-ups.
+        // An elite wave's speed is still its elite's (the quota part does not count).
         const WaveRewardTimes times = quotaMet
-            ? RegularWaveRewardTimes(quota) : WaveRewardTimesFor(clear.boss);
-        const float seconds = quotaMet ? g_GameTime - gm.waveStartTime : clear.killSeconds;
+            ? RegularWaveRewardTimes(quota) : WaveRewardTimesFor(eliteDone ? false : clear.boss);
+        const float seconds = quotaMet ? g_GameTime - gm.waveStartTime
+                            : eliteDone ? gm.eliteDownSeconds : clear.killSeconds;
         gm.rewardTierCap = WaveRewardTierCap(gm.currentWave, g_Difficulty);
         const WaveRewardTier earned = WaveRewardTierFor(seconds, times);
         gm.rewardTier = WaveRewardLuckyBump(WaveRewardGuaranteedTier(earned, gm.rewardTierCap), earned,
@@ -4097,7 +4112,8 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         const int upgrades = (specialWave ? 2 : 1) + (earned == WaveRewardTier::Legendary ? 1 : 0);
         gamelog::Event("WAVE_CLEAR", "cleared_wave=%d,clear_sec=%.2f,by=%s,kills=%d,quota=%d,"
                        "earned_tier=%d,upgrades=%d,hp=%.1f",
-                       gm.currentWave, seconds, quotaMet ? "quota" : "objective", gm.waveKills, quota,
+                       gm.currentWave, seconds, quotaMet ? "quota" : eliteDone ? "elite+quota" : "objective",
+                       gm.waveKills, quota,
                        (int)earned, upgrades, gm.playerHP);
         gm.QueueUpgradeReward(upgrades);
         passive::OnWaveCleared(specialWave);
@@ -4132,6 +4148,9 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         g_StardustCollectAll = false;
         gm.waveTransitionFrom = gm.currentWave;
         ++gm.currentWave;
+        gm.eliteDown = false;
+        gm.eliteDownSeconds = 0.0f;
+        SetEliteMopUp(false);
         gm.waveStartTime = g_GameTime;
         gm.waveKillStart = g_Stats.killCount;
         gm.waveKills = 0;
@@ -4144,7 +4163,7 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
         }
         gamelog::SetClock(g_GameTime, gm.currentWave, gm.playerHP, gm.maxHP);
         gamelog::Event("WAVE_START", "quota=%d,level=%d,score=%lld,hp=%.1f",
-                       RegularWaveKillQuota(gm.currentWave, g_Difficulty),
+                       WaveKillQuota(gm.currentWave, g_Difficulty),
                        gm.playerLevel, (long long)gm.score, gm.playerHP);
     }
     // The run is won only by felling the final boss (CompleteBossRun).
@@ -5026,9 +5045,11 @@ int main() {
             // wave's quota counts as met, so the wave clears through the
             // normal flow and its reward opens.
             GameManager& gm = g_GameManager;
-            const int quota = RegularWaveKillQuota(gm.currentWave, g_Difficulty);
+            const int quota = WaveKillQuota(gm.currentWave, g_Difficulty);
             if (quota > 0) gm.waveKillStart = g_Stats.killCount - quota;
-            if (quota > 0 || DebugClearWaveObjective(g_MonsterManager, g_GameTime))
+            // An elite wave needs both: its quota (above) and its elite.
+            const bool objective = DebugClearWaveObjective(g_MonsterManager, g_GameTime);
+            if (quota > 0 || objective)
                 ProcessWaveTransitions(screenWidth, screenHeight);
         },
         // F1 > Spawn > Boss: brings a boss in as its wave would (replaces F9).
@@ -5869,6 +5890,13 @@ int main() {
                     } else if (step.rfind("NOQUOTA=", 0) == 0) {
                         // NOQUOTA=1: mass kills do not end the wave (no card screen mid-test).
                         g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
+                    } else if (step == "ELITEDOWN") {
+                        // ELITEDOWN: the wave's target (elite / mid-boss) falls now, nothing else
+                        // (an elite wave then still waits for its kill quota).
+                        DebugClearWaveObjective(g_MonsterManager, g_GameTime);
+                    } else if (step.rfind("WAVEKILLS=", 0) == 0) {
+                        // WAVEKILLS=<n>: this wave's kill count reads n (quota checks).
+                        gm.waveKillStart = g_Stats.killCount - std::atoll(step.c_str() + 10);
                     } else if (step == "DASH") {
                         g_SmokeDash = true;
                     } else if (step.rfind("KEYDOWN=", 0) == 0 || step.rfind("KEYUP=", 0) == 0) {
