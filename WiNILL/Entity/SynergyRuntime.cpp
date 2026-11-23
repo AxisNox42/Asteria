@@ -1195,13 +1195,6 @@ void Release(int augIdx) {
     Rebuild();
 }
 
-void Release(int augIdx) {
-    const int i = SynergyIndex(ALL_AUGS[augIdx].type);
-    if (i < 1 || i > kCards || s.own[i] <= 0) return;
-    --s.own[i];
-    Rebuild();
-}
-
 // ───────────────────────── fire path ─────────────────────────
 
 void RefreshStats() { Rebuild(); }   // Rebuild applies differences only: safe to repeat
