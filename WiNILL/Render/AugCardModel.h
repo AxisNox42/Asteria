@@ -171,6 +171,38 @@ inline float FragStart(int dist, unsigned seed) { return 0.05f + 0.04f * dist + 
 inline float ConstellFade(int dist, float exitT) { return 1.0f - Clamp01((exitT - 0.08f - 0.04f * dist) / 0.12f); }
 inline float SeedStart(int dist, int node) { return 0.08f + 0.04f * dist + 0.01f * node; }
 
+// ── tier stars (top of the card) ──
+// One row of kTierSlots stars: the highest tier (mythic's 5) plus the 3
+// upgrade branches. Every slot starts as an empty outline; the card's rarity
+// fills the first rarity+1, the upgrades it has taken come next, and on an
+// upgrade pick the slot that branch would fill twinkles.
+inline constexpr int   kTierSlots = 8;
+inline constexpr float kTierGap = 17.0f, kTierR = 5.8f;   // card-local units
+inline constexpr float kTierInner = 0.46f;                // inner / outer radius of the star
+enum class TierSlot { Empty, Rarity, Upgrade, Preview };
+
+inline float TierSlotX(int k, float gap = kTierGap) { return (k - (kTierSlots - 1) * 0.5f) * gap; }
+
+// rarity 0..4 (AugRarity), upgrades = branches taken, preview = an upgrade pick card.
+inline TierSlot TierSlotKind(int k, int rarity, int upgrades, bool preview) {
+    const int filled = std::max(0, std::min(5, rarity + 1));
+    const int up = std::max(0, std::min(kTierSlots - filled, upgrades));
+    if (k < filled) return TierSlot::Rarity;
+    if (k < filled + up) return TierSlot::Upgrade;
+    if (preview && k == filled + up) return TierSlot::Preview;
+    return TierSlot::Empty;
+}
+
+// Five-point star, point up: 10 corners clockwise from the top tip.
+inline void StarCorners(float cx, float cy, float r, float* px, float* py) {
+    for (int i = 0; i < 10; ++i) {
+        const float a = (-90.0f + i * 36.0f) * 3.14159265f / 180.0f;
+        const float rr = (i % 2) ? r * kTierInner : r;
+        px[i] = cx + rr * std::cos(a);
+        py[i] = cy + rr * std::sin(a);
+    }
+}
+
 // Card outline corners (card-local), clockwise from the top-left cut.
 inline void ChamferCorners(float w, float h, float cut, float* px, float* py) {
     const float x = -w * 0.5f, y = -h * 0.5f;

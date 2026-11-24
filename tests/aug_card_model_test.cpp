@@ -157,7 +157,35 @@ static void shapes_are_valid() {
     assert(still.FirstEdge(5) == still.ne);
 }
 
+static void tier_stars() {
+    // The row (8 slots, outer radius) sits inside the card with room to spare,
+    // centred, and so does the guide's enlarged row (gap 24, r 10).
+    assert(TierSlotX(kTierSlots - 1) + kTierR < kCardW * 0.5f - kCut);
+    assert(TierSlotX(kTierSlots - 1, 24.0f) + 10.0f < kCardW * 0.5f - kCut);
+    assert(Near(TierSlotX(0), -TierSlotX(kTierSlots - 1)));
+    // Common: 1 rarity star, the rest empty.
+    assert(TierSlotKind(0, 0, 0, false) == TierSlot::Rarity);
+    for (int k = 1; k < kTierSlots; ++k) assert(TierSlotKind(k, 0, 0, false) == TierSlot::Empty);
+    // Mythic: 5 rarity stars, 3 empty.
+    for (int k = 0; k < 5; ++k) assert(TierSlotKind(k, 4, 0, false) == TierSlot::Rarity);
+    for (int k = 5; k < 8; ++k) assert(TierSlotKind(k, 4, 0, false) == TierSlot::Empty);
+    // Rare with one upgrade, on an upgrade pick: ★★ + upgrade + twinkle, then empty.
+    assert(TierSlotKind(1, 1, 1, true) == TierSlot::Rarity);
+    assert(TierSlotKind(2, 1, 1, true) == TierSlot::Upgrade);
+    assert(TierSlotKind(3, 1, 1, true) == TierSlot::Preview);
+    assert(TierSlotKind(4, 1, 1, true) == TierSlot::Empty);
+    // Legendary fully upgraded: 7 filled, the 8th empty, nothing to preview.
+    assert(TierSlotKind(6, 3, 3, false) == TierSlot::Upgrade);
+    assert(TierSlotKind(7, 3, 3, false) == TierSlot::Empty);
+    // Star corners: tips on r, inner corners on r·kTierInner.
+    float px[10], py[10];
+    StarCorners(0.0f, 0.0f, 10.0f, px, py);
+    assert(Near(px[0], 0.0f) && Near(py[0], -10.0f));
+    assert(Near(std::hypot(px[1], py[1]), 10.0f * kTierInner));
+}
+
 int main() {
+    tier_stars();
     layout_fits_every_size();
     fewer_cards_center();
     three_cards_are_bigger();

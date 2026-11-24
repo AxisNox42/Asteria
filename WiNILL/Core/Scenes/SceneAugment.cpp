@@ -308,8 +308,8 @@ constexpr float kDeg = 3.14159265f / 180.0f;
 // Card-local layout, top to bottom: rarity marks, augment icon, title,
 // divider, kind line, description (card spans -205..205).
 constexpr float kRarityY = -187.0f;
-// The pick guide's "rarity & text" page: the middle card's marks, large.
-constexpr float kGuideMarkR = 8.5f, kGuideMarkGap = 24.0f;
+// The pick guide's "rarity & text" page: the middle card's tier stars, large.
+constexpr float kGuideMarkR = 10.0f, kGuideMarkGap = 24.0f;
 constexpr float kIconY = -134.0f, kIconSize = 66.0f;
 constexpr float kTitleY = -84.0f, kDivY = -58.0f;
 constexpr float kMetaY = -48.0f, kDescY = -24.0f, kDescBottom = 160.0f;
@@ -399,6 +399,57 @@ void SDiamond(float x, float y, float r, Rgb c, float a, float w, float key, boo
     SLine(x, y + r, x - r, y, w, c, a, key);
     SLine(x - r, y, x, y - r, w, c, a, key);
     if (dot) drawCircle(x, y, std::max(0.8f, r * 0.30f), c.r, c.g, c.b, a);
+}
+// Five-point star outline; `fill` also fills it (rarity and upgrade stars).
+void SStar(float x, float y, float r, Rgb c, float a, float w, float key, bool fill) {
+    if (a <= 0.002f) return;
+    float px[11], py[11];
+    ac::StarCorners(x, y, r, px, py);
+    hud_lines::ClosedOutline(px, py, 10, w, c, a, key);
+    if (fill) {
+        px[10] = px[0]; py[10] = py[0];
+        hud_lines::FanFill(x, y, px, py, 11, c, a * 0.85f);
+    }
+}
+
+// The card's tier row (AugCardModel.h): 8 empty stars, the rarity's stars
+// filled, taken upgrades as whitened stars that breathe slowly, and on an
+// upgrade pick the slot this branch fills twinkling with a turning cross glint.
+// `title` (0..1) fades the row in, the filled stars lighting left to right.
+void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity, int upgrades,
+                   bool preview, Rgb col, float a, float title, float now, float key) {
+    constexpr float kTau = 6.2831853f;
+    constexpr float kBreath = 1.6f, kTwinkle = 0.9f;   // seconds per cycle
+    const Rgb upCol = Mix(col, kWhite, 0.80f);
+    const float rr = r * ui, w = 1.1f * ui;
+    for (int k = 0; k < ac::kTierSlots; ++k) {
+        const float x = cx + ac::TierSlotX(k, gap) * ui;
+        const float on = ac::Clamp01(title * 1.8f - 0.10f * k);
+        switch (ac::TierSlotKind(k, rarity, upgrades, preview)) {
+        case ac::TierSlot::Empty:
+            SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);
+            break;
+        case ac::TierSlot::Rarity:
+            SStar(x, cy, rr, col, a * 0.92f * on, w, key, true);
+            break;
+        case ac::TierSlot::Upgrade: {
+            const float breath = 0.86f + 0.14f * std::sin(now * kTau / kBreath + k * 0.7f);
+            SStar(x, cy, rr, upCol, std::min(1.0f, a * breath * on * 1.08f), w, key, true);
+            break; }
+        case ac::TierSlot::Preview: {
+            SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);   // the empty slot it fills
+            const float p = 0.5f + 0.5f * std::sin(now * kTau / kTwinkle);
+            SStar(x, cy, rr * (0.70f + 0.45f * p), kWhite, a * (0.25f + 0.75f * p) * on, w, key, true);
+            const float u = std::fmod(now / kTwinkle, 1.0f);
+            const float ga = a * on * (u < 0.4f ? u / 0.4f : (1.0f - u) / 0.6f);
+            const float g0 = rr * (1.25f + 0.30f * u), g1 = rr * (1.80f + 0.40f * u);
+            for (int q = 0; q < 4; ++q) {
+                const float ang = (u * 90.0f + q * 90.0f) * kDeg, cs = std::cos(ang), sn = std::sin(ang);
+                SLine(x + cs * g0, cy + sn * g0, x + cs * g1, cy + sn * g1, 0.9f * ui, kWhite, ga, key);
+            }
+            break; }
+        }
+    }
 }
 void LDiamond(const Xf& X, float lx, float ly, float r, Rgb c, float a, float w, float key) {
     LLine(X, lx, ly - r, lx + r, ly, w, c, a, key);
@@ -532,16 +583,15 @@ CardText LayoutCardText(const AugDef& def, float ui, int slot = -1) {
     else swprintf_s(meta, L"%ls", kPassive[CurLangIdx()]);
     t.meta = meta;
     // Augment rework: on a wave clear's upgrade pick the card shows which branch it offers and
-    // what it does first ("강화 ★ → ★★ · 수치 A", "▲ 튕김 2 → 3" / "◆ <shape>"), then its own text.
+    // what it does first ("강화 · 수치 A", "▲ 튕김 2 → 3" / "◆ <shape>"), then its own text. The
+    // star it adds twinkles in the tier row at the top of the card.
     const int augIdx = (int)(&def - ALL_AUGS);
     std::wstring descText = AugDesc(def);
     const int branch = slot >= 0 && slot < GameManager::kAugChoiceMax ? g_GameManager.augChoiceBranch[slot] : -1;
     if (g_GameManager.ActiveIsUpgrade() && branch >= 0) {
         static const wchar_t* kUp[3] = { L"강화", L"Upgrade", L"強化" };
         const int li = CurLangIdx();
-        const int stars = std::max(1, syn::Stage(augIdx));
-        t.meta = std::wstring(kUp[li]) + L" " + std::wstring((size_t)stars, L'★') + L" → " +
-                 std::wstring((size_t)stars + 1, L'★') + L" · " + synergy::BranchName(branch, li);
+        t.meta = std::wstring(kUp[li]) + L" · " + synergy::BranchName(branch, li);
         if (branch == 2)
             t.meta += std::wstring(L" (") + synergy::FamilyName((synergy::Family)syn::CardFamilyOf(augIdx), li) + L")";
         const std::wstring line = syn::UpgradeLine(augIdx, branch, li);
@@ -937,12 +987,19 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     const float key = 2.6f * ui;
 
     int rarity[ac::kMaxCards] = {};
+    int tierUps[ac::kMaxCards] = {};        // upgrade branches the card has taken
+    bool tierPreview[ac::kMaxCards] = {};   // an upgrade pick: the star it adds twinkles
     bool hasIcon[ac::kMaxCards] = {};
     const AugDef* defs[ac::kMaxCards] = {};
     for (int i = 0; i < count; ++i) {
         const int idx = g_GameManager.augChoices[i];
         defs[i] = (idx >= 0 && idx < AUG_TOTAL) ? &ALL_AUGS[idx] : nullptr;
         rarity[i] = defs[i] ? (int)defs[i]->rarity : 0;
+        if (defs[i]) {
+            tierUps[i] = std::max(0, syn::Stage(idx) - 1);
+            tierPreview[i] = g_GameManager.ActiveIsUpgrade() && i < GameManager::kAugChoiceMax &&
+                             g_GameManager.augChoiceBranch[i] >= 0;
+        }
         hasIcon[i] = defs[i] && AugIconTex(*defs[i]) != 0;   // loads before any batching
     }
     {
@@ -1211,14 +1268,13 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         }
         if (d.P.flip < 1.0f) continue;
 
-        // Rarity marks (1~5 diamonds). On the pick guide's "rarity & text"
-        // page the middle card's marks are drawn large in gold further down.
-        const int n = rarity[i] + 1;
+        // Tier stars (8 slots: rarity + upgrades). On the pick guide's "rarity & text"
+        // page the middle card's row is drawn large in gold further down.
         const bool guideMarks = pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Detail &&
                                 i == count / 2;
-        for (int k = 0; k < n && !guideMarks; ++k)
-            SDiamond(d.x + (k - (n - 1) * 0.5f) * 14.0f * ui, d.y + kRarityY * ui, 4.0f * ui, d.col,
-                     d.textA * 0.9f * d.P.title, 1.2f * ui, key, true);
+        if (!guideMarks)
+            DrawTierStars(d.x, d.y + kRarityY * ui, ui, ac::kTierGap, ac::kTierR, rarity[i], tierUps[i],
+                          tierPreview[i], d.col, d.textA, d.P.title, now, key);
 
         // The icon sits on a node: hairline ring with four ticks. Cards without an
         // icon file get a diamond sigil in the same place instead of a hole.
@@ -1515,9 +1571,8 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         if (g == PickGuide::Cards) {
             corners(first.x - halfW, L.cy - halfH, last.x + halfW, L.cy + halfH);
         } else if (g == PickGuide::Detail) {
-            const int n = rarity[count / 2] + 1;
             const float ry = mid.y + kRarityY * ui;
-            const float half = ((n - 1) * kGuideMarkGap * 0.5f + kGuideMarkR + 6.0f) * ui;
+            const float half = ((ac::kTierSlots - 1) * kGuideMarkGap * 0.5f + kGuideMarkR + 6.0f) * ui;
             corners(mid.x - half, ry - (kGuideMarkR + 4.0f) * ui, mid.x + half, ry + (kGuideMarkR + 4.0f) * ui);
             // Around the words themselves (the meta line and the description
             // lines), well inside the card's own corner brackets and above [n].
@@ -1536,19 +1591,15 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             corners(first.x - 30.0f * ui, ky - 14.0f * ui, last.x + 30.0f * ui, ky + 14.0f * ui);
         }
         if (g == PickGuide::Detail) {
-            // The rarity diamonds and the glossary words of the middle card
+            // The tier stars and the glossary words of the middle card
             // pulse in gold: the two things this card talks about.
-            // The marks grow from their card size to about twice it.
-            const int n = rarity[count / 2] + 1;
+            // The row grows from its card size to about twice it.
+            const int m = count / 2;
             const float ry = mid.y + kRarityY * ui;
-            const float gap = 14.0f + (kGuideMarkGap - 14.0f) * in;
-            const float r = 4.0f + (kGuideMarkR - 4.0f + 1.2f * pulse) * in;
-            for (int k = 0; k < n; ++k) {
-                SDiamond(mid.x + (k - (n - 1) * 0.5f) * gap * ui, ry, r * ui, gold,
-                         0.65f + 0.35f * pulse, 1.6f * ui, key);
-                SDiamond(mid.x + (k - (n - 1) * 0.5f) * gap * ui, ry, r * 0.45f * ui, gold,
-                         0.55f + 0.35f * pulse, 1.2f * ui, key, true);
-            }
+            const float gap = ac::kTierGap + (kGuideMarkGap - ac::kTierGap) * in;
+            const float r = ac::kTierR + (kGuideMarkR - ac::kTierR + 1.2f * pulse) * in;
+            DrawTierStars(mid.x, ry, ui, gap, r, rarity[m], tierUps[m], tierPreview[m], gold,
+                          0.65f + 0.35f * pulse, 1.0f, now, key);
             for (const LinkBox& b : linkBoxes) {
                 if (b.owner != count / 2) continue;
                 SLine(b.x0, b.y1 + 2.0f * ui, b.x1, b.y1 + 2.0f * ui, 2.2f * ui, gold,
