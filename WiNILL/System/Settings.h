@@ -48,13 +48,13 @@ inline int LangIndex() {
 
 // 크로스헤어 표시 (기본 ON)
 inline bool g_ShowCrosshair = true;
-// 조준선 크기 (0 작게 0.75x / 1 보통 / 2 크게 1.4x / 3 아주 크게 1.8x) 와 색 (0 하늘 1 흰색 2 노랑 3 초록 4 분홍).
+// 조준선 크기 (0 작게 1.2x / 1 보통 1.8x / 2 크게 2.4x / 3 특대 3.0x) 와 색 (0 하늘 1 흰색 2 노랑 3 초록 4 분홍).
 inline constexpr int kCrosshairSizeCount = 4;
 inline constexpr int kCrosshairColorCount = 5;
 inline int g_CrosshairSize = 1;
 inline int g_CrosshairColor = 0;
 inline float CrosshairSizeScale() {
-    static const float k[kCrosshairSizeCount] = { 0.75f, 1.0f, 1.4f, 1.8f };
+    static const float k[kCrosshairSizeCount] = { 1.2f, 1.8f, 2.4f, 3.0f };
     const int i = g_CrosshairSize < 0 ? 0 : (g_CrosshairSize >= kCrosshairSizeCount ? kCrosshairSizeCount - 1 : g_CrosshairSize);
     return k[i];
 }

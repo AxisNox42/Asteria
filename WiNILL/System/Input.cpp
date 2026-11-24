@@ -395,8 +395,8 @@ InputFocusTransition InputUpdateWindowFocus(GLFWwindow* window) {
 
 void InputUpdateGameplayCursor(GLFWwindow* window, GameState state,
                                bool crosshairEnabled, bool debugVisible) {
-    const bool hideCursor = crosshairEnabled && !debugVisible &&
-        (state == GameState::RUNNING || state == GameState::DYING);
+    (void)state;   // every screen shows the crosshair as the pointer
+    const bool hideCursor = crosshairEnabled && !debugVisible;
     static bool cursorModeInitialized = false;
     static bool cursorHidden = false;
     if (!cursorModeInitialized || cursorHidden != hideCursor) {

@@ -8285,10 +8285,9 @@ CollisionSystem::Update(pCX, pCY,
         if (crosshairState != GameState::RUNNING && crosshairState != GameState::READY &&
             crosshairState != GameState::AUG_SELECT)
             g_FireLatched = false;
+        // The crosshair is the pointer on every screen (lobby, settings, pause...).
         if (g_ShowCrosshair && !g_DebugToolkit.IsVisible() &&
-            (crosshairState == GameState::RUNNING ||
-             crosshairState == GameState::DYING) &&
-            glfwGetWindowAttrib(window, GLFW_FOCUSED) &&
+            (glfwGetWindowAttrib(window, GLFW_FOCUSED) || g_SmokeCapture) &&   // smoke windows never take focus
             mx >= 0.0 && my >= 0.0 && mx < screenWidth && my < screenHeight) {
             BindMainShader();
             DrawGameplayCrosshair((float)mx, (float)my);
