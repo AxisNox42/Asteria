@@ -483,6 +483,8 @@ float HookBulletDamageMult(const Bullet& bullet, const void* target,
     }
     m *= 1.0f + CraneBonus();
     m *= syn::DamageMult(bullet, target);
+    // 저격총: the first hit's crit rides on through every later hit (a crit shot pierces farther).
+    if (bullet.powerCrit >= 0) { crit = bullet.powerCrit == 1; return m * (crit ? g_Stats.critMult : 1.0f); }
     return m * RollCrit(crit);
 }
 

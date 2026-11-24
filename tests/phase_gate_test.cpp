@@ -218,53 +218,6 @@ static void CheckQuasarSideFall() {
     std::printf("quasar phase 3 ok\n");
 }
 
-// Antares phase 2: gather -> six lines -> dash; phase 3 also a lance whose
-// shown path bounces off the edges.
-static void CheckAntaresPhases() {
-    using S = Monster::AntaresState;
-    // HARD is the full elite (EliteDifficulty.h): the lance needs it.
-    const Difficulty oldDiff = g_Difficulty;
-    g_Difficulty = Difficulty::HARD;
-    Monster a(400.0f, 300.0f);
-    a.MakeKind(MobKind::ANTARES);
-    a.antaresBounds = glm::vec4(50.0f, 50.0f, 1870.0f, 1030.0f);
-    a.gatesPassed = 1;
-    a.antaresState = S::REST;
-    a.antaresStateTimer = Monster::ANTARES_REST_TIME;
-    Tick(a, DT);
-    assert(a.antaresState == S::GATHER);
-    Tick(a, Monster::ANTARES_GATHER_TIME + 0.05f);
-    assert(a.antaresState == S::GATHER && a.antaresPathCount == 2);   // the lines are up
-    Tick(a, Monster::ANTARES_RADIAL_TIME);
-    assert(a.antaresState == S::DASH);
-    Tick(a, 1.5f);
-    assert(a.antaresState != S::DASH);
-    // Phase 3, third pick: the lance.
-    a.gatesPassed = 2;
-    a.antaresRuns = 1;
-    a.worldX = 400.0f; a.worldY = 300.0f;
-    a.antaresState = S::REST;
-    a.antaresStateTimer = Monster::ANTARES_REST_TIME;
-    Tick(a, DT);
-    assert(a.antaresState == S::AIM && a.antaresPathCount >= 3);       // bounces shown up front
-    // Not gated (a split piece): plain runs only.
-    Monster p(400.0f, 300.0f);
-    p.MakeKind(MobKind::ANTARES);
-    p.antaresGen = 1;
-    p.gatesPassed = 2;
-    p.antaresState = S::REST;
-    p.antaresStateTimer = Monster::ANTARES_REST_TIME;
-    for (int i = 0; i < 3; ++i) {
-        p.antaresRuns = i;
-        p.antaresState = S::REST;
-        p.antaresStateTimer = Monster::ANTARES_REST_TIME;
-        Tick(p, DT);
-        assert(p.antaresState == S::CHASE);
-    }
-    g_Difficulty = oldDiff;
-    std::printf("antares phases ok\n");
-}
-
 // Genesis phase 2: six spots on a row of seven across the player, the gap
 // never the middle (the player's) slot nor an end. Phase 3: landing rings.
 static void CheckGenesisPhases() {
@@ -352,7 +305,6 @@ int main() {
     CheckNormaClamp();
     CheckNormaGateQueuesPattern();
     CheckQuasarSideFall();
-    CheckAntaresPhases();
     CheckGenesisPhases();
     CheckRegulusPhases();
     std::printf("phase gate test passed\n");

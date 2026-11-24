@@ -413,14 +413,14 @@ void SStar(float x, float y, float r, Rgb c, float a, float w, float key, bool f
 }
 
 // The card's tier row (AugCardModel.h): 8 empty stars, the rarity's stars
-// filled, taken upgrades as whitened stars that breathe slowly, and on an
-// upgrade pick the slot this branch fills twinkling (brightness only).
-// `title` (0..1) fades the row in, the filled stars lighting left to right.
+// filled, taken upgrades in the same augment colour breathing slowly, and on
+// an upgrade pick the slot this branch fills twinkling in that colour
+// (brightness only). `title` (0..1) fades the row in, left to right.
 void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity, int upgrades,
                    bool preview, Rgb col, float a, float title, float now, float key) {
     constexpr float kTau = 6.2831853f;
     constexpr float kBreath = 1.6f, kTwinkle = 0.9f;   // seconds per cycle
-    const Rgb upCol = Mix(col, kWhite, 0.80f);
+    const Rgb upCol = col;   // the augment's colour, not whitened (user 2026-11-24)
     const float rr = r * ui, w = 1.1f * ui;
     // Tier colours for repainted slots (2026-11-24): the rarity colours, then the supernova.
     auto tierCol = [&](int tier) {
@@ -459,7 +459,7 @@ void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity,
             break; }
         case ac::TierSlot::Preview: {
             // The slot it fills (or repaints, in the next tier's colour) twinkles.
-            const Rgb pc = slot.tier >= 0 ? tierCol(slot.tier) : kWhite;
+            const Rgb pc = slot.tier >= 0 ? tierCol(slot.tier) : col;
             SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);
             const float p = 0.5f + 0.5f * std::sin(now * kTau / kTwinkle);
             // Brightness only: no scaling, no glint lines around it.
@@ -543,6 +543,37 @@ void LCornerBrackets(const Xf& X, Rgb c, float a, float w, float len, float key)
     }
 }
 
+// The upgrade pick's silver card (user 2026-11-24): a bevel in lines only, lit from
+// the top left. The top and left edges (and their brackets) are a light silver, the
+// right and bottom a darker grey, the two side cuts in between.
+constexpr Rgb kSilver = { 0.80f, 0.83f, 0.88f };
+void LBevelFrame(const Xf& X, float t, float frameA, float bracketA, float bracketW, float key) {
+    const Rgb lit = Mix(kSilver, kWhite, 0.55f), mid = kSilver, shade = Mix(kSilver, Rgb{ 0.30f, 0.33f, 0.38f }, 0.50f);
+    float lx[8], ly[8], px[8], py[8];
+    ac::ChamferCorners(ac::kCardW, ac::kCardH, ac::kCut, lx, ly);
+    for (int i = 0; i < 8; ++i) X.P(lx[i], ly[i], px[i], py[i]);
+    // Corners clockwise from the top-left cut: 6-7-0-1 lit, 1-2 and 5-6 mid, 2-3-4-5 shade.
+    const float litX[4] = { px[6], px[7], px[0], px[1] }, litY[4] = { py[6], py[7], py[0], py[1] };
+    const float shX[4] = { px[2], px[3], px[4], px[5] }, shY[4] = { py[2], py[3], py[4], py[5] };
+    SMiterPath(litX, litY, 4, t, lit, std::min(1.0f, frameA * 1.5f), key);
+    SMiterPath(shX, shY, 4, t, shade, frameA, key);
+    const float m1x[2] = { px[1], px[2] }, m1y[2] = { py[1], py[2] };
+    const float m2x[2] = { px[5], px[6] }, m2y[2] = { py[5], py[6] };
+    SMiterPath(m1x, m1y, 2, t, mid, frameA * 1.2f, key);
+    SMiterPath(m2x, m2y, 2, t, mid, frameA * 1.2f, key);
+    // Brackets: top-left lit, top-right and bottom-left mid, bottom-right shade.
+    const float hx = ac::kCardW * 0.5f, hy = ac::kCardH * 0.5f, cut = ac::kCut, len = 30.0f;
+    for (int q = 0; q < 4; ++q) {
+        const float sx = (q & 1) ? 1.0f : -1.0f, sy = (q & 2) ? 1.0f : -1.0f;
+        const float bx[4] = { sx * (hx - cut - len), sx * (hx - cut), sx * hx, sx * hx };
+        const float by[4] = { sy * hy, sy * hy, sy * (hy - cut), sy * (hy - cut - len) };
+        float qx[4], qy[4];
+        for (int k = 0; k < 4; ++k) X.P(bx[k], by[k], qx[k], qy[k]);
+        const Rgb c = q == 0 ? lit : q == 3 ? shade : mid;
+        SMiterPath(qx, qy, 4, bracketW, c, bracketA, key);
+    }
+}
+
 // Node k of a family constellation, card-local.
 void ConNode(const ac::Shape& sh, int k, float& lx, float& ly) {
     lx = ac::kConX + sh.x[k] * ac::kConW;
@@ -615,8 +646,9 @@ CardText LayoutCardText(const AugDef& def, float ui, int slot = -1) {
         const std::wstring line = syn::UpgradeLine(augIdx, branch, li);
         if (!line.empty()) descText = (branch == 2 ? L"◆ " : L"▲ ") + line + L" · " + descText;
     } else if (g_GameManager.ActiveIsFrame()) {
-        static const wchar_t* kFrame[3] = { L"시작 무기 · 이번 런 동안 유지", L"Starting frame · kept all run", L"開始武器 · このラン中ずっと" };
-        t.meta = kFrame[CurLangIdx()];
+        // The run-start weapon pick: "시작 무기" stands at the top of the card instead (user 2026-11-24),
+        // so the line above the text stays empty.
+        t.meta.clear();
     }
     t.metaScale = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
     const float room = (kDescBottom - kDescY) * ui;
@@ -1227,13 +1259,17 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
     }
 
     // ── cards: geometry ──
-    struct CardDraw { float x, y, alpha, textA, conA; ac::CardPhase P; Rgb col; bool face; };
+    // `col` is the card's line colour; `star` the tier stars' (the augment's rarity colour).
+    // The upgrade pick draws its cards in silver with a bevel; only the stars keep the colour.
+    const bool silverCards = g_GameManager.ActiveIsUpgrade();
+    struct CardDraw { float x, y, alpha, textA, conA; ac::CardPhase P; Rgb col, star; bool face; };
     CardDraw cd[ac::kMaxCards] = {};
     for (int i = 0; i < count; ++i) {
         if (!defs[i]) continue;
         CardDraw& d = cd[i];
         d.P = ac::PhaseAt(T, rarity, i, t);
-        d.col = RarityLine(defs[i]->rarity);
+        d.star = RarityLine(defs[i]->rarity);
+        d.col = silverCards ? kSilver : d.star;
         if (d.P.move <= 0.0f) continue;
         const float e = d.P.move;
         const float slotY = L.cy - lift[i];
@@ -1273,16 +1309,21 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         const Xf X = MakeXf(d.x, d.y, scale * std::max(0.02f, flipX), scale * bulge, rot);
         d.face = d.P.flip >= 0.5f;
         if (!d.face) {
-            DrawBack(X, d.col, d.alpha, d.P.charge, ui, key);
+            DrawBack(X, d.star, d.alpha, d.P.charge, ui, key);
             continue;
         }
         const float h = std::max(focusT[i], guideGlow[i]);
         if (!inExit || i == pick) {
             // A dissolving card's frame is drawn as fragments instead.
             // The frame itself stays a quiet hairline; the corner brackets carry it.
-            LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, d.col,
-                     d.alpha * (0.26f + 0.16f * h), key);
-            LCornerBrackets(X, d.col, d.alpha * (0.80f + 0.20f * h), (3.6f + 1.0f * h) * ui, 30.0f, key);
+            if (silverCards) {
+                LBevelFrame(X, 1.2f * ui, d.alpha * (0.26f + 0.16f * h), d.alpha * (0.80f + 0.20f * h),
+                            (3.6f + 1.0f * h) * ui, key);
+            } else {
+                LOutline(X, ac::kCardW, ac::kCardH, ac::kCut, 1.2f * ui, d.col,
+                         d.alpha * (0.26f + 0.16f * h), key);
+                LCornerBrackets(X, d.col, d.alpha * (0.80f + 0.20f * h), (3.6f + 1.0f * h) * ui, 30.0f, key);
+            }
         }
         if (d.P.flip < 1.0f) continue;
 
@@ -1290,9 +1331,10 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
         // page the middle card's row is drawn large in gold further down.
         const bool guideMarks = pickGuideUp && ready_launch::g_PickGuide == ready_launch::PickGuide::Detail &&
                                 i == count / 2;
-        if (!guideMarks)
+        // A start-weapon card has no tier stars: "시작 무기" is written there (text pass below).
+        if (!guideMarks && !g_GameManager.ActiveIsFrame())
             DrawTierStars(d.x, d.y + kRarityY * ui, ui, ac::kTierGap, ac::kTierR, rarity[i], tierUps[i],
-                          tierPreview[i], d.col, d.textA, d.P.title, now, key);
+                          tierPreview[i], d.star, d.textA, d.P.title, now, key);
 
         // The icon sits on a node: hairline ring with four ticks. Cards without an
         // icon file get a diamond sigil in the same place instead of a hole.
@@ -1341,7 +1383,16 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                  d.col.r, d.col.g, d.col.b, titleA * 0.95f);
         DrawShadowedText(g_TextL, name, d.x - nameW * 0.5f, d.y + kTitleY * ui - nameH * 0.5f,
                          tx.titleScale, kText.r, kText.g, kText.b, titleA, 0.70f);
-
+        // The run-start weapon pick: "시작 무기" at the top, where other cards keep their tier stars.
+        if (g_GameManager.ActiveIsFrame()) {
+            static const wchar_t* kStart[3] = { L"시작 무기", L"Starting weapon", L"開始武器" };
+            const wchar_t* label = kStart[CurLangIdx()];
+            const float ls = UiTextScale(g_TextS, UiTextLevel::Description, ui);
+            const float lw = g_TextS.Width(label, ls), lh = g_TextS.Height(label, ls);
+            const Rgb lc = Mix(d.col, kText, 0.35f);
+            DrawShadowedText(g_TextS, label, d.x - lw * 0.5f, d.y + kRarityY * ui - lh * 0.5f, ls,
+                             lc.r, lc.g, lc.b, titleA, 0.70f);
+        }
         const float left = d.x - (ac::kCardW * 0.5f - 22.0f) * ui;
         const Rgb metaCol = Mix(d.col, kText, 0.35f);
         DrawShadowedText(g_TextS, tx.meta.c_str(), left, d.y + kMetaY * ui, tx.metaScale,
@@ -1621,8 +1672,9 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             const float ry = mid.y + kRarityY * ui;
             const float gap = ac::kTierGap + (kGuideMarkGap - ac::kTierGap) * in;
             const float r = ac::kTierR + (kGuideMarkR - ac::kTierR + 1.2f * pulse) * in;
-            DrawTierStars(mid.x, ry, ui, gap, r, rarity[m], tierUps[m], tierPreview[m], gold,
-                          0.65f + 0.35f * pulse, 1.0f, now, key);
+            if (!g_GameManager.ActiveIsFrame())   // start-weapon cards show no tier stars
+                DrawTierStars(mid.x, ry, ui, gap, r, rarity[m], tierUps[m], tierPreview[m], gold,
+                              0.65f + 0.35f * pulse, 1.0f, now, key);
             for (const LinkBox& b : linkBoxes) {
                 if (b.owner != count / 2) continue;
                 SLine(b.x0, b.y1 + 2.0f * ui, b.x1, b.y1 + 2.0f * ui, 2.2f * ui, gold,

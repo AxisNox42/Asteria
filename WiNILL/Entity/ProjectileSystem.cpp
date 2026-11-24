@@ -36,11 +36,14 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
         if (bullet.homing && !bullet.isEnemy && bullet.active) {
             float targetX = 0.0f, targetY = 0.0f;
             // A piercing homing shot skips the enemies it already hit, or it circles the last one.
-            const bool pierces = bullet.piercing || bullet.pierceLeft > 0;
+            const bool pierces = bullet.piercing || bullet.pierceLeft > 0 || bullet.powerPierce;
             bool found = false;
             float best = 1e18f;
             auto consider = [&](const void* id, float ex, float ey) {
                 if (pierces && bullet.HasHit(id)) return;
+                // 석궁: a shot bends toward the enemy it was aimed at while that one lives (best < 0 = locked).
+                if (id == bullet.aimTarget) { best = -1.0f; targetX = ex; targetY = ey; found = true; return; }
+                if (best < 0.0f) return;
                 const float d = (ex - bullet.x) * (ex - bullet.x) + (ey - bullet.y) * (ey - bullet.y);
                 if (d < best) { best = d; targetX = ex; targetY = ey; found = true; }
             };

@@ -14,6 +14,7 @@
 #include "AugmentSynergy.h"
 #include "SynergyUpgrade.h"
 #include "Bullet.h"
+#include "CrossbowBolts.h"
 #include "EnemyParticles.h"
 #include "GameManager.h"
 #include "Juice.h"
@@ -188,6 +189,11 @@ struct State {
     std::vector<Echo>  echoes;
     std::vector<Bullet> pending;                          // spawned during a collision pass
     std::unordered_map<const void*, float> marks;
+    // 석궁 (CrossbowBolts.h): arrows stuck in each enemy, and the enemy it aims at (compared, never
+    // read through: ForgetEnemy and the alive check in UpdateCrossbow drop a gone one).
+    std::unordered_map<const void*, crossbow::Arrows> arrows;
+    const void* boltTarget = nullptr;
+    float boltTX = 0, boltTY = 0, boltVX = 0, boltVY = 0, boltLockT = 0;
     std::unordered_map<const void*, Burn>  burns;
     std::unordered_map<const void*, LaserBurn> laserBurns;
     std::unordered_map<const void*, float> laserProcAt;   // when a beam last set off a hit proc on this enemy
@@ -586,8 +592,10 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
     // slow frames fire faster with less per shot (table) and the spread frames get a small correction
     // measured in the smoke run (kills in 20 s).
     if (o.F_SHOTGUN) { b.maxRange = 560.0f; b.speed *= 0.9f; b.dmgMult *= 1.3f; }
-    if (o.F_SNIPER) { b.speed *= 1.6f; b.sizeScale *= 1.4f; b.color = glm::vec3(0.85f, 0.95f, 1.0f); b.synFlags |= synf::FrameSniper; }
-    if (o.F_CROSSBOW) { b.speed *= 1.3f; b.sizeScale *= 2.0f; b.color = glm::vec3(0.95f, 0.85f, 0.55f); b.synFlags |= synf::FrameCrossbow; }
+    // 저격총: no pierce count of its own; a kill lets it fly on with the power left (Bullet.h SniperFliesOn).
+    if (o.F_SNIPER) { b.speed *= 1.6f; b.sizeScale *= 1.4f; b.color = glm::vec3(0.85f, 0.95f, 1.0f); b.synFlags |= synf::FrameSniper; b.powerPierce = true; }
+    if (o.F_CROSSBOW) { b.speed *= crossbow::kSpeed; b.sizeScale *= 2.0f; b.color = glm::vec3(0.95f, 0.85f, 0.55f); b.synFlags |= synf::FrameCrossbow;
+        b.aimTarget = s.boltTarget; }   // homing bends toward it (ProjectileSystem.cpp)
     if (o.F_WAVE) {
         b.synFlags |= synf::FrameWave;
         b.dmgMult *= 1.3f; b.speed *= 0.55f; b.sizeScale *= 3.4f; b.piercing = true; b.synFlags |= synf::Erase;
@@ -793,6 +801,8 @@ void ForgetEnemy(const void* enemy) {
     s.chainStruck.erase(enemy);
     s.singularAt.erase(enemy);
     s.marks.erase(enemy);
+    s.arrows.erase(enemy);
+    if (s.boltTarget == enemy) s.boltTarget = nullptr;
     s.burns.erase(enemy);
     s.laserBurns.erase(enemy);
     s.laserProcAt.erase(enemy);
@@ -1056,6 +1066,37 @@ void DrawWorld() {
         if (u < 0.35f)   // fresh: a hot white core along the streak
             lf::Line(e.x - e.dx * L * 0.3f, e.y - e.dy * L * 0.3f, e.x + e.dx * L * 0.3f, e.y + e.dy * L * 0.3f,
                      1.0f, { 1.0f, 0.95f, 0.8f }, (1.0f - u / 0.35f) * flick);
+    }
+    // 석궁: its target under four chevrons pointing in (turning slowly, closing in on a new one),
+    // and the arrows stuck in each enemy as short shafts with a fletch, fading out in the last second.
+    if (s.boltTarget || !s.arrows.empty()) {
+        const lf::Rgb col{ 0.95f, 0.85f, 0.55f };
+        ForEachEnemy([&](auto& e, float ex, float ey) {
+            const void* id = &e;
+            if (id == s.boltTarget) {
+                const float h = 30.0f * (1.0f + 1.5f * s.boltLockT / crossbow::kLockIn), c = 7.0f;
+                const float a0 = s.clock * 0.8f;
+                for (int i = 0; i < 4; ++i) {
+                    const float a = a0 + 1.5707963f * (float)i, ux = std::cos(a), uy = std::sin(a);
+                    const float tx = ex + ux * h, ty = ey + uy * h;   // the tip, pointing at the enemy
+                    lf::Line(tx, ty, tx + ux * c - uy * c, ty + uy * c + ux * c, 1.6f, col, 0.9f);
+                    lf::Line(tx, ty, tx + ux * c + uy * c, ty + uy * c - ux * c, 1.6f, col, 0.9f);
+                }
+            }
+            auto ar = s.arrows.find(id);
+            if (ar == s.arrows.end()) return;
+            const float alpha = 0.9f * std::min(1.0f, ar->second.t);
+            const float seed = (float)(((uintptr_t)id >> 4) % 628) * 0.01f;
+            for (int i = 0; i < ar->second.n; ++i) {
+                const float a = seed + 2.5132741f * (float)i;   // 144 deg apart: five never bunch up
+                const float ux = std::cos(a), uy = std::sin(a);
+                const float x0 = ex + ux * 12.0f, y0 = ey + uy * 12.0f, x1 = ex + ux * 26.0f, y1 = ey + uy * 26.0f;
+                lf::Line(x0, y0, x1, y1, 1.4f, col, alpha);
+                const float fx = x1 - ux * 5.0f, fy = y1 - uy * 5.0f;   // the fletch: a V opening outward at the tail
+                lf::Line(fx, fy, x1 - uy * 3.5f, y1 + ux * 3.5f, 1.2f, col, alpha);
+                lf::Line(fx, fy, x1 + uy * 3.5f, y1 - ux * 3.5f, 1.2f, col, alpha);
+            }
+        });
     }
     if (s.marks.empty() && s.burns.empty()) return;
     const float t = s.clock;
@@ -1392,7 +1433,13 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
     // 정지 반응 / 박자 사격 x3 on a beam lasts only its first kBeamBoostTime (not as long as it is held).
     constexpr float kBeamBoostTime = 1.0f;
     const float beamBoost = (o.F_LASER && laser_fx::g_Main.onT > kBeamBoostTime) ? 1.0f : s.beamBoost;
-    const float aim = std::atan2(base.dirY, base.dirX);
+    float aim = std::atan2(base.dirY, base.dirX);
+    // 석궁: it aims for itself, at where its target will be when the bolt gets there.
+    if (o.F_CROSSBOW && s.boltTarget) {
+        crossbow::Lead(base.x, base.y, s.boltTX, s.boltTY, s.boltVX, s.boltVY,
+                       base.speed * crossbow::kSpeed, tx, ty);
+        aim = std::atan2(ty - base.y, tx - base.x);
+    }
     int n = std::clamp((int)std::lround(s.bullets), 1, 16);
     const bool parallel = n == 2 && !o.F_SHOTGUN && !o.F_BURST;
     float width = 0.0f;
@@ -1541,6 +1588,11 @@ float DamageMult(const Bullet& b, const void* target) {
     float m = s.dmg;
     auto mk = s.marks.find(target);
     if (mk != s.marks.end() && mk->second > 0.0f) m *= 1.0f + UPA(V_MARK);
+    // 석궁: the arrows already stuck in this enemy (this bolt's own is added on the hit, after).
+    if (b.synFlags & synf::FrameCrossbow) {
+        auto ar = s.arrows.find(target);
+        if (ar != s.arrows.end()) m *= crossbow::DamageMult(ar->second);
+    }
     if (b.synFlags & synf::Grow) { const float g = UPA(V_GROW) - 1.0f; m *= 1.0f + std::min(g, b.traveled / (Rings(UPB(V_GROW)) / g)); }
     // Shape (관통): +15% for every enemy the shot has passed.
     if (ShapeOn(synergy::Family::Pierce) && b.synPierced > 0) m *= 1.0f + 0.15f * ShapeLv(synergy::Family::Pierce) * (float)b.synPierced;
@@ -1614,6 +1666,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             });
     }
     if (b.synFlags & synf::Mark) s.marks[target] = UPB(V_MARK);
+    if ((b.synFlags & synf::FrameCrossbow) && !killed) crossbow::Stick(s.arrows[target]);
     if (b.synFlags & synf::Burn) {   // refresh the 3s without restarting the 0.5s tick: hits faster than 0.5s never burned
         auto [it, fresh] = s.burns.try_emplace(target, Burn{ UPB(V_BURN), 0.5f });
         if (!fresh) it->second.t = UPB(V_BURN);
@@ -1701,7 +1754,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
 
 bool Redirect(Bullet& b, const void* hitTarget) {
     if (b.synRicochet <= 0) return false;
-    const void* best = nullptr; float bd = 650.0f * 650.0f, bx = 0, by = 0;
+    const void* best = nullptr; float bd = Rings(8.0f) * Rings(8.0f), bx = 0, by = 0;
     auto consider = [&](const void* id, float ex, float ey) {
         if (id == hitTarget) return;
         const float d = (ex - b.x) * (ex - b.x) + (ey - b.y) * (ey - b.y);
@@ -1714,6 +1767,14 @@ bool Redirect(Bullet& b, const void* hitTarget) {
     const float dx = bx - b.x, dy = by - b.y, d = std::sqrt(dx * dx + dy * dy);
     b.dirX = dx / d; b.dirY = dy / d;
     b.ClearHits(); b.RememberHit(hitTarget);
+    // The turn shows: a small blast where the shot bent and a line from there to the new target,
+    // in the shot's colour (shared cap with the bounce sparks, so a crowd of shots stays readable).
+    if (s.bounceFx < 6 && passive::OnScreen(b.x, b.y)) {
+        ++s.bounceFx;
+        const line_fx::Rgb c{ b.color.r, b.color.g, b.color.b };
+        strike_fx::Blast(b.x, b.y, 26.0f, line_fx::Lift(c, 0.4f), 0.0f, strike_fx::BlastStyle::Crystal);
+        strike_fx::Bolt(b.x, b.y, bx, by, line_fx::Lift(c, 0.4f), 2.0f, 0.0f, 0.22f);
+    }
     if (s.on.V_RICOCHET) b.dmgMult *= 1.0f + UPB(V_RICOCHET);   // branch B
     OnBounce(b, false);   // a turn off a target is a bounce for the bounce cards too
     return true;
@@ -1873,6 +1934,38 @@ void StepLaserBurns(float dt) {
     for (auto it = s.laserBurns.begin(); it != s.laserBurns.end();) it = it->second.stacks <= 0 ? s.laserBurns.erase(it) : std::next(it);
 }
 
+// 석궁: it keeps its target while that one lives on screen, else takes the enemy nearest the
+// cursor. The target's speed is followed for the lead, smoothed (a hit stun's knock should not
+// throw the aim) and not taken from a jump (a teleport or a throw is not a speed).
+static void UpdateCrossbow(const passive::StepInput& in, float dt) {
+    if (!s.on.F_CROSSBOW) { s.boltTarget = nullptr; return; }
+    constexpr float kEdge = 40.0f;   // an enemy just past the screen edge is not on screen yet
+    auto onScreen = [&](float x, float y) {
+        return x > in.viewL + kEdge && x < in.viewR - kEdge && y > in.viewT + kEdge && y < in.viewB - kEdge;
+    };
+    bool keep = false;
+    float kx = 0, ky = 0, bd = 1e18f, bx = 0, by = 0;
+    const void* best = nullptr;
+    ForEachEnemy([&](auto& e, float ex, float ey) {
+        if (!onScreen(ex, ey)) return;
+        if ((const void*)&e == s.boltTarget) { keep = true; kx = ex; ky = ey; }
+        const float d = (ex - in.aimX) * (ex - in.aimX) + (ey - in.aimY) * (ey - in.aimY);
+        if (d < bd) { bd = d; best = &e; bx = ex; by = ey; }
+    });
+    if (keep) {
+        if (dt > 0.0f) {
+            const float vx = (kx - s.boltTX) / dt, vy = (ky - s.boltTY) / dt;
+            const float k = std::hypot(vx, vy) > 2000.0f ? 0.0f : 0.25f;
+            s.boltVX += (vx - s.boltVX) * k; s.boltVY += (vy - s.boltVY) * k;
+        }
+        s.boltTX = kx; s.boltTY = ky;
+        s.boltLockT = std::max(0.0f, s.boltLockT - dt);
+    } else {
+        s.boltTarget = best; s.boltTX = bx; s.boltTY = by; s.boltVX = s.boltVY = 0.0f;
+        s.boltLockT = best ? crossbow::kLockIn : 0.0f;
+    }
+}
+
 void Step(const passive::StepInput& in) {
     s.in = in;
     s.bounceFx = 0;
@@ -1969,6 +2062,8 @@ void Step(const passive::StepInput& in) {
 
     // Marks and burns.
     for (auto it = s.marks.begin(); it != s.marks.end();) { it->second -= dt; it = it->second <= 0.0f ? s.marks.erase(it) : std::next(it); }
+    for (auto it = s.arrows.begin(); it != s.arrows.end();) it = crossbow::Age(it->second, dt) ? std::next(it) : s.arrows.erase(it);
+    UpdateCrossbow(in, dt);
     // The shield shows as a ring round the ship while it holds.
     s.shieldPulse -= dt;
     if (s.shieldPulse <= 0.0f && g_PlayerShield > 0.0f) { s.shieldPulse = 0.9f; Pulse(in.px, in.py, 36.0f, 0.4f, 0.45f, 0.85f, 1.0f); }
@@ -2133,7 +2228,9 @@ void Step(const passive::StepInput& in) {
                 const float over = b.traveled - b.synLandDist;
                 b.synTx = b.x - b.dirX * over; b.synTy = b.y - b.dirY * over;
                 const float r = Rings(1.5f);
-                Burst(b.synTx, b.synTy, r, 90.0f * b.dmgMult * s.dmg);   // Burst adds the card part
+                // The card's blast share (AugmentSynergy.h F_MORTAR blast_), not a number kept here.
+                static const float kShell = T()[Index("F_MORTAR")].fx.blast * 100.0f;
+                Burst(b.synTx, b.synTy, r, kShell * b.dmgMult * s.dmg);   // Burst adds the card part
                 Landed(b, r);
             }
         }

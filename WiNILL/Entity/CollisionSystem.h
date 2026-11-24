@@ -275,11 +275,13 @@ public:
                                                       monster->worldY, crit)
                     : 1.0f;
                 const float baseDamage = stats.GetBaseDamage() *
-                    stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
+                    stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult * bullet.powerLeft;
+                if (bullet.powerPierce && bullet.powerCrit < 0) bullet.powerCrit = crit ? 1 : 0;
                 // Only a crit dents an elite (the shot's direction is the dent's).
                 const float dealt = manager.ApplyDamage(*monster, baseDamage, shotSpace,
                                                         crit ? bullet.dirX : 0.0f,
                                                         crit ? bullet.dirY : 0.0f);
+                const bool shotKilled = !monster->alive;   // before an execute below
                 // The popup is the shot's own attack power, every time: invulnerable
                 // frames, phase caps, shields and overkill never change the number.
                 SpawnDamageNumber(monster->worldX, monster->worldY, baseDamage, crit);
@@ -294,14 +296,22 @@ public:
                     monster->thrownPhase == 0) {
                     monster->TryHitStun(bullet.dirX, bullet.dirY);
                 }
-                SpawnSparks((bullet.synFlags & synf::Hitscan) ? monster->worldX : bullet.x, (bullet.synFlags & synf::Hitscan) ? monster->worldY : bullet.y, crit ? 6 : 3,
-                            bullet.color.r, bullet.color.g, bullet.color.b);
+                {   // 저격총: a free pass (pierce card) sparks white, a power pass in the shot's colour
+                    const bool freePass = bullet.powerPierce && (bullet.piercing || bullet.pierceLeft > 0);
+                    const glm::vec3 sc = freePass ? glm::vec3(1.0f) : bullet.color;
+                    SpawnSparks((bullet.synFlags & synf::Hitscan) ? monster->worldX : bullet.x, (bullet.synFlags & synf::Hitscan) ? monster->worldY : bullet.y, crit ? 6 : 3,
+                                sc.r, sc.g, sc.b);
+                }
                 if (passive_hooks::bulletHit)
                     passive_hooks::bulletHit(bullet, monster, monster->worldX,
                                              monster->worldY, baseDamage, crit, !monster->alive);
                 if (!monster->alive) CollectMonsterKill(rewards, *monster);
 
-                if (bullet.SurvivesHit()) { bullet.RememberHit(monster); ++bullet.synPierced; }
+                const bool fliesOn = bullet.powerPierce
+                    ? SniperFliesOn(bullet, baseDamage * MetaPlayerHitMult(IsEliteMob(monster->kind), IsBossMob(monster->kind)),
+                                    dealt, shotKilled)
+                    : bullet.SurvivesHit();
+                if (fliesOn) { bullet.RememberHit(monster); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, monster)) {}
                 else                 bullet.active = false;
                 consumed = true;
@@ -331,8 +341,10 @@ public:
                                                       ranged->worldY, crit)
                     : 1.0f;
                 const float baseDamage = stats.GetBaseDamage() *
-                    stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult;
+                    stats.GetDamageMultiplier() * bullet.dmgMult * passiveMult * bullet.powerLeft;
+                if (bullet.powerPierce && bullet.powerCrit < 0) bullet.powerCrit = crit ? 1 : 0;
                 const float dealt = manager.ApplyDamage(*ranged, baseDamage, shotSpace);
+                const bool shotKilled = !ranged->alive;   // before an execute below
                 SpawnDamageNumber(ranged->worldX, ranged->worldY, baseDamage, crit);
                 if (crit && !ranged->alive) SpawnFateKill(ranged->worldX, ranged->worldY);
                 if (ranged->alive) Audio::Play(Audio::Cue::EnemyHit);
@@ -343,14 +355,21 @@ public:
                     ranged->TryHitStun(bullet.dirX, bullet.dirY, Monster::HIT_STUN_TIME,
                                        Monster::HIT_STUN_COOLDOWN, Monster::HIT_KNOCK_SPEED);
                 }
-                SpawnSparks((bullet.synFlags & synf::Hitscan) ? ranged->worldX : bullet.x, (bullet.synFlags & synf::Hitscan) ? ranged->worldY : bullet.y, crit ? 6 : 3,
-                            bullet.color.r, bullet.color.g, bullet.color.b);
+                {   // 저격총: a free pass (pierce card) sparks white, a power pass in the shot's colour
+                    const bool freePass = bullet.powerPierce && (bullet.piercing || bullet.pierceLeft > 0);
+                    const glm::vec3 sc = freePass ? glm::vec3(1.0f) : bullet.color;
+                    SpawnSparks((bullet.synFlags & synf::Hitscan) ? ranged->worldX : bullet.x, (bullet.synFlags & synf::Hitscan) ? ranged->worldY : bullet.y, crit ? 6 : 3,
+                                sc.r, sc.g, sc.b);
+                }
                 if (passive_hooks::bulletHit)
                     passive_hooks::bulletHit(bullet, ranged, ranged->worldX,
                                              ranged->worldY, baseDamage, crit, !ranged->alive);
                 if (!ranged->alive) CollectScopeKill(rewards, *ranged);
 
-                if (bullet.SurvivesHit()) { bullet.RememberHit(ranged); ++bullet.synPierced; }
+                const bool fliesOn = bullet.powerPierce
+                    ? SniperFliesOn(bullet, baseDamage * MetaPlayerHitMult(false, false), dealt, shotKilled)
+                    : bullet.SurvivesHit();
+                if (fliesOn) { bullet.RememberHit(ranged); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, ranged)) {}
                 else                 bullet.active = false;
                 if (!scan) break;

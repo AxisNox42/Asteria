@@ -101,6 +101,14 @@ public:
     int   synBounces = 0;              // arena-edge bounces so far
     int   synRicochet = 0;             // enemy-to-enemy bounces left
     int   synPierced = 0;              // enemies passed so far
+    // 저격총 위력 관통 (CollisionSystem.h SniperFliesOn): pierceLeft passes cost nothing; after them a
+    // kill lets the shot fly on with what the kill did not use. powerLeft = share of its first-hit
+    // power still carried (every hit deals that share); powerCrit = the first hit's crit, kept for
+    // the later hits (-1 = not hit yet).
+    bool  powerPierce = false;
+    float powerLeft   = 1.0f;
+    int   powerCrit   = -1;
+    const void* aimTarget = nullptr;   // 석궁: the enemy it was aimed at (homing prefers it); compared only, never read
     int   hitscanLeft = 0;             // Hitscan: steps it keeps hitting (one enemy per step)
     bool  mobTick = false;             // Hitscan of the standing laser: each enemy takes it on its own timer (LaserFx MobReady)
     float synBoost = 1.0f;             // the volley's one-shot bonuses folded into dmgMult (still, beat, absorb, dash)
@@ -186,6 +194,20 @@ public:
         if (maxRange > 0.0f && traveled > maxRange) active = false;
     }
 };
+
+// 저격총 위력 관통 (Docs/Plans/2026-11-24_석궁_저격총_개편_기획.docx): after a sniper shot's hit,
+// does it fly on? The fixed pierce cards' passes (pierceLeft, or a shot that pierces everything)
+// come first and cost nothing. After them only a kill made by this very hit lets it on (an execute
+// is not the shot's kill), carrying what the kill did not use: `dealt / hitDamage` of this hit went
+// into the enemy (its shield included). Under kSniperPowerFloor of its first power it ends.
+inline constexpr float kSniperPowerFloor = 0.10f;
+inline bool SniperFliesOn(Bullet& b, float hitDamage, float dealt, bool shotKilled) {
+    if (b.piercing || b.pierceLeft > 0) return b.SurvivesHit();
+    if (!shotKilled || !(hitDamage > 0.0f)) return false;
+    const float used = std::clamp(dealt / hitDamage, 0.0f, 1.0f);
+    b.powerLeft *= 1.0f - used;
+    return b.powerLeft >= kSniperPowerFloor;
+}
 
 // Upper limit of a player shot's sizeScale. Size boosts (warhead, sniper,
 // crossbow, growth, ...) multiply together; without a cap a stack covers the

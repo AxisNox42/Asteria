@@ -301,15 +301,18 @@ static bool DrawCardShot(const Bullet& b, float r) {
         return true;
     }
     if (f & synf::FrameSniper) {   // 저격총: a long thin diamond head and a short wake
+        // 위력 관통: the head and wake shorten and dim with the power the shot still carries.
+        const float pw = std::clamp(b.powerLeft, 0.0f, 1.0f);
+        const float L = 0.45f + 0.55f * pw, A = 0.55f + 0.45f * pw;
         float px[4], py[4];
-        P(r * 3.2f, 0.0f, px[0], py[0]); P(r * 0.3f, r * 0.42f, px[1], py[1]);
-        P(-r * 1.6f, 0.0f, px[2], py[2]); P(r * 0.3f, -r * 0.42f, px[3], py[3]);
-        SkillLoop(px, py, 4, 1.8f, c, 1.0f);
+        P(r * 3.2f * L, 0.0f, px[0], py[0]); P(r * 0.3f, r * 0.42f, px[1], py[1]);
+        P(-r * 1.6f * L, 0.0f, px[2], py[2]); P(r * 0.3f, -r * 0.42f, px[3], py[3]);
+        SkillLoop(px, py, 4, 1.8f, c, A);
         float ax, ay, bx, by;
-        P(r * 2.6f, 0.0f, ax, ay); P(-r * 1.0f, 0.0f, bx, by);
-        SkillStroke(ax, ay, bx, by, 1.2f, lit, 1.0f);
-        P(-r * 1.6f, 0.0f, ax, ay); P(-r * 5.5f, 0.0f, bx, by);
-        SkillStroke(ax, ay, bx, by, 1.0f, c, 0.4f);
+        P(r * 2.6f * L, 0.0f, ax, ay); P(-r * 1.0f * L, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.2f, lit, A);
+        P(-r * 1.6f * L, 0.0f, ax, ay); P(-r * 5.5f * L, 0.0f, bx, by);
+        SkillStroke(ax, ay, bx, by, 1.0f, c, 0.4f * A);
         return true;
     }
     if (f & synf::FrameCrossbow) {   // 석궁: just a sharp arrowhead, barbed back to a notch
@@ -1617,15 +1620,81 @@ void DrawRegulusBuffMarks(const Monster* m, float visualTime) {
     }
 }
 
+// A royal-wave arc at radius r: the part of the circle the wave covers
+// (a ring skips its open lanes). Solid line segments only.
+static void DrawWaveArc(const regulus_wave::Wave& w, float r, float width,
+                        float cr, float cg, float cb, float alpha) {
+    if (r <= 0.0f || alpha <= 0.0f) return;
+    const float a0 = w.aim - w.halfArc, span = w.halfArc * 2.0f;
+    const int seg = std::max(8, (int)(span * r / 10.0f));
+    const float step = span / (float)seg;
+    for (int i = 0; i < seg; ++i) {
+        const float u0 = a0 + step * (float)i, u1 = u0 + step, mid = u0 + step * 0.5f;
+        if (w.ring && !regulus_wave::Covers(w, cosf(mid), sinf(mid))) continue;
+        drawLineQuad(w.x + cosf(u0) * r, w.y + sinf(u0) * r, w.x + cosf(u1) * r, w.y + sinf(u1) * r,
+                     width, cr, cg, cb, alpha);
+    }
+}
+
+static void DrawWaveSpoke(const regulus_wave::Wave& w, float a, float width,
+                          float cr, float cg, float cb, float alpha) {
+    namespace rw = regulus_wave;
+    drawLineQuad(w.x + cosf(a) * rw::kInner, w.y + sinf(a) * rw::kInner,
+                 w.x + cosf(a) * rw::kRadius, w.y + sinf(a) * rw::kRadius, width, cr, cg, cb, alpha);
+}
+
+// Nightmare royal wave: while warned, the fan (or the ring with its open
+// lanes) outlined and brightening; then each band runs out as a white arc
+// with rainbow fringes, like the lasers, fading at the rim.
+static void DrawRegulusWaves(const MonsterManager& manager) {
+    namespace rw = regulus_wave;
+    const glm::vec3 c = REGULUS_SHIELD_COLOR;
+    for (const auto& w : manager.regulusWaves) {
+        const float u = w.age < 0.0f ? 1.0f - std::clamp(w.warn / std::max(0.01f, w.warnTotal), 0.0f, 1.0f) : 1.0f;
+        const float outline = w.age < 0.0f ? 1.0f : std::max(0.0f, 1.0f - w.age / rw::Life(w));
+        // The area: outer rim, the safe inner edge, and the sides / lanes.
+        DrawWaveArc(w, rw::kRadius, 1.0f, c.r, c.g, c.b, (0.15f + 0.35f * u) * outline);
+        DrawWaveArc(w, rw::kInner, 1.0f, c.r, c.g, c.b, (0.25f + 0.45f * u) * outline);
+        if (w.ring) {
+            for (int k = 0; k < rw::kRingGaps; ++k)
+                for (int side = -1; side <= 1; side += 2)
+                    DrawWaveSpoke(w, rw::GapAngle(w, k) + rw::kRingGapArc * 0.5f * (float)side, 1.2f,
+                                  c.r, c.g, c.b, (0.30f + 0.50f * u) * outline);
+        } else {
+            for (int side = -1; side <= 1; side += 2)
+                DrawWaveSpoke(w, w.aim + w.halfArc * (float)side, 1.0f, c.r, c.g, c.b,
+                              (0.20f + 0.40f * u) * outline);
+        }
+        if (w.age < 0.0f) {
+            // Where the band will leave from: a thin arc closing in on the inner edge.
+            DrawWaveArc(w, rw::kInner + 40.0f * (1.0f - u), 1.0f, c.r, c.g, c.b, 0.2f + 0.6f * u);
+            continue;
+        }
+        for (int b = 0; b < w.bands; ++b) {
+            const float r = rw::BandRadius(w, b, w.age);
+            if (r <= 0.0f) continue;
+            const float rim = std::clamp((rw::kRadius - r) / (rw::kRadius * 0.15f), 0.25f, 1.0f);
+            for (int side = -1; side <= 1; side += 2) {   // rainbow fringes
+                glm::vec3 f = c;
+                regulus_look::ShiftHue(f.r, f.g, f.b, regulus_look::kFringeHue * (float)side);
+                f = glm::mix(f, glm::vec3(1.0f), 0.25f);
+                DrawWaveArc(w, r + 1.6f * (float)side, 1.0f, f.r, f.g, f.b, 0.75f * rim);
+            }
+            DrawWaveArc(w, r, 2.3f, 1.0f, 1.0f, 1.0f, 0.95f * rim);
+            DrawWaveArc(w, r - 14.0f, 1.0f, c.r, c.g, c.b, 0.35f * rim);   // the trailing edge
+        }
+    }
+}
+
 void DrawRegulusBeams(const MonsterManager& manager, float visualTime) {
+    DrawRegulusWaves(manager);
     // Phase 2: the line a laser will take, thin and brightening, then the
     // laser itself (the beams below). Solid lines only.
     for (const auto& p : manager.regulusPending) {
-        const float u = 1.0f - std::clamp(p.left / Monster::REGULUS_WARN_TIME, 0.0f, 1.0f);
+        const float u = 1.0f - std::clamp(p.left / std::max(0.01f, p.warn), 0.0f, 1.0f);
         const glm::vec3 bc = Monster::RegulusBuffColor(p.buff);
-        drawLineQuad(p.x0, p.y0, p.x1, p.y1, 2.0f * Monster::REGULUS_LASER_HIT_RADIUS * (0.4f + 0.6f * u),
-                     bc.r, bc.g, bc.b, 0.06f + 0.10f * u);
-        drawLineQuad(p.x0, p.y0, p.x1, p.y1, 1.0f + 0.6f * u, bc.r, bc.g, bc.b, 0.35f + 0.45f * u);
+        // A hairline brightening toward the shot.
+        drawLineQuad(p.x0, p.y0, p.x1, p.y1, 0.8f + 0.3f * u, bc.r, bc.g, bc.b, 0.18f + 0.45f * u);
     }
     // Phase 3: an exposed Regulus shows two rings breathing in and out.
     for (const auto* m : manager.monsters) {
@@ -1637,17 +1706,30 @@ void DrawRegulusBeams(const MonsterManager& manager, float visualTime) {
         DrawLineRing(m->worldX, m->worldY, base * (2.3f + 0.15f * pulse), 1.4f, c.r, c.g, c.b, 0.75f * fade);
         DrawLineRing(m->worldX, m->worldY, base * (2.8f - 0.15f * pulse), 0.9f, c.r, c.g, c.b, 0.40f * fade);
     }
+    // A fired laser: a white core with rainbow fringes flashes, then is wiped
+    // from its tail toward its head (RegulusBeamLook.h timing).
     for (const auto& beam : manager.regulusBeams) {
-        const float t = std::clamp(beam.age / Monster::REGULUS_BEAM_TIME, 0.0f, 1.0f);
-        const float fade = (1.0f - t) * (1.0f - t);
+        namespace rp = regulus_look;
         const glm::vec3 bc = Monster::RegulusBuffColor(beam.buff);
-        const glm::vec3 hi = glm::mix(bc, glm::vec3(1.0f), 0.8f);
-        drawLineQuad(beam.x0, beam.y0, beam.x1, beam.y1, 7.0f * (1.0f - 0.5f * t),
-                     bc.r, bc.g, bc.b, 0.22f * fade);
-        drawLineQuad(beam.x0, beam.y0, beam.x1, beam.y1, 1.8f,
-                     hi.r, hi.g, hi.b, 0.95f * fade);
-        drawCircle(beam.x1, beam.y1, 10.0f * (1.0f + t), bc.r, bc.g, bc.b,
-                   0.30f * fade);
+        const float t = beam.age;
+        const float tail = t <= rp::kFlash ? 0.0f : std::min(1.0f, (t - rp::kFlash) / rp::kErase);
+        if (tail >= 1.0f) continue;
+        const float flash = t < rp::kFlash ? 1.0f : std::max(0.0f, 1.0f - (t - rp::kFlash) / 0.3f);
+        const float dx = beam.x1 - beam.x0, dy = beam.y1 - beam.y0;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        if (len < 1.0f) continue;
+        const float nx = -dy / len, ny = dx / len;
+        const float sx = beam.x0 + dx * tail, sy = beam.y0 + dy * tail;   // the wiped edge
+        for (int side = -1; side <= 1; side += 2) {   // rainbow fringes
+            glm::vec3 f = bc;
+            rp::ShiftHue(f.r, f.g, f.b, rp::kFringeHue * (float)side);
+            f = glm::mix(f, glm::vec3(1.0f), 0.25f);
+            const float o = 1.6f * (float)side;
+            drawLineQuad(sx + nx * o, sy + ny * o, beam.x1 + nx * o, beam.y1 + ny * o,
+                         1.0f, f.r, f.g, f.b, 0.75f);
+        }
+        drawLineQuad(sx, sy, beam.x1, beam.y1, 2.3f * (0.5f + 0.5f * flash), 1.0f, 1.0f, 1.0f, 0.95f);
+        drawCircle(sx, sy, 1.8f, bc.r, bc.g, bc.b, 0.9f);   // the vanishing edge
     }
 }
 
@@ -1687,64 +1769,6 @@ static void DrawAntaresFrame(float x, float y, float base, float angle,
                       style.r, style.g, style.b, style.alpha);
 }
 
-// Phase-pattern tells, amber, solid lines only: the gather's closing rings,
-// the six radial lines (the bright one is the dash), the lance's bouncing path.
-static void DrawAntaresTells(const Monster* m, float base) {
-    using State = Monster::AntaresState;
-    const State s = m->antaresState;
-    if (s != State::GATHER && s != State::AIM && s != State::DASH) return;
-    const float ar = 1.0f, ag = 0.66f, ab = 0.20f;
-    const float x = m->worldX, y = m->worldY, t = m->antaresStateTimer;
-    auto Path = [&](float width, float alpha) {
-        for (int k = 0; k + 1 < m->antaresPathCount; ++k) {
-            const glm::vec2 a = m->antaresPath[k], b = m->antaresPath[k + 1];
-            drawLineQuad(a.x, a.y, b.x, b.y, width + 3.0f, ar, ag, ab, alpha * 0.15f);
-            drawLineQuad(a.x, a.y, b.x, b.y, width, ar, ag, ab, alpha);
-        }
-    };
-    // Nightmare: the wake's reach (kWidth to each side of the path), two faint
-    // solid lines, shown with the path so the whole band is known up front.
-    const bool wake = m->AntaresWakeUsed();
-    auto Band = [&](float alpha) {
-        if (!wake) return;
-        for (int k = 0; k + 1 < m->antaresPathCount; ++k) {
-            const glm::vec2 a = m->antaresPath[k], b = m->antaresPath[k + 1];
-            const glm::vec2 d = b - a;
-            const float len = glm::length(d);
-            if (len < 0.001f) continue;
-            const glm::vec2 n = glm::vec2(-d.y, d.x) / len * antares_wake::kWidth;
-            drawLineQuad(a.x + n.x, a.y + n.y, b.x + n.x, b.y + n.y, 1.3f, ar, ag, ab, alpha);
-            drawLineQuad(a.x - n.x, a.y - n.y, b.x - n.x, b.y - n.y, 1.3f, ar, ag, ab, alpha);
-        }
-    };
-    if (s == State::GATHER) {
-        if (t < Monster::AntaresGatherTime()) {
-            const float u = t / Monster::AntaresGatherTime();
-            const float outer = base * (1.7f + 3.0f * (1.0f - u));
-            DrawLineRing(x, y, outer, 1.2f, ar, ag, ab, 0.25f + 0.55f * u);
-            DrawLineRing(x, y, base * 1.7f + (outer - base * 1.7f) * 0.45f, 1.0f,
-                         ar, ag, ab, 0.15f + 0.45f * u);
-        } else {
-            DrawLineRing(x, y, base * 1.7f, 1.6f, ar, ag, ab, 0.85f);
-            const float head = atan2f(m->antaresHeadingY, m->antaresHeadingX);
-            for (int k = 1; k < Monster::ANTARES_RADIAL_COUNT; ++k) {
-                const float a = head + (float)k * 6.2831853f / (float)Monster::ANTARES_RADIAL_COUNT;
-                drawLineQuad(x, y, x + cosf(a) * Monster::ANTARES_RADIAL_DRAW,
-                             y + sinf(a) * Monster::ANTARES_RADIAL_DRAW, 1.0f, ar, ag, ab, 0.32f);
-            }
-            Path(2.0f, 0.90f);
-            Band(0.38f);
-        }
-    } else if (s == State::AIM) {
-        const float u = std::min(1.0f, t / Monster::ANTARES_LANCE_AIM);
-        Path(1.6f, 0.35f + 0.55f * u);
-        Band(0.15f + 0.25f * u);
-    } else {
-        Path(1.0f, 0.28f);
-        Band(0.14f);
-    }
-}
-
 static void DrawAntares(const Monster* m, float base) {
     using State = Monster::AntaresState;
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
@@ -1759,7 +1783,6 @@ static void DrawAntares(const Monster* m, float base) {
         headX = cosf(m->antaresVisualAngle);
         headY = sinf(m->antaresVisualAngle);
     }
-    DrawAntaresTells(m, base);
     // Segments lag up to 4px behind as speed builds.
     const float pushPx = 4.0f * m->AntaresSpeedRatio();
 
@@ -2053,36 +2076,20 @@ static void DrawTriangulumDeath(const Monster* m, float visualTime) {
     DrawMiraRing(x, y, base * (0.5f + 1.6f * v), 2.0f, cr, cg, cb, 0.8f * (1.0f - v));
 }
 
-// Nightmare Antares wake (AntaresWake.h), amber, solid lines only: each piece
-// brightens until it bursts, then two lines spread out to both sides and fade;
-// rings (wall bounces, fragment clashes) show their full reach, then spread.
+// Nightmare Antares clash rings (AntaresWake.h), amber, solid lines only: the
+// full reach shows first, then the ring spreads out and fades. (The friction
+// spray is sparks only: Monster::SpawnAntaresSparks.)
 void DrawAntaresWake() {
     using namespace antares_wake;
     const float ar = 1.0f, ag = 0.66f, ab = 0.20f;
-    auto FadeOf = [](float age) {
-        return age < kDelay + kSpread ? 1.0f
-                                      : std::max(0.0f, 1.0f - (age - kDelay - kSpread) / kFade);
-    };
-    for (const Node& n : g.nodes) {
-        const float sx = n.bx - n.ax, sy = n.by - n.ay;
-        const float len = std::sqrt(sx * sx + sy * sy);
-        if (len < 0.001f) continue;
-        if (n.age < kDelay) {
-            drawLineQuad(n.ax, n.ay, n.bx, n.by, 1.4f, ar, ag, ab, 0.30f + 0.55f * (n.age / kDelay));
-            continue;
-        }
-        const float spread = SpreadOf(n.age), fade = FadeOf(n.age);
-        const float ox = -sy / len * kWidth * spread, oy = sx / len * kWidth * spread;
-        drawLineQuad(n.ax + ox, n.ay + oy, n.bx + ox, n.by + oy, 1.6f, ar, ag, ab, 0.90f * fade);
-        drawLineQuad(n.ax - ox, n.ay - oy, n.bx - ox, n.by - oy, 1.6f, ar, ag, ab, 0.90f * fade);
-        drawLineQuad(n.ax, n.ay, n.bx, n.by, 1.0f, ar, ag, ab, 0.50f * (1.0f - spread) * fade);
-    }
     for (const Ring& r : g.rings) {
         if (r.age < kDelay) {
             DrawLineRing(r.x, r.y, r.radius, 1.0f, ar, ag, ab, 0.15f + 0.45f * (r.age / kDelay));
             continue;
         }
-        const float spread = SpreadOf(r.age), fade = FadeOf(r.age);
+        const float spread = SpreadOf(r.age);
+        const float fade = r.age < kDelay + kSpread
+            ? 1.0f : std::max(0.0f, 1.0f - (r.age - kDelay - kSpread) / kFade);
         DrawLineRing(r.x, r.y, std::max(1.0f, r.radius * spread), 1.6f, ar, ag, ab, 0.90f * fade);
         DrawLineRing(r.x, r.y, r.radius, 0.8f, ar, ag, ab, 0.25f * fade);
     }

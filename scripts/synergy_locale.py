@@ -3,17 +3,17 @@
 # A card missing here shows its Korean text in every language.
 LOC = {
     # ── frames ──
-    "F_MINIGUN": ("Minigun", "ミニガン", "Fire interval 0.07s, bullet damage -60%, move speed -10%", "連射間隔0.07秒、弾のダメージ-60%、移動速度-10%"),
-    "F_LASER": ("Laser", "レーザー", "After a 0.4s charge, holds a laser beam while you fire · enemies in the beam take 30% of your attack every 0.1s (pierces everything it touches, unlimited range, bounces off walls with a bounce card) · one beam counts as one shot", "0.4秒のチャージ後、押している間レーザー光線を撃ち続ける · 光線に触れた敵は0.1秒ごとに攻撃力の30%のダメージ (触れた敵を全て貫通、射程無限、跳弾カードがあれば壁で反射) · 一度点けた光線を射撃1回と数える"),
+    "F_MINIGUN": ("Minigun", "ミニガン", "Fire interval 0.07s, bullet damage -50%, move speed -10%", "連射間隔0.07秒、弾のダメージ-50%、移動速度-10%"),
+    "F_LASER": ("Laser", "レーザー", "After a 0.4s charge, holds a laser beam while you fire · enemies in the beam take 38% of your attack every 0.1s (pierces everything it touches, unlimited range, bounces off walls with a bounce card) · one beam counts as one shot", "0.4秒のチャージ後、押している間レーザー光線を撃ち続ける · 光線に触れた敵は0.1秒ごとに攻撃力の38%のダメージ (触れた敵を全て貫通、射程無限、跳弾カードがあれば壁で反射) · 一度点けた光線を射撃1回と数える"),
     "F_SHOTGUN": ("Shotgun", "ショットガン", "Fires 7 pellets in a spread, range 7○", "一度に7発を散弾発射、射程7○"),
-    "F_SNIPER": ("Sniper Rifle", "スナイパーライフル", "Slow but heavy piercing shots (pass through 2 enemies)", "遅いが重い貫通弾を発射 (敵2体を貫通)"),
+    "F_SNIPER": ("Sniper Rifle", "スナイパーライフル", "Slow, heavy shots · a kill lets the shot fly on with its damage cut by that enemy's HP (gone below 10% of its first damage) · as many enemies as your pierce cards give are pierced without losing damage", "遅いが重い弾 · 敵を倒すと、その敵の体力分だけ減ったダメージで貫通し続ける (最初のダメージの10%未満で消える) · 貫通カードの貫通数までは、ダメージを減らさずに貫通"),
     "F_BURST": ("Burst Rifle", "バースト銃", "Fires 3 shots at once in a tight group, slow fire rate", "一度に3発をまとめて撃つ、連射は遅い"),
-    "F_CROSSBOW": ("Crossbow", "クロスボウ", "Slow reload; a thick bolt pierces 3 enemies", "装填は遅いが、太い矢が敵3体を貫く"),
+    "F_CROSSBOW": ("Crossbow", "クロスボウ", "Aims itself at the enemy nearest the cursor and fires thick bolts (pierce 3 enemies) · each bolt that hits sticks in the enemy: +15% crossbow damage per stuck bolt (max 5, 4s after the last hit)", "カーソルに最も近い敵を自動で狙い、太い矢を撃つ (敵3体を貫通) · 当たった矢は敵に刺さり、刺さった矢1本ごとにクロスボウのダメージ+15% (最大5本、最後の命中から4秒)"),
     "F_WAVE": ("Wave Cannon", "波動砲", "Fires a huge slow wave that pierces everything and erases enemy bullets", "巨大でゆっくりした波動を発射 — 全ての敵を貫き敵弾を消す"),
-    "F_MORTAR": ("Mortar", "迫撃砲", "Shells land on the aimed spot and explode in 1.5○ (90% attack), flying over walls. Mark, burn, split and gravity go off where it lands", "狙った地点に砲弾が落ちて1.5○の爆発 (攻撃力90%) — 壁を越える。刻印・火傷・分裂・重力は着弾点で発動"),
+    "F_MORTAR": ("Mortar", "迫撃砲", "Shells land on the aimed spot and explode in 1.5○ (200% attack), flying over walls. Mark, burn, split and gravity go off where it lands", "狙った地点に砲弾が落ちて1.5○の爆発 (攻撃力200%) — 壁を越える。刻印・火傷・分裂・重力は着弾点で発動"),
     # ── verbs ──
     "V_BOUNCE": ("Wall Ricochet", "壁跳弾", "Shots bounce off the arena edge twice", "弾がマップの端で2回跳ね返る"),
-    "V_RICOCHET": ("Target Ricochet", "標的反射弾", "After hitting an enemy, the shot bounces once toward another", "敵に当たると別の敵へ1回跳ね返る"),
+    "V_RICOCHET": ("Target Ricochet", "標的反射弾", "Instead of ending on a hit, the shot turns once toward the nearest other enemy within 8○ and flies on (the enemy just hit is skipped; pierce is used first, then the turn; the turn counts as 1 bounce)", "命中で終わる代わりに、8○以内で最も近い別の敵へ1回曲がって飛び続ける (命中した敵は除外、貫通が残っていれば貫通を先に使い、その後に曲がる、曲がると跳ね返り1回として数える)"),
     "V_PIERCE": ("Layered Piercing Rounds", "重ね貫通弾", "Shots pass through 2 enemies", "弾が敵2体を貫通"),
     "V_SPLIT": ("Forking Rounds", "枝分かれ分裂弾", "Splits into 3 on the first hit (28% damage each)", "最初の命中で3方向に分裂 (ダメージ28%)"),
     "V_HOMING": ("Tracking Rounds", "追跡誘導弾", "Shots curve gently toward the nearest enemy", "近くの敵へ緩やかに曲がる"),

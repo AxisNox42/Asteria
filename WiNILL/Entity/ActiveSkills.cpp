@@ -1351,6 +1351,12 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
     const Rgb deep = { c.r * 0.6f, c.g * 0.5f, c.b * 0.85f };
     const float t = o.t;
     auto win = [&](float a, float b) { return Smooth01((t - a) / (b - a)); };
+    // Radial gradient on every line: full strength at the centre, fading to
+    // ~30% at the field's edge (8 rings), so the hole reads dense in the middle.
+    auto fall = [&](float r) {
+        const float k = 1.0f - std::clamp(r / kFieldR, 0.0f, 1.0f);
+        return 0.30f + 0.70f * k;
+    };
 
     // ── seed: thrown from the ship ──
     if (t < kHoleSeed + 0.05f) {
@@ -1409,24 +1415,25 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
 
     // ── weak field ──
     if (fieldIn > 0.0f) {
-        strike_fx::WarpRing(o.x, o.y, kFieldR * shrink, wob * 0.5f, ph * 0.5f, 1.0f, c, 0.14f * fieldIn * a);
+        strike_fx::WarpRing(o.x, o.y, kFieldR * shrink, wob * 0.5f, ph * 0.5f, 1.0f, c, 0.14f * fieldIn * a * fall(kFieldR));
         for (int i = 0; i < 3; ++i) {
             const float p = std::fmod(ht * 0.35f + (float)i / 3.0f, 1.0f);
             const float r = kFieldR - (kFieldR - kPullR) * p;
-            lf::Circle(o.x, o.y, r * shrink, 1.0f, c, 0.16f * std::sin(lf::kPi * p) * fieldIn * a);
+            lf::Circle(o.x, o.y, r * shrink, 1.0f, c, 0.16f * std::sin(lf::kPi * p) * fieldIn * a * fall(r));
         }
     }
     // ── pull reach ──
     if (armsIn > 0.0f) {
-        strike_fx::WarpRing(o.x, o.y, kPullR * armsIn * shrink, wob * 0.6f, ph * 0.7f, 1.4f, c, 0.34f * armsIn * a);
+        strike_fx::WarpRing(o.x, o.y, kPullR * armsIn * shrink, wob * 0.6f, ph * 0.7f, 1.4f, c, 0.34f * armsIn * a * fall(kPullR));
         for (int i = 0; i < 2; ++i) {
             const float p = std::fmod(ht * 0.8f + 0.5f * (float)i, 1.0f);
-            lf::Circle(o.x, o.y, (kPullR * (1.0f - p) + 40.0f * p) * shrink, 1.0f, c, 0.28f * p * fieldIn * a);
+            const float rr = kPullR * (1.0f - p) + 40.0f * p;
+            lf::Circle(o.x, o.y, rr * shrink, 1.0f, c, 0.28f * p * fieldIn * a * fall(rr));
         }
         // Long arms growing out from the disc to the reach.
         for (int arm = 0; arm < 4; ++arm) {
             constexpr int kN = 28;
-            float px[kN], py[kN];
+            float px[kN], py[kN], pr[kN];
             const float outer = 40.0f + (kPullR * 0.92f - 40.0f) * armsIn;
             for (int j = 0; j < kN; ++j) {
                 const float u = (float)j / (kN - 1);
@@ -1434,8 +1441,13 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
                 const float ang = lf::kTwoPi * (float)arm / 4.0f + u * (4.2f + 1.5f * unstable + 5.0f * suck) - spin;
                 const float w = 1.0f + 0.35f * wob * std::sin(2.0f * ang + ph);   // a slow bend, not a scribble
                 px[j] = o.x + std::cos(ang) * r * w; py[j] = o.y + std::sin(ang) * r * w;
+                pr[j] = r;
             }
-            miter::Path(px, py, kN, arm % 2 ? 1.2f : 1.8f, c.r, c.g, c.b, (arm % 2 ? 0.45f : 0.75f) * armsIn * a);
+            // Drawn a segment at a time so each fades with its distance.
+            const float armA = (arm % 2 ? 0.45f : 0.75f) * armsIn * a;
+            for (int j = 0; j + 1 < kN; ++j)
+                lf::Line(px[j], py[j], px[j + 1], py[j + 1], arm % 2 ? 1.2f : 1.8f, c,
+                         armA * fall(0.5f * (pr[j] + pr[j + 1])));
         }
     }
     // ── accretion disc ──
@@ -1456,7 +1468,7 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
             }
             const Rgb ec = e == 0 ? hi : c;
             miter::Loop(px, py, kN, e == 0 ? 2.2f : 1.3f, ec.r, ec.g, ec.b,
-                        (e == 0 ? 0.9f : 0.55f - 0.12f * (float)e) * discIn * a);
+                        (e == 0 ? 0.9f : 0.55f - 0.12f * (float)e) * discIn * a * fall(rx));
         }
         uint32_t seed = lf::SeedAt(o.x, o.y);
         for (int i = 0; i < 10; ++i) {
@@ -1464,7 +1476,7 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
             const float p = std::fmod(ht * sp + lf::Rnd(seed), 1.0f);
             const float r = (150.0f - 95.0f * p) * discR;
             const float a0 = lf::Rnd(seed) * lf::kTwoPi - spin * (1.4f + p);
-            lf::ArcLine(o.x, o.y, r, a0, 0.35f + 0.5f * p, 1.2f, hi, 0.6f * std::sin(lf::kPi * p) * discIn * a);
+            lf::ArcLine(o.x, o.y, r, a0, 0.35f + 0.5f * p, 1.2f, hi, 0.6f * std::sin(lf::kPi * p) * discIn * a * fall(r));
         }
         const int beads = std::min(12, o.count);
         const float cr = std::cos(-0.35f), sr = std::sin(-0.35f);
@@ -1495,7 +1507,7 @@ static void DrawBlackHole(const Obj& o, float /*born*/, float time) {
             const float u = std::clamp(suckLin * 1.5f - 0.25f * (float)i, 0.0f, 1.0f);
             if (u <= 0.0f || u >= 1.0f) continue;
             const float r = kFieldR * (1.0f - u * u * u);
-            strike_fx::WarpRing(o.x, o.y, r, 0.04f, ph, i == 0 ? 2.4f : 1.4f, i == 0 ? hi : c, 0.75f * u);
+            strike_fx::WarpRing(o.x, o.y, r, 0.04f, ph, i == 0 ? 2.4f : 1.4f, i == 0 ? hi : c, 0.75f * u * fall(r));
         }
     }
 

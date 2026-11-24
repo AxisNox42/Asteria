@@ -8,7 +8,7 @@
 #include "TriangulumMob.h"
 #include "HorologiumMob.h"
 #include "EliteDifficulty.h"   // per-difficulty elite patterns
-#include "AntaresWake.h"      // nightmare Antares wake
+#include "AntaresWake.h"      // nightmare Antares friction and clash rings
 #include "TrainingDummy.h"
 #include "PassiveHooks.h"   // EnemyRemoved: a thrown Swarm that hits the player is not a kill
 #include <algorithm>
@@ -470,22 +470,9 @@ public:
     // (generation 1), which split once more into the smallest (generation 2,
     // ANTARES_MAX_GEN); any two Antares that touch bounce off each other and
     // speed up.
-    // GATHER / AIM / DASH: phase patterns of the gated elite body (2026-11-17
-    // plan stage 8). Phase 2: gather (rings close in), six radial lines, dash
-    // down the one aimed at the player. Phase 3 adds a lance: the whole
-    // bouncing path is shown first, then a fast straight dash along it.
-    enum class AntaresState { CHASE, SKID, STUNNED, REST, GATHER, AIM, DASH };
-    static constexpr float ANTARES_GATHER_TIME = 1.0f;     // rings closing in
-    static constexpr float ANTARES_RADIAL_TIME = 0.5f;     // then the six lines
-    static constexpr int   ANTARES_RADIAL_COUNT = 6;
-    static constexpr float ANTARES_RADIAL_DRAW = 260.0f;   // length of the five decoy lines
-    static constexpr float ANTARES_BURST_SPEED = 1000.0f;
-    static constexpr float ANTARES_BURST_LENGTH = 900.0f;  // or to the edge
-    static constexpr float ANTARES_LANCE_AIM = 0.5f;       // path shown this long
-    static constexpr float ANTARES_LANCE_SPEED = 1100.0f;
-    static constexpr float ANTARES_LANCE_LENGTH = 1900.0f;
-    static constexpr int   ANTARES_LANCE_BOUNCES = 2;
-    static constexpr int   ANTARES_PATH_MAX = ANTARES_LANCE_BOUNCES + 2;
+    // The stop-then-dash phase patterns (gather burst, lance) were removed
+    // 2026-11-23 at the user's request: Antares only runs.
+    enum class AntaresState { CHASE, SKID, STUNNED, REST };
     static constexpr float ANTARES_ELITE_HP_MULT = 1.5f;
     static constexpr int ANTARES_SPLIT_COUNT = 2;
     static constexpr int ANTARES_MAX_GEN = 2;
@@ -631,6 +618,10 @@ public:
     float regulusDriftAngle = 0.0f;
     float regulusDriftTimer = 0.0f;
     float regulusShotTimer = 0.5f;    // time until the next buff volley
+    // Nightmare royal wave (RegulusWave.h): the phase last seen (0: not yet)
+    // and the time until the next fan wave.
+    int regulusWavePhase = 0;
+    float regulusWaveTimer = 2.0f;
     bool regulusHasTarget = true;     // last look found someone to buff (draw only)
     // Permanent buffs a Regulus laser put on this mob (shield is regulusShield).
     // Seconds since the buff landed (drives the fade-in); < 0 = not buffed.
@@ -844,16 +835,12 @@ public:
     bool antaresSplit = false;        // children already released
     int antaresBounces = 0;           // edge reflections so far
     float antaresBounceCd = 0.0f;     // after bouncing off another Antares
-    glm::vec4 antaresBounds{0.0f};    // map rect inset by the body radius
-    int antaresRuns = 0;              // runs started (picks the phase pattern)
-    std::array<glm::vec2, ANTARES_PATH_MAX> antaresPath{};   // GATHER/AIM/DASH path
-    int antaresPathCount = 0;
-    float antaresDashLeft = 0.0f;     // px still to travel in a DASH
-    float antaresDashSpeed = 0.0f;
-    // Nightmare wake (AntaresWake.h): the run it belongs to (0 = not laying
-    // one) and where the piece being laid starts.
-    int antaresWakeRun = 0;
-    float antaresWakeX = 0.0f, antaresWakeY = 0.0f;
+    // Nightmare friction (AntaresWake.h): how far the spray is open (0-1),
+    // whether this fast stretch already hurt the player, spark carry-over.
+    float antaresFriction = 0.0f;
+    bool antaresFrictionHit = false;
+    float antaresSideSparks = 0.0f, antaresBackSparks = 0.0f;
+    float antaresScatterCd = 0.0f;   // until it may throw another scatter fan
     // Per face: shots it can still stop, seconds since it broke (< 0 while
     // intact) and seconds since it last restored (drives the snap-back look).
     std::array<int, MAGNETAR_FACES> magnetarFaceHits{};
@@ -1146,6 +1133,8 @@ public:
             regulusDriftAngle = (float)(rand() % 628) * 0.01f;
             regulusDriftTimer = 0.8f + (float)(rand() % 120) * 0.01f;
             regulusShotTimer = 0.5f;
+            regulusWavePhase = 0;
+            regulusWaveTimer = 2.0f;   // regulus_wave::kFirstDelay
         } else if (kind == MobKind::ANTARES) {
             color = glm::vec3(0.91f, 0.275f, 0.227f);
             antaresHpMult = hp / 90.0f;   // progression x trial ramp at spawn
@@ -1203,82 +1192,98 @@ public:
         return 1;
     }
 
-    // 1 until the first gate, then 2 and 3 (the gated elite body only).
-    int AntaresPhase() const { return UsesEliteGates() ? gatesPassed + 1 : 1; }
     // Per-difficulty numbers (EliteDifficulty.h); HARD keeps the constants.
     static float AntaresTopSpeed() { return elite_diff::AntaresTopSpeed((int)g_Difficulty); }
     static int AntaresMaxGen() { return elite_diff::AntaresMaxGen((int)g_Difficulty); }
-    static float AntaresGatherTime() {
-        return ANTARES_GATHER_TIME * elite_diff::AntaresTellScale((int)g_Difficulty);
-    }
-    static float AntaresRadialTime() {
-        return ANTARES_RADIAL_TIME * elite_diff::AntaresTellScale((int)g_Difficulty);
-    }
     static float AntaresRestTime() { return elite_diff::AntaresRestTime((int)g_Difficulty); }
-    // Nightmare wake: the elite body only, never its fragments.
+    // Nightmare friction: the elite body only, never its fragments.
     bool AntaresWakeUsed() const {
         return UsesEliteGates() && elite_diff::AntaresWake((int)g_Difficulty);
     }
-    // Lays the wake while the body is fast (called after it moved).
-    void LayAntaresWake() {
+    float AntaresBodyRadius() const { return 26.0f * sizeScale; }
+    // Half width of the friction spray at its back edge (also the dash tell's band).
+    float AntaresFrictionWidth() const { return antares_wake::Width(AntaresBodyRadius()); }
+    bool AntaresFast() const {
         using S = AntaresState;
-        const bool fast = antaresState == S::DASH ||
-            ((antaresState == S::CHASE || antaresState == S::SKID) &&
-             antaresMoveSpeed >= antares_wake::kMinSpeed);
-        if (!fast || !AntaresWakeUsed()) {
-            if (antaresWakeRun != 0) {
-                const float lx = worldX - antaresWakeX, ly = worldY - antaresWakeY;
-                if (lx * lx + ly * ly > 64.0f)
-                    antares_wake::AddNode(antaresWakeX, antaresWakeY, worldX, worldY, antaresWakeRun);
-                antaresWakeRun = 0;
-            }
-            return;
-        }
-        if (antaresWakeRun == 0) {
-            antaresWakeRun = antares_wake::NewRun();
-            antaresWakeX = worldX; antaresWakeY = worldY;
-            return;
-        }
-        const float lx = worldX - antaresWakeX, ly = worldY - antaresWakeY;
-        if (lx * lx + ly * ly >= antares_wake::kNodeSpacing * antares_wake::kNodeSpacing) {
-            antares_wake::AddNode(antaresWakeX, antaresWakeY, worldX, worldY, antaresWakeRun);
-            antaresWakeX = worldX; antaresWakeY = worldY;
-        }
+        return (antaresState == S::CHASE || antaresState == S::SKID) &&
+               antaresMoveSpeed >= antares_wake::kMinSpeed;
     }
-    // The straight path of a dash from here along (dirX, dirY): up to
-    // maxBounces reflections off the map edges (the same edges ConfineAntares
-    // bounces it off), at most `length` px. Fills antaresPath and the length.
-    void BuildAntaresPath(float dirX, float dirY, float length, int maxBounces) {
-        glm::vec2 p(worldX, worldY), d(dirX, dirY);
-        const float dl = glm::length(d);
-        d = dl > 0.001f ? d / dl : glm::vec2(1.0f, 0.0f);
-        antaresPath[0] = p;
-        antaresPathCount = 1;
-        float left = length, used = 0.0f;
-        const glm::vec4 b = antaresBounds;
-        const bool bounded = b.z > b.x && b.w > b.y;
-        for (int k = 0; k <= maxBounces && left > 0.0f; ++k) {
-            float tx = 1e9f, ty = 1e9f;
-            if (bounded) {
-                if (d.x > 0.0001f) tx = (b.z - p.x) / d.x; else if (d.x < -0.0001f) tx = (b.x - p.x) / d.x;
-                if (d.y > 0.0001f) ty = (b.w - p.y) / d.y; else if (d.y < -0.0001f) ty = (b.y - p.y) / d.y;
-                tx = std::max(0.0f, tx); ty = std::max(0.0f, ty);
-            }
-            const float t = std::min(tx, ty);
-            if (t >= left || k == maxBounces) {
-                const float go = std::min(t, left);
-                p += d * go; used += go; left = 0.0f;
-                antaresPath[antaresPathCount++] = p;
-                break;
-            }
-            p += d * t; used += t; left -= t;
-            antaresPath[antaresPathCount++] = p;
-            if (tx <= ty) d.x = -d.x;
-            if (ty <= tx) d.y = -d.y;
+    // Opens / closes the spray, hurts a player inside it once per fast
+    // stretch and throws the sparks (called after it moved). (dx, dy): to
+    // the player.
+    void UpdateAntaresFriction(float dt, float dx, float dy, float distance, float& playerHP) {
+        namespace aw = antares_wake;
+        const bool fast = AntaresWakeUsed() && AntaresFast();
+        if (fast && antaresFriction <= 0.0f) {
+            antaresFrictionHit = false;
+            gamelog::FightOverlay("FRICTION");
         }
-        antaresDashLeft = used;
+        antaresFriction = fast ? std::min(1.0f, antaresFriction + dt / aw::kRise)
+                               : std::max(0.0f, antaresFriction - dt / aw::kFall);
+        if (antaresFriction <= 0.0f) return;
+        const float hx = antaresHeadingX, hy = antaresHeadingY;
+        // A touch is a ram (its own damage); the spray hurts around it.
+        if (!antaresFrictionHit && singularityGrace <= 0.0f && distance >= AntaresRamRange()) {
+            const float along = dx * hx + dy * hy, side = dx * -hy + dy * hx;
+            if (aw::InFriction(along, side, antaresFriction, 10.0f * g_PlayerSizeMult,
+                               AntaresBodyRadius())) {
+                antaresFrictionHit = true;
+                HurtPlayer(playerHP, aw::kDamage, "ANTARES_FRICTION");
+            }
+        }
+        SpawnAntaresSparks(dt);
     }
-
+    // Nightmare: hitting a wall or another Antares this fast throws a scatter
+    // fan from (x, y) along its heading after the bounce (AntaresWake.h).
+    bool TryAntaresScatter(float x, float y) {
+        if (!elite_diff::AntaresWake((int)g_Difficulty) || antaresScatterCd > 0.0f ||
+            antaresMoveSpeed < antares_wake::kMinSpeed) return false;
+        antaresScatterCd = antares_wake::kScatterCooldown;
+        antares_wake::QueueScatter(x, y, antaresHeadingX, antaresHeadingY);
+        gamelog::FightOverlay("SCATTER");
+        return true;
+    }
+    // Friction sparks (g_Sparks, slowed by drag so they fall behind): white
+    // to amber ones from the nose out to both sides, redder ones off the back.
+    void SpawnAntaresSparks(float dt) {
+        namespace aw = antares_wake;
+        const float hx = antaresHeadingX, hy = antaresHeadingY, px = -hy, py = hx;
+        const float vx = hx * antaresMoveSpeed, vy = hy * antaresMoveSpeed;
+        const float tip = aw::TipAhead(AntaresBodyRadius()), width = AntaresFrictionWidth();
+        auto rnd = [] { return (float)(rand() % 1001) / 1000.0f; };
+        auto room = [] { return (int)g_Sparks.size() < JuiceSparkCap(); };
+        antaresSideSparks += aw::kSideRate * antaresFriction * dt;
+        while (antaresSideSparks >= 1.0f && room()) {
+            antaresSideSparks -= 1.0f;
+            const float side = rnd() < 0.5f ? -1.0f : 1.0f;
+            // Drag 6/s: a spark thrown at v drifts about v/6 px, so 6 x width reaches the edge.
+            const float out = (0.3f + 0.7f * rnd()) * 6.0f * width * antaresFriction;
+            Spark sp;
+            sp.x = worldX + hx * tip; sp.y = worldY + hy * tip;
+            sp.vx = vx * 0.55f + px * side * out - hx * 120.0f * rnd();
+            sp.vy = vy * 0.55f + py * side * out - hy * 120.0f * rnd();
+            sp.maxLife = sp.life = 0.22f + 0.14f * rnd();
+            sp.size = 2.0f + 2.0f * rnd();
+            sp.r = 1.0f; sp.g = 0.78f + 0.22f * rnd(); sp.b = 0.45f + 0.45f * rnd();
+            g_Sparks.push_back(sp);
+        }
+        if (!room()) antaresSideSparks = 0.0f;
+        antaresBackSparks += aw::kBackRate * antaresFriction * dt;
+        while (antaresBackSparks >= 1.0f && room()) {
+            antaresBackSparks -= 1.0f;
+            const float jitter = (rnd() - 0.5f) * 140.0f;
+            const float back = 160.0f + 260.0f * rnd();
+            Spark sp;
+            sp.x = worldX - hx * 18.0f * sizeScale; sp.y = worldY - hy * 18.0f * sizeScale;
+            sp.vx = vx * 0.25f - hx * back + px * jitter;
+            sp.vy = vy * 0.25f - hy * back + py * jitter;
+            sp.maxLife = sp.life = 0.32f + 0.18f * rnd();
+            sp.size = 1.8f + 1.6f * rnd();
+            sp.r = 1.0f; sp.g = 0.42f + 0.25f * rnd(); sp.b = 0.18f + 0.12f * rnd();
+            g_Sparks.push_back(sp);
+        }
+        if (!room()) antaresBackSparks = 0.0f;
+    }
     // Frame edge plus the player's body, so a ram lands on touch, not overlap.
     float AntaresRamRange() const { return 26.0f * sizeScale + 18.0f; }
 
@@ -1293,7 +1298,6 @@ public:
         const float minX = left + radius, maxX = right - radius;
         const float minY = top + radius, maxY = bottom - radius;
         if (minX >= maxX || minY >= maxY) return;
-        antaresBounds = glm::vec4(minX, minY, maxX, maxY);
         const bool inside = worldX >= minX && worldX <= maxX &&
                             worldY >= minY && worldY <= maxY;
         if (!antaresInArena) {
@@ -1306,17 +1310,12 @@ public:
         worldX = std::clamp(worldX, minX, maxX);
         worldY = std::clamp(worldY, minY, maxY);
         if ((antaresState == AntaresState::CHASE ||
-             antaresState == AntaresState::SKID ||
-             antaresState == AntaresState::DASH) && AntaresStage() >= 2) {
+             antaresState == AntaresState::SKID) && AntaresStage() >= 2) {
             if (outX) antaresHeadingX = -std::fabs(antaresHeadingX) * (worldX >= maxX ? 1.0f : -1.0f);
             if (outY) antaresHeadingY = -std::fabs(antaresHeadingY) * (worldY >= maxY ? 1.0f : -1.0f);
             ++antaresBounces;
             Audio::Play(Audio::Cue::EliteAntaresImpact);
-            if (antaresWakeRun != 0) {
-                antares_wake::AddNode(antaresWakeX, antaresWakeY, worldX, worldY, antaresWakeRun);
-                antares_wake::AddRing(worldX, worldY, antares_wake::kWidth, antaresWakeRun);
-                antaresWakeX = worldX; antaresWakeY = worldY;
-            }
+            TryAntaresScatter(worldX, worldY);
         }
     }
 
@@ -3443,51 +3442,6 @@ public:
                     antaresSkidDecel = (antaresMoveSpeed - ANTARES_MIN_SPEED) / SKID_TIME;
                 }
             }
-        } else if (antaresState == AntaresState::GATHER) {
-            // Rings close in, then the six lines: the bright one is aimed at
-            // the player when the lines appear and does not follow after.
-            antaresMoveSpeed = 0.0f;
-            if (antaresPathCount == 0 && antaresStateTimer >= AntaresGatherTime()) {
-                antaresHeadingX = toX;
-                antaresHeadingY = toY;
-                BuildAntaresPath(toX, toY, ANTARES_BURST_LENGTH, 0);
-            }
-            if (antaresStateTimer >= AntaresGatherTime() + AntaresRadialTime()) {
-                antaresState = AntaresState::DASH;
-                antaresStateTimer = 0.0f;
-                antaresDashSpeed = ANTARES_BURST_SPEED;
-                Audio::Play(Audio::Cue::EliteAntaresCharge);
-            }
-        } else if (antaresState == AntaresState::AIM) {
-            antaresMoveSpeed = 0.0f;
-            if (antaresStateTimer >= ANTARES_LANCE_AIM) {
-                antaresState = AntaresState::DASH;
-                antaresStateTimer = 0.0f;
-                antaresDashSpeed = ANTARES_LANCE_SPEED;
-                Audio::Play(Audio::Cue::EliteAntaresCharge);
-            }
-        } else if (antaresState == AntaresState::DASH) {
-            // Straight along the shown path; the edges bounce it exactly as
-            // drawn (ConfineAntares). A touch is a ram, as in a run.
-            antaresMoveSpeed = antaresDashSpeed;
-            antaresDashLeft -= antaresMoveSpeed * speedMult * deltaTime;
-            if (singularityGrace <= 0.0f && distance < AntaresRamRange()) {
-                HurtPlayer(playerHP, IMPACT_DAMAGE * antaresMoveSpeed / ANTARES_MAX_SPEED,
-                           "ANTARES_DASH");
-                const float knock = KNOCK_PER_SPEED * ANTARES_MAX_SPEED;
-                antaresKnockX += toX * knock;
-                antaresKnockY += toY * knock;
-                Audio::Play(Audio::Cue::EliteAntaresImpact);
-                antaresState = AntaresState::STUNNED;
-                antaresStateTimer = 0.0f;
-                antaresMoveSpeed = 0.0f;
-                antaresPathCount = 0;
-            } else if (antaresDashLeft <= 0.0f) {
-                antaresState = AntaresState::SKID;
-                antaresStateTimer = 0.0f;
-                antaresSkidDecel = (antaresMoveSpeed - ANTARES_MIN_SPEED) / SKID_TIME;
-                antaresPathCount = 0;
-            }
         } else if (antaresState == AntaresState::SKID) {
             antaresMoveSpeed = std::max(ANTARES_MIN_SPEED,
                                         antaresMoveSpeed - antaresSkidDecel * deltaTime);
@@ -3503,38 +3457,17 @@ public:
                 ? ANTARES_STUN_TIME : AntaresRestTime();
             antaresMoveSpeed = 0.0f;
             if (antaresStateTimer >= hold) {
-                // Phase 2: every other run is a gather-and-burst. Phase 3:
-                // run, gather-and-burst, lance, in turn. Below HARD there is
-                // no lance (EliteDifficulty.h): phase 3 keeps the phase-2 turn.
-                ++antaresRuns;
-                const int phase = AntaresPhase();
-                const bool lance = phase >= 3 && elite_diff::AntaresLance((int)g_Difficulty);
-                int pick = 0;
-                if (lance) pick = antaresRuns % 3;
-                else if (phase >= 2) pick = antaresRuns % 2;
                 antaresStateTimer = 0.0f;
                 antaresHeadingX = toX;
                 antaresHeadingY = toY;
-                antaresPathCount = 0;
-                if (pick == 1) {
-                    antaresState = AntaresState::GATHER;
-                    antaresMoveSpeed = 0.0f;
-                    gamelog::FightPattern("GATHER_BURST");
-                } else if (pick == 2) {
-                    antaresState = AntaresState::AIM;
-                    antaresMoveSpeed = 0.0f;
-                    BuildAntaresPath(toX, toY, ANTARES_LANCE_LENGTH, ANTARES_LANCE_BOUNCES);
-                    gamelog::FightPattern("LANCE");
-                } else {
-                    Audio::Play(Audio::Cue::EliteAntaresCharge);   // 새 돌진 시작
-                    antaresState = AntaresState::CHASE;
-                    antaresMoveSpeed = ANTARES_MIN_SPEED;
-                    if (phase >= 2) gamelog::FightPattern("RUN");
-                }
+                Audio::Play(Audio::Cue::EliteAntaresCharge);   // 새 돌진 시작
+                antaresState = AntaresState::CHASE;
+                antaresMoveSpeed = ANTARES_MIN_SPEED;
             }
         }
         antaresPrevFacing = antaresHeadingX * toX + antaresHeadingY * toY;
         antaresBounceCd = std::max(0.0f, antaresBounceCd - deltaTime);
+        antaresScatterCd = std::max(0.0f, antaresScatterCd - deltaTime);
 
         // Spin tracks speed, so the frame visibly winds up and down with it.
         antaresSpinSpeed = SPIN_SLOW + (SPIN_FAST - SPIN_SLOW) * AntaresSpeedRatio();
@@ -3543,7 +3476,10 @@ public:
         const float step = antaresMoveSpeed * speedMult * deltaTime;
         worldX += antaresHeadingX * step;
         worldY += antaresHeadingY * step;
-        LayAntaresWake();
+        {   // From where it now is to the player.
+            const float pdx = dx - antaresHeadingX * step, pdy = dy - antaresHeadingY * step;
+            UpdateAntaresFriction(deltaTime, pdx, pdy, std::sqrt(pdx * pdx + pdy * pdy), playerHP);
+        }
 
         antaresTrailTimer += deltaTime;
         // Fixed-interval samples space the ghosts by distance travelled, so a

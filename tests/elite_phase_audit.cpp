@@ -29,8 +29,7 @@ static bool Threat(const MonsterManager& mm, const Monster* e) {
     case MobKind::ANTARES: {
         using S = Monster::AntaresState;
         const S s = e->antaresState;
-        return s == S::GATHER || s == S::AIM || s == S::DASH ||
-               (s == S::CHASE && e->antaresMoveSpeed >= 200.0f);
+        return s == S::CHASE && e->antaresMoveSpeed >= 200.0f;
     }
     case MobKind::GENESIS: {
         if (e->hivePhase != 0) return true;
@@ -41,7 +40,7 @@ static bool Threat(const MonsterManager& mm, const Monster* e) {
         return false;
     }
     case MobKind::REGULUS:
-        return !mm.regulusPending.empty() || e->regulusExposed > 0.0f;
+        return !mm.regulusPending.empty() || !mm.regulusWaves.empty() || e->regulusExposed > 0.0f;
     default: return false;
     }
 }
@@ -140,7 +139,7 @@ int main() {
     const MobKind kinds[] = { MobKind::QUASAR, MobKind::ANTARES, MobKind::GENESIS, MobKind::REGULUS };
     const char* needs[4][3] = {
         { "BEAM", "BEAM", "BEAM_STARFALL" },
-        { nullptr, "GATHER_BURST", "LANCE" },
+        { nullptr, nullptr, nullptr },   // Antares only runs (stop-then-dash patterns removed)
         { "ROTOR", "ROTOR_LANE", "ROTOR_LANE" },
         { nullptr, "LASER_LINES", "EXPOSED" },
     };
@@ -158,7 +157,7 @@ int main() {
                     CHECK(r.patterns.find(needs[i][phase - 1]) != std::string::npos,
                           "%s p%d: %s never ran", MobKindName(kinds[i]), phase, needs[i][phase - 1]);
             }
-    // NIGHTMARE Antares: the same fight plus the wake.
+    // NIGHTMARE Antares: the same fight plus the friction spray.
     g_Difficulty = Difficulty::NIGHTMARE;
     for (int phase = 1; phase <= 3; ++phase)
         for (int dodge = 1; dodge >= 0; --dodge) {
@@ -166,10 +165,17 @@ int main() {
             std::printf("ANTARES! %d   %-6s  %5.0f%%  %6.1f  %5.0f  %s | %s\n", phase,
                         dodge ? "dodge" : "stand", r.threat * 100.0f, r.gap, r.taken,
                         r.patterns.c_str(), r.takenBy.c_str());
-            // A player who stands still is rammed before a run gets fast, and the
-            // audit's slow circle is caught in phase 1; the dashes always lay it.
-            if (dodge == 1 && phase >= 2)
-                CHECK(r.patterns.find("WAKE") != std::string::npos, "ANTARES nightmare p%d: WAKE never ran", phase);
+            // Printed only: the audit's slow circle is caught before a run gets
+            // fast (the spray itself is in tests/antares_difficulty_test.cpp).
+        }
+    // NIGHTMARE Regulus: the royal wave from phase 2.
+    for (int phase = 2; phase <= 3; ++phase)
+        for (int dodge = 1; dodge >= 0; --dodge) {
+            const Result r = Run(MobKind::REGULUS, phase, dodge == 1);
+            std::printf("REGULUS! %d   %-6s  %5.0f%%  %6.1f  %5.0f  %s | %s\n", phase,
+                        dodge ? "dodge" : "stand", r.threat * 100.0f, r.gap, r.taken,
+                        r.patterns.c_str(), r.takenBy.c_str());
+            CHECK(r.patterns.find("WAVE") != std::string::npos, "REGULUS nightmare p%d: WAVE never ran", phase);
         }
     g_Difficulty = Difficulty::HARD;
     if (g_fail) { std::printf("elite phase audit: %d problem(s)\n", g_fail); return 1; }

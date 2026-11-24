@@ -120,27 +120,31 @@ inline constexpr float kRefDps       = kBaseDamage * (1.0f / kBaseInterval) * kB
 inline const std::vector<Aug>& Table() {
     static const std::vector<Aug> t = {
     // ── 프레임 ──
+    // Balance 2026-11-24 (Docs/Plans/2026-11-24_무기_밸런스_기획.docx): every frame about 1.25x the bare
+    // gun overall (laser 1.15: it has its own upgrade cards); only per-shot damage was moved.
     {"F_BASIC",   "기본 사격",  "지금의 기본 총", Rar::Common, Role::Frame, T_NONE, 0, false, Fx{}},
-    {"F_MINIGUN", "미니건",     "연사 간격 0.07초, 탄 피해 -60%, 이동 -10%", Rar::Rare, Role::Frame,
-        T_RAPID, 0, false, Fx{}.rate_(2.857f).dmg_(0.40f).acc_(0.92f).move_(0.9f)},
-    {"F_LASER",   "레이저",     "0.4초 차징 뒤 누르는 동안 레이저 광선을 계속 쏨 · 광선에 닿은 적은 0.1초마다 공격력의 30% 피해 (모두 관통, 사거리 무한, 튕김 카드가 있으면 벽에서 반사) · 한 번 켠 광선이 사격 1회로 셈", Rar::Rare, Role::Frame,
-        T_BEAM | T_PIERCE, 0, false, Fx{}.rate_(2.0f).dmg_(0.30f).acc_(1.27f).pierce_(9)},
+    {"F_MINIGUN", "미니건",     "연사 간격 0.07초, 탄 피해 -50%, 이동 -10%", Rar::Rare, Role::Frame,
+        T_RAPID, 0, false, Fx{}.rate_(2.857f).dmg_(0.50f).acc_(0.92f).move_(0.9f)},
+    {"F_LASER",   "레이저",     "0.4초 차징 뒤 누르는 동안 레이저 광선을 계속 쏨 · 광선에 닿은 적은 0.1초마다 공격력의 38% 피해 (모두 관통, 사거리 무한, 튕김 카드가 있으면 벽에서 반사) · 한 번 켠 광선이 사격 1회로 셈", Rar::Rare, Role::Frame,
+        T_BEAM | T_PIERCE, 0, false, Fx{}.rate_(2.0f).dmg_(0.38f).acc_(1.27f).pierce_(9)},
     {"F_SHOTGUN", "샷건",       "한 번에 7발 산개, 사거리 7○", Rar::Rare, Role::Frame,
-        T_SPREAD, 0, false, Fx{}.rate_(0.36f).dmg_(0.52f).acc_(0.66f).bullets_(7.0f)},
-    {"F_SNIPER",  "저격총",     "느리지만 묵직한 관통탄을 쏨 (적 2명 관통)", Rar::Epic, Role::Frame,
-        T_CHARGE | T_PIERCE, 0, false, Fx{}.rate_(0.22f).dmg_(2.6f).acc_(1.27f).pierce_(2)},
+        T_SPREAD, 0, false, Fx{}.rate_(0.36f).dmg_(0.45f).acc_(0.66f).bullets_(7.0f)},
+    // 저격총: its pierce is the power left after a kill (Bullet.h SniperFliesOn), not a count.
+    {"F_SNIPER",  "저격총",     "느리지만 묵직한 탄 · 적을 처치하면 그 적의 체력만큼 줄어든 피해로 계속 뚫음 (처음 피해의 10% 미만이면 사라짐) · 관통 카드의 관통 수만큼은 피해가 줄지 않고 뚫음", Rar::Epic, Role::Frame,
+        T_CHARGE | T_PIERCE, 0, false, Fx{}.rate_(0.22f).dmg_(5.0f).acc_(1.27f)},
     {"F_BURST",   "점사총",     "한 번에 3발을 좁게 묶어 쏨, 연사는 느림", Rar::Rare, Role::Frame,
         T_BURST, 0, false, Fx{}.rate_(0.55f).bullets_(3.0f).dmg_(0.68f).acc_(0.9f)},
-    {"F_CROSSBOW","석궁",       "느리게 장전, 굵은 화살이 적 3명을 꿰뚫음", Rar::Epic, Role::Frame,
+    // 석궁: aims for itself and stacks arrows on what it hits (CrossbowBolts.h).
+    {"F_CROSSBOW","석궁",       "커서에서 가장 가까운 적을 스스로 노려 굵은 화살을 쏨 (적 3명 관통) · 맞힌 적에게 화살이 박혀, 박힌 화살 1개마다 석궁 피해 +15% (최대 5개, 마지막 명중 후 4초)", Rar::Epic, Role::Frame,
         T_PIERCE, 0, false, Fx{}.rate_(0.4f).dmg_(1.35f).acc_(1.27f).pierce_(3)},
     {"F_WAVE",    "파동포",     "느리고 거대한 파동을 쏨 — 적을 모두 뚫고 적탄을 지움", Rar::Epic, Role::Frame,
-        T_PIERCE | T_ERASE, 0, false, Fx{}.rate_(0.35f).dmg_(1.5f).acc_(1.5f).pierce_(9)},
-    {"F_MORTAR",  "박격포",     "조준한 자리에 포탄이 떨어져 1.5○ 폭발 (공격력 90%) — 벽을 넘음. 표식·화상·분열·중력은 착탄 지점에서 터짐", Rar::Epic, Role::Frame,
-        T_BLAST | T_LOB, 0, false, Fx{}.rate_(0.40f).acc_(1.2f).blast_(0.9f)},
+        T_PIERCE | T_ERASE, 0, false, Fx{}.rate_(0.35f).dmg_(1.6f).acc_(1.5f).pierce_(9)},
+    {"F_MORTAR",  "박격포",     "조준한 자리에 포탄이 떨어져 1.5○ 폭발 (공격력 200%) — 벽을 넘음. 표식·화상·분열·중력은 착탄 지점에서 터짐", Rar::Epic, Role::Frame,
+        T_BLAST | T_LOB, 0, false, Fx{}.rate_(0.40f).acc_(1.2f).blast_(2.0f)},
     // ── 동사 ──
     {"V_BOUNCE",  "벽 튕김 도탄",       "탄이 벽에서 2회 튕김", Rar::Epic, Role::Verb,
         T_BOUNCE, 0, false, Fx{}.bounce_(2)},
-    {"V_RICOCHET","표적 반사탄",     "적에게 맞으면 다른 적 쪽으로 1회 튕김", Rar::Rare, Role::Verb,
+    {"V_RICOCHET","표적 반사탄",     "맞은 탄이 끝나는 대신, 8○ 안에서 가장 가까운 다른 적 쪽으로 1회 꺾여 계속 날아감 (맞은 적은 제외, 관통이 남았으면 관통을 먼저 쓰고 그다음 꺾임, 꺾이면 튕김 1회로 셈)", Rar::Rare, Role::Verb,
         T_BOUNCE | T_ON_BOUNCE, 0, false, Fx{}.bounce_(1)},
     {"V_PIERCE",  "겹겹 관통탄",     "적을 2회 뚫음", Rar::Epic, Role::Verb,
         T_PIERCE, 0, false, Fx{}.pierce_(2)},
@@ -382,6 +386,32 @@ struct Result {
     uint64_t tags = 0;
 };
 
+// The frames as measured in the game (scripts/test_frame_balance.ps1, 2026-11-24) over what this
+// model makes of them alone: it misses rules that live in the game, not the table (shotgun and wave
+// x1.3 per shot, a mortar shell that only bursts, laser ticks, the crossbow's arrows, the sniper's
+// power pierce ...). Evaluate scales a frame's damage by it, so a frame alone reads as measured.
+inline float FrameCalibration(const char* code) {
+    struct Row { const char* code; float k; };
+    // measured overall (sqrt(single x crowd)) / this model's power for the frame alone
+    static const Row kRows[] = {
+        { "F_BASIC",    1.00f },
+        { "F_MINIGUN",  0.94f },   // 1.20 / 1.28
+        { "F_LASER",    0.82f },   // 1.19 / 1.45
+        { "F_SHOTGUN",  1.69f },   // 1.27 / 0.75
+        { "F_SNIPER",   0.79f },   // 1.11 / 1.40
+        { "F_BURST",    1.15f },   // 1.16 / 1.01
+        { "F_CROSSBOW", 1.20f },   // 1.24 / 1.03
+        { "F_WAVE",     1.01f },   // 1.11 / 1.10
+        { "F_MORTAR",   0.50f },   // 1.11 / 2.21
+    };
+    for (const Row& r : kRows) {
+        const char* a = r.code; const char* b = code;
+        while (*a && *a == *b) { ++a; ++b; }
+        if (!*a && !*b) return r.k;
+    }
+    return 1.0f;
+}
+
 // frame: index 0..kFrameCount-1; cards: indices into Table() (frames excluded).
 inline Result Evaluate(int frame, const std::vector<int>& cards) {
     const auto& t = Table();
@@ -427,7 +457,7 @@ inline Result Evaluate(int frame, const std::vector<int>& cards) {
 
     // Hits per bullet are capped: a crowd is only so deep and the arena only so wide.
     const float reach = std::min(passes * lane, 3.0f);
-    float dps = bulletsPerSec * acc * reach * dmgHit * bounceF * pierceF;
+    float dps = bulletsPerSec * acc * reach * dmgHit * bounceF * pierceF * FrameCalibration(t[frame].code);
     const float extra = (float)a.split * a.splitDmg * kChild
                       + a.blast * kCluster
                       + a.pierceBlast * (lane - 1.0f)
