@@ -1168,6 +1168,10 @@ static char g_SmokeWalk = 0;
 static bool g_SmokeDash = false;
 // F1 debug console > Stats > 즉사: the next frame kills the player outright.
 static bool g_DebugKillPlayer = false;   // weapon shell recoil after a shot (PlayerWeaponShell)
+// F1 debug console > 소환: 0 arena edge (as waves do), 1 ring around the player,
+// 2 the clicked field point g_DebugSpawnX/Y (world), a small ring when several.
+static int g_DebugSpawnPlacement = 0;
+static float g_DebugSpawnX = 0.0f, g_DebugSpawnY = 0.0f;
 
 // NORMA window spaces (SpaceRules.h): open panes become world regions each
 // frame, front-most first, and the player's space is resolved from its centre.
@@ -4933,16 +4937,43 @@ int main() {
             if (g_MonsterManager.monsters.size() <= before) break;
             Monster* mob = g_MonsterManager.monsters.back();
             mob->MakeKind((MobKind)mobKind);
-            if (mob->kind == MobKind::REGULUS) {
+            if (g_DebugSpawnPlacement == 2) {
+                const float angle = (float)i * 2.39996323f;
+                const float radius = i == 0 ? 0.0f : 50.0f + 14.0f * (float)i;
+                mob->worldX = g_DebugSpawnX + std::cos(angle) * radius;
+                mob->worldY = g_DebugSpawnY + std::sin(angle) * radius;
+            } else if (mob->kind == MobKind::REGULUS || g_DebugSpawnPlacement == 1) {
                 const float playerX = playerWin.x + playerWin.width * 0.5f;
                 const float playerY = playerWin.y + playerWin.height * 0.5f;
                 const float angle = (float)i * 2.39996323f;
-                mob->worldX = playerX + std::cos(angle) * 360.0f;
-                mob->worldY = playerY + std::sin(angle) * 360.0f;
+                const float radius = mob->kind == MobKind::REGULUS ? 360.0f : 420.0f;
+                mob->worldX = playerX + std::cos(angle) * radius;
+                mob->worldY = playerY + std::sin(angle) * radius;
             }
             ++spawned;
         }
         return spawned;
+    };
+    // Regulus buffs on every live mob: 1 shield, 2 speed, 4 stealth (Scope only
+    // takes the shield); 0 clears them. MOBBUFF smoke step and F1 > 소환 > 필드.
+    const auto debugBuffMobs = [&](int mask) {
+        for (Monster* mob : g_MonsterManager.monsters) {
+            if (!mob->alive) continue;
+            mob->regulusSpeedAge = (mask & 2) ? 5.0f : -1.0f;
+            mob->regulusStealthAge = (mask & 4) ? 5.0f : -1.0f;
+            mob->regulusShield = {};
+            if (mask & 1) {
+                mob->regulusShield.acquiredOnce = true;
+                mob->regulusShield.hp = mob->regulusShield.maxHp = 200.0f;
+            }
+        }
+        for (RangedMob* mob : g_MonsterManager.rangedMobs) {
+            mob->regulusShield = {};
+            if (mask & 1) {
+                mob->regulusShield.acquiredOnce = true;
+                mob->regulusShield.hp = mob->regulusShield.maxHp = 200.0f;
+            }
+        }
     };
     g_DebugToolkit.Configure({
         &g_Stats,
@@ -4983,6 +5014,16 @@ int main() {
                     screenWidth, screenHeight, 1.0f, 160,
                     0.0f, 0.0f, -1, -1);
                 if (g_MonsterManager.rangedMobs.size() <= before) break;
+                if (g_DebugSpawnPlacement == 1 || g_DebugSpawnPlacement == 2) {
+                    RangedMob* rm = g_MonsterManager.rangedMobs.back();
+                    const float angle = (float)i * 2.39996323f;
+                    const bool atPoint = g_DebugSpawnPlacement == 2;
+                    const float radius = atPoint ? (i == 0 ? 0.0f : 50.0f + 14.0f * (float)i) : 420.0f;
+                    const float ox = atPoint ? g_DebugSpawnX : playerWin.x + playerWin.width * 0.5f;
+                    const float oy = atPoint ? g_DebugSpawnY : playerWin.y + playerWin.height * 0.5f;
+                    rm->worldX = ox + std::cos(angle) * radius;
+                    rm->worldY = oy + std::sin(angle) * radius;
+                }
                 ++spawned;
             }
             return spawned;
@@ -5071,6 +5112,20 @@ int main() {
                 ++removed;
             }
             return removed;
+        },
+        &g_DebugSpawnPlacement,
+        // F1 > 소환 > 필드: every mob and bullet gone (as the MOBCLEAR smoke step, wave not held).
+        [&]() {
+            g_MonsterManager.Clear();
+            g_Bullets.clear();
+        },
+        debugBuffMobs,
+        // F1 > 스모크: the save the smoke run copies into its own folder.
+        []() { return std::string(SaveFilePath()); },
+        // F1 > 소환: the clicked field point, in world space.
+        [](float sx, float sy) {
+            g_DebugSpawnX = ScreenToWorldX(sx);
+            g_DebugSpawnY = ScreenToWorldY(sy);
         }
     });
 
@@ -5333,9 +5388,10 @@ int main() {
         if (!debugInputCaptured) {
             g_GameManager.HandleInput(window);
         } else {
-            // Opening the toolkit also pauses simulation and consumes the
-            // pointer so gameplay and scene controls cannot leak through.
-            delta = 0.0f;
+            // The toolkit consumes the pointer so gameplay and scene controls
+            // cannot leak through; it freezes the simulation unless its
+            // 진행 switch lets the game run with the console open.
+            if (g_DebugToolkit.PausesGame()) delta = 0.0f;
             lmb = false;
             wmx = ScreenToWorldX(-10000.0f);
             wmy = ScreenToWorldY(-10000.0f);
@@ -6073,24 +6129,7 @@ int main() {
                     } else if (step.rfind("MOBBUFF=", 0) == 0) {
                         // MOBBUFF=<mask>: 1 shield, 2 speed, 4 stealth on every
                         // live mob (Scope only takes the shield); 0 clears them.
-                        const int mask = std::atoi(step.c_str() + 8);
-                        for (Monster* mob : g_MonsterManager.monsters) {
-                            if (!mob->alive) continue;
-                            mob->regulusSpeedAge = (mask & 2) ? 5.0f : -1.0f;
-                            mob->regulusStealthAge = (mask & 4) ? 5.0f : -1.0f;
-                            mob->regulusShield = {};
-                            if (mask & 1) {
-                                mob->regulusShield.acquiredOnce = true;
-                                mob->regulusShield.hp = mob->regulusShield.maxHp = 200.0f;
-                            }
-                        }
-                        for (RangedMob* mob : g_MonsterManager.rangedMobs) {
-                            mob->regulusShield = {};
-                            if (mask & 1) {
-                                mob->regulusShield.acquiredOnce = true;
-                                mob->regulusShield.hp = mob->regulusShield.maxHp = 200.0f;
-                            }
-                        }
+                        debugBuffMobs(std::atoi(step.c_str() + 8));
                     } else if (step == "GENESISRANDOM") {
                         // GENESISRANDOM: every live Genesis summons random regular enemies (as on NIGHTMARE).
                         for (Monster* mob : g_MonsterManager.monsters)

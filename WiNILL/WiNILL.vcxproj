@@ -212,6 +212,11 @@
     <ClCompile Include="Render\stb_impl.cpp" />
     <ClCompile Include="System\Audio.cpp" />
     <ClCompile Include="System\DebugToolkit.cpp" />
+    <ClCompile Include="System\DebugUI.cpp" />
+    <ClCompile Include="System\DebugTabSpawn.cpp" />
+    <ClCompile Include="System\DebugTabAugment.cpp" />
+    <ClCompile Include="System\DebugTabStats.cpp" />
+    <ClCompile Include="System\DebugTabSmoke.cpp" />
     <ClCompile Include="System\Input.cpp" />
     <ClCompile Include="System\OsPane.cpp" />
     <ClCompile Include="System\WindowFx.cpp" />
@@ -284,6 +289,7 @@
     <ClInclude Include="Render\TextRenderer.h" />
     <ClInclude Include="System\Audio.h" />
     <ClInclude Include="System\DebugToolkit.h" />
+    <ClInclude Include="System\DebugUI.h" />
     <ClInclude Include="System\DebugAugSearch.h" />
     <ClInclude Include="System\CrashHandler.h" />
     <ClInclude Include="System\EmbeddedResource.h" />

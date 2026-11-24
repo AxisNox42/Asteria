@@ -112,6 +112,21 @@
     <ClCompile Include="System\DebugToolkit.cpp">
       <Filter>System</Filter>
     </ClCompile>
+    <ClCompile Include="System\DebugUI.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="System\DebugTabSpawn.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="System\DebugTabAugment.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="System\DebugTabStats.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="System\DebugTabSmoke.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
     <ClCompile Include="System\OsPane.cpp">
       <Filter>System</Filter>
     </ClCompile>
@@ -282,6 +297,9 @@
       <Filter>System</Filter>
     </ClInclude>
     <ClInclude Include="System\DebugToolkit.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="System\DebugUI.h">
       <Filter>System</Filter>
     </ClInclude>
     <ClInclude Include="System\DebugAugSearch.h">

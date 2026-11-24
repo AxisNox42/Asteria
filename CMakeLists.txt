@@ -51,6 +51,11 @@ add_executable(WiNILL
     ${WINILL_DIR}/Render/stb_impl.cpp
     ${WINILL_DIR}/System/Audio.cpp
     ${WINILL_DIR}/System/DebugToolkit.cpp
+    ${WINILL_DIR}/System/DebugUI.cpp
+    ${WINILL_DIR}/System/DebugTabSpawn.cpp
+    ${WINILL_DIR}/System/DebugTabAugment.cpp
+    ${WINILL_DIR}/System/DebugTabStats.cpp
+    ${WINILL_DIR}/System/DebugTabSmoke.cpp
     ${WINILL_DIR}/System/Input.cpp
     ${WINILL_DIR}/System/OsPane.cpp
     ${WINILL_DIR}/System/WindowFx.cpp

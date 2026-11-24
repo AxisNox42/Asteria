@@ -1,4 +1,6 @@
-﻿#include "DebugToolkit.h"
+﻿// F1 debug console: open/close, panel frame + tab rail, text boxes, number
+// editing, screenshots. The tabs live in DebugTab*.cpp.
+#include "DebugToolkit.h"
 
 #include <algorithm>
 #include <array>
@@ -12,19 +14,16 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 
 #include <glad/glad.h>
 
+#include "DebugUI.h"
 #include "DrawPrim.h"
 #include "TextRenderer.h"
 #include "Settings.h"
 #include "Input.h"
-#include "PassiveAugments.h"
-#include "AugmentSynergy.h"
-#include "DebugAugSearch.h"
 
 extern TextRenderer g_TextS;
 extern TextRenderer g_TextL;
@@ -34,240 +33,20 @@ DebugToolkit g_DebugToolkit;
 
 namespace {
 
-constexpr float PANEL_W = 760.0f;
-constexpr float PANEL_TOP = 72.0f;
-constexpr float TAB_Y = 68.0f;
-constexpr float TAB_W = 142.0f;
-constexpr float TAB_GAP = 8.0f;
-constexpr float TAB_H = 32.0f;
-constexpr float CONTENT_Y = 112.0f;
-constexpr float STATS_RUNTIME_Y = 132.0f;
-constexpr float STATS_RUNTIME_W = 166.0f;
-constexpr float STATS_RUNTIME_GAP = 13.0f;
-constexpr float STATS_STATUS_Y = 174.0f;
-constexpr float STATS_CLEAR_Y = 168.0f;
-constexpr float STATS_CLEAR_W = 96.0f;
-constexpr float STATS_HELP_Y = 198.0f;
-constexpr float STATS_ROWS_Y = 220.0f;
-constexpr float ROW_H = 32.0f;
-constexpr float SPAWN_COUNT_Y = 136.0f;
-constexpr float SPAWN_CATEGORY_Y = 178.0f;
-constexpr float SPAWN_GRID_Y = 222.0f;
-constexpr float SPAWN_ACTION_BOTTOM = 60.0f;
-constexpr float CAPTURE_CURRENT_Y = 140.0f;
-constexpr float CAPTURE_ALL_Y = 190.0f;
-constexpr float TITLE_STYLE_Y = 366.0f;
-constexpr float FOOTER_BOTTOM = 52.0f;
-constexpr float FOOTER_BUTTON_H = 32.0f;
-constexpr float FOOTER_BUTTON_GAP = 12.0f;
-// Stats 탭 푸터 버튼 폭. 입력과 그리기가 같은 표로 위치를 계산한다.
-enum FooterButton { FOOTER_SYNC, FOOTER_BALANCE, FOOTER_HITSTOP, FOOTER_NEXT_WAVE,
-                    FOOTER_ORBIT, FOOTER_KILL, FOOTER_COUNT };
-constexpr float FOOTER_BUTTON_W[FOOTER_COUNT] = { 140.0f, 130.0f, 140.0f, 140.0f, 128.0f, 120.0f };
-// Buttons from FOOTER_ROW2_FIRST on sit in a second row above the first.
-constexpr int FOOTER_ROW2_FIRST = FOOTER_KILL;
-constexpr float FOOTER_ROW2_LIFT = FOOTER_BUTTON_H + 8.0f;
-inline float FooterButtonX(float panelX, int index) {
-    float x = panelX + 16.0f;
-    const int first = index >= FOOTER_ROW2_FIRST ? FOOTER_ROW2_FIRST : 0;
-    for (int i = first; i < index; ++i) x += FOOTER_BUTTON_W[i] + FOOTER_BUTTON_GAP;
-    return x;
-}
-inline float FooterButtonY(float footerY, int index) {
-    return index >= FOOTER_ROW2_FIRST ? footerY - FOOTER_ROW2_LIFT : footerY;
-}
+constexpr float RAIL_W = 76.0f;
+constexpr float MARGIN = 10.0f;
+constexpr float HEADER_H = 70.0f;
+constexpr float FOOTER_H = 34.0f;
 
 struct PanelLayout {
-    float x;
-    float y;
-    float w;
-    float h;
+    float x, y, w, h;
 };
 
-PanelLayout GetPanelLayout(float sw, float sh) {
-    const float w = std::min(PANEL_W, std::max(420.0f, sw - 32.0f));
-    const float h = std::min(920.0f, std::max(520.0f, sh - 96.0f));
-    return { sw - w - 16.0f, PANEL_TOP, w, h };
-}
-
-float Clamp01(float v) {
-    return std::max(0.0f, std::min(1.0f, v));
-}
-
-// What each spawn category offers: spawn-target ids (see MobLabel).
-//   0-9 mobs as before, 10 NORMA, 11 NORMA's test window.
-int SpawnEntries(int category, const int*& ids) {
-    static const int kRegular[] = { 0, 2, 3, 5, 6, 9, 13, 14, 15 };
-    static const int kElite[] = { 1, 4, 7, 8, 18 };
-    static const int kBoss[] = { 10, 12, 11 };
-    static const int kTest[] = { 16, 17 };
-    switch (category) {
-    case 3: ids = kTest; return (int)(sizeof(kTest) / sizeof(kTest[0]));
-    case 1: ids = kElite; return (int)(sizeof(kElite) / sizeof(kElite[0]));
-    case 2: ids = kBoss;  return (int)(sizeof(kBoss) / sizeof(kBoss[0]));
-    default: ids = kRegular; return (int)(sizeof(kRegular) / sizeof(kRegular[0]));
-    }
-}
-
-// Augment tab categories: level-up stat cards, the synergy roles, then the legacy cards
-// (each group only listed when its kLegacy* switch is on). Filter button 0 is "all", button i is category i-1.
-enum AugCat { AC_STAT, AC_FRAME, AC_VERB, AC_TRIGGER, AC_AMP, AC_COST, AC_GUARD, AC_CHANCE,
-              AC_LEGACY_PASSIVE, AC_LEGACY_ACTIVE, AC_COUNT };
-constexpr int AUG_FILTER_COUNT = AC_COUNT + 1;
-constexpr float AUG_FILTER_Y = 138.0f;
-constexpr float AUG_FILTER_H = 28.0f;
-constexpr float AUG_STATUS_Y = 178.0f;
-constexpr float AUG_ROWS_Y = 206.0f;
-constexpr float AUG_ROW_H = 46.0f;
-
-int AugCategory(int aug) {
-    const AugDef& d = ALL_AUGS[aug];
-    if (AugIsStatCard(d)) return AC_STAT;
-    if (AugIsSynergy(d.type)) {
-        const auto& t = synergy::Table();
-        const int si = SynergyIndex(d.type);
-        if (si >= 0 && si < (int)t.size()) {
-            switch (t[(size_t)si].role) {
-            case synergy::Role::Frame:   return AC_FRAME;
-            case synergy::Role::Verb:    return AC_VERB;
-            case synergy::Role::Trigger: return AC_TRIGGER;
-            case synergy::Role::Amp:     return AC_AMP;
-            case synergy::Role::Cost:    return AC_COST;
-            case synergy::Role::Guard:   return AC_GUARD;
-            case synergy::Role::Chance:  return AC_CHANCE;
-            }
-        }
-        return AC_VERB;
-    }
-    return AugIsActive(d) ? AC_LEGACY_ACTIVE : AC_LEGACY_PASSIVE;
-}
-
-const wchar_t* AugCategoryLabel(int cat) {
-    static const wchar_t* const n[AC_COUNT] = {
-        L"스탯", L"프레임", L"동사", L"트리거", L"증폭", L"대가", L"보호", L"확률",
-        L"패시브(구)", L"액티브(구)" };
-    return (cat >= 0 && cat < AC_COUNT) ? n[cat] : L"?";
-}
-
-// What each category means, shown under the filter row.
-const wchar_t* AugCategoryHint(int cat) {
-    static const wchar_t* const n[AC_COUNT] = {
-        L"레벨업 스탯 카드 (중복 가능)",
-        L"무기 형태를 바꾸는 카드 (한 판에 하나)",
-        L"탄의 행동을 바꾸는 카드 (관통·튕김·분열·유도 등)",
-        L"조건이 맞으면 터지는 카드 (처치·치명타·피격·정지 등)",
-        L"가진 태그 수만큼 강해지는 카드",
-        L"대가를 치르고 힘을 얻는 카드 (체력·유리 등)",
-        L"보호막·회피 등 생존 카드",
-        L"확률로 발동하는 카드",
-        L"구버전 패시브 카드",
-        L"구버전 액티브 스킬 카드" };
-    return (cat >= 0 && cat < AC_COUNT) ? n[cat] : L"";
-}
-
-void AugCategoryColor(int cat, float& r, float& g, float& b) {
-    static const float c[AC_COUNT][3] = {
-        { 0.70f, 0.78f, 0.86f },   // stat
-        { 1.00f, 0.80f, 0.40f },   // frame
-        { 0.45f, 0.85f, 1.00f },   // verb
-        { 1.00f, 0.55f, 0.45f },   // trigger
-        { 0.80f, 0.60f, 1.00f },   // amp
-        { 1.00f, 0.40f, 0.60f },   // cost
-        { 0.50f, 1.00f, 0.65f },   // guard
-        { 1.00f, 0.92f, 0.45f },   // chance
-        { 0.60f, 0.62f, 0.66f },
-        { 0.60f, 0.62f, 0.66f } };
-    const int i = (cat >= 0 && cat < AC_COUNT) ? cat : 0;
-    r = c[i][0]; g = c[i][1]; b = c[i][2];
-}
-
-// Augment tab: every card in the build (synergy + level-up stat cards), grouped by category
-// (catalog order inside a group). filter 0 = all, else only category filter-1.
-const std::vector<int>& AugmentList(int filter) {
-    static const std::array<std::vector<int>, AUG_FILTER_COUNT> lists = [] {
-        std::array<std::vector<int>, AUG_FILTER_COUNT> out;
-        for (int cat = 0; cat < AC_COUNT; ++cat)
-            for (int i = 0; i < AUG_TOTAL; ++i) {
-                if (!AugInBuild(ALL_AUGS[i]) || AugCategory(i) != cat) continue;
-                out[0].push_back(i);
-                out[(size_t)cat + 1].push_back(i);
-            }
-        return out;
-    }();
-    return lists[(size_t)std::max(0, std::min(AUG_FILTER_COUNT - 1, filter))];
-}
-
-// Filter buttons shown: "all" plus the categories that have cards in this build.
-const std::vector<int>& AugmentFilters() {
-    static const std::vector<int> v = [] {
-        std::vector<int> f{ 0 };
-        for (int i = 1; i < AUG_FILTER_COUNT; ++i)
-            if (!AugmentList(i).empty()) f.push_back(i);
-        return f;
-    }();
-    return v;
-}
-
-float AugmentFilterWidth(float panelWidth) {
-    const int n = (int)AugmentFilters().size();
-    return (panelWidth - 32.0f - (n - 1) * 6.0f) / (float)n;
-}
-
-int AugmentVisibleRows(float panelHeight) {
-    return std::max(1, (int)((panelHeight - AUG_ROWS_Y - 30.0f) / AUG_ROW_H));
-}
-
-// Search box on the title line, right side of the panel (panel-relative).
-constexpr float AUG_SEARCH_W = 300.0f;
-constexpr float AUG_SEARCH_H = 28.0f;
-constexpr float AUG_SEARCH_CLEAR_W = 26.0f;
-float AugSearchX(float panelWidth) { return panelWidth - 16.0f - AUG_SEARCH_W; }
-constexpr float AUG_SEARCH_Y = CONTENT_Y - 5.0f;
-
-bool AugMatchesQuery(int aug, const std::wstring& query) {
-    const AugDef& d = ALL_AUGS[aug];
-    return debugsearch::Matches(d.locName, LANG_COUNT, d.locDesc, LANG_COUNT, query);
-}
-
-// Cuts text to fit maxWidth, ending in "…".
-std::wstring FitText(const wchar_t* text, float scale, float maxWidth) {
-    std::wstring s = text ? text : L"";
-    for (auto& ch : s) if (ch == L'\n') ch = L' ';
-    if (g_TextS.Width(s.c_str(), scale) <= maxWidth) return s;
-    while (!s.empty()) {
-        s.pop_back();
-        const std::wstring t = s + L"...";
-        if (g_TextS.Width(t.c_str(), scale) <= maxWidth) return t;
-    }
-    return s;
-}
-
-float SpawnGridStep(float panelHeight) {
-    const float available = panelHeight - SPAWN_GRID_Y -
-                            SPAWN_ACTION_BOTTOM - 16.0f;
-    return std::max(32.0f, std::min(76.0f, available / 9.0f));
-}
-
-float SpawnButtonHeight(float panelHeight) {
-    return std::max(26.0f, SpawnGridStep(panelHeight) - 6.0f);
-}
-
-std::wstring FormatFloat(float value) {
-    wchar_t buf[64] = {};
-    std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"%.5g", value);
-    return buf;
-}
-
-std::wstring FormatInt(int value) {
-    wchar_t buf[64] = {};
-    std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"%d", value);
-    return buf;
-}
-
-std::wstring FormatLongLong(long long value) {
-    wchar_t buf[64] = {};
-    std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"%lld", value);
-    return buf;
+// Docked on the right edge, full height. Collapsed = the tab rail only.
+PanelLayout GetPanelLayout(float sw, float sh, bool collapsed) {
+    float w = collapsed ? RAIL_W : std::min(520.0f, std::max(420.0f, sw * 0.32f));
+    w = std::min(w, std::max(RAIL_W, sw - 2.0f * MARGIN));
+    return { sw - w - MARGIN, MARGIN, w, std::max(200.0f, sh - 2.0f * MARGIN) };
 }
 
 uint32_t Crc32(const unsigned char* data, size_t size) {
@@ -388,59 +167,38 @@ std::wstring Timestamp() {
     return buf;
 }
 
-const wchar_t* LocalizedFieldName(const wchar_t* raw) {
-    struct FieldNamePair {
-        const wchar_t* raw;
-        const wchar_t* localized;
-    };
-    static const FieldNamePair names[] = {
-        { L"damageMultiplier", L"피해 배율" },
-        { L"baseDamage", L"기본 피해" },
-        { L"maxHP", L"최대 체력" },
-        { L"bulletSpeed", L"탄속" },
-        { L"fireInterval", L"발사 간격" },
-        { L"windowSize", L"플레이어 크기" },
-        { L"moveSpeedMult", L"이동 속도 배율" },
-        { L"regenPerSec", L"초당 회복" },
-        { L"playerSizeMult", L"플레이어 크기 배율" },
-        { L"xpMult", L"경험치 배율" },
-        { L"bulletSpread", L"탄 퍼짐" },
-        { L"killCount", L"처치 수" },
-        { L"baseFireInterval", L"기본 발사 간격" }
-    };
-    for (const FieldNamePair& pair : names) {
-        if (std::wcscmp(pair.raw, raw) == 0) return pair.localized;
-    }
-    return raw;
+std::wstring FormatLongLong(long long value) {
+    wchar_t buf[64] = {};
+    std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"%lld", value);
+    return buf;
 }
 
 } // namespace
 
+// ── Tables ──────────────────────────────────────────────────────────────────
+
 const std::vector<DebugToolkit::Field>& DebugToolkit::Fields() {
-    static const std::vector<Field> fields = [] {
-        std::vector<Field> f;
-        f.reserve(128);
-#define DT_WIDE2(x) L##x
-#define DT_WIDE(x) DT_WIDE2(x)
-#define ADD_FLOAT(name) f.push_back({ LocalizedFieldName(DT_WIDE(#name)), FieldType::Float, offsetof(PlayerStats, name) })
-#define ADD_INT(name)   f.push_back({ LocalizedFieldName(DT_WIDE(#name)), FieldType::Int, offsetof(PlayerStats, name) })
-#define ADD_BOOL(name)  f.push_back({ LocalizedFieldName(DT_WIDE(#name)), FieldType::Bool, offsetof(PlayerStats, name) })
-#define ADD_LL(name)    f.push_back({ LocalizedFieldName(DT_WIDE(#name)), FieldType::LongLong, offsetof(PlayerStats, name) })
-
-        ADD_FLOAT(damageMultiplier); ADD_FLOAT(baseDamage); ADD_FLOAT(maxHP);
-        ADD_FLOAT(bulletSpeed); ADD_FLOAT(fireInterval); ADD_FLOAT(windowSize);
-        ADD_FLOAT(moveSpeedMult); ADD_FLOAT(regenPerSec);
-        ADD_FLOAT(playerSizeMult); ADD_FLOAT(xpMult); ADD_FLOAT(bulletSpread);
-        ADD_LL(killCount); ADD_FLOAT(baseFireInterval);
-
-#undef ADD_FLOAT
-#undef ADD_INT
-#undef ADD_BOOL
-#undef ADD_LL
-#undef DT_WIDE
-#undef DT_WIDE2
-        return f;
-    }();
+    static const std::vector<Field> fields = {
+        // 공격
+        { L"기본 피해",       FieldType::Float, offsetof(PlayerStats, baseDamage),       10.0,  0 },
+        { L"피해 배율",       FieldType::Float, offsetof(PlayerStats, damageMultiplier), 0.1,   0 },
+        { L"발사 간격(초)",   FieldType::Float, offsetof(PlayerStats, fireInterval),     0.01,  0 },
+        { L"기본 발사 간격",  FieldType::Float, offsetof(PlayerStats, baseFireInterval), 0.01,  0 },
+        { L"탄속",            FieldType::Float, offsetof(PlayerStats, bulletSpeed),      100.0, 0 },
+        { L"탄 퍼짐(rad)",    FieldType::Float, offsetof(PlayerStats, bulletSpread),     0.02,  0 },
+        { L"치명타 확률(%)",  FieldType::Int,   offsetof(PlayerStats, critChance),       5.0,   0 },
+        { L"치명타 배율",     FieldType::Float, offsetof(PlayerStats, critMult),         0.25,  0 },
+        // 생존
+        { L"최대 체력",       FieldType::Float, offsetof(PlayerStats, maxHP),            25.0,  1 },
+        { L"초당 회복",       FieldType::Float, offsetof(PlayerStats, regenPerSec),      0.25,  1 },
+        // 이동·크기
+        { L"이동 속도 배율",  FieldType::Float, offsetof(PlayerStats, moveSpeedMult),    0.1,   2 },
+        { L"창 크기",         FieldType::Float, offsetof(PlayerStats, windowSize),       50.0,  2 },
+        { L"플레이어 크기 배율", FieldType::Float, offsetof(PlayerStats, playerSizeMult), 0.1, 2 },
+        // 성장
+        { L"경험치 배율",     FieldType::Float, offsetof(PlayerStats, xpMult),           0.25,  3 },
+        { L"처치 수",         FieldType::LongLong, offsetof(PlayerStats, killCount),     10.0,  3 },
+    };
     return fields;
 }
 
@@ -461,16 +219,6 @@ const std::vector<GameState>& DebugToolkit::CaptureStates() {
     return states;
 }
 
-const wchar_t* DebugToolkit::FieldTypeLabel(FieldType type) {
-    switch (type) {
-    case FieldType::Float:    return L"실수";
-    case FieldType::Int:      return L"정수";
-    case FieldType::Bool:     return L"불리언";
-    case FieldType::LongLong: return L"64비트 정수";
-    }
-    return L"알 수 없음";
-}
-
 const wchar_t* DebugToolkit::MobLabel(int index) {
     static const wchar_t* labels[] = {
         L"로터", L"제네시스", L"스웜", L"그라비티", L"퀘이사", L"스코프",
@@ -478,9 +226,8 @@ const wchar_t* DebugToolkit::MobLabel(int index) {
         L"OCTANS", L"OCTANS 테스트 창", L"ERIDANUS", L"LYNX", L"MIRA", L"TRIGON",
         L"허수아비", L"허수아비 모두 제거", L"HOROLOGIUM"
     };
-    if (index < 0 || index >= (int)(sizeof(labels) / sizeof(labels[0])))
-        return L"알 수 없음";
-    return labels[index];
+    if (index >= 0 && index < (int)(sizeof(labels) / sizeof(labels[0]))) return labels[index];
+    return L"알 수 없음";
 }
 
 const wchar_t* DebugToolkit::SceneLabel(GameState state) {
@@ -500,11 +247,13 @@ const wchar_t* DebugToolkit::SceneLabel(GameState state) {
     }
 }
 
+// ── Basics ──────────────────────────────────────────────────────────────────
+
 void DebugToolkit::Configure(const DebugToolkitContext& context) {
     context_ = context;
     configured_ = context_.stats && context_.game && context_.monsters;
-    selectedMob_ = -1;
     spawnCount_ = 1;
+    fieldDelta_.assign(Fields().size(), 0.0);
     ResetTransientInput();
 }
 
@@ -519,90 +268,154 @@ void DebugToolkit::SetMessage(const std::wstring& message) {
     lastMessage_ = message;
 }
 
-const std::vector<int>& DebugToolkit::AugVisibleList() {
-    const std::wstring q = AugSearchQuery();
-    if (augVisibleFilter_ == augFilter_ && augVisibleQuery_ == q) return augVisible_;
-    augVisibleFilter_ = augFilter_;
-    augVisibleQuery_ = q;
-    augVisible_.clear();
-    for (int aug : AugmentList(augFilter_))
-        if (AugMatchesQuery(aug, q)) augVisible_.push_back(aug);
-    augOffset_ = 0;
-    return augVisible_;
+// ── Text boxes ──────────────────────────────────────────────────────────────
+
+std::wstring* DebugToolkit::TextOf(TextFocus which) {
+    switch (which) {
+    case TextFocus::AugSearch:  return &augSearch_;
+    case TextFocus::SmokeSteps: return &smokeSteps_;
+    default:                    return nullptr;
+    }
 }
 
 void DebugToolkit::AugSearchInsert(const wchar_t* text) {
-    if (!text) return;
-    for (const wchar_t* p = text; *p && augSearch_.size() < 40; ++p)
-        if (*p >= 32 && *p != 127) augSearch_.push_back(*p);
+    std::wstring* s = TextOf(textFocus_);
+    if (!text || !s) return;
+    const size_t cap = textFocus_ == TextFocus::SmokeSteps ? 400u : 40u;
+    for (const wchar_t* p = text; *p && s->size() < cap; ++p)
+        if (*p >= 32 && *p != 127) s->push_back(*p);
     lastMessage_.clear();
 }
 
 void DebugToolkit::AugSearchBackspace() {
-    if (augSearch_.empty()) return;
-    augSearch_.pop_back();
+    std::wstring* s = TextOf(textFocus_);
+    if (!s || s->empty()) return;
+    s->pop_back();
     // Keep surrogate pairs whole.
-    if (!augSearch_.empty() && augSearch_.back() >= 0xD800 && augSearch_.back() <= 0xDBFF)
-        augSearch_.pop_back();
+    if (!s->empty() && s->back() >= 0xD800 && s->back() <= 0xDBFF) s->pop_back();
     lastMessage_.clear();
 }
 
 void DebugToolkit::AugSearchEscape() {
-    if (!augSearch_.empty()) augSearch_.clear();
-    else augSearchFocus_ = false;
-    augSearchComp_.clear();
+    std::wstring* s = TextOf(textFocus_);
+    if (s && !s->empty()) s->clear();
+    else textFocus_ = TextFocus::None;
+    textComp_.clear();
     lastMessage_.clear();
 }
 
-// Left click: take the card, or switch it OFF when it is held and cannot stack.
-// Right click: take one copy back.
-void DebugToolkit::ClickAugmentFromConsole(int aug, bool rightClick) {
-    const bool held = passive::HeldCount(aug) > 0;
-    if (!rightClick && !(held && !passive::CanOffer(aug))) {
-        GrantAugmentFromConsole(aug);
+// Input pass: focus / clear-button clicks. Draw pass: frame, text, caret.
+void DebugToolkit::DrawTextBox(DebugUI& ui, float x, float y, float w, float h,
+                               const std::wstring& text, const wchar_t* placeholder,
+                               TextFocus which) {
+    const DebugRect rc{ x, y, w, h };
+    if (!ui.Visible(rc)) return;
+    const bool focus = textFocus_ == which;
+    const float clearW = 26.0f;
+    const DebugRect clearRc{ x + w - clearW, y, clearW, h };
+    if (ui.pass == DebugUI::Pass::Input) {
+        if (!ui.click) return;
+        if (ui.Hover(rc)) {
+            if (!text.empty() && ui.Hover(clearRc)) {
+                if (std::wstring* s = TextOf(which)) s->clear();
+                textComp_.clear();
+            }
+            textFocus_ = which;
+            lastMessage_.clear();
+            ui.click = false;
+        } else if (focus) {
+            textFocus_ = TextFocus::None;   // the text stays; only the focus goes
+            textComp_.clear();
+        }
         return;
     }
-    if (!held) {
-        SetMessage(L"가지고 있지 않은 증강입니다");
-        return;
-    }
-    const GameState st = context_.game ? context_.game->currentState
-                                       : GameState::MAIN_MENU;
-    if (st != GameState::RUNNING && st != GameState::PAUSED &&
-        st != GameState::READY) {
-        SetMessage(L"증강은 진행 중/일시정지/준비 화면에서만 바꿀 수 있습니다");
-    } else if (passive::Release(aug)) {
-        std::wstring m = L"증강 해제: ";
-        m += AugName(ALL_AUGS[aug]);
-        const int left = passive::HeldCount(aug);
-        if (left > 0) m += L" (남은 수 " + std::to_wstring(left) + L")";
-        SetMessage(m);
+    const std::wstring comp = focus ? textComp_ : std::wstring();
+    const std::wstring full = text + comp;
+    using namespace debugui_style;
+    ui.Fill(rc, 0.095f, 0.100f, 0.110f, 1.0f);
+    if (focus) ui.Frame(rc, kSelected.r + 0.15f, kSelected.g + 0.2f, kSelected.b + 0.25f, 1.0f);
+    else       ui.Frame(rc, kLine.r, kLine.g, kLine.b, 1.0f);
+    const float ts = 0.48f;
+    const float tx = x + 10.0f;
+    const float textMaxW = w - 20.0f - clearW;
+    const float th = g_TextS.Height(L"Ag", ts);
+    const float ty = y + std::max(3.0f, (h - th) * 0.5f);
+    if (full.empty()) {
+        g_TextS.Draw(placeholder, tx, ty, ts, kTextDim.r, kTextDim.g, kTextDim.b, 0.85f);
     } else {
-        SetMessage(L"이 증강은 해제할 수 없습니다");
+        // Long text keeps its tail visible.
+        std::wstring shown = full;
+        while (shown.size() > 1 && g_TextS.Width(shown.c_str(), ts) > textMaxW)
+            shown.erase(shown.begin());
+        g_TextS.Draw(shown.c_str(), tx, ty, ts, kText.r, kText.g, kText.b, 1.0f);
+        if (!comp.empty()) {
+            // Underline the IME preedit part.
+            const std::wstring done = shown.size() > comp.size()
+                ? shown.substr(0, shown.size() - comp.size()) : L"";
+            const float ux = tx + g_TextS.Width(done.c_str(), ts);
+            const float uw = g_TextS.Width(shown.c_str(), ts) - (ux - tx);
+            BindMainShader();
+            drawRect(ux, ty + th + 1.0f, uw, 1.5f, kText.r, kText.g, kText.b, 0.85f);
+        }
+        g_TextS.Draw(L"X", clearRc.x + 8.0f, ty, ts, kTextDim.r, kTextDim.g, kTextDim.b, 1.0f);
+    }
+    if (focus) {
+        std::wstring shown = text;
+        while (shown.size() > 1 && g_TextS.Width((shown + comp).c_str(), ts) > textMaxW)
+            shown.erase(shown.begin());
+        const float caretX = tx + g_TextS.Width(shown.c_str(), ts);
+        const float fullX = tx + g_TextS.Width((shown + comp).c_str(), ts);
+        const bool blinkOn = std::fmod((float)glfwGetTime(), 1.0f) < 0.55f;
+        if (blinkOn && comp.empty()) {
+            BindMainShader();
+            drawRect(caretX + 1.0f, ty, 1.5f, th, kText.r, kText.g, kText.b, 1.0f);
+        }
+        InputSetCodexImeAnchor(caretX, fullX, ty, th);
     }
 }
 
-void DebugToolkit::GrantAugmentFromConsole(int aug) {
-    const GameState st = context_.game ? context_.game->currentState
-                                       : GameState::MAIN_MENU;
-    if (st != GameState::RUNNING && st != GameState::PAUSED &&
-        st != GameState::READY) {
-        SetMessage(L"증강은 진행 중/일시정지/준비 화면에서만 받을 수 있습니다");
-    } else if (!passive::CanOffer(aug)) {
-        SetMessage(L"받을 수 없는 증강입니다 (이미 보유했거나 슬롯 부족)");
-    } else if (context_.grantAugment && context_.grantAugment(aug)) {
-        std::wstring m = L"증강 획득: ";
-        m += AugName(ALL_AUGS[aug]);
-        SetMessage(m);
-    } else {
-        SetMessage(L"증강을 적용하지 못했습니다");
+// ── Number editing (능력치 tab) ─────────────────────────────────────────────
+
+double DebugToolkit::ReadField(const Field& f) const {
+    const char* raw = reinterpret_cast<const char*>(context_.stats) + f.offset;
+    switch (f.type) {
+    case FieldType::Float:    return *reinterpret_cast<const float*>(raw);
+    case FieldType::Int:      return *reinterpret_cast<const int*>(raw);
+    case FieldType::LongLong: return (double)*reinterpret_cast<const long long*>(raw);
+    case FieldType::Bool:     return *reinterpret_cast<const bool*>(raw) ? 1.0 : 0.0;
+    }
+    return 0.0;
+}
+
+void DebugToolkit::WriteField(const Field& f, double v) {
+    char* raw = reinterpret_cast<char*>(context_.stats) + f.offset;
+    switch (f.type) {
+    case FieldType::Float:
+        *reinterpret_cast<float*>(raw) = (float)std::max(-1000000.0, std::min(1000000.0, v));
+        break;
+    case FieldType::Int:
+        *reinterpret_cast<int*>(raw) = (int)std::llround(std::max(-1e9, std::min(1e9, v)));
+        break;
+    case FieldType::LongLong:
+        *reinterpret_cast<long long*>(raw) = std::llround(std::max(-1e15, std::min(1e15, v)));
+        break;
+    case FieldType::Bool:
+        *reinterpret_cast<bool*>(raw) = v != 0.0;
+        break;
     }
 }
 
-bool DebugToolkit::Hit(float x, float y, float w, float h,
-                       float mouseX, float mouseY) const {
-    return mouseX >= x && mouseX <= x + w &&
-           mouseY >= y && mouseY <= y + h;
+// Adds `amount` to a field's value. Cards and level-ups keep adding on top of
+// it; the amount is remembered so the row's undo takes back only this.
+void DebugToolkit::NudgeField(int index, double amount) {
+    if (!context_.stats || index < 0 || index >= (int)Fields().size()) return;
+    if (fieldDelta_.size() != Fields().size()) fieldDelta_.assign(Fields().size(), 0.0);
+    const Field& f = Fields()[(size_t)index];
+    const double before = ReadField(f);
+    WriteField(f, before + amount);
+    if (context_.syncRuntime) context_.syncRuntime();
+    fieldDelta_[(size_t)index] += ReadField(f) - before;
+    if (std::fabs(fieldDelta_[(size_t)index]) < 1e-6) fieldDelta_[(size_t)index] = 0.0;
 }
 
 void DebugToolkit::BeginFieldEdit(int fieldIndex) {
@@ -611,22 +424,9 @@ void DebugToolkit::BeginFieldEdit(int fieldIndex) {
     selectedField_ = fieldIndex;
     editingRuntime_ = -1;
     const Field& field = Fields()[(size_t)fieldIndex];
-    const char* raw = reinterpret_cast<const char*>(context_.stats);
-    const void* ptr = raw + field.offset;
-    switch (field.type) {
-    case FieldType::Float:
-        editBuffer_ = FormatFloat(*reinterpret_cast<const float*>(ptr));
-        break;
-    case FieldType::Int:
-        editBuffer_ = FormatInt(*reinterpret_cast<const int*>(ptr));
-        break;
-    case FieldType::LongLong:
-        editBuffer_ = FormatLongLong(*reinterpret_cast<const long long*>(ptr));
-        break;
-    case FieldType::Bool:
-        editBuffer_.clear();
-        break;
-    }
+    const double v = ReadField(field);
+    editBuffer_ = field.type == FieldType::Float ? DebugFormatFloat((float)v)
+                                                 : FormatLongLong(std::llround(v));
     editing_ = field.type != FieldType::Bool;
     replaceEditBuffer_ = editing_;
 }
@@ -637,101 +437,48 @@ void DebugToolkit::BeginRuntimeEdit(int runtimeIndex) {
     editingRuntime_ = runtimeIndex;
     editing_ = true;
     replaceEditBuffer_ = true;
-    if (runtimeIndex == 0) editBuffer_ = FormatFloat(context_.game->playerHP);
-    else if (runtimeIndex == 1) editBuffer_ = FormatInt(context_.game->playerLevel);
+    if (runtimeIndex == 0) editBuffer_ = DebugFormatFloat(context_.game->playerHP);
+    else if (runtimeIndex == 1) editBuffer_ = FormatLongLong(context_.game->playerLevel);
     else if (runtimeIndex == 2) editBuffer_ = FormatLongLong(context_.game->xp);
     else editBuffer_ = FormatLongLong(context_.game->score);
 }
 
 void DebugToolkit::ApplyFieldEdit() {
     if (!editing_ || !context_.stats || !context_.game) return;
-    if (editingRuntime_ >= 0) {
-        try {
-            if (editingRuntime_ == 0) {
-                size_t used = 0;
-                const float value = std::stof(editBuffer_, &used);
-                if (used != editBuffer_.size() || !std::isfinite(value)) {
-                    SetMessage(L"잘못된 숫자입니다");
-                    return;
-                }
-                context_.game->playerHP = std::max(-1000000.0f,
-                                                    std::min(1000000.0f, value));
-            } else if (editingRuntime_ == 1) {
-                size_t used = 0;
-                const long long value = std::stoll(editBuffer_, &used);
-                if (used != editBuffer_.size()) {
-                    SetMessage(L"잘못된 숫자입니다");
-                    return;
-                }
-                context_.game->playerLevel = (int)std::max<long long>(
-                    1LL, std::min(1000000000LL, value));
-            } else if (editingRuntime_ == 2) {
-                size_t used = 0;
-                const long long value = std::stoll(editBuffer_, &used);
-                if (used != editBuffer_.size()) {
-                    SetMessage(L"잘못된 숫자입니다");
-                    return;
-                }
-                context_.game->xp = std::max(0LL, value);
-            } else {
-                size_t used = 0;
-                const long long value = std::stoll(editBuffer_, &used);
-                if (used != editBuffer_.size()) {
-                    SetMessage(L"잘못된 숫자입니다");
-                    return;
-                }
-                context_.game->score = std::max(0LL, value);
-                context_.game->scoreAccum = (float)context_.game->score;
-            }
-        } catch (...) {
+    double value = 0.0;
+    try {
+        size_t used = 0;
+        value = std::stod(editBuffer_, &used);
+        if (used != editBuffer_.size() || !std::isfinite(value)) {
             SetMessage(L"잘못된 숫자입니다");
             return;
         }
+    } catch (...) {
+        SetMessage(L"잘못된 숫자입니다");
+        return;
+    }
+    if (editingRuntime_ >= 0) {
+        GameManager& gm = *context_.game;
+        if (editingRuntime_ == 0) {
+            gm.playerHP = (float)std::max(-1000000.0, std::min(1000000.0, value));
+        } else if (editingRuntime_ == 1) {
+            gm.playerLevel = (int)std::max(1.0, std::min(1000000000.0, value));
+        } else if (editingRuntime_ == 2) {
+            gm.xp = std::max(0LL, (long long)value);
+        } else {
+            gm.score = std::max(0LL, (long long)value);
+            gm.scoreAccum = (float)gm.score;
+        }
         if (context_.syncRuntime) context_.syncRuntime();
-        SetMessage(L"런타임 값이 적용되었습니다");
+        SetMessage(L"적용했습니다");
         ResetTransientInput();
         return;
     }
     if (selectedField_ < 0 || selectedField_ >= (int)Fields().size()) return;
     const Field& field = Fields()[(size_t)selectedField_];
-    char* raw = reinterpret_cast<char*>(context_.stats);
-    void* ptr = raw + field.offset;
-    try {
-        if (field.type == FieldType::Float) {
-            size_t used = 0;
-            const float value = std::stof(editBuffer_, &used);
-            if (used != editBuffer_.size() || !std::isfinite(value)) {
-                SetMessage(L"잘못된 숫자입니다");
-                return;
-            }
-            *reinterpret_cast<float*>(ptr) = std::max(-1000000.0f,
-                                                       std::min(1000000.0f, value));
-        } else if (field.type == FieldType::Int) {
-            size_t used = 0;
-            const long long parsed = std::stoll(editBuffer_, &used);
-            if (used != editBuffer_.size()) {
-                SetMessage(L"잘못된 숫자입니다");
-                return;
-            }
-            *reinterpret_cast<int*>(ptr) = (int)std::max<long long>(
-                -1000000000LL, std::min(1000000000LL, parsed));
-        } else if (field.type == FieldType::LongLong) {
-            size_t used = 0;
-            const long long parsed = std::stoll(editBuffer_, &used);
-            if (used != editBuffer_.size()) {
-                SetMessage(L"잘못된 숫자입니다");
-                return;
-            }
-            *reinterpret_cast<long long*>(ptr) = parsed;
-        }
-    } catch (...) {
-    SetMessage(L"잘못된 숫자입니다");
-        return;
-    }
-    if (context_.syncRuntime) context_.syncRuntime();
-    SetMessage(L"필드가 적용되었습니다");
-    editing_ = false;
-    replaceEditBuffer_ = false;
+    NudgeField(selectedField_, value - ReadField(field));
+    SetMessage(std::wstring(field.name) + L" 적용");
+    ResetTransientInput();
 }
 
 void DebugToolkit::HandleNumericKeys(GLFWwindow* window) {
@@ -764,9 +511,8 @@ void DebugToolkit::HandleNumericKeys(GLFWwindow* window) {
     if (ctrlDown && aPressed) {
         editBuffer_.clear();
         replaceEditBuffer_ = false;
-        SetMessage(L"입력을 지웠습니다");
     }
-    if (pressedOnce(GLFW_KEY_MINUS, 20)) append(L'-');
+    if (pressedOnce(GLFW_KEY_MINUS, 20) || pressedOnce(GLFW_KEY_KP_SUBTRACT, 29)) append(L'-');
     if (pressedOnce(GLFW_KEY_PERIOD, 21) || pressedOnce(GLFW_KEY_KP_DECIMAL, 22))
         append(L'.');
     if (pressedOnce(GLFW_KEY_BACKSPACE, 23)) {
@@ -780,7 +526,6 @@ void DebugToolkit::HandleNumericKeys(GLFWwindow* window) {
     if (pressedOnce(GLFW_KEY_DELETE, 27)) {
         editBuffer_.clear();
         replaceEditBuffer_ = false;
-        SetMessage(L"입력을 지웠습니다");
     }
     if (pressedOnce(GLFW_KEY_ENTER, 24) || pressedOnce(GLFW_KEY_KP_ENTER, 25)) {
         if (editBuffer_.empty())
@@ -794,16 +539,28 @@ void DebugToolkit::HandleNumericKeys(GLFWwindow* window) {
     }
 }
 
+// ── Frame ───────────────────────────────────────────────────────────────────
+
 bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                               double mouseX, double mouseY,
                               bool lmb, bool lmbPrev) {
     if (!configured_) return false;
+    PollSmoke();
     if (!g_DebugMode) {
         visible_ = false;
         captureCurrent_ = false;
         captureActive_ = false;
+        inputCaptured_ = false;
         ResetTransientInput();
         return false;
+    }
+
+    // A new run rebuilds the stats, so the console's changes are gone with it.
+    if (context_.game) {
+        const GameState st = context_.game->currentState;
+        if (st != lastState_ && (st == GameState::READY || st == GameState::MAIN_MENU))
+            fieldDelta_.assign(Fields().size(), 0.0);
+        lastState_ = st;
     }
 
     const bool wasVisible = visible_;
@@ -813,10 +570,9 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_RELEASE) f1Released = true;
         if (glfwGetKey(window, GLFW_KEY_F12) == GLFW_RELEASE) f12Released = true;
         if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS && f1Released) {
-            visible_ = !visible_;
+            SetVisible(!visible_);
             f1Released = false;
-            if (visible_ && tab_ == 3) augSearchFocus_ = true;
-            if (!visible_) ResetTransientInput();
+            if (visible_ && tab_ == Tab::Augment) textFocus_ = TextFocus::AugSearch;
         }
         if (glfwGetKey(window, GLFW_KEY_F12) == GLFW_PRESS && f12Released) {
             RequestCurrentScreenshot();
@@ -824,775 +580,257 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
         }
     }
 
-    if (!visible_) return wasVisible;
-
-    const PanelLayout p = GetPanelLayout(screenW, screenH);
-    const bool click = lmb && !lmbPrev;
-    const float mx = (float)mouseX;
-    const float my = (float)mouseY;
-
-    if (g_ScrollAccum != 0.0f) {
-        if (tab_ == 0) {
-            fieldOffset_ -= (int)std::round(g_ScrollAccum * 2.0f);
-            const int visibleRows = std::max(1, (int)((p.h - 340.0f) / ROW_H));
-            const int maxOffset = std::max(0,
-                                           (int)Fields().size() - visibleRows);
-            fieldOffset_ = std::max(0, std::min(maxOffset, fieldOffset_));
-        }
-        if (tab_ == 3) {
-            augOffset_ -= (int)std::round(g_ScrollAccum * 2.0f);
-            const int maxOffset = std::max(0, (int)AugVisibleList().size() -
-                                              AugmentVisibleRows(p.h));
-            augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
-        }
-        g_ScrollAccum = 0.0f;
+    if (!visible_) {
+        inputCaptured_ = false;
+        return wasVisible;
     }
 
-    if (click && Hit(p.x + p.w - 52.0f, p.y + 12.0f, 36.0f, 28.0f, mx, my)) {
-        visible_ = false;
-        ResetTransientInput();
+    lastMx_ = (float)mouseX;
+    lastMy_ = (float)mouseY;
+    const bool click = lmb && !lmbPrev;
+    bool rclick = false;
+    if (window) {
+        const bool rmb = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        rclick = rmb && !rmbPrev_;
+        rmbPrev_ = rmb;
+    }
+
+    // Enter in a text box.
+    if (textEnterPending_) {
+        textEnterPending_ = false;
+        if (textFocus_ == TextFocus::AugSearch && tab_ == Tab::Augment) {
+            const auto& list = AugVisibleList();
+            if (list.size() == 1) GrantAugmentFromConsole(list[0]);
+            else if (list.empty()) SetMessage(L"맞는 증강이 없습니다");
+            else SetMessage(L"결과가 하나일 때만 ENTER 로 받을 수 있습니다");
+        } else if (textFocus_ == TextFocus::SmokeSteps && !smokeSteps_.empty()) {
+            StartSmoke(smokeSteps_);
+        }
+    }
+
+    // A large screenshot closes on any click.
+    if (viewer_ >= 0 && (click || rclick)) {
+        viewer_ = -1;
+        inputCaptured_ = true;
         return true;
     }
 
-    bool tabClicked = false;
-    for (int t = 0; t < 4; ++t) {
-        if (click && Hit(p.x + 16.0f + t * (TAB_W + TAB_GAP),
-                        p.y + TAB_Y, TAB_W, TAB_H, mx, my)) {
-            tabClicked = true;
-            if (t == 3 && tab_ != 3) augSearchFocus_ = true;   // type right away
-            tab_ = t;
-            ResetTransientInput();
+    const PanelLayout p = GetPanelLayout(screenW, screenH, collapsed_);
+    const bool overPanel = lastMx_ >= p.x && lastMx_ <= p.x + p.w &&
+                           lastMy_ >= p.y && lastMy_ <= p.y + p.h;
+
+    // Field-click spawn: while a mob is armed the field belongs to the console.
+    if (window) {
+        const bool esc = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+        if (esc && !escPrev_ && armedMob_ >= 0 && !editing_ &&
+            textFocus_ == TextFocus::None) {
+            armedMob_ = -1;
+            SetMessage(L"소환 대기를 취소했습니다");
         }
+        escPrev_ = esc;
+    }
+    // A smoke script only reports "pressed" frames (no real button), so presses
+    // less than 0.1 s apart count as one held press.
+    bool freshPress = click;
+    if (!window && lmb) {
+        const double now = glfwGetTime();
+        if (now - scriptedLmbT_ < 0.1) freshPress = false;
+        scriptedLmbT_ = now;
+    }
+    if (!lmb && window && glfwGetTime() - scriptedLmbT_ > 0.1) dragSpawn_ = false;
+    if (armedMob_ >= 0 && !overPanel) {
+        constexpr float kDragSpacing = 70.0f;   // screen px between batches while dragging
+        if (rclick) {
+            armedMob_ = -1;
+            dragSpawn_ = false;
+            SetMessage(L"소환 대기를 취소했습니다");
+        } else if (freshPress) {
+            SpawnArmedAt(lastMx_, lastMy_);
+            dragSpawn_ = true;
+            dragLastX_ = lastMx_;
+            dragLastY_ = lastMy_;
+        } else if (lmb && dragSpawn_) {
+            const float dx = lastMx_ - dragLastX_, dy = lastMy_ - dragLastY_;
+            if (dx * dx + dy * dy >= kDragSpacing * kDragSpacing) {
+                SpawnArmedAt(lastMx_, lastMy_);
+                dragLastX_ = lastMx_;
+                dragLastY_ = lastMy_;
+            }
+        }
+        inputCaptured_ = true;
+        return true;
     }
 
-    if (tab_ == 3 && augSearchEnterPending_) {
-        const auto& list = AugVisibleList();
-        if (list.size() == 1) GrantAugmentFromConsole(list[0]);
-        else if (list.empty()) SetMessage(L"맞는 증강이 없습니다");
-        else SetMessage(L"결과가 하나일 때만 ENTER 로 받을 수 있습니다");
-    }
-    augSearchEnterPending_ = false;
-
-    if (click && tab_ == 0) {
-        if (Hit(p.x + p.w - STATS_CLEAR_W - 16.0f,
-                p.y + STATS_CLEAR_Y, STATS_CLEAR_W, 26.0f, mx, my) &&
-            editing_) {
-            editBuffer_.clear();
-            replaceEditBuffer_ = false;
-            SetMessage(L"입력을 지웠습니다");
-        }
-        for (int runtime = 0; runtime < 4; ++runtime) {
-            const float rx = p.x + 16.0f +
-                             runtime * (STATS_RUNTIME_W + STATS_RUNTIME_GAP);
-            if (Hit(rx, p.y + STATS_RUNTIME_Y, STATS_RUNTIME_W, 34.0f,
-                    mx, my)) {
-                BeginRuntimeEdit(runtime);
-                break;
-            }
-        }
-        const float rowsY = p.y + STATS_ROWS_Y;
-        const int visibleRows = std::max(1, (int)((p.h - 340.0f) / ROW_H));
-        for (int row = 0; row < visibleRows; ++row) {
-            const int fieldIndex = fieldOffset_ + row;
-            if (fieldIndex >= (int)Fields().size()) break;
-            if (Hit(p.x + 16.0f, rowsY + row * ROW_H,
-                    p.w - 32.0f, ROW_H - 2.0f, mx, my)) {
-                const Field& field = Fields()[(size_t)fieldIndex];
-                selectedField_ = fieldIndex;
-                if (field.type == FieldType::Bool) {
-                    char* raw = reinterpret_cast<char*>(context_.stats);
-                    bool* value = reinterpret_cast<bool*>(raw + field.offset);
-                    *value = !*value;
-                    if (context_.syncRuntime) context_.syncRuntime();
-                    SetMessage(L"켜짐/꺼짐을 전환했습니다");
-                } else {
-                    BeginFieldEdit(fieldIndex);
-                }
-            }
-        }
-        const float footerY = p.y + p.h - FOOTER_BOTTOM;
-        auto footerHit = [&](int index) {
-            return Hit(FooterButtonX(p.x, index), FooterButtonY(footerY, index),
-                       FOOTER_BUTTON_W[index],
-                       FOOTER_BUTTON_H, mx, my);
-        };
-        if (click && footerHit(FOOTER_SYNC)) {
-            if (context_.syncRuntime) context_.syncRuntime();
-            SetMessage(L"런타임을 동기화했습니다");
-        }
-        if (click && footerHit(FOOTER_BALANCE) && context_.balanceTestMode) {
-            *context_.balanceTestMode = !*context_.balanceTestMode;
-            SetMessage(*context_.balanceTestMode
-                ? L"밸런스 테스트 시작 - 로그 기록 켜짐"
-                : L"밸런스 테스트 중지 - 로그 기록 꺼짐");
-        }
-        if (click && footerHit(FOOTER_HITSTOP) && context_.eliteKillHitStop) {
-            *context_.eliteKillHitStop = !*context_.eliteKillHitStop;
-            SetMessage(*context_.eliteKillHitStop
-                ? L"엘리트 처치 히트스톱 켜짐"
-                : L"엘리트 처치 히트스톱 꺼짐");
-        }
-        if (click && footerHit(FOOTER_NEXT_WAVE) &&
-            context_.advanceWave && context_.game &&
-            context_.game->currentState == GameState::RUNNING) {
-            context_.advanceWave();
-            SetMessage(context_.game->waveVictory
-                ? L"마지막 웨이브 완료 - 승리"
-                : L"다음 웨이브로 이동했습니다");
-            if (context_.game->waveVictory) SetVisible(false);
-        }
-        if (click && footerHit(FOOTER_KILL) && context_.killPlayer && context_.game &&
-            context_.game->currentState == GameState::RUNNING) {
-            context_.killPlayer();
-            SetMessage(L"즉사 처리했습니다");
-            SetVisible(false);   // close so the death plays out
-        }
-        if (click && footerHit(FOOTER_ORBIT) && context_.constellationOrbits) {
-            *context_.constellationOrbits = !*context_.constellationOrbits;
-            SetMessage(*context_.constellationOrbits
-                ? L"무기 별자리 궤도 켜짐"
-                : L"무기 별자리 궤도 꺼짐");
-        }
-    } else if (click && tab_ == 1) {
-        if (Hit(p.x + 16.0f, p.y + SPAWN_COUNT_Y, 44.0f, 32.0f, mx, my))
-            spawnCount_ = std::max(1, spawnCount_ - 1);
-        if (Hit(p.x + 126.0f, p.y + SPAWN_COUNT_Y, 44.0f, 32.0f, mx, my))
-            spawnCount_ = std::min(20, spawnCount_ + 1);
-
-        const float buttonY = p.y + SPAWN_GRID_Y;
-        const float buttonH = SpawnButtonHeight(p.h);
-        const float rowStep = SpawnGridStep(p.h);
-        const float buttonW = (p.w - 48.0f) * 0.5f;
-        const float gap = 16.0f;
-        {
-            const float catW = (p.w - 32.0f - 3.0f * 8.0f) / 4.0f;
-            for (int c = 0; c < 4; ++c) {
-                if (!Hit(p.x + 16.0f + c * (catW + 8.0f), p.y + SPAWN_CATEGORY_Y,
-                         catW, 32.0f, mx, my) || spawnCategory_ == c)
-                    continue;
-                spawnCategory_ = c;
-                selectedMob_ = -1;
-                SetMessage(L"분류를 바꿨습니다");
-            }
-        }
-        const int* ids = nullptr;
-        const int entryCount = SpawnEntries(spawnCategory_, ids);
-        for (int slot = 0; slot < entryCount; ++slot) {
-            const int col = slot & 1;
-            const int row = slot / 2;
-            const float bx = p.x + 16.0f + col * (buttonW + gap);
-            const float by = buttonY + row * rowStep;
-            if (!Hit(bx, by, buttonW, buttonH, mx, my)) continue;
-            selectedMob_ = ids[slot];
-            SetMessage(selectedMob_ == 11
-                ? L"대상을 선택했습니다 - 열기 버튼을 누르세요"
-                : L"대상을 선택했습니다 - 소환 버튼을 누르세요");
-        }
-        const float summonY = p.y + p.h - SPAWN_ACTION_BOTTOM;
-        if (click && Hit(p.x + 16.0f, summonY, p.w - 32.0f,
-                         38.0f, mx, my)) {
-            if (selectedMob_ < 0) {
-                SetMessage(L"먼저 대상을 선택하세요");
-            } else {
-                int spawned = 0;
-                switch (selectedMob_) {
-                case 0:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::ROTOR,
-                                                    spawnCount_);
-                    break;
-                case 1:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::GENESIS,
-                                                    spawnCount_);
-                    break;
-                case 2:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::SWARM,
-                                                    spawnCount_);
-                    break;
-                case 3:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::GRAVIS,
-                                                    spawnCount_);
-                    break;
-                case 4:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::QUASAR,
-                                                    spawnCount_);
-                    break;
-                case 5:
-                    if (context_.spawnRanged)
-                        spawned = context_.spawnRanged(spawnCount_);
-                    break;
-                case 6:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::GIMBAL,
-                                                    spawnCount_);
-                    break;
-                case 7:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::REGULUS,
-                                                    spawnCount_);
-                    break;
-                case 8:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::ANTARES,
-                                                    spawnCount_);
-                    break;
-                case 9:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::MAGNETAR,
-                                                    spawnCount_);
-                    break;
-                case 13:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::LYNX,
-                                                    spawnCount_);
-                    break;
-                case 14:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::MIRA,
-                                                    spawnCount_);
-                    break;
-                case 15:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::TRIANGULUM,
-                                                    spawnCount_);
-                    break;
-                case 18:
-                    if (context_.spawnMob)
-                        spawned = context_.spawnMob((int)MobKind::HOROLOGIUM,
-                                                    spawnCount_);
-                    break;
-                case 10:
-                    if (context_.spawnBoss) spawned = context_.spawnBoss(0);
-                    break;
-                case 12:
-                    if (context_.spawnBoss) spawned = context_.spawnBoss(1);
-                    break;
-                case 16:
-                    if (context_.spawnDummy) spawned = context_.spawnDummy(spawnCount_);
-                    break;
-                case 17: {
-                    const int removed = context_.clearDummies ? context_.clearDummies() : 0;
-                    SetMessage(removed > 0 ? L"허수아비를 모두 제거했습니다 x" + FormatInt(removed)
-                                           : L"제거할 허수아비가 없습니다");
-                    return true;
-                }
-                case 11:
-                    if (context_.openTestPane && context_.openTestPane()) {
-                        SetMessage(L"테스트 창을 열었습니다");
-                        return true;
-                    }
-                    SetMessage(L"테스트 창을 열 수 없습니다");
-                    return true;
-                }
-                if (spawned <= 0) {
-                    SetMessage(selectedMob_ >= 10 && selectedMob_ <= 12
-                        ? L"소환 실패: 보스가 이미 필드에 있거나 게임이 진행 중이 아닙니다"
-                        : L"소환 실패: 몬스터 수용 한도에 도달했습니다");
-                    return true;
-                }
-                std::wstring message = L"소환 완료: ";
-                message += MobLabel(selectedMob_);
-                message += L" x";
-                message += FormatInt(spawned);
-                SetMessage(message);
-            }
-        }
-    } else if (click && tab_ == 2) {
-        if (Hit(p.x + 16.0f, p.y + CAPTURE_CURRENT_Y,
-                p.w - 32.0f, 42.0f, mx, my)) {
-            RequestCurrentScreenshot();
-        } else if (Hit(p.x + 16.0f, p.y + CAPTURE_ALL_Y,
-                       p.w - 32.0f, 42.0f, mx, my)) {
-            RequestAllScreenshots();
-        } else {
-            const float bw = (p.w - 32.0f - 3.0f * 8.0f) / 4.0f;
-            for (int s = 0; s < 4; ++s) {
-                if (Hit(p.x + 16.0f + s * (bw + 8.0f), p.y + TITLE_STYLE_Y,
-                        bw, 34.0f, mx, my)) {
-                    g_TitleStyle = s;
-                    static const wchar_t* const kMsg[4] = {
-                        L"타이틀: 별자리 선 로고", L"타이틀: 곡선 필기체 (A)",
-                        L"타이틀: 뾰족 필기체 (B)", L"타이틀: 기본 폰트" };
-                    SetMessage(kMsg[s]);
-                }
-            }
-        }
-    } else if (click && tab_ == 3) {
-        const auto& filters = AugmentFilters();
-        const float fw = AugmentFilterWidth(p.w);
-        bool rowClick = true;
-        const float sx = p.x + AugSearchX(p.w);
-        const float sy = p.y + AUG_SEARCH_Y;
-        if (Hit(sx, sy, AUG_SEARCH_W, AUG_SEARCH_H, mx, my)) {
-            if (!augSearch_.empty() &&
-                Hit(sx + AUG_SEARCH_W - AUG_SEARCH_CLEAR_W, sy,
-                    AUG_SEARCH_CLEAR_W, AUG_SEARCH_H, mx, my)) {
-                augSearch_.clear();
-                augSearchComp_.clear();
-            }
-            augSearchFocus_ = true;
-            lastMessage_.clear();
-            rowClick = false;
-        } else if (!tabClicked) {
-            augSearchFocus_ = false;   // text stays; only the focus goes
-        }
-        for (size_t i = 0; rowClick && i < filters.size(); ++i) {
-            if (Hit(p.x + 16.0f + i * (fw + 6.0f), p.y + AUG_FILTER_Y,
-                    fw, AUG_FILTER_H, mx, my)) {
-                if (augFilter_ != filters[i]) { augFilter_ = filters[i]; augOffset_ = 0; }
-                lastMessage_.clear();
-                rowClick = false;
-                break;
-            }
-        }
-        const auto& list = AugVisibleList();
-        const int rows = AugmentVisibleRows(p.h);
-        for (int row = 0; rowClick && row < rows; ++row) {
-            const int idx = augOffset_ + row;
-            if (idx >= (int)list.size()) break;
-            if (!Hit(p.x + 16.0f, p.y + AUG_ROWS_Y + row * AUG_ROW_H,
-                     p.w - 32.0f, AUG_ROW_H - 3.0f, mx, my)) continue;
-            ClickAugmentFromConsole(list[(size_t)idx], false);
-            break;
-        }
-    }
-
-    // Right click on a row: take one copy back.
-    static bool rmbPrev = false;
-    const bool rmb = window && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-    if (rmb && !rmbPrev && tab_ == 3) {
-        const auto& list = AugVisibleList();
-        const int rows = AugmentVisibleRows(p.h);
-        for (int row = 0; row < rows; ++row) {
-            const int idx = augOffset_ + row;
-            if (idx >= (int)list.size()) break;
-            if (!Hit(p.x + 16.0f, p.y + AUG_ROWS_Y + row * AUG_ROW_H,
-                     p.w - 32.0f, AUG_ROW_H - 3.0f, mx, my)) continue;
-            ClickAugmentFromConsole(list[(size_t)idx], true);
-            break;
-        }
-    }
-    rmbPrev = rmb;
+    DebugUI ui;
+    ui.pass = DebugUI::Pass::Input;
+    ui.mx = lastMx_;
+    ui.my = lastMy_;
+    ui.click = click;
+    ui.rclick = rclick;
+    ui.scroll = overPanel ? g_ScrollAccum : 0.0f;
+    RunUI(ui, screenW, screenH, context_.game ? context_.game->currentState
+                                              : GameState::MAIN_MENU);
+    if (overPanel) g_ScrollAccum = 0.0f;
 
     HandleNumericKeys(window);
-    return true;
+    if (!visible_) {   // closed from the panel
+        inputCaptured_ = false;
+        return true;
+    }
+    inputCaptured_ = pauseGame_ || overPanel || editing_ ||
+                     textFocus_ != TextFocus::None || viewer_ >= 0 || armedMob_ >= 0;
+    return inputCaptured_;
 }
 
-void DebugToolkit::DrawButton(float x, float y, float w, float h,
-                              const wchar_t* label, bool selected,
-                              bool enabled) const {
-    const float r = enabled ? (selected ? 0.22f : 0.06f) : 0.025f;
-    const float g = enabled ? (selected ? 0.70f : 0.16f) : 0.05f;
-    const float b = enabled ? (selected ? 0.95f : 0.24f) : 0.08f;
-    const float a = enabled ? 0.82f : 0.35f;
-    BindMainShader();
-    drawRect(x, y, w, h, r * 0.35f, g * 0.35f, b * 0.35f, a);
-    drawConstellFrame(x, y, w, h, r + 0.1f, g + 0.1f, b + 0.1f,
-                      selected ? 0.95f : 0.48f, 9.0f, 3.0f);
-    if (label) {
-        float textScale = 0.58f;
-        float tw = g_TextS.Width(label, textScale);
-        const float maxWidth = std::max(12.0f, w - 18.0f);
-        if (tw > maxWidth)
-            textScale *= maxWidth / tw;
-        tw = g_TextS.Width(label, textScale);
-        const float textH = g_TextS.Height(label, textScale);
-        const float textY = y + std::max(3.0f, (h - textH) * 0.5f);
-        g_TextS.Draw(label, x + (w - tw) * 0.5f, textY, textScale,
-                     enabled ? 0.82f : 0.45f,
-                     enabled ? 0.94f : 0.50f,
-                     enabled ? 1.0f : 0.58f,
-                     enabled ? 0.95f : 0.58f);
-    }
-}
-
-void DebugToolkit::RenderStatsTab(float x, float y, float w, float h,
-                                  float /*mouseX*/, float /*mouseY*/,
-                                  bool /*click*/) {
-    if (!context_.stats || !context_.game) return;
-    std::wstring hp = L"체력 " + FormatFloat(context_.game->playerHP);
-    std::wstring level = L"레벨 " + FormatInt(context_.game->playerLevel);
-    std::wstring xp = L"경험치 " + FormatLongLong(context_.game->xp);
-    std::wstring score = L"점수 " + FormatLongLong(context_.game->score);
-    const std::wstring runtimeValues[] = { hp, level, xp, score };
-
-    g_TextS.Draw(L"런타임 값", x + 20.0f, y + CONTENT_Y, 0.55f,
-                 0.70f, 0.90f, 1.0f, 0.94f);
-    for (int runtime = 0; runtime < 4; ++runtime) {
-        const float rx = x + 16.0f +
-                         runtime * (STATS_RUNTIME_W + STATS_RUNTIME_GAP);
-        DrawButton(rx, y + STATS_RUNTIME_Y, STATS_RUNTIME_W, 34.0f,
-                   runtimeValues[runtime].c_str(), editingRuntime_ == runtime,
-                   true);
-    }
-
-    std::wstring editTarget;
-    if (editingRuntime_ == 0) editTarget = L"체력";
-    else if (editingRuntime_ == 1) editTarget = L"레벨";
-    else if (editingRuntime_ == 2) editTarget = L"경험치";
-    else if (editingRuntime_ == 3) editTarget = L"점수";
-    else if (selectedField_ >= 0 && selectedField_ < (int)Fields().size())
-        editTarget = Fields()[(size_t)selectedField_].name;
-
-    if (editing_) {
-        std::wstring status = L"수정 중 ";
-        status += editTarget.empty() ? L"값" : editTarget;
-        status += L"  >  ";
-        status += editBuffer_.empty() ? L"<비어 있음>" : editBuffer_;
-        g_TextS.Draw(status.c_str(), x + 20.0f, y + STATS_STATUS_Y, 0.48f,
-                     1.0f, 0.84f, 0.32f, 0.96f);
-    } else {
-        g_TextS.Draw(lastMessage_.empty() ? L"수정할 값을 선택하세요" : lastMessage_.c_str(),
-                     x + 20.0f, y + STATS_STATUS_Y,
-                     0.48f, 0.56f, 0.76f, 0.88f, 0.86f);
-    }
-    g_TextS.Draw(L"CTRL+A 전체 삭제   BACKSPACE 지우기   ENTER 적용   ESC 취소",
-                 x + 20.0f, y + STATS_HELP_Y, 0.42f,
-                 0.48f, 0.64f, 0.76f, 0.84f);
-    DrawButton(x + w - STATS_CLEAR_W - 16.0f, y + STATS_CLEAR_Y,
-               STATS_CLEAR_W, 26.0f, L"지우기", false, editing_);
-
-    const float rowsY = y + STATS_ROWS_Y;
-    const int visibleRows = std::max(1, (int)((h - 340.0f) / ROW_H));
-    const auto& fields = Fields();
-    const int maxOffset = std::max(0, (int)fields.size() - visibleRows);
-    fieldOffset_ = std::max(0, std::min(maxOffset, fieldOffset_));
-    for (int row = 0; row < visibleRows; ++row) {
-        const int index = fieldOffset_ + row;
-        if (index >= (int)fields.size()) break;
-        const Field& field = fields[(size_t)index];
-        const float ry = rowsY + row * ROW_H;
-        const bool selected = selectedField_ == index;
+void DebugToolkit::RunUI(DebugUI& ui, float screenW, float screenH, GameState scene) {
+    const PanelLayout p = GetPanelLayout(screenW, screenH, collapsed_);
+    using namespace debugui_style;
+    if (ui.Drawing()) {
         BindMainShader();
-        drawRect(x + 16.0f, ry, w - 32.0f, ROW_H - 3.0f,
-                 selected ? 0.06f : 0.018f,
-                 selected ? 0.18f : 0.032f,
-                 selected ? 0.25f : 0.055f,
-                 selected ? 0.90f : 0.72f);
-        g_TextS.Draw(field.name, x + 28.0f, ry + 6.0f, 0.52f,
-                     0.80f, 0.88f, 0.98f, 0.92f);
-        g_TextS.Draw(FieldTypeLabel(field.type), x + w - 166.0f, ry + 7.0f,
-                     0.42f, 0.45f, 0.65f, 0.78f, 0.78f);
-
-        const char* raw = reinterpret_cast<const char*>(context_.stats);
-        const void* ptr = raw + field.offset;
-        std::wstring value;
-        if (editing_ && selectedField_ == index)
-            value = editBuffer_.empty() ? L"<입력>" : editBuffer_;
-        else if (field.type == FieldType::Float)
-            value = FormatFloat(*reinterpret_cast<const float*>(ptr));
-        else if (field.type == FieldType::Int)
-            value = FormatInt(*reinterpret_cast<const int*>(ptr));
-        else if (field.type == FieldType::LongLong)
-            value = FormatLongLong(*reinterpret_cast<const long long*>(ptr));
-        else
-            value = *reinterpret_cast<const bool*>(ptr) ? L"켜짐" : L"꺼짐";
-        g_TextS.Draw(value.c_str(), x + w - 108.0f, ry + 6.0f, 0.52f,
-                     selected ? 1.0f : 0.78f,
-                     selected ? 0.90f : 0.84f,
-                     selected ? 0.42f : 0.92f, 0.96f);
+        drawRect(p.x, p.y, p.w, p.h, 0.075f, 0.080f, 0.090f, 0.97f);
+        if (!collapsed_)
+            drawRect(p.x + RAIL_W, p.y, 1.0f, p.h, kLine.r, kLine.g, kLine.b, 1.0f);
+        ui.Frame({ p.x, p.y, p.w, p.h }, kLine.r, kLine.g, kLine.b, 1.0f);
     }
 
-    const float footerY = y + h - FOOTER_BOTTOM;
-    auto drawFooter = [&](int index, const wchar_t* label, bool selected, bool enabled) {
-        DrawButton(FooterButtonX(x, index), FooterButtonY(footerY, index),
-                   FOOTER_BUTTON_W[index], FOOTER_BUTTON_H, label, selected, enabled);
-    };
-    const bool balanceActive = context_.balanceTestMode &&
-                               *context_.balanceTestMode;
-    const bool hitStopActive = context_.eliteKillHitStop && *context_.eliteKillHitStop;
-    const bool orbitActive = context_.constellationOrbits && *context_.constellationOrbits;
-    drawFooter(FOOTER_SYNC, L"런타임 동기화", false, true);
-    drawFooter(FOOTER_BALANCE, balanceActive ? L"밸런스: 켜짐" : L"밸런스: 꺼짐",
-               balanceActive, context_.balanceTestMode != nullptr);
-    drawFooter(FOOTER_HITSTOP, hitStopActive ? L"히트스톱: 켜짐" : L"히트스톱: 꺼짐",
-               hitStopActive, context_.eliteKillHitStop != nullptr);
-    drawFooter(FOOTER_NEXT_WAVE, L"다음 웨이브", false,
-               context_.advanceWave && context_.game->currentState == GameState::RUNNING);
-    drawFooter(FOOTER_KILL, L"즉사", false,
-               context_.killPlayer && context_.game->currentState == GameState::RUNNING);
-    drawFooter(FOOTER_ORBIT, orbitActive ? L"궤도: 켜짐" : L"궤도: 꺼짐",
-               orbitActive, context_.constellationOrbits != nullptr);
-    wchar_t page[64] = {};
-    std::swprintf(page, sizeof(page) / sizeof(page[0]),
-                  L"필드 %d-%d / %d", fieldOffset_ + 1,
-                  std::min(fieldOffset_ + visibleRows, (int)fields.size()),
-                  (int)fields.size());
-    g_TextS.Draw(page, x + w - 190.0f, y + h - 76.0f - FOOTER_ROW2_LIFT, 0.46f,
-                 0.52f, 0.68f, 0.78f, 0.78f);
-}
-
-void DebugToolkit::RenderSpawnTab(float x, float y, float w, float h,
-                                  float /*mouseX*/, float /*mouseY*/,
-                                  bool /*click*/) {
-    wchar_t count[64] = {};
-    std::swprintf(count, sizeof(count) / sizeof(count[0]),
-                  L"수량  %d", spawnCount_);
-    g_TextS.Draw(L"소환 설정", x + 20.0f, y + CONTENT_Y, 0.55f,
-                 0.70f, 0.94f, 1.0f, 0.94f);
-    DrawButton(x + 16.0f, y + SPAWN_COUNT_Y, 44.0f, 32.0f,
-               L"-", false, true);
-    DrawButton(x + 66.0f, y + SPAWN_COUNT_Y, 54.0f, 32.0f,
-               count, false, true);
-    DrawButton(x + 126.0f, y + SPAWN_COUNT_Y, 44.0f, 32.0f,
-               L"+", false, true);
-    const std::wstring target = selectedMob_ >= 0
-        ? std::wstring(L"대상  ") + MobLabel(selectedMob_)
-        : L"대상  <없음>";
-    g_TextS.Draw(target.c_str(), x + 204.0f, y + SPAWN_COUNT_Y + 7.0f,
-                 0.50f, 0.98f, 0.86f, 0.34f, 0.94f);
-    g_TextS.Draw(L"아레나 가장자리에서 소환됩니다. 기존 제한은 유지됩니다.",
-                 x + 204.0f, y + SPAWN_COUNT_Y + 22.0f, 0.40f,
-                 0.50f, 0.68f, 0.80f, 0.82f);
-
-    const float buttonY = y + SPAWN_GRID_Y;
-    const float buttonH = SpawnButtonHeight(h);
-    const float rowStep = SpawnGridStep(h);
-    const float buttonW = (w - 48.0f) * 0.5f;
-    const float gap = 16.0f;
+    // Tab rail.
     {
-        static const wchar_t* const kCategory[4] = { L"일반", L"엘리트", L"보스", L"테스트" };
-        const float catW = (w - 32.0f - 3.0f * 8.0f) / 4.0f;
-        for (int c = 0; c < 4; ++c)
-            DrawButton(x + 16.0f + c * (catW + 8.0f), y + SPAWN_CATEGORY_Y, catW, 32.0f,
-                       kCategory[c], spawnCategory_ == c, true);
-    }
-    const int* ids = nullptr;
-    const int entryCount = SpawnEntries(spawnCategory_, ids);
-    for (int slot = 0; slot < entryCount; ++slot) {
-        const int col = slot & 1;
-        const int row = slot / 2;
-        const float bx = x + 16.0f + col * (buttonW + gap);
-        const float by = buttonY + row * rowStep;
-        DrawButton(bx, by, buttonW, buttonH, MobLabel(ids[slot]),
-                   selectedMob_ == ids[slot], true);
-    }
-    const bool bossPick = selectedMob_ >= 10 && selectedMob_ <= 12;
-    const std::wstring summonLabel = selectedMob_ >= 0
-        ? (selectedMob_ == 11 ? std::wstring(L"열기 ") + MobLabel(selectedMob_)
-           : selectedMob_ == 17 ? std::wstring(MobLabel(selectedMob_))
-           : bossPick ? std::wstring(L"소환 ") + MobLabel(selectedMob_)
-           : std::wstring(L"소환 ") + MobLabel(selectedMob_) + L"  x" + FormatInt(spawnCount_))
-        : L"소환할 대상을 선택하세요";
-    DrawButton(x + 16.0f, y + h - SPAWN_ACTION_BOTTOM, w - 32.0f,
-               38.0f, summonLabel.c_str(), false, selectedMob_ >= 0);
-    g_TextS.Draw(L"대상 선택  >  수량 설정  >  소환 클릭",
-                 x + 20.0f, y + h - 16.0f, 0.42f,
-                 0.52f, 0.68f, 0.80f, 0.84f);
-}
-
-void DebugToolkit::RenderAugmentTab(float x, float y, float w, float h) {
-    const auto& list = AugVisibleList();
-    const int rows = AugmentVisibleRows(h);
-    const int maxOffset = std::max(0, (int)list.size() - rows);
-    augOffset_ = std::max(0, std::min(maxOffset, augOffset_));
-    const std::wstring query = AugSearchQuery();
-
-    g_TextS.Draw(L"증강 선택", x + 20.0f, y + CONTENT_Y, 0.55f,
-                 0.70f, 0.94f, 1.0f, 0.94f);
-    g_TextS.Draw(L"클릭 = 획득/해제  |  휠 = 스크롤", x + 150.0f, y + CONTENT_Y + 3.0f,
-                 0.42f, 0.52f, 0.68f, 0.80f, 0.84f);
-
-    // Search box: thin constellation frame only (no plate), like the buttons.
-    {
-        const float sx = x + AugSearchX(w);
-        const float sy = y + AUG_SEARCH_Y;
-        const bool focus = augSearchFocus_;
-        BindMainShader();
-        drawConstellFrame(sx, sy, AUG_SEARCH_W, AUG_SEARCH_H,
-                          focus ? 0.45f : 0.22f, focus ? 0.85f : 0.40f, focus ? 1.0f : 0.55f,
-                          focus ? 0.95f : 0.55f, 9.0f, 3.0f);
-        const float ts = 0.46f;
-        const float tx = sx + 10.0f;
-        const float textMaxW = AUG_SEARCH_W - 20.0f - AUG_SEARCH_CLEAR_W;
-        float th = g_TextS.Height(L"Ag", ts);
-        const float ty = sy + std::max(3.0f, (AUG_SEARCH_H - th) * 0.5f);
-        if (query.empty()) {
-            g_TextS.Draw(L"검색 (이름·설명)", tx, ty, ts, 0.42f, 0.52f, 0.62f,
-                         focus ? 0.70f : 0.55f);
-        } else {
-            // Long queries keep their tail visible.
-            std::wstring shown = query;
-            while (shown.size() > 1 && g_TextS.Width(shown.c_str(), ts) > textMaxW)
-                shown.erase(shown.begin());
-            g_TextS.Draw(shown.c_str(), tx, ty, ts, 0.86f, 0.94f, 1.0f, 0.96f);
-            if (!augSearchComp_.empty()) {
-                // Underline the IME preedit part.
-                const std::wstring done = shown.size() > augSearchComp_.size()
-                    ? shown.substr(0, shown.size() - augSearchComp_.size()) : L"";
-                const float ux = tx + g_TextS.Width(done.c_str(), ts);
-                const float uw = g_TextS.Width(shown.c_str(), ts) - (ux - tx);
-                BindMainShader();
-                drawRect(ux, ty + th + 1.0f, uw, 1.5f, 0.70f, 0.90f, 1.0f, 0.85f);
+        const float rx = p.x + 9.0f, rw = RAIL_W - 18.0f;
+        if (ui.Button({ rx, p.y + 12.0f, rw, 30.0f }, collapsed_ ? L"<<" : L">>")) {
+            collapsed_ = !collapsed_;
+            return;
+        }
+        static const wchar_t* const kTabs[] = { L"소환", L"증강", L"능력치", L"스모크" };
+        float ty = p.y + 58.0f;
+        for (int t = 0; t < (int)Tab::Count; ++t) {
+            const Tab tab = (Tab)t;
+            if (ui.Button({ rx, ty, rw, 52.0f }, kTabs[t], !collapsed_ && tab_ == tab,
+                          true, nullptr, 0.48f)) {
+                if (tab_ != tab) {
+                    tab_ = tab;
+                    armedMob_ = -1;
+                    ResetTransientInput();
+                    textFocus_ = tab == Tab::Augment ? TextFocus::AugSearch : TextFocus::None;
+                    textComp_.clear();
+                    lastMessage_.clear();
+                }
+                collapsed_ = false;
+                return;
             }
-            g_TextS.Draw(L"X", sx + AUG_SEARCH_W - AUG_SEARCH_CLEAR_W + 7.0f, ty, ts,
-                         0.60f, 0.72f, 0.82f, 0.85f);
+            ty += 60.0f;
         }
-        if (focus) {
-            std::wstring shown = augSearch_;
-            while (shown.size() > 1 && g_TextS.Width((shown + augSearchComp_).c_str(), ts) > textMaxW)
-                shown.erase(shown.begin());
-            const float caretX = tx + g_TextS.Width(shown.c_str(), ts);
-            const float fullX = tx + g_TextS.Width((shown + augSearchComp_).c_str(), ts);
-            const bool blinkOn = std::fmod((float)glfwGetTime(), 1.0f) < 0.55f;
-            if (blinkOn && augSearchComp_.empty()) {
-                BindMainShader();
-                drawRect(caretX + 1.0f, ty, 1.5f, th, 0.80f, 0.94f, 1.0f, 0.90f);
-            }
-            InputSetCodexImeAnchor(caretX, fullX, ty, th);
+        static const DebugColor kPause{ 1.0f, 0.80f, 0.40f };
+        if (ui.Button({ rx, p.y + p.h - 96.0f, rw, 40.0f },
+                      pauseGame_ ? L"멈춤" : L"진행", pauseGame_, true, &kPause, 0.46f)) {
+            pauseGame_ = !pauseGame_;
+            SetMessage(pauseGame_ ? L"콘솔을 여는 동안 게임이 멈춥니다"
+                                  : L"콘솔을 연 채로 게임이 진행됩니다 (패널 위 입력만 막음)");
+        }
+        if (ui.Button({ rx, p.y + p.h - 48.0f, rw, 36.0f }, L"닫기", false, true, nullptr, 0.46f)) {
+            SetVisible(false);
+            return;
         }
     }
+    if (collapsed_) return;
 
-    // Category filter row.
-    const auto& filters = AugmentFilters();
-    const float fw = AugmentFilterWidth(w);
-    for (size_t i = 0; i < filters.size(); ++i) {
-        const int f = filters[i];
-        wchar_t label[48] = {};
-        std::swprintf(label, sizeof(label) / sizeof(label[0]), L"%ls %d",
-                      f == 0 ? L"전체" : AugCategoryLabel(f - 1),
-                      (int)AugmentList(f).size());
-        DrawButton(x + 16.0f + i * (fw + 6.0f), y + AUG_FILTER_Y, fw, AUG_FILTER_H,
-                   label, augFilter_ == f, true);
+    // Header.
+    const float cx = p.x + RAIL_W + 14.0f;
+    const float cw = p.w - RAIL_W - 30.0f;
+    if (ui.Drawing()) {
+        g_TextS.Draw(L"디버그 도구", cx, p.y + 14.0f, 0.62f, kText.r, kText.g, kText.b, 1.0f);
+        const wchar_t* sceneName = SceneLabel(scene);
+        const float sw = g_TextS.Width(sceneName, 0.46f);
+        g_TextS.Draw(sceneName, cx + cw - sw, p.y + 17.0f, 0.46f,
+                     kTextDim.r, kTextDim.g, kTextDim.b, 1.0f);
+        g_TextS.Draw(L"F1 닫기 · F12 캡처 · 휠 스크롤", cx, p.y + 44.0f, 0.42f,
+                     kTextDim.r, kTextDim.g, kTextDim.b, 0.90f);
     }
 
-    std::wstring status;
-    if (!lastMessage_.empty()) status = lastMessage_;
-    else if (!query.empty() && list.empty())
-        status = L"'" + query + L"' 에 맞는 증강이 없습니다";
-    else if (!query.empty())
-        status = L"'" + query + L"' 검색 결과 " + std::to_wstring(list.size()) +
-                 L"개" + (list.size() == 1 ? L"  |  ENTER = 획득" : L"");
-    else if (augFilter_ > 0) status = AugCategoryHint(augFilter_ - 1);
-    else status = L"우클릭 = 1장 빼기  |  분류 버튼이나 검색창으로 걸러 볼 수 있습니다";
-    g_TextS.Draw(status.c_str(), x + 20.0f, y + AUG_STATUS_Y, 0.46f,
-                 0.56f, 0.76f, 0.88f, 0.86f);
+    // Content (page-scrolled, rows outside the area are skipped).
+    const float top = p.y + HEADER_H;
+    const float bottom = p.y + p.h - FOOTER_H;
+    const size_t ti = (size_t)tab_;
+    float& scroll = pageScroll_[ti];
+    if (tab_ == Tab::Augment) scroll = 0.0f;   // its list scrolls itself
+    ui.left = cx;
+    ui.width = cw;
+    ui.clipTop = top;
+    ui.clipBottom = bottom;
+    ui.y = top - scroll;
+    switch (tab_) {
+    case Tab::Spawn:   TabSpawn(ui); break;
+    case Tab::Augment: TabAugment(ui, bottom); break;
+    case Tab::Stats:   TabStats(ui); break;
+    case Tab::Smoke:   TabSmoke(ui); break;
+    default: break;
+    }
+    if (!visible_) return;
+    pageContentH_[ti] = ui.y + scroll - top;
+    const float maxScroll = std::max(0.0f, pageContentH_[ti] - (bottom - top));
+    if (ui.pass == DebugUI::Pass::Input && ui.scroll != 0.0f &&
+        ui.Hover({ cx, top, cw, bottom - top })) {
+        scroll -= ui.scroll * 48.0f;
+        ui.scroll = 0.0f;
+    }
+    scroll = std::max(0.0f, std::min(maxScroll, scroll));
 
-    const float descMaxW = w - 32.0f - 28.0f;
-    for (int row = 0; row < rows; ++row) {
-        const int idx = augOffset_ + row;
-        if (idx >= (int)list.size()) break;
-        const int aug = list[(size_t)idx];
-        const AugDef& d = ALL_AUGS[aug];
-        const int cat = AugCategory(aug);
-        const float ry = y + AUG_ROWS_Y + row * AUG_ROW_H;
-        const int owned = passive::HeldCount(aug);
-        // Held cards stay bright (a click switches them OFF); dim = cannot be taken now.
-        const bool offerable = passive::CanOffer(aug) || owned > 0;
-        float cr = 1, cg = 1, cb = 1;
-        GetRarityColor(d.rarity, cr, cg, cb);
-        float kr = 1, kg = 1, kb = 1;
-        AugCategoryColor(cat, kr, kg, kb);
+    // Footer: the latest message, or the number being typed.
+    if (ui.Drawing()) {
         BindMainShader();
-        drawRect(x + 16.0f, ry, w - 32.0f, AUG_ROW_H - 3.0f,
-                 0.018f, 0.032f, 0.055f, 0.72f);
-        drawRect(x + 16.0f, ry, 4.0f, AUG_ROW_H - 3.0f, cr, cg, cb, offerable ? 0.95f : 0.35f);
-        const float a = offerable ? 0.95f : 0.45f;
-
-        // Line 1: [category] name ... rarity, owned count.
-        std::wstring tag = L"[";
-        tag += AugCategoryLabel(cat);
-        tag += L"]";
-        g_TextS.Draw(tag.c_str(), x + 30.0f, ry + 5.0f, 0.44f, kr, kg, kb, a);
-        const float nameX = x + 30.0f + std::max(70.0f, g_TextS.Width(tag.c_str(), 0.44f) + 8.0f);
-        g_TextS.Draw(AugName(d), nameX, ry + 4.0f, 0.50f, 0.86f, 0.92f, 1.0f, a);
-        if (d.stackable && cat != AC_STAT)
-            g_TextS.Draw(L"중복", nameX + g_TextS.Width(AugName(d), 0.50f) + 8.0f,
-                         ry + 6.0f, 0.38f, 0.60f, 0.72f, 0.80f, a);
-        g_TextS.Draw(GetRarityLabel(d.rarity), x + w - 190.0f, ry + 5.0f, 0.42f,
-                     std::min(1.0f, cr + 0.25f), std::min(1.0f, cg + 0.25f),
-                     std::min(1.0f, cb + 0.25f), a);
-        if (owned > 0) {
-            wchar_t buf[32] = {};
-            std::swprintf(buf, sizeof(buf) / sizeof(buf[0]), L"보유 x%d", owned);
-            g_TextS.Draw(buf, x + w - 110.0f, ry + 5.0f, 0.42f,
-                         1.0f, 0.88f, 0.42f, 0.95f);
+        drawRect(cx, bottom + 2.0f, cw, 1.0f, kLine.r, kLine.g, kLine.b, 1.0f);
+        if (maxScroll > 0.0f) {
+            const float trackH = bottom - top;
+            const float thumbH = std::max(24.0f, trackH * trackH / pageContentH_[ti]);
+            const float t = scroll / maxScroll;
+            drawRect(cx + cw + 7.0f, top, 3.0f, trackH, kFill.r, kFill.g, kFill.b, 1.0f);
+            drawRect(cx + cw + 7.0f, top + (trackH - thumbH) * t, 3.0f, thumbH,
+                     kTextDim.r, kTextDim.g, kTextDim.b, 1.0f);
         }
-
-        // Line 2: card description, cut to the row width.
-        const std::wstring desc = FitText(AugDesc(d), 0.40f, descMaxW);
-        g_TextS.Draw(desc.c_str(), x + 30.0f, ry + 24.0f, 0.40f,
-                     0.62f, 0.72f, 0.82f, a * 0.92f);
+        std::wstring footer = lastMessage_;
+        DebugColor fc = kText;
+        if (editing_) {
+            footer = L"입력 중  " + (editBuffer_.empty() ? std::wstring(L"_") : editBuffer_) +
+                     L"   ENTER 적용 · ESC 취소 · BACKSPACE 지우기";
+            fc = { 1.0f, 0.85f, 0.45f };
+        }
+        if (!footer.empty()) {
+            const std::wstring t = DebugFitText(footer.c_str(), 0.46f, cw);
+            g_TextS.Draw(t.c_str(), cx, bottom + 9.0f, 0.46f, fc.r, fc.g, fc.b, 1.0f);
+        }
     }
-    wchar_t page[64] = {};
-    std::swprintf(page, sizeof(page) / sizeof(page[0]), L"증강 %d-%d / %d",
-                  list.empty() ? 0 : augOffset_ + 1,
-                  std::min(augOffset_ + rows, (int)list.size()), (int)list.size());
-    g_TextS.Draw(page, x + w - 190.0f, y + h - 22.0f, 0.46f,
-                 0.52f, 0.68f, 0.78f, 0.78f);
-}
-
-void DebugToolkit::RenderCaptureTab(float x, float y, float w, float h,
-                                    float /*mouseX*/, float /*mouseY*/,
-                                    bool /*click*/) {
-    g_TextS.Draw(L"스크린샷 출력", x + 20.0f, y + CONTENT_Y, 0.55f,
-                 0.70f, 0.94f, 1.0f, 0.94f);
-    DrawButton(x + 16.0f, y + CAPTURE_CURRENT_Y, w - 32.0f, 42.0f,
-               L"현재 장면 캡처  [F12]", false, !captureActive_);
-    DrawButton(x + 16.0f, y + CAPTURE_ALL_Y, w - 32.0f, 42.0f,
-               L"모든 장면 캡처", false, !captureActive_);
-    g_TextS.Draw(L"출력  ./Screenshots/*.png", x + 20.0f, y + 248.0f,
-                 0.46f, 0.62f, 0.80f, 0.92f, 0.86f);
-    if (captureActive_) {
-        wchar_t progress[96] = {};
-        std::swprintf(progress, sizeof(progress) / sizeof(progress[0]),
-                      L"캡처 중 %d / %d",
-                      (int)captureIndex_ + 1, (int)CaptureStates().size());
-        g_TextS.Draw(progress, x + 20.0f, y + 282.0f, 0.54f,
-                     1.0f, 0.84f, 0.30f, 0.96f);
-    } else {
-        g_TextS.Draw(L"플레이 상태를 변경하지 않고 각 장면을 렌더링합니다.",
-                     x + 20.0f, y + 282.0f, 0.42f,
-                     0.52f, 0.68f, 0.80f, 0.84f);
-    }
-    g_TextS.Draw(L"타이틀 로고", x + 20.0f, y + TITLE_STYLE_Y - 30.0f, 0.55f,
-                 0.70f, 0.94f, 1.0f, 0.94f);
-    static const wchar_t* const kStyle[4] = { L"별자리 선", L"곡선 (A)", L"뾰족 (B)", L"기본 폰트" };
-    const float bw = (w - 32.0f - 3.0f * 8.0f) / 4.0f;
-    for (int s = 0; s < 4; ++s)
-        DrawButton(x + 16.0f + s * (bw + 8.0f), y + TITLE_STYLE_Y, bw, 34.0f,
-                   kStyle[s], g_TitleStyle == s, true);
-    if (!lastMessage_.empty())
-        g_TextS.Draw(lastMessage_.c_str(), x + 20.0f, y + h - 42.0f,
-                     0.46f, 0.55f, 0.86f, 0.98f, 0.92f);
 }
 
 void DebugToolkit::Render(float screenW, float screenH, GameState sceneState) {
     if (!configured_ || !g_DebugMode || !visible_ || SuppressOverlayForCapture())
         return;
-
-    const PanelLayout p = GetPanelLayout(screenW, screenH);
     const float oldAlpha = g_BatchAlpha;
     g_BatchAlpha = 1.0f;
+    if (tab_ == Tab::Smoke) LoadOneThumb();
+    DebugUI ui;
+    ui.pass = DebugUI::Pass::Draw;
+    ui.mx = lastMx_;
+    ui.my = lastMy_;
+    RunUI(ui, screenW, screenH, sceneState);
+    const PanelLayout p = GetPanelLayout(screenW, screenH, collapsed_);
+    if (viewer_ >= 0) DrawViewer(screenW, screenH, p.x);
+    // Armed spawn: a cross and the mob's name follow the pointer on the field.
+    if (armedMob_ >= 0 && lastMx_ < p.x && lastMx_ > -1000.0f) {
+        const float mx = lastMx_, my = lastMy_;
+        BindMainShader();
+        drawRect(mx - 12.0f, my - 1.0f, 24.0f, 2.0f, 0.10f, 0.10f, 0.12f, 0.95f);
+        drawRect(mx - 1.0f, my - 12.0f, 2.0f, 24.0f, 0.10f, 0.10f, 0.12f, 0.95f);
+        std::wstring label = MobLabel(armedMob_);
+        if (spawnCount_ > 1) label += L" x" + std::to_wstring(spawnCount_);
+        const float tw = g_TextS.Width(label.c_str(), 0.48f);
+        const float th = g_TextS.Height(label.c_str(), 0.48f);
+        drawRect(mx + 14.0f, my + 10.0f, tw + 14.0f, th + 10.0f, 0.075f, 0.080f, 0.090f, 0.92f);
+        g_TextS.Draw(label.c_str(), mx + 21.0f, my + 15.0f, 0.48f, 0.95f, 0.95f, 0.96f, 1.0f);
+    }
     BindMainShader();
-    drawRect(p.x - 8.0f, p.y - 8.0f, p.w + 16.0f, p.h + 16.0f,
-             0.005f, 0.012f, 0.025f, 0.82f);
-    drawConstellFrame(p.x - 8.0f, p.y - 8.0f, p.w + 16.0f, p.h + 16.0f,
-                      0.20f, 0.75f, 1.0f, 0.90f, 18.0f, 5.0f);
-    g_TextL.Draw(L"디버그 도구", p.x + 18.0f, p.y + 12.0f, 0.78f,
-                 0.68f, 0.92f, 1.0f, 0.98f);
-    g_TextS.Draw(L"F1 열기/닫기  |  디버그 모드 전용", p.x + 20.0f,
-                 p.y + 43.0f, 0.40f, 0.52f, 0.72f, 0.86f, 0.84f);
-    g_TextS.Draw(SceneLabel(sceneState), p.x + p.w - 178.0f, p.y + 43.0f,
-                 0.40f, 0.55f, 0.74f, 0.88f, 0.84f);
-    DrawButton(p.x + p.w - 52.0f, p.y + 12.0f, 36.0f, 28.0f,
-               L"X", false, true);
-
-    const wchar_t* tabs[] = { L"능력치", L"소환", L"캡처", L"증강" };
-    for (int t = 0; t < 4; ++t)
-        DrawButton(p.x + 16.0f + t * (TAB_W + TAB_GAP),
-                   p.y + TAB_Y, TAB_W, TAB_H, tabs[t], tab_ == t, true);
-
-    if (tab_ == 0) RenderStatsTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
-    else if (tab_ == 1) RenderSpawnTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
-    else if (tab_ == 3) RenderAugmentTab(p.x, p.y, p.w, p.h);
-    else RenderCaptureTab(p.x, p.y, p.w, p.h, 0.0f, 0.0f, false);
     g_BatchAlpha = oldAlpha;
 }
+
+// ── Screenshots ─────────────────────────────────────────────────────────────
 
 void DebugToolkit::RequestCurrentScreenshot() {
     if (!g_DebugMode || captureActive_) return;
@@ -1650,6 +888,8 @@ void DebugToolkit::CaptureFrameAfterRender(int width, int height,
                                 width, height, pixels);
     SetMessage(ok ? L"스크린샷을 저장했습니다" : L"스크린샷 저장에 실패했습니다");
     captureCurrent_ = false;
+    captureKeepOverlay_ = false;
+    thumbsDirty_ = true;
     if (captureActive_) {
         ++captureIndex_;
         if (captureIndex_ >= CaptureStates().size()) {
