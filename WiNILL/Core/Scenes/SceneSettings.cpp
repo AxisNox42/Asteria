@@ -495,7 +495,14 @@ void Scene_SettingsInline(const SceneCtx& c) {
     const float tabG = tab == 0 ? 0.72f : tab == 1 ? 0.72f : tab == 2 ? 0.92f : tab == 3 ? 0.45f : 0.52f;
     const float tabB = tab == 0 ? 1.00f : tab == 1 ? 0.30f : tab == 2 ? 0.55f : tab == 3 ? 0.62f : 1.00f;
 
-    DrawPersistentSceneSideVignettes(sw, sh, kWideSceneLinearAlpha);
+    if (inGameSettings) {
+        // Opened from the pause menu: keep the pause veil exactly as it was
+        // (lobby SETTINGS darkness, live with the MENU DIMMING slider) so the
+        // switch does not flash the play back in.
+        DrawLobbyDimVeil(sw, sh, 1.0f);
+    } else {
+        DrawPersistentSceneSideVignettes(sw, sh, kWideSceneLinearAlpha);
+    }
     {
         const float cW  = detailX + detailW - depthX;
         const float cH  = detailH;

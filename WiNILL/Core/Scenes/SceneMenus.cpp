@@ -105,7 +105,8 @@ static void DrawInfiniteConstellationField(float sw, float sh, float strength);
 // Settings > DISPLAY menu darkness as a multiplier for the menu dim alphas.
 // Only out-of-game screens read it: any in-run state (combat, practice field,
 // pause, card picks) always gets 1.0 here, so the pause veil keeps its fixed
-// look; in-run screens take a fixed 20% of the darkness from main.cpp instead. SETTINGS opened from pause counts as a menu.
+// look; in-run screens take a fixed 20% of the darkness from main.cpp instead. SETTINGS opened from pause counts as
+// in-run too (it draws the pause veil, DrawLobbyDimVeil, which reads the setting directly).
 static float MenuDimScale() {
     // Eased in main.cpp (TickMenuDim): 1.0 in-run, the setting elsewhere.
     return g_MenuDimFactorLive >= 0.0f ? g_MenuDimFactorLive
@@ -222,6 +223,27 @@ void DrawPersistentSceneSideVignettes(float sw, float sh, float alpha) {
     DrawLinearGradient(sw - fieldW, 0.0f, fieldW, sh,
                        theme.Dim.r, theme.Dim.g, theme.Dim.b,
                        fieldA, true);
+}
+
+// The lobby SETTINGS page's darkness (DrawMenuBackground's veils + the paired
+// side fields) at the player's MENU DIMMING value, for in-run overlays such as
+// the pause menu. In-run screens read MenuDimScale() as 1.0, so the setting's
+// factor is taken directly here. `fade` 0..1 eases the whole veil in and out.
+void DrawLobbyDimVeil(float sw, float sh, float fade) {
+    if (fade <= 0.001f) return;
+    BindMainShader();
+    SteadyOrthoScope steady;
+    const float dim = MenuDimFactor(g_MenuDim);
+    if (dim > 1.0f)
+        drawRect(0, 0, sw, sh, 0.0f, 0.0f, 0.0f, 0.14f * (dim - 1.0f) * fade);
+    drawRect(0, 0, sw, sh, 0.04f, 0.06f, 0.14f, std::min(1.0f, 0.16f * dim) * fade);
+    const UiThemePalette& theme = GetUiTheme();
+    const float fieldW = sw * kWideSceneLinearWidth;
+    const float fieldA = std::min(1.0f, kWideSceneLinearAlpha * dim) * fade;
+    DrawLinearGradient(0.0f, 0.0f, fieldW, sh,
+                       theme.Dim.r, theme.Dim.g, theme.Dim.b, fieldA, false);
+    DrawLinearGradient(sw - fieldW, 0.0f, fieldW, sh,
+                       theme.Dim.r, theme.Dim.g, theme.Dim.b, fieldA, true);
 }
 
 void DrawSceneRadialVignette(float cx, float cy, float radius, float alpha) {

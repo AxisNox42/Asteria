@@ -52,6 +52,10 @@ constexpr PauseAction kRunActions[] = {
 constexpr PauseAction kTutorialActions[] = {
     PauseAction::Resume, PauseAction::OpenSettings, PauseAction::MainMenu };
 constexpr int kPauseActionCount = 3;   // most rows any menu has
+constexpr float kPauseVeilInSec = 0.55f;
+// Set when the pause menu hands over to SETTINGS: that page draws the same veil,
+// so the pause menu comes back with the veil already full.
+bool g_PauseVeilKeep = false;
 
 void ApplyPauseAction(PauseAction action, const SceneCtx& scene,
                       const PauseSceneContext& state) {
@@ -61,6 +65,7 @@ void ApplyPauseAction(PauseAction action, const SceneCtx& scene,
         state.resumeState = GameState::RUNNING;
         break;
     case PauseAction::OpenSettings:
+        g_PauseVeilKeep = true;   // settings keeps the veil; coming back must not fade it in again
         state.settingsReturnState = GameState::PAUSED;
         if (state.resetSettingsUi) state.resetSettingsUi(0.0f);
         state.currentState = GameState::SETTINGS;
@@ -99,9 +104,12 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     static int    s_KbFocus = -1;       // keyboard cursor (-1 = pointer only)
     static double s_LastMx = 0.0, s_LastMy = 0.0;
     static run_build::PanelState s_BuildPanel;   // augments taken + stats, right side
+    static float  s_VeilT     = 0.0f;   // dim veil fade-in clock (separate from the menu's)
 
     const double curTime = glfwGetTime();
     if (curTime - s_LastCall > 0.12) {
+        s_VeilT = g_PauseVeilKeep ? kPauseVeilInSec : 0.0f;
+        g_PauseVeilKeep = false;
         s_EntryT = 0.0f;
         for (int i = 0; i < kPauseActionCount; ++i) s_HoverT[i] = 0.0f;
         s_ExitSel = -1;
@@ -112,6 +120,7 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     }
     s_LastCall  = curTime;
     s_EntryT   += delta;
+    s_VeilT    += delta;
     if (s_ExitSel >= 0) {
         s_ExitT += delta;
         if (s_ExitT > 0.65f) s_ExitT = 0.65f;
@@ -128,11 +137,15 @@ void Scene_Paused(const SceneCtx& c, const PauseSceneContext& state) {
     memcpy(g_MainOrtho, g_BaseOrtho, sizeof(g_BaseOrtho));
     BindMainShader();
 
-    // 전체 미세 딤 — 게임 일시정지 인식용
-    drawRect(0, 0, sw, sh, 0.01f, 0.01f, 0.02f, 0.44f * entryFade);
-
-    // 좌측 비네트 — 메인메뉴와 동일 스타일, 패널 없이 어둠으로 가시성 확보
-    DrawSceneLeftVignette(sw, sh, 0.68f * entryFade);
+    // 로비 설정 화면과 같은 딤 (화면 어둡기 설정을 따름). 들어올 때 0.55초에 걸쳐
+    // 부드럽게 깔리고, 계속하기·포기를 고르면 메뉴와 함께 걷힌다. 설정은 같은 딤을
+    // 그대로 이어 그리므로 설정으로 갈 때는 걷지 않는다.
+    {
+        const float inT = std::min(s_VeilT / kPauseVeilInSec, 1.0f);
+        const float veilIn = 1.0f - (1.0f - inT) * (1.0f - inT) * (1.0f - inT);   // ease-out
+        const bool toSettings = exitActive && actions[s_ExitSel] == PauseAction::OpenSettings;
+        DrawLobbyDimVeil(sw, sh, veilIn * (toSettings ? 1.0f : 1.0f - exitP));
+    }
 
     // 레이아웃 — 메인메뉴 기준 좌측 정렬
     const float uiScale = UiScale(sw, sh);

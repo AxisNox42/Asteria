@@ -90,6 +90,7 @@ void LogoLine(float x1, float y1, float x2, float y2,
 // arm = bracket length, th = line thickness, a = alpha.
 void DrawGuideCorners(float x, float y, float w, float h, float arm, float th, float a);
 void DrawPersistentSceneSideVignettes(float sw, float sh, float alpha);
+void DrawLobbyDimVeil(float sw, float sh, float fade);
 void DrawSceneLeftVignette(float sw, float sh, float alpha);
 void DrawSceneRadialVignette(float cx, float cy, float radius, float alpha);
 void DrawSettingsOrbitArc(float cx, float cy, float radiusX, float radiusY,

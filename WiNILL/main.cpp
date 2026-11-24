@@ -7733,7 +7733,9 @@ CollisionSystem::Update(pCX, pCY,
             const GameState ds = g_GameManager.currentState;
             TickMenuDim(ds == GameState::RUNNING || ds == GameState::DYING ||
                         ds == GameState::PAUSED || ds == GameState::READY ||
-                        ds == GameState::AUG_SELECT,
+                        ds == GameState::AUG_SELECT ||
+                        // settings opened from pause keeps the pause's darkness
+                        (ds == GameState::SETTINGS && g_SettingsReturnTo == GameState::PAUSED),
                         // the tutorial page; the launch swell eases it to combat
                         ready_launch::g_TutorialMode && !ready_launch::Launching(),
                         (float)(dimNow - s_dimLastT));
