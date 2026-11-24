@@ -102,6 +102,7 @@ public:
     int   synRicochet = 0;             // enemy-to-enemy bounces left
     int   synPierced = 0;              // enemies passed so far
     int   hitscanLeft = 0;             // Hitscan: steps it keeps hitting (one enemy per step)
+    bool  mobTick = false;             // Hitscan of the standing laser: each enemy takes it on its own timer (LaserFx MobReady)
     float synBoost = 1.0f;             // the volley's one-shot bonuses folded into dmgMult (still, beat, absorb, dash)
     // Targets a piercing shot already hit, so it hits each one once.
     static constexpr int kHitMemory = 24;   // a laser release hits up to 23 enemies once each

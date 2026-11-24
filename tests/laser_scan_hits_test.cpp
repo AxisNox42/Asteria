@@ -58,6 +58,36 @@ int main() {
         std::printf("flying shot: %d enemy hit in one step\n", CountHurt(manager));
         assert(CountHurt(manager) == 1);
     }
+    {   // 몹별 틱: each enemy takes the standing beam on its own timer
+        laser_fx::Clear();
+        laser_fx::g_Main.tickGap = 0.2f;
+        MonsterManager manager;
+        Line(manager, 2);   // A at x=200, B at x=270
+        Monster* A = manager.monsters[0];
+        Monster* B = manager.monsters[1];
+        auto beam = [&](float x0, float x1) {
+            Bullet seg(x0, 300.0f, x1, 300.0f);
+            seg.prevX = x0; seg.prevY = 300.0f; seg.x = x1; seg.y = 300.0f;
+            seg.piercing = true; seg.speed = 0.0f; seg.sizeScale = 1.3f;
+            seg.synFlags |= synf::Hitscan | synf::FrameLaser; seg.hitscanLeft = 2; seg.mobTick = true;
+            std::vector<Bullet> bullets = { seg };
+            CollisionSystem::Update(0.0f, 0.0f, manager, bullets, hp, scoreAccum, score, stats);
+        };
+        beam(150.0f, 220.0f);                       // only A is in the beam
+        assert(A->hp < 99999.0f && B->hp == 99999.0f);
+        const float aAfter1 = A->hp;
+        laser_fx::g_Main.clock = 0.10f;
+        beam(150.0f, 330.0f);                       // B enters: hit at once; A's timer is not up
+        assert(B->hp < 99999.0f);
+        assert(A->hp == aAfter1);
+        const float bAfter = B->hp;
+        laser_fx::g_Main.clock = 0.21f;
+        beam(150.0f, 220.0f);                       // A's own tick is up again; B's is not
+        assert(A->hp < aAfter1);
+        assert(B->hp == bAfter);
+        std::printf("per-enemy beam tick: A hit at 0 and 0.21 s, B at 0.10 s\n");
+        laser_fx::Clear();
+    }
     std::printf("laser scan hits regression passed\n");
     return 0;
 }

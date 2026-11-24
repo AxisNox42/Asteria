@@ -8,6 +8,7 @@
 
 #include "MonsterManager.h"
 #include "Bullet.h"
+#include "../Render/LaserFx.h"
 #include "PlayerStats.h"
 #include "BalanceTuning.h"
 #include "Juice.h"
@@ -267,6 +268,7 @@ public:
                     hitRadius * hitRadius)
                     continue;
 
+                if (bullet.mobTick && !laser_fx::MobReady(monster)) continue;   // the standing laser: this enemy's own tick
                 bool crit = false;
                 const float passiveMult = passive_hooks::bulletDamageMult
                     ? passive_hooks::bulletDamageMult(bullet, monster, monster->worldX,
@@ -322,6 +324,7 @@ public:
                     HIT_RADIUS * HIT_RADIUS)
                     continue;
 
+                if (bullet.mobTick && !laser_fx::MobReady(ranged)) continue;
                 bool crit = false;
                 const float passiveMult = passive_hooks::bulletDamageMult
                     ? passive_hooks::bulletDamageMult(bullet, ranged, ranged->worldX,

@@ -7615,6 +7615,7 @@ CollisionSystem::Update(pCX, pCY,
                     fireTimer >= effInterval) {
                     // A tick of the standing beam: no gun shot sound or kick (the beam hums, LaserLoop).
                     laser_fx::BeginTick();
+                    laser_fx::g_Main.tickGap = effInterval;   // each enemy takes the beam on its own timer of this length
                     // Fire along the beam as it turns (kTurnRate), not at the cursor:
                     // the volley's angles are read as offsets off the beam's aim.
                     const float aim = laser_fx::g_Main.aim;

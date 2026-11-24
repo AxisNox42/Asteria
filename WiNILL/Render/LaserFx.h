@@ -24,6 +24,7 @@
 // EntityDraw.cpp (DrawPlayerLasers) draws all of it.
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 #include <glm/glm.hpp>
 
@@ -43,6 +44,7 @@ inline constexpr float kReleaseMin = 0.60f;    // 과부하 레이저: held at l
 inline constexpr float kReleaseMult = 10.0f;   // the release at full heat = this many laser hits
 inline constexpr float kReleaseLife = 0.55f;   // how long the released beam is seen
 inline constexpr int   kScanSteps = 9;         // fixed steps a segment keeps hitting (one enemy per step)
+inline constexpr int   kRelaySteps = 2;        // the standing beam's segments are laid again every fixed step and live this long
 inline constexpr int   kReleaseSteps = 24;     // the release's segments (Bullet::kHitMemory)
 inline constexpr float kHold = 0.05f;          // a flash beam stays this long ...
 inline constexpr float kFade = 0.16f;          // ... then thins out over this long (the main beam too)
@@ -150,6 +152,14 @@ struct Main {
     float bounceCd = 0.0f;      // until the beam's reflections may set off on-bounce effects again
     float turnSpeed = 0.0f;     // rad/s the standing beam turns at now: grows while it keeps turning, 0 once it stops
     float turnAccel = kTurnAccel;   // rad/s per s it speeds up by now: grows by kTurnJerk while it keeps turning
+    // 몹별 틱: the standing beam is laid again every fixed step along where it is drawn, and each enemy takes its
+    // damage on its own timer (MobReady): at once when it enters the beam, then every tickGap while it stays in.
+    float clock = 0.0f;         // fixed-step time
+    float tickGap = 0.2f;       // an enemy's own tick = the gun's fire interval (main.cpp sets it each tick)
+    std::unordered_map<const void*, float> nextHit;   // enemy -> when it may take the beam again
+    struct Beam { Bullet b{ 0, 0, 1, 0 }; float off = 0.0f, side = 0.0f, range = kWallRange; int bounces = 0; };
+    std::vector<Beam> volley;   // the last tick's beams (what each carries), laid every step while the beam stands
+    int   volleyTick = -1;
 };
 
 // A short beam of a laser shot that did not leave with the main beam,
@@ -166,6 +176,15 @@ inline std::vector<Flash> g_Flashes;
 inline Rect g_Arena;
 
 inline void Clear() { g_Main = Main{}; g_Flashes.clear(); }
+
+// An enemy the standing beam touches: true when its own timer is up (and restarts it).
+inline bool MobReady(const void* mob) {
+    Main& m = g_Main;
+    auto [it, fresh] = m.nextHit.try_emplace(mob, 0.0f);
+    if (!fresh && m.clock + 1.0e-4f < it->second) return false;
+    it->second = m.clock + std::max(0.05f, m.tickGap);
+    return true;
+}
 
 inline float ChargeTime() { return g_Main.tier >= 2 ? kChargeFocus : kCharge; }
 // 집속 레이저: 0..1 heat of the standing beam.
@@ -284,6 +303,11 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
     g_Arena = arena;
     for (Flash& f : g_Flashes) f.age += dt;
     g_Main.bounceCd -= dt;
+    g_Main.clock += dt;
+    if (g_Main.nextHit.size() > 256) {   // enemies long gone
+        for (auto it = g_Main.nextHit.begin(); it != g_Main.nextHit.end();)
+            it = (it->second < g_Main.clock - 1.0f) ? g_Main.nextHit.erase(it) : std::next(it);
+    }
     g_Flashes.erase(std::remove_if(g_Flashes.begin(), g_Flashes.end(),
         [](const Flash& f) { return f.age >= (f.big ? kReleaseLife : kHold + kFade); }), g_Flashes.end());
 
@@ -301,6 +325,7 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
         // An echo (겹겹 메아리) leaves the ship later: its own flash beam, not merged into the main one.
         const bool main = std::hypot(b.x - m.tickX, b.y - m.tickY) < 12.0f && m.tick > 0 &&
                           !(b.synFlags & (synf::Echo | synf::Clone));
+        float mOff = 0.0f, mSide = 0.0f;
         if (main) {
             if (m.offsetsTick != m.tick) { m.offsetsTick = m.tick; m.offsets.clear(); m.sides.clear(); }
             float off = std::atan2(b.dirY, b.dirX) - m.tickAim;
@@ -309,6 +334,7 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
             // Sideways offset off the tick's aim; a side-by-side pair stands far enough apart to read as two.
             float side = -(b.x - m.tickX) * std::sin(m.tickAim) + (b.y - m.tickY) * std::cos(m.tickAim);
             if (std::fabs(side) > 1.0f) side = std::copysign(std::max(std::fabs(side), halfW * 1.6f), side);
+            mOff = off; mSide = side;
             if ((int)m.offsets.size() < kMaxBeams) { m.offsets.push_back(off); m.sides.push_back(side); }
             m.bounces = bounces; m.range = range; m.baseHalfW = halfW; m.color = b.color;
             // The beam follows the aim between ticks, so the damage lies where it is drawn:
@@ -339,8 +365,32 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
             f.alpha = (b.synFlags & synf::Echo) ? 0.5f : 1.0f;
             g_Flashes.push_back(std::move(f));
         }
-        LaySegments(b, pts, kScanSteps, add);
+        if (main) {   // the standing beam's segments are laid below, every step, from this tick's volley
+            if (m.volleyTick != m.tick) { m.volleyTick = m.tick; m.volley.clear(); }
+            if ((int)m.volley.size() < kMaxBeams) {
+                Main::Beam bm; bm.b = b; bm.off = mOff; bm.side = mSide; bm.range = range; bm.bounces = bounces;
+                m.volley.push_back(bm);
+            }
+        } else {
+            LaySegments(b, pts, kScanSteps, add);
+        }
         b.active = false;
+    }
+    if (m.on) {   // 몹별 틱: the beam as drawn now, hitting each enemy on that enemy's own timer
+        for (const Main::Beam& bm : m.volley) {
+            Bullet sb = bm.b;
+            const float a = m.aim + bm.off;
+            sb.dirX = std::cos(a); sb.dirY = std::sin(a);
+            sb.x = m.px - sb.dirY * bm.side; sb.y = m.py + sb.dirX * bm.side;
+            int pane = 0;
+            Path(sb.x, sb.y, sb.dirX, sb.dirY, bm.range, bm.bounces, arena, pts, &pane);
+            WearPane(pane, pts);
+            const size_t n0 = add.size();
+            LaySegments(sb, pts, kRelaySteps, add);
+            for (size_t i = n0; i < add.size(); ++i) add[i].mobTick = true;
+        }
+    } else {
+        m.volley.clear(); m.volleyTick = -1; m.nextHit.clear();
     }
     bullets.insert(bullets.end(), add.begin(), add.end());
 }
