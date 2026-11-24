@@ -414,7 +414,7 @@ void SStar(float x, float y, float r, Rgb c, float a, float w, float key, bool f
 
 // The card's tier row (AugCardModel.h): 8 empty stars, the rarity's stars
 // filled, taken upgrades as whitened stars that breathe slowly, and on an
-// upgrade pick the slot this branch fills twinkling with a turning cross glint.
+// upgrade pick the slot this branch fills twinkling (brightness only).
 // `title` (0..1) fades the row in, the filled stars lighting left to right.
 void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity, int upgrades,
                    bool preview, Rgb col, float a, float title, float now, float key) {
@@ -462,14 +462,8 @@ void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity,
             const Rgb pc = slot.tier >= 0 ? tierCol(slot.tier) : kWhite;
             SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);
             const float p = 0.5f + 0.5f * std::sin(now * kTau / kTwinkle);
-            SStar(x, cy, rr * (0.70f + 0.45f * p), pc, a * (0.25f + 0.75f * p) * on, w, key, true);
-            const float u = std::fmod(now / kTwinkle, 1.0f);
-            const float ga = a * on * (u < 0.4f ? u / 0.4f : (1.0f - u) / 0.6f);
-            const float g0 = rr * (1.25f + 0.30f * u), g1 = rr * (1.80f + 0.40f * u);
-            for (int q = 0; q < 4; ++q) {
-                const float ang = (u * 90.0f + q * 90.0f) * kDeg, cs = std::cos(ang), sn = std::sin(ang);
-                SLine(x + cs * g0, cy + sn * g0, x + cs * g1, cy + sn * g1, 0.9f * ui, kWhite, ga, key);
-            }
+            // Brightness only: no scaling, no glint lines around it.
+            SStar(x, cy, rr, pc, a * (0.25f + 0.75f * p) * on, w, key, true);
             break; }
         }
     }
