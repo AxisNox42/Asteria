@@ -416,7 +416,11 @@ void GameManager::ConsumeActiveReward() {
     switch (activeRewardKind) {
     case RewardKind::Frame:   pendingFramePick = false; break;
     case RewardKind::Upgrade: if (pendingUpgradeRewards > 0) --pendingUpgradeRewards; break;
-    case RewardKind::NewCard: if (pendingAugmentRewards > 0) --pendingAugmentRewards; break;
+    case RewardKind::NewCard:
+        if (pendingAugmentRewards > 0) --pendingAugmentRewards;
+        if (activeFromWave && pendingWaveNewCards > 0) --pendingWaveNewCards;
+        activeFromWave = false;
+        break;
     }
 }
 
@@ -450,9 +454,11 @@ bool GameManager::ActivateNextAugmentReward() {
         // Nothing to upgrade (an early clear, or every card at its top stage): a new augment instead.
         --pendingUpgradeRewards;
         ++pendingAugmentRewards;
+        ++pendingWaveNewCards;   // still the wave clear's pick (its heading says so)
     }
     while (!found && pendingAugmentRewards > 0) {
         activeRewardKind = RewardKind::NewCard;
+        activeFromWave = pendingWaveNewCards > 0;
         PickRewardChoices();
         if (augChoiceCount > 0) { found = true; break; }
         ConsumeActiveReward();   // nothing left to offer
@@ -490,6 +496,8 @@ void GameManager::OpenTutorialChoice() {
 void GameManager::ClearAugmentRewardQueue() {
     pendingAugmentRewards = 0;
     pendingUpgradeRewards = 0;
+    pendingWaveNewCards = 0;
+    activeFromWave = false;
     pendingFramePick = false;
     activeRewardKind = RewardKind::NewCard;
     upgradeRerollsLeft = 0;

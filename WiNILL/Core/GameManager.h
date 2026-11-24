@@ -60,6 +60,8 @@ public:
     enum class RewardKind { NewCard, Upgrade, Frame };
     int       pendingAugmentRewards = 0;   // level-ups: new augment cards
     int       pendingUpgradeRewards = 0;   // wave clears: upgrades of owned cards
+    int       pendingWaveNewCards = 0;     // wave clears with nothing to upgrade: a new augment instead
+    bool      activeFromWave = false;      // the open new-augment pick is such a wave clear's
     bool      pendingFramePick = false;    // run start: one frame out of three
     bool      framePickOffered = false;    // this run's frame pick was queued (once per run)
     RewardKind activeRewardKind = RewardKind::NewCard;   // what the open pick is
@@ -112,6 +114,7 @@ public:
     void ResetCardScreenAfterReroll();
     bool ActiveIsUpgrade() const { return augmentRewardActive && activeRewardKind == RewardKind::Upgrade; }
     bool ActiveIsFrame() const { return augmentRewardActive && activeRewardKind == RewardKind::Frame; }
+    bool ActiveIsWaveNewCard() const { return augmentRewardActive && activeRewardKind == RewardKind::NewCard && activeFromWave; }
     int  PendingRewards() const { return pendingAugmentRewards + pendingUpgradeRewards + (pendingFramePick ? 1 : 0); }
     bool ActivateNextAugmentReward();
     // The open reward pick was taken: drop it from its queue.
