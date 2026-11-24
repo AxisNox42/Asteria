@@ -134,8 +134,8 @@ inline const std::vector<Aug>& Table() {
         T_CHARGE | T_PIERCE, 0, false, Fx{}.rate_(0.22f).dmg_(5.0f).acc_(1.27f)},
     {"F_BURST",   "점사총",     "한 번에 3발을 좁게 묶어 쏨, 연사는 느림", Rar::Rare, Role::Frame,
         T_BURST, 0, false, Fx{}.rate_(0.55f).bullets_(3.0f).dmg_(0.68f).acc_(0.9f)},
-    // 석궁: aims for itself and stacks arrows on what it hits (CrossbowBolts.h).
-    {"F_CROSSBOW","석궁",       "커서에서 가장 가까운 적을 스스로 노려 굵은 화살을 쏨 (적 3명 관통) · 맞힌 적에게 화살이 박혀, 박힌 화살 1개마다 석궁 피해 +15% (최대 5개, 마지막 명중 후 4초)", Rar::Epic, Role::Frame,
+    // 석궁: marks what it hits, each later hit on it harder (CrossbowBolts.h).
+    {"F_CROSSBOW","석궁",       "굵은 화살을 쏨 (적 3명 관통) · 맞힌 적에게 석궁 표식을 남기고, 석궁 표식이 있는 적은 맞을 때마다 석궁 피해가 15%씩 더 커짐 (최대 +75%, 마지막 명중 후 4초)", Rar::Epic, Role::Frame,
         T_PIERCE, 0, false, Fx{}.rate_(0.4f).dmg_(1.35f).acc_(1.27f).pierce_(3)},
     {"F_WAVE",    "파동포",     "느리고 거대한 파동을 쏨 — 적을 모두 뚫고 적탄을 지움", Rar::Epic, Role::Frame,
         T_PIERCE | T_ERASE, 0, false, Fx{}.rate_(0.35f).dmg_(1.6f).acc_(1.5f).pierce_(9)},
@@ -388,7 +388,7 @@ struct Result {
 
 // The frames as measured in the game (scripts/test_frame_balance.ps1, 2026-11-24) over what this
 // model makes of them alone: it misses rules that live in the game, not the table (shotgun and wave
-// x1.3 per shot, a mortar shell that only bursts, laser ticks, the crossbow's arrows, the sniper's
+// x1.3 per shot, a mortar shell that only bursts, laser ticks, the crossbow's mark, the sniper's
 // power pierce ...). Evaluate scales a frame's damage by it, so a frame alone reads as measured.
 inline float FrameCalibration(const char* code) {
     struct Row { const char* code; float k; };

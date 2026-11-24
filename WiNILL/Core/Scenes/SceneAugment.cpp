@@ -337,7 +337,7 @@ constexpr const char* kTermIconNames[] = {
     "Verb", "Pierce", "Bounce", "Split", "Homing", "Blast", "Burn", "Mark", "Orbit", "Trail", "Mine", "Hover",
     "Pull", "Return", "Erase", "Graze", "Shield", "Still", "Crit", "CritMult", "HitCount", "DmgKinds",
     "FireRate", "Range", "Distance", "Stardust", "Luck", "Broken", "Stack", "RunWave",
-    "ActiveSkill", "Dash", "SkillSlot", "Reaction", "Risky", "ChanceAug", "Enemies" };
+    "ActiveSkill", "Dash", "SkillSlot", "Reaction", "Risky", "ChanceAug", "Enemies", "BoltMark" };
 static_assert(sizeof(kTermIconNames) / sizeof(kTermIconNames[0]) == glossary::kTermCount,
               "kTermIconNames follows glossary::Term");
 GLuint TermIconTex(int term) {

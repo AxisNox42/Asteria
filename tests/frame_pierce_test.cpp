@@ -64,29 +64,18 @@ int main() {
         assert(SniperFliesOn(b, 1000, 10, false) && Near(b.powerLeft, 1.0f));
     }
 
-    // 석궁: the first bolt +0%, then +15% per arrow already in, capped at 5 (+75%).
+    // 석궁: the first bolt marks (+0%), then each bolt into the mark +15% more, capped at +75%.
     {
-        crossbow::Arrows a;
+        crossbow::Mark a;
         assert(Near(crossbow::DamageMult(a), 1.0f));
         const float want[] = { 1.15f, 1.30f, 1.45f, 1.60f, 1.75f, 1.75f, 1.75f };
-        for (float w : want) { crossbow::Stick(a); assert(Near(crossbow::DamageMult(a), w)); }
-        assert(a.n == crossbow::kMaxArrows && Near(a.t, crossbow::kHold));
+        for (float w : want) { crossbow::Hit(a); assert(Near(crossbow::DamageMult(a), w)); }
+        assert(a.n == crossbow::kMaxStacks && Near(a.t, crossbow::kHold));
         // Held 4 s after the last hit, then all gone at once; a hit refills the 4 s.
         assert(crossbow::Age(a, 3.0f));
-        crossbow::Stick(a);
+        crossbow::Hit(a);
         assert(crossbow::Age(a, 3.9f) && a.n == 5);
         assert(!crossbow::Age(a, 0.2f));
-    }
-    // Lead: a still target is shot where it is; a moving one ahead of it, by the bolt's flight time.
-    {
-        float ax, ay;
-        crossbow::Lead(0, 0, 500, 0, 0, 0, 1000, ax, ay);
-        assert(Near(ax, 500) && Near(ay, 0));
-        crossbow::Lead(0, 0, 500, 0, 0, 200, 1000, ax, ay);
-        const float t = std::hypot(ax, ay) / 1000.0f;   // the bolt meets it there
-        assert(Near(ax, 500) && std::fabs(ay - 200.0f * t) < 1.0f && ay > 90.0f);
-        crossbow::Lead(0, 0, 5000, 0, 3000, 0, 1000, ax, ay);   // never more than kMaxLead ahead
-        assert(ax <= 5000 + 3000 * crossbow::kMaxLead + 1e-3f);
     }
     std::printf("frame pierce: OK\n");
     return 0;

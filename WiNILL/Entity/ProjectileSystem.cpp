@@ -41,9 +41,6 @@ void UpdateProjectiles(std::vector<Bullet>& bullets,
             float best = 1e18f;
             auto consider = [&](const void* id, float ex, float ey) {
                 if (pierces && bullet.HasHit(id)) return;
-                // 석궁: a shot bends toward the enemy it was aimed at while that one lives (best < 0 = locked).
-                if (id == bullet.aimTarget) { best = -1.0f; targetX = ex; targetY = ey; found = true; return; }
-                if (best < 0.0f) return;
                 const float d = (ex - bullet.x) * (ex - bullet.x) + (ey - bullet.y) * (ey - bullet.y);
                 if (d < best) { best = d; targetX = ex; targetY = ey; found = true; }
             };

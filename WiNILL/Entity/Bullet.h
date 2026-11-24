@@ -108,7 +108,6 @@ public:
     bool  powerPierce = false;
     float powerLeft   = 1.0f;
     int   powerCrit   = -1;
-    const void* aimTarget = nullptr;   // 석궁: the enemy it was aimed at (homing prefers it); compared only, never read
     int   hitscanLeft = 0;             // Hitscan: steps it keeps hitting (one enemy per step)
     bool  mobTick = false;             // Hitscan of the standing laser: each enemy takes it on its own timer (LaserFx MobReady)
     float synBoost = 1.0f;             // the volley's one-shot bonuses folded into dmgMult (still, beat, absorb, dash)

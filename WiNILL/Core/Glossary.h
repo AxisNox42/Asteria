@@ -19,7 +19,7 @@ enum class Term : int {
     Verb, Pierce, Bounce, Split, Homing, Blast, Burn, Mark, Orbit, Trail, Mine, Hover,
     Pull, Return, Erase, Graze, Shield, Still, Crit, CritMult, HitCount, DmgKinds,
     FireRate, Range, Distance, Stardust, Luck, Broken, Stack, RunWave,
-    ActiveSkill, Dash, SkillSlot, Reaction, Risky, ChanceAug, Enemies, Count
+    ActiveSkill, Dash, SkillSlot, Reaction, Risky, ChanceAug, Enemies, BoltMark, Count
 };
 inline constexpr int kTermCount = (int)Term::Count;
 static_assert(kTermCount <= 64, "Link uses a 64-bit mask of terms");
@@ -260,6 +260,12 @@ inline const Entry kEntries[kTermCount] = {
         L"Regular: Rotor, Swarm, Scope, Gravity, Gimbal, Magnetar, Lynx, Trigon. Elite: Genesis, Quasar, Regulus, Antares. Boss: Octans, Eridanus.",
         L"通常の敵: ローター・スウォーム・スコープ・グラビティ・ジンバル・マグネター・リンクス・トライゴン。エリート: ジェネシス・クエーサー・レグルス・アンタレス。ボス: オクタンス・エリダヌス。" },
       { L"일반 적|엘리트|보스", L"regular enemy|elites|elite|bosses|boss", L"通常の敵|雑魚|エリート|ボス" },
+      { }, 0 },
+    { { L"석궁 표식", L"Bolt mark", L"矢の刻印" },
+      { L"석궁에 처음 맞은 적에게 남는 표식입니다. 표식이 있는 적을 석궁으로 맞힐 때마다 석궁 피해가 15%씩 더 커집니다 (+15% → +30% … 최대 +75%). 마지막 명중 후 4초가 지나면 사라지고, 다른 탄에는 영향이 없습니다.",
+        L"Left on an enemy the first time a crossbow bolt hits it. Each crossbow hit on a marked enemy deals 15% more than the last (+15% → +30% … up to +75%). It fades 4s after the last hit and does not affect other bullets.",
+        L"クロスボウが初めて当たった敵に残る刻印です。刻印がある敵にクロスボウが当たるたびにダメージが15%ずつ増えます (+15% → +30% … 最大+75%)。最後の命中から4秒で消え、他の弾には影響しません。" },
+      { L"석궁 표식", L"bolt marks|bolt mark", L"矢の刻印" },
       { }, 0 },
 };
 
