@@ -422,10 +422,31 @@ void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity,
     constexpr float kBreath = 1.6f, kTwinkle = 0.9f;   // seconds per cycle
     const Rgb upCol = Mix(col, kWhite, 0.80f);
     const float rr = r * ui, w = 1.1f * ui;
+    // Tier colours for repainted slots (2026-11-24): the rarity colours, then the supernova.
+    auto tierCol = [&](int tier) {
+        return tier >= ac::kTierSupernova ? kWhite : RarityLine((AugRarity)std::max(0, std::min(4, tier)));
+    };
     for (int k = 0; k < ac::kTierSlots; ++k) {
         const float x = cx + ac::TierSlotX(k, gap) * ui;
         const float on = ac::Clamp01(title * 1.8f - 0.10f * k);
-        switch (ac::TierSlotKind(k, rarity, upgrades, preview)) {
+        const ac::TierSlotInfo slot = ac::TierSlotAt(k, rarity, upgrades, preview);
+        switch (slot.kind) {
+        case ac::TierSlot::Refill: {
+            const Rgb c = tierCol(slot.tier);
+            if (slot.tier >= ac::kTierSupernova) {
+                // Supernova: a white star with a short cross of light that breathes.
+                const float breath = 0.5f + 0.5f * std::sin(now * kTau / kBreath + k * 0.9f);
+                SStar(x, cy, rr, c, a * on, w, key, true);
+                const float g0 = rr * 1.15f, g1 = rr * (1.55f + 0.35f * breath);
+                for (int q = 0; q < 4; ++q) {
+                    const float ang = (45.0f + q * 90.0f) * kDeg, cs = std::cos(ang), sn = std::sin(ang);
+                    SLine(x + cs * g0, cy + sn * g0, x + cs * g1, cy + sn * g1, 0.8f * ui, c,
+                          a * on * (0.35f + 0.45f * breath), key);
+                }
+            } else {
+                SStar(x, cy, rr, c, a * 0.95f * on, w, key, true);
+            }
+            break; }
         case ac::TierSlot::Empty:
             SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);
             break;
@@ -437,9 +458,11 @@ void DrawTierStars(float cx, float cy, float ui, float gap, float r, int rarity,
             SStar(x, cy, rr, upCol, std::min(1.0f, a * breath * on * 1.08f), w, key, true);
             break; }
         case ac::TierSlot::Preview: {
-            SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);   // the empty slot it fills
+            // The slot it fills (or repaints, in the next tier's colour) twinkles.
+            const Rgb pc = slot.tier >= 0 ? tierCol(slot.tier) : kWhite;
+            SStar(x, cy, rr, col, a * 0.32f * title, w, key, false);
             const float p = 0.5f + 0.5f * std::sin(now * kTau / kTwinkle);
-            SStar(x, cy, rr * (0.70f + 0.45f * p), kWhite, a * (0.25f + 0.75f * p) * on, w, key, true);
+            SStar(x, cy, rr * (0.70f + 0.45f * p), pc, a * (0.25f + 0.75f * p) * on, w, key, true);
             const float u = std::fmod(now / kTwinkle, 1.0f);
             const float ga = a * on * (u < 0.4f ? u / 0.4f : (1.0f - u) / 0.6f);
             const float g0 = rr * (1.25f + 0.30f * u), g1 = rr * (1.80f + 0.40f * u);
@@ -1324,22 +1347,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                  d.col.r, d.col.g, d.col.b, titleA * 0.95f);
         DrawShadowedText(g_TextL, name, d.x - nameW * 0.5f, d.y + kTitleY * ui - nameH * 0.5f,
                          tx.titleScale, kText.r, kText.g, kText.b, titleA, 0.70f);
-        // Upgrades past the star row (repeatable, 2026-11-24): "+n" right of the last star, and on an
-        // upgrade pick "+n → +n+1" when the pick lands past the row.
-        {
-            const int over = ac::TierOverflow(rarity[i], tierUps[i]);
-            const int next = tierPreview[i] ? ac::TierOverflow(rarity[i], tierUps[i] + 1) : over;
-            if (next > 0) {
-                std::wstring tag = over > 0 ? L"+" + std::to_wstring(over) : L"";
-                if (next > over) tag += (over > 0 ? L" → +" : L"+") + std::to_wstring(next);
-                const float ts = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
-                const float th = g_TextS.Height(tag.c_str(), ts);
-                const float tx0 = d.x + (ac::TierSlotX(ac::kTierSlots - 1) + ac::kTierGap * 0.75f) * ui;
-                const Rgb tagCol = Mix(d.col, kWhite, 0.80f);
-                DrawShadowedText(g_TextS, tag.c_str(), tx0, d.y + kRarityY * ui - th * 0.5f, ts,
-                                 tagCol.r, tagCol.g, tagCol.b, titleA * 0.95f, 0.70f);
-            }
-        }
+
         const float left = d.x - (ac::kCardW * 0.5f - 22.0f) * ui;
         const Rgb metaCol = Mix(d.col, kText, 0.35f);
         DrawShadowedText(g_TextS, tx.meta.c_str(), left, d.y + kMetaY * ui, tx.metaScale,

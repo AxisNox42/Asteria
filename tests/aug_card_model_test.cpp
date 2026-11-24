@@ -177,6 +177,30 @@ static void tier_stars() {
     // Legendary fully upgraded: 7 filled, the 8th empty, nothing to preview.
     assert(TierSlotKind(6, 3, 3, false) == TierSlot::Upgrade);
     assert(TierSlotKind(7, 3, 3, false) == TierSlot::Empty);
+    // Repainting once the row is full (2026-11-24): one tier above the card's rarity, from the left.
+    // Legendary (4 rarity + 4 upgrade slots): the 5th upgrade paints slot 0 Mythic.
+    assert(TierSlotAt(0, 3, 4, false).kind == TierSlot::Rarity && TierSlotAt(7, 3, 4, false).kind == TierSlot::Upgrade);
+    {
+        const TierSlotInfo pv = TierSlotAt(0, 3, 4, true);   // full row, an upgrade pick: slot 0 twinkles Mythic
+        assert(pv.kind == TierSlot::Preview && pv.tier == 4);
+    }
+    assert(TierSlotAt(0, 3, 5, false).kind == TierSlot::Refill && TierSlotAt(0, 3, 5, false).tier == 4);
+    assert(TierSlotAt(1, 3, 5, false).kind == TierSlot::Rarity);
+    // Legendary + 12: a full Mythic row; the next row is the supernova (the last tier).
+    for (int k = 0; k < kTierSlots; ++k) assert(TierSlotAt(k, 3, 12, false).tier == 4);
+    assert(TierSlotAt(0, 3, 13, false).tier == kTierSupernova && TierSlotAt(1, 3, 13, false).tier == 4);
+    // All supernova: nothing more to paint, no twinkle.
+    for (int k = 0; k < kTierSlots; ++k) {
+        const TierSlotInfo top = TierSlotAt(k, 3, 20, true);
+        assert(top.kind == TierSlot::Refill && top.tier == kTierSupernova);
+        assert(TierSlotAt(k, 3, 40, true).tier == kTierSupernova);
+    }
+    // Common: its 1 + 7 row, then Rare blue (tier 1) first, then Epic.
+    assert(TierSlotAt(0, 0, 8, false).kind == TierSlot::Refill && TierSlotAt(0, 0, 8, false).tier == 1);
+    assert(TierSlotAt(0, 0, 15, false).tier == 1 && TierSlotAt(7, 0, 15, false).tier == 1);
+    assert(TierSlotAt(0, 0, 16, false).tier == 2 && TierSlotAt(1, 0, 16, false).tier == 1);
+    // Before the row is full nothing changes from TierSlotKind.
+    for (int k = 0; k < kTierSlots; ++k) assert(TierSlotAt(k, 1, 1, true).kind == TierSlotKind(k, 1, 1, true));
     // Star corners: tips on r, inner corners on r·kTierInner.
     float px[10], py[10];
     StarCorners(0.0f, 0.0f, 10.0f, px, py);

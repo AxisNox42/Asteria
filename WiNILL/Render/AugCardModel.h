@@ -179,7 +179,7 @@ inline float SeedStart(int dist, int node) { return 0.08f + 0.04f * dist + 0.01f
 inline constexpr int   kTierSlots = 8;
 inline constexpr float kTierGap = 17.0f, kTierR = 5.8f;   // card-local units
 inline constexpr float kTierInner = 0.46f;                // inner / outer radius of the star
-enum class TierSlot { Empty, Rarity, Upgrade, Preview };
+enum class TierSlot { Empty, Rarity, Upgrade, Preview, Refill };
 
 inline float TierSlotX(int k, float gap = kTierGap) { return (k - (kTierSlots - 1) * 0.5f) * gap; }
 
@@ -193,11 +193,42 @@ inline TierSlot TierSlotKind(int k, int rarity, int upgrades, bool preview) {
     return TierSlot::Empty;
 }
 
-// Upgrades past the row's last star (upgrades repeat without end since 2026-11-24): drawn as
-// "+n" beside the row.
-inline int TierOverflow(int rarity, int upgrades) {
+// Once the row is full (upgrades repeat without end since 2026-11-24), every further upgrade
+// repaints the row from the left in the next tier's colour, starting one above the card's own
+// rarity: a Common card goes on in Rare blue, then Epic, Legendary, Mythic, and last of all the
+// supernova (kTierSupernova), after which nothing more is painted (user 2026-11-24).
+inline constexpr int kTierSupernova = 5;   // the tier above Mythic (0..4 are the rarities)
+struct TierSlotInfo {
+    TierSlot kind;
+    int tier;   // colour tier of a Rarity / Refill slot or of what a Preview would paint: 0..4, 5 supernova; -1 white
+};
+inline int TierRefillTier(int rarity, int layer) { return std::min(kTierSupernova, std::max(0, rarity) + layer); }
+// Upgrades that went into repainting (0 while the first row is not full).
+inline int TierRepaints(int rarity, int upgrades) {
     const int filled = std::max(0, std::min(5, rarity + 1));
     return std::max(0, upgrades - (kTierSlots - filled));
+}
+inline TierSlotInfo TierSlotAt(int k, int rarity, int upgrades, bool preview) {
+    const int painted = TierRepaints(rarity, upgrades);
+    if (painted == 0) {   // the first row (preview included while it still has room)
+        const int filled = std::max(0, std::min(5, rarity + 1));
+        if (!(preview && upgrades >= kTierSlots - filled)) {
+            const TierSlot kind = TierSlotKind(k, rarity, upgrades, preview);
+            return { kind, kind == TierSlot::Rarity ? std::max(0, std::min(4, rarity)) : -1 };
+        }
+    }
+    // Repainting: `layer` full rows done, `part` slots of the next one.
+    int layer = painted / kTierSlots, part = painted % kTierSlots;
+    const int doneTier = TierRefillTier(rarity, layer);         // the row under the paint (layer 0: the first row)
+    const int nextTier = TierRefillTier(rarity, layer + 1);     // the colour being painted now
+    const bool atTop = layer > 0 && doneTier >= kTierSupernova; // all supernova: nothing more to paint
+    if (!atTop && k < part) return { TierSlot::Refill, nextTier };
+    if (!atTop && preview && k == part) return { TierSlot::Preview, nextTier };
+    if (layer == 0) {     // still the first row under the paint
+        const TierSlot kind = TierSlotKind(k, rarity, kTierSlots, false);
+        return { kind, kind == TierSlot::Rarity ? std::max(0, std::min(4, rarity)) : -1 };
+    }
+    return { TierSlot::Refill, doneTier };
 }
 
 // Five-point star, point up: 10 corners clockwise from the top tip.
