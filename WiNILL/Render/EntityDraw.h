@@ -11,6 +11,9 @@ void DrawBulletHalos(const std::vector<Bullet>& bullets);
 void drawMob(const Monster* m, float visualTime = -1.0f);
 void drawRangedMob(const RangedMob* r, float visualTime = -1.0f);
 void DrawRegulusBuffMarks(const Monster* m, float visualTime);
+// Distance from a mob's centre to just outside its silhouette (where shield brackets and buff marks sit).
+float MobOutlineExtent(const Monster* m);
+float MobOutlineExtent(const RangedMob* r);
 void DrawLynxRay(const Monster* m);
 void DrawMiraZones();
 // Nightmare Antares wake and clash rings (AntaresWake.h).

@@ -1474,6 +1474,13 @@ static float AegisMarkExtent(MobKind kind) {
     }
 }
 
+float MobOutlineExtent(const Monster* m) {
+    return (m->summoned ? 28.0f : 18.0f) * m->sizeScale * AegisMarkExtent(m->kind);
+}
+float MobOutlineExtent(const RangedMob* r) {
+    return RangedMob::VISUAL_BASE_PX * r->deathScale * 1.25f;   // the lens and its rim
+}
+
 // Regulus' own shield: four curved plates (not a hexagon). Solid and as
 // bright as the remaining shield while it holds; dim and thin once broken,
 // then thickening and brightening back over the regen delay.

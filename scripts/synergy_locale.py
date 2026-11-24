@@ -8,7 +8,7 @@ LOC = {
     "F_SHOTGUN": ("Shotgun", "ショットガン", "Fires 7 pellets in a spread, range 7○", "一度に7発を散弾発射、射程7○"),
     "F_SNIPER": ("Sniper Rifle", "スナイパーライフル", "Slow, heavy shots · a kill lets the shot fly on with its damage cut by that enemy's HP (gone below 10% of its first damage) · as many enemies as your pierce cards give are pierced without losing damage", "遅いが重い弾 · 敵を倒すと、その敵の体力分だけ減ったダメージで貫通し続ける (最初のダメージの10%未満で消える) · 貫通カードの貫通数までは、ダメージを減らさずに貫通"),
     "F_BURST": ("Burst Rifle", "バースト銃", "Fires 3 shots at once in a tight group, slow fire rate", "一度に3発をまとめて撃つ、連射は遅い"),
-    "F_CROSSBOW": ("Crossbow", "クロスボウ", "Fires thick bolts (pierce 3 enemies) · leaves a bolt mark on what it hits; each hit on an enemy with a bolt mark deals 15% more crossbow damage than the last (up to +75%, 4s after the last hit)", "太い矢を撃つ (敵3体を貫通) · 当たった敵に矢の刻印を残し、矢の刻印がある敵には当たるたびにクロスボウのダメージが15%ずつ増える (最大+75%、最後の命中から4秒)"),
+    "F_CROSSBOW": ("Crossbow", "クロスボウ", "Fires thick bolts (pierce 3 enemies) · leaves a bolt mark on what it hits; each hit on an enemy with a bolt mark deals 30% more crossbow damage than the last (up to twice · +60%, 4s after the last hit)", "太い矢を撃つ (敵3体を貫通) · 当たった敵に矢の刻印を残し、矢の刻印がある敵には当たるたびにクロスボウのダメージが30%ずつ増える (最大2回・+60%、最後の命中から4秒)"),
     "F_WAVE": ("Wave Cannon", "波動砲", "Fires a huge slow wave that pierces everything and erases enemy bullets", "巨大でゆっくりした波動を発射 — 全ての敵を貫き敵弾を消す"),
     "F_MORTAR": ("Mortar", "迫撃砲", "Shells land on the aimed spot and explode in 1.5○ (200% attack), flying over walls. Mark, burn, split and gravity go off where it lands", "狙った地点に砲弾が落ちて1.5○の爆発 (攻撃力200%) — 壁を越える。刻印・火傷・分裂・重力は着弾点で発動"),
     # ── verbs ──

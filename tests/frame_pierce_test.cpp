@@ -64,17 +64,17 @@ int main() {
         assert(SniperFliesOn(b, 1000, 10, false) && Near(b.powerLeft, 1.0f));
     }
 
-    // 석궁: the first bolt marks (+0%), then each bolt into the mark +15% more, capped at +75%.
+    // 석궁: the first bolt marks (+0%), then each bolt into the mark +30% more, capped at +60%.
     {
         crossbow::Mark a;
         assert(Near(crossbow::DamageMult(a), 1.0f));
-        const float want[] = { 1.15f, 1.30f, 1.45f, 1.60f, 1.75f, 1.75f, 1.75f };
+        const float want[] = { 1.30f, 1.60f, 1.60f, 1.60f };
         for (float w : want) { crossbow::Hit(a); assert(Near(crossbow::DamageMult(a), w)); }
         assert(a.n == crossbow::kMaxStacks && Near(a.t, crossbow::kHold));
         // Held 4 s after the last hit, then all gone at once; a hit refills the 4 s.
         assert(crossbow::Age(a, 3.0f));
         crossbow::Hit(a);
-        assert(crossbow::Age(a, 3.9f) && a.n == 5);
+        assert(crossbow::Age(a, 3.9f) && a.n == 2);
         assert(!crossbow::Age(a, 0.2f));
     }
     std::printf("frame pierce: OK\n");

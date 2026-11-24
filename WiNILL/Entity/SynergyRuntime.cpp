@@ -26,6 +26,7 @@
 #include "PlayerRuntime.h"
 #include "PlayerStats.h"
 #include "../Core/WaveSystem.h"
+#include "../Render/EntityDraw.h"
 
 extern GameManager        g_GameManager;
 extern MonsterManager      g_MonsterManager;
@@ -149,10 +150,10 @@ struct State {
     // effect (pierce / bounce +2, two extra shots, 4-way split, 45% blast). Crit: > 0 = +40% crit damage.
     float chanceBig[6] = {};
     int   chanceBigLv[6] = {};       // ...and how far their effect has grown (the most of the cards holding)
-    int   appliedChanceCrit = 0;
     // Extra-shot cards roll each on their own (a 50% and a 35% card can both fire: 3 shots 17.5%),
     // instead of one roll of their sum (85% for +1, never +2). One entry per holding card.
     std::vector<float> extraRolls;
+    int   appliedChanceCrit = 0;
     float appliedChanceCritMul = 0;
     float sinceDash = 99.0f, sinceHurt = 99.0f, nearest = 1e9f;
     float sinceKill = 99.0f, sinceShield = 99.0f;   // eased conditions (branch B)
@@ -659,8 +660,8 @@ void UpdateChances(const passive::StepInput& in) {
     for (float& c : s.chance) c = 0.0f;
     for (float& c : s.chanceBig) c = 0.0f;
     for (int& c : s.chanceBigLv) c = 0;
-    int wantCrit = 0;
     s.extraRolls.clear();
+    int wantCrit = 0;
     if (!s.chanceRows.empty()) {
         s.crowd = 0; s.enemiesLeft = 0; s.nearest = 1e9f; s.bossUp = false; s.nearBullets = 0;
         ForEachEnemy([&](auto& e, float ex, float ey) {
@@ -693,8 +694,8 @@ void UpdateChances(const passive::StepInput& in) {
                 if (big && kind == CKind::Crit) { s.chance[(int)kind] += p; s.chanceBig[(int)kind] += 1.0f; }
                 else if (big) s.chanceBig[(int)kind] += p;
                 else s.chance[(int)kind] += p;
-            }
                 if (!big && kind == CKind::Extra) s.extraRolls.push_back(p);
+            }
             // A small line ring round the ship when a chance card's condition comes on (not too often).
             if (holds && !s.chanceWas[r] && s.clock - s.chanceFxAt[r] > 1.5f) {
                 static const float kCol[6][3] = { { 1.0f, 0.35f, 0.45f }, { 1.0f, 0.85f, 0.35f }, { 0.45f, 0.9f, 1.0f },
@@ -1067,29 +1068,31 @@ void DrawWorld() {
             lf::Line(e.x - e.dx * L * 0.3f, e.y - e.dy * L * 0.3f, e.x + e.dx * L * 0.3f, e.y + e.dy * L * 0.3f,
                      1.0f, { 1.0f, 0.95f, 0.8f }, (1.0f - u / 0.35f) * flick);
     }
-    // 석궁: its mark on each enemy it has hit: a diamond, one more nested ring of it per step (the
-    // newest pops out a little on the hit), brighter as it grows, fading out in the last second.
+    // 석궁: its mark on each enemy it has hit, hung outside the silhouette (past Regulus' buff
+    // marks) so the body stays clear: a chevron either side pointing in, a second one outside it
+    // at the second step. The newest snaps in from a little further out on the hit; the mark
+    // fades out in its last second.
     if (!s.boltMarks.empty()) {
-        const lf::Rgb col{ 0.95f, 0.85f, 0.55f };
+        const lf::Rgb col{ 0.95f, 0.85f, 0.55f }, hot{ 1.0f, 0.95f, 0.8f };
         ForEachEnemy([&](auto& e, float ex, float ey) {
-            const void* id = &e;
-            auto bm = s.boltMarks.find(id);
+            auto bm = s.boltMarks.find((const void*)&e);
             if (bm == s.boltMarks.end()) return;
             const crossbow::Mark& mk = bm->second;
             const float fade = std::min(1.0f, mk.t);
             const float since = crossbow::kHold - mk.t;                     // s since the last hit
             const float pop = since < 0.15f ? 1.0f - since / 0.15f : 0.0f;  // 1 on the hit, 0 after 0.15 s
-            const float grow = (float)(mk.n - 1) / (float)(crossbow::kMaxStacks - 1);
-            const lf::Rgb hot{ 1.0f, 0.95f, 0.8f };
+            const float r0 = std::max(22.0f, MobOutlineExtent(&e) * 1.5f + 4.0f);
+            constexpr float c = 6.0f;   // chevron arm
             for (int i = 0; i < mk.n; ++i) {
                 const bool newest = i == mk.n - 1;
-                const float r = 14.0f + 4.0f * (float)i + (newest ? 6.0f * pop : 0.0f);
-                const float a = fade * (0.55f + 0.4f * grow) * (newest ? 1.0f : 0.8f);
-                const lf::Rgb c = newest && pop > 0.0f ? hot : col;
-                lf::Line(ex, ey - r, ex + r, ey, 1.4f, c, a);
-                lf::Line(ex + r, ey, ex, ey + r, 1.4f, c, a);
-                lf::Line(ex, ey + r, ex - r, ey, 1.4f, c, a);
-                lf::Line(ex - r, ey, ex, ey - r, 1.4f, c, a);
+                const float r = r0 + 8.0f * (float)i + (newest ? 8.0f * pop : 0.0f);
+                const float a = fade * (mk.n >= crossbow::kMaxStacks ? 0.95f : 0.75f);
+                const lf::Rgb cc = newest && pop > 0.0f ? hot : col;
+                for (int side = -1; side <= 1; side += 2) {
+                    const float tx = ex + (float)side * r;                  // the tip, pointing at the body
+                    lf::Line(tx, ey, tx + (float)side * c, ey - c, 1.6f, cc, a);
+                    lf::Line(tx, ey, tx + (float)side * c, ey + c, 1.6f, cc, a);
+                }
             }
         });
     }
