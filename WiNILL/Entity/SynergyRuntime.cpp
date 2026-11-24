@@ -42,6 +42,12 @@ struct Flags {
 #include "SynergyCodes.inc"
 #undef SYN
 };
+// One count per synergy card, in table order: how many times a branch was taken.
+struct Counts {
+#define SYN(c) unsigned char c = 0;
+#include "SynergyCodes.inc"
+#undef SYN
+};
 constexpr int kCards = (int)(sizeof(Flags) / sizeof(bool));
 static_assert(sizeof(Flags) == kCards * sizeof(bool), "Flags must be a plain bool array");
 
@@ -121,12 +127,11 @@ struct VerbRoll { int pierce = 0, bounce = 0; bool split = false, blast = false;
 
 struct State {
     int   own[kCards + 1] = {};      // copies taken, by table index
-    // Upgrade branches taken (SynergyUpgrade.h): bit 1 A (key number), 2 B (second number), 4 C (shape).
-    unsigned char branch[kCards + 1] = {};
     Flags on;                        // owned and switched on (its needs are met)
-    Flags upA, upB;                  // owned with branch A / B taken
-    // Family shapes: how many owned cards took branch C of each family. Every card keeps its
-    // three branches (user 2026-11-23); a second card's C on a family already on stacks it.
+    // Upgrade branches taken (SynergyUpgrade.h), each as many times as picked (2026-11-24):
+    // A key number, B second number, C shape.
+    Counts nA, nB, nC;
+    // Family shapes: picks of branch C of each family, across all cards (x1, x2, x3 ...).
     int   shape[(int)synergy::Family::Count] = {};
     bool  framePick = false;         // the run-start frame pick is open: only frames are offered
     uint64_t tags = 0;
@@ -135,13 +140,14 @@ struct State {
 
     // Chance cards.
     std::vector<int> chanceRows;     // owned chance cards (index into kChance)
-    std::vector<bool> chanceUp;      // ...and whether each has branch A (chance or effect)
-    std::vector<bool> chanceEase;    // ...and branch B (its condition eased)
+    std::vector<int> chanceUp;       // ...and its branch A picks (chance, then effect)
+    std::vector<int> chanceEase;     // ...and its branch B picks (condition eased)
     float chance[6] = {};            // the chance of each kind that holds right now (0..1+)
     // Upgraded chance cards whose chance would pass 100% keep it and grow their effect
     // (synergy::ChanceUpgrade): their chances, kept apart so a hit from them gets the bigger
     // effect (pierce / bounce +2, two extra shots, 4-way split, 45% blast). Crit: > 0 = +40% crit damage.
     float chanceBig[6] = {};
+    int   chanceBigLv[6] = {};       // ...and how far their effect has grown (the most of the cards holding)
     int   appliedChanceCrit = 0;
     float appliedChanceCritMul = 0;
     float sinceDash = 99.0f, sinceHurt = 99.0f, nearest = 1e9f;
@@ -214,9 +220,10 @@ const synergy::UpRow& UpRowOf(const char* code) {
     return r ? *r : kNone;
 }
 #define UPROW(code) ([]() -> const synergy::UpRow& { static const synergy::UpRow& r_ = UpRowOf(#code); return r_; }())
-#define UPA(code)  (s.upA.code ? UPROW(code).A.b : UPROW(code).A.a)
-#define UPA2(code) (s.upA.code ? UPROW(code).A2.b : UPROW(code).A2.a)
-#define UPB(code)  (s.upB.code ? UPROW(code).B.b : UPROW(code).B.a)
+#define UPA(code)  (synergy::UpAt(UPROW(code).A, s.nA.code))
+#define UPA2(code) (synergy::UpAt(UPROW(code).A2, s.nA.code))
+#define UPB(code)  (synergy::UpAt(UPROW(code).B, s.nB.code))
+unsigned char* CountsOf(Counts& c) { return reinterpret_cast<unsigned char*>(&c); }
 bool ShapeOn(synergy::Family f) { return s.shape[(int)f] > 0; }
 float ShapeLv(synergy::Family f) { return (float)s.shape[(int)f]; }   // 1 one card, 2 two cards ...
 int Index(const char* code) { return synergy::FindCode(code); }
@@ -369,29 +376,31 @@ void DashEnded() {
     if (ShapeOn(synergy::Family::Mobility)) Burst(s.in.px, s.in.py, Rings(1.5f), 150.0f * ShapeLv(synergy::Family::Mobility));
 }
 
-// An upgraded card whose numbers go straight into the gun: its branch A / B numbers (SynergyUpgrade.h).
-void UpgradeFx(const char* code, synergy::Fx& f, bool a, bool b) {
+// An upgraded card whose numbers go straight into the gun: its branch A / B numbers after
+// `na` / `nb` picks (SynergyUpgrade.h).
+void UpgradeFx(const char* code, synergy::Fx& f, int na, int nb) {
     const synergy::UpRow* r = synergy::FindUp(code);
     if (!r) return;
     const std::string c = code;
-    if (a) {
-        if (c == "V_BOUNCE") f.bounce = (int)r->A.b;
-        else if (c == "V_PIERCE") f.pierce = (int)r->A.b;
-        else if (c == "V_SPLIT") f.split = (int)r->A.b;
-        else if (c == "V_TWIN") f.dmg = r->A.b;
-        else if (c == "V_HOVER") f.dmg = 1.0f + r->A.b;
-        else if (c == "C_GLASS") { f.dmg = r->A.b; f.hpSet = r->A2.b; }
-        else if (c == "C_HERESY") { f.rate = 1.0f + r->A.b; f.hpDelta = r->A2.b; }
-        else if (c == "C_RECKLESS") f.dmgAdd = r->A.b;
-        else if (c == "C_ASCETIC") f.dmg = 1.0f + r->A.b;
-        else if (c == "A_COLLECTOR" || c == "A_REACTOR" || c == "A_GAMBLER") f.perTag = r->A.b;
+    const float A = synergy::UpAt(r->A, na), A2 = synergy::UpAt(r->A2, na), B = synergy::UpAt(r->B, nb);
+    if (na > 0) {
+        if (c == "V_BOUNCE") f.bounce = (int)A;
+        else if (c == "V_PIERCE") f.pierce = (int)A;
+        else if (c == "V_SPLIT") f.split = (int)A;
+        else if (c == "V_TWIN") f.dmg = A;
+        else if (c == "V_HOVER") f.dmg = 1.0f + A;
+        else if (c == "C_GLASS") { f.dmg = A; f.hpSet = A2; }
+        else if (c == "C_HERESY") { f.rate = 1.0f + A; f.hpDelta = A2; }
+        else if (c == "C_RECKLESS") f.dmgAdd = A;
+        else if (c == "C_ASCETIC") f.dmg = 1.0f + A;
+        else if (c == "A_COLLECTOR" || c == "A_REACTOR" || c == "A_GAMBLER") f.perTag = A;
     }
-    if (b) {
-        if (c == "V_PIERCE") f.dmg *= 1.0f + r->B.b;
-        else if (c == "V_SPLIT") f.splitDmg = r->B.b;
-        else if (c == "V_TWIN" || c == "V_HOVER") f.rate *= (1.0f + r->B.b) / (1.0f + r->B.a);
-        else if (c == "C_GLASS") f.hpSet += r->B.b;
-        else if (c == "C_HERESY") f.dmgAdd = r->B.b;
+    if (nb > 0) {
+        if (c == "V_PIERCE") f.dmg *= 1.0f + B;
+        else if (c == "V_SPLIT") f.splitDmg = B;
+        else if (c == "V_TWIN" || c == "V_HOVER") f.rate *= (1.0f + B) / (1.0f + r->B.a);
+        else if (c == "C_GLASS") f.hpSet += B;
+        else if (c == "C_HERESY") f.dmgAdd = B;
     }
 }
 
@@ -434,17 +443,15 @@ void Rebuild() {
             for (int r = 0; r < kChanceRows; ++r)
                 if (std::string(kChance[r].code) == t[i].code) {
                     s.chanceRows.push_back(r);
-                    s.chanceUp.push_back((s.branch[i] & 1) != 0);
-                    s.chanceEase.push_back((s.branch[i] & 2) != 0);
+                    s.chanceUp.push_back(CountsOf(s.nA)[i - 1]);
+                    s.chanceEase.push_back(CountsOf(s.nB)[i - 1]);
                 }
-    bool* upFlags = reinterpret_cast<bool*>(&s.upA);
-    bool* upBFlags = reinterpret_cast<bool*>(&s.upB);
+    const unsigned char* nA = CountsOf(s.nA);
+    const unsigned char* nB = CountsOf(s.nB);
+    const unsigned char* nC = CountsOf(s.nC);
     for (int& f : s.shape) f = 0;
-    for (int i = 1; i <= kCards; ++i) {
-        upFlags[i - 1] = s.own[i] > 0 && (s.branch[i] & 1) != 0;
-        upBFlags[i - 1] = s.own[i] > 0 && (s.branch[i] & 2) != 0;
-        if (s.own[i] > 0 && (s.branch[i] & 4) != 0) ++s.shape[(int)CardFamily(i)];
-    }
+    for (int i = 1; i <= kCards; ++i)
+        if (s.own[i] > 0) s.shape[(int)CardFamily(i)] += nC[i - 1];
     bool* flags = reinterpret_cast<bool*>(&s.on);
     s.any = false;
     for (int i = 1; i <= kCards; ++i) {
@@ -459,7 +466,7 @@ void Rebuild() {
     for (int i = 1; i <= kCards; ++i) {
         if (!flags[i - 1] || !Uses(t[i].code)) continue;
         synergy::Fx f = t[i].fx;
-        if (upFlags[i - 1] || upBFlags[i - 1]) UpgradeFx(t[i].code, f, upFlags[i - 1], upBFlags[i - 1]);
+        if (nA[i - 1] || nB[i - 1]) UpgradeFx(t[i].code, f, nA[i - 1], nB[i - 1]);
         // Cost cards (Glass Cannon, Ascetic) raise all damage; frames and verbs only the bullet.
         if (t[i].role == synergy::Role::Cost) s.cardDmg *= f.dmg; else s.dmg *= f.dmg;
         s.rate *= f.rate; s.acc *= f.acc; s.move *= f.move; s.bullets *= f.bullets;
@@ -479,7 +486,7 @@ void Rebuild() {
             }
             // Branch B raises the cap (6 → 8).
             const synergy::UpRow* ur = synergy::FindUp(t[i].code);
-            const int cap = upBFlags[i - 1] && ur ? (int)ur->B.b : 6;
+            const int cap = ur ? (int)synergy::UpAt(ur->B, nB[i - 1]) : 6;
             s.dmgAdd += f.perTag * (float)std::min(n, cap);
         }
     }
@@ -512,8 +519,8 @@ VerbRoll RollVerbs(const Bullet& b) {
     for (float c = s.chance[(int)CKind::Pierce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.pierce += 1;
     for (float c = s.chance[(int)CKind::Bounce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.bounce += 1;
     // Upgraded cards that grew their effect: +2 when they fire.
-    for (float c = s.chanceBig[(int)CKind::Pierce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.pierce += 2;
-    for (float c = s.chanceBig[(int)CKind::Bounce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.bounce += 2;
+    for (float c = s.chanceBig[(int)CKind::Pierce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.pierce += 1 + s.chanceBigLv[(int)CKind::Pierce];
+    for (float c = s.chanceBig[(int)CKind::Bounce]; c > 0.0f; c -= 1.0f) if (roll(std::min(c, 1.0f))) r.bounce += 1 + s.chanceBigLv[(int)CKind::Bounce];
     r.splitUp = roll(s.chanceBig[(int)CKind::Split]);
     r.blastUp = roll(s.chanceBig[(int)CKind::Blast]);
     r.split = r.splitUp || roll(s.chance[(int)CKind::Split]);
@@ -558,10 +565,11 @@ void ApplyVerbs(Bullet& b, float tx, float ty, const VerbRoll& rolled) {
     b.pierceLeft += rolled.pierce;
     b.bouncesLeft += rolled.bounce;
     if (rolled.split && b.splitCount == 0) {
-        b.splitCount = rolled.splitUp ? 4 : 3;
-        b.splitDmg = rolled.splitUp ? synergy::kChanceUpSplitDmg : 0.28f;
+        const int m = rolled.splitUp ? s.chanceBigLv[(int)CKind::Split] : 0;
+        b.splitCount = synergy::ChanceSplitWays(m);
+        b.splitDmg = synergy::ChanceSplitDmg(m);
     }
-    if (rolled.blast) b.blastPct = std::max(b.blastPct, rolled.blastUp ? synergy::kChanceUpBlastPct : 0.30f);
+    if (rolled.blast) b.blastPct = std::max(b.blastPct, synergy::ChanceBlastPct(rolled.blastUp ? s.chanceBigLv[(int)CKind::Blast] : 0));
     for (int d = 0; d < 2 && o.V_DICE; ++d) {
         const int r = d == 0 ? rolled.dice : rolled.dice2;
         if (r < 0) continue;
@@ -609,9 +617,10 @@ void Explode(float x, float y, float radius, float pct, bool pull, float pullRad
 
 // Which chances hold right now: the conditions of the owned chance cards, summed per kind.
 // `eased`: the card's branch B (synergy::ChanceCondB) loosens its condition.
-bool CondHolds(const ChanceRow& row, const passive::StepInput& in, bool eased = false) {
-    const synergy::ChanceEase e = synergy::ChanceCondB((synergy::ChCond)(int)row.cond);
-    const float v = eased ? e.b : e.a;
+// `ease`: the card's branch B picks (synergy::ChanceCondAt) loosen its condition.
+bool CondHolds(const ChanceRow& row, const passive::StepInput& in, int ease = 0) {
+    const float v = synergy::ChanceCondAt((synergy::ChCond)(int)row.cond, ease);
+    const bool eased = ease > 0;
     switch (row.cond) {
         case CCond::Still:   return !in.moving && s.stillT >= v;
         case CCond::Moving:  return in.moving || (eased && s.stillT < v);
@@ -626,9 +635,9 @@ bool CondHolds(const ChanceRow& row, const passive::StepInput& in, bool eased = 
         case CCond::Few: {   // a regular wave: once 90% of its kill quota is in; other waves: 1~3 enemies left
             const int quota = RegularWaveKillQuota(g_GameManager.currentWave, g_Difficulty);
             if (quota > 0) return (float)g_GameManager.waveKills >= (float)quota * v;
-            return s.enemiesLeft >= 1 && s.enemiesLeft <= (eased ? 5 : 3);
+            return s.enemiesLeft >= 1 && s.enemiesLeft <= 3 + 2 * ease;
         }
-        case CCond::Boss:    return s.bossUp || (eased && IsEliteWaveNumber(g_GameManager.currentWave, g_Difficulty));
+        case CCond::Boss:    return s.bossUp || v >= 1.5f || (eased && IsEliteWaveNumber(g_GameManager.currentWave, g_Difficulty));
         case CCond::Far:     return s.enemiesLeft > 0 && s.nearest > Rings(v);
         case CCond::Barrage: return s.nearBullets >= (int)v;
         case CCond::Clean:   return s.waveDamage < std::max(0.01f, v);
@@ -642,6 +651,7 @@ bool CondHolds(const ChanceRow& row, const passive::StepInput& in, bool eased = 
 void UpdateChances(const passive::StepInput& in) {
     for (float& c : s.chance) c = 0.0f;
     for (float& c : s.chanceBig) c = 0.0f;
+    for (int& c : s.chanceBigLv) c = 0;
     int wantCrit = 0;
     if (!s.chanceRows.empty()) {
         s.crowd = 0; s.enemiesLeft = 0; s.nearest = 1e9f; s.bossUp = false; s.nearBullets = 0;
@@ -660,16 +670,17 @@ void UpdateChances(const passive::StepInput& in) {
             }
         for (size_t k = 0; k < s.chanceRows.size(); ++k) {
             const int r = s.chanceRows[k];
-            const bool holds = CondHolds(kChance[r], in, k < s.chanceEase.size() && s.chanceEase[k]);
+            const bool holds = CondHolds(kChance[r], in, k < s.chanceEase.size() ? s.chanceEase[k] : 0);
             if (holds) {
                 const CKind kind = kChance[r].kind;
                 float p = (float)kChance[r].pct / 100.0f;
                 bool big = false;
-                if (k < s.chanceUp.size() && s.chanceUp[k]) {
-                    // Upgraded: x1.5 while that stays within 100%, else the effect grows.
-                    const synergy::ChanceUp up = synergy::ChanceUpgrade(kChance[r].pct);
-                    p = (float)up.pct / 100.0f;
-                    big = up.effectGrows;
+                if (k < s.chanceUp.size() && s.chanceUp[k] > 0) {
+                    // Upgraded: x1.5 per pick while that stays within 100%, then the effect grows.
+                    const synergy::ChanceAState st = synergy::ChanceAAt(kChance[r].pct, s.chanceUp[k]);
+                    p = (float)st.pct / 100.0f;
+                    big = st.effect > 0;
+                    if (big) s.chanceBigLv[(int)kind] = std::max(s.chanceBigLv[(int)kind], st.effect);
                 }
                 if (big && kind == CKind::Crit) { s.chance[(int)kind] += p; s.chanceBig[(int)kind] += 1.0f; }
                 else if (big) s.chanceBig[(int)kind] += p;
@@ -690,7 +701,7 @@ void UpdateChances(const passive::StepInput& in) {
     g_Stats.critChance = std::max(0, g_Stats.critChance + wantCrit - s.appliedChanceCrit);   // unclamped sum, see Rebuild
     s.appliedChanceCrit = wantCrit;
     // An upgraded 100% crit card: more crit damage while its condition holds.
-    const float wantCritMul = s.chanceBig[(int)CKind::Crit] > 0.0f ? synergy::kChanceUpCritMul : 0.0f;
+    const float wantCritMul = synergy::kChanceUpCritMul * (float)s.chanceBigLv[(int)CKind::Crit];
     g_Stats.critMult += wantCritMul - s.appliedChanceCritMul;
     s.appliedChanceCritMul = wantCritMul;
 }
@@ -1225,28 +1236,50 @@ static bool Upgradable(int i) {
 
 int MaxStage(int augIdx) {
     const int i = CardOf(augIdx);
-    return i > 0 && Upgradable(i) ? 4 : 1;
+    return i > 0 && Upgradable(i) ? 999 : 1;
 }
 
+static int Picks(int i, int branch) {
+    Counts& c = branch == 0 ? s.nA : branch == 1 ? s.nB : s.nC;
+    return CountsOf(c)[i - 1];
+}
+
+int BranchCount(int augIdx, int branch) {
+    const int i = CardOf(augIdx);
+    return i > 0 && branch >= 0 && branch <= 2 ? Picks(i, branch) : 0;
+}
+
+// 1 + every pick on the card (the card's upgrade level + 1).
 int Stage(int augIdx) {
     const int i = CardOf(augIdx);
     if (i < 0 || s.own[i] <= 0) return 0;
-    int n = 1;
-    for (int b = 0; b < 3; ++b) n += (s.branch[i] >> b) & 1;
-    return n;
+    return 1 + Picks(i, 0) + Picks(i, 1) + Picks(i, 2);
 }
 
 int Branches(int augIdx) {
     const int i = CardOf(augIdx);
-    return i > 0 ? s.branch[i] : 0;
+    if (i < 0) return 0;
+    return (Picks(i, 0) ? 1 : 0) | (Picks(i, 1) ? 2 : 0) | (Picks(i, 2) ? 4 : 0);
 }
 
+static const ChanceRow* ChanceRowOf(int i) {
+    for (int r = 0; r < kChanceRows; ++r)
+        if (std::string(kChance[r].code) == T()[i].code) return &kChance[r];
+    return nullptr;
+}
+
+// Owned and the branch can still grow: every branch can be taken again (2026-11-24) until
+// its number reaches its limit.
 bool CanTakeBranch(int augIdx, int branch) {
     const int i = CardOf(augIdx);
     if (i < 0 || branch < 0 || branch > 2 || s.own[i] <= 0 || !Upgradable(i)) return false;
-    if (s.branch[i] & (1 << branch)) return false;
-    if (branch == 2 && CardFamily(i) == synergy::Family::None) return false;   // every card keeps all three
-    return true;
+    if (branch == 2) return CardFamily(i) != synergy::Family::None;
+    if (Picks(i, branch) >= 250) return false;
+    if (const ChanceRow* row = ChanceRowOf(i))
+        return branch == 0 || synergy::ChanceCondCanGrow((synergy::ChCond)(int)row->cond, Picks(i, 1));
+    const synergy::UpRow* r = synergy::FindUp(T()[i].code);
+    if (!r) return false;
+    return branch == 0 ? synergy::UpCanGrow(r->A, Picks(i, 0)) : (r->B.on() && synergy::UpCanGrow(r->B, Picks(i, 1)));
 }
 
 bool CanUpgrade(int augIdx) {
@@ -1257,36 +1290,58 @@ bool CanUpgrade(int augIdx) {
 void Upgrade(int augIdx, int branch) {
     if (!CanTakeBranch(augIdx, branch)) return;
     const int i = CardOf(augIdx);
-    s.branch[i] |= (unsigned char)(1 << branch);
+    Counts& c = branch == 0 ? s.nA : branch == 1 ? s.nB : s.nC;
+    ++CountsOf(c)[i - 1];
     Rebuild();
 }
 
-// Branch C of a card whose family shape another card already switched on: it stacks
-// (" · 이미 켜짐: 효과 ×2"). Not for a card that took its own C (the build panel lists it).
-static std::wstring StackNote(int i, int branch, int lang) {
-    if (branch != 2 || (s.branch[i] & 4)) return L"";
-    const int lv = s.shape[(int)CardFamily(i)];
-    if (lv <= 0) return L"";
-    static const wchar_t* const k[3] = { L" · 이미 켜짐: 효과 ×%d", L" · already on: effect x%d", L" · 発動中: 効果 ×%d" };
-    wchar_t buf[64];
-    swprintf(buf, 64, k[std::clamp(lang, 0, 2)], lv + 1);
-    return buf;
-}
-
+// The branch's line for its next pick ("튕김 3 → 4"; a shape: its text, and its stack).
 std::wstring UpgradeLine(int augIdx, int branch, int lang) {
     const int i = CardOf(augIdx);
-    if (i < 0) return L"";
+    if (i < 0 || branch < 0 || branch > 2) return L"";
     lang = std::clamp(lang, 0, 2);
-    const synergy::Aug& a = T()[i];
-    if (a.role == synergy::Role::Chance) {
-        for (int r = 0; r < kChanceRows; ++r)
-            if (std::string(kChance[r].code) == a.code)
-                return synergy::BranchLine(nullptr, true, (synergy::ChKind)(int)kChance[r].kind,
-                                           (synergy::ChCond)(int)kChance[r].cond, kChance[r].pct, branch, lang) + StackNote(i, branch, lang);
-        return L"";
+    const int n = branch == 2 ? s.shape[(int)CardFamily(i)] : Picks(i, branch);
+    if (const ChanceRow* row = ChanceRowOf(i))
+        return synergy::BranchLine(nullptr, true, (synergy::ChKind)(int)row->kind, (synergy::ChCond)(int)row->cond,
+                                   row->pct, branch, lang, n);
+    return synergy::BranchLine(synergy::FindUp(T()[i].code), false, synergy::ChKind::Crit, synergy::ChCond::Still, 0,
+                               branch, lang, n);
+}
+
+// What the picks of a branch did so far, for the build panel ("튕김 2 → 4", "확률 40% → 90%").
+std::wstring UpgradeSummary(int augIdx, int branch, int lang) {
+    const int i = CardOf(augIdx);
+    if (i < 0 || branch < 0 || branch > 2) return L"";
+    lang = std::clamp(lang, 0, 2);
+    const int n = Picks(i, branch);
+    if (n <= 0) return L"";
+    if (branch == 2) {
+        wchar_t buf[24];
+        swprintf(buf, 24, L" ×%d", s.shape[(int)CardFamily(i)]);
+        return synergy::ShapeText(CardFamily(i), lang) + std::wstring(buf);
     }
-    std::wstring line = synergy::BranchLine(synergy::FindUp(a.code), false, synergy::ChKind::Crit, synergy::ChCond::Still, 0, branch, lang);
-    return line + StackNote(i, branch, lang);
+    if (const ChanceRow* row = ChanceRowOf(i)) {
+        if (branch == 0) {
+            const synergy::ChanceAState st = synergy::ChanceAAt(row->pct, n);
+            std::wstring out = synergy::UpPart(synergy::UpVal{ synergy::UpLabel::Chance, synergy::UpUnit::Pct,
+                                                               (float)row->pct / 100.0f, (float)st.pct / 100.0f }, lang);
+            if (st.effect > 0) {
+                static const wchar_t* const k[3] = { L" · 효과 +%d단계", L" · effect +%d", L" · 効果 +%d段階" };
+                wchar_t buf[32];
+                swprintf(buf, 32, k[lang], st.effect);
+                out += buf;
+            }
+            return out;
+        }
+        const synergy::ChCond c = (synergy::ChCond)(int)row->cond;
+        const float a = synergy::ChanceCondAt(c, 0), b = synergy::ChanceCondAt(c, n);
+        (void)a; (void)b;
+        return synergy::ChanceBText(c, n - 1, lang);   // the last step (the condition as it is now)
+    }
+    const synergy::UpRow* r = synergy::FindUp(T()[i].code);
+    if (!r) return L"";
+    const synergy::UpVal& v = branch == 0 ? r->A : r->B;
+    return synergy::UpPart(synergy::UpVal{ v.l, v.u, synergy::UpAt(v, 0), synergy::UpAt(v, n) }, lang);
 }
 
 int CardFamilyOf(int augIdx) {
@@ -1298,7 +1353,7 @@ void Release(int augIdx) {
     const int i = SynergyIndex(ALL_AUGS[augIdx].type);
     if (i < 1 || i > kCards || s.own[i] <= 0) return;
     --s.own[i];
-    if (s.own[i] <= 0) s.branch[i] = 0;
+    if (s.own[i] <= 0) { CountsOf(s.nA)[i - 1] = 0; CountsOf(s.nB)[i - 1] = 0; CountsOf(s.nC)[i - 1] = 0; }
     Rebuild();
 }
 
@@ -1419,8 +1474,10 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         s.beamExtra.clear();
         for (float c = s.chance[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)
             if (Rand01() < std::min(c, 1.0f)) s.beamExtra.push_back(Rand01() < 0.5f ? -0.08f : 0.08f);
-        for (float c = s.chanceBig[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)   // upgraded: two extra shots
-            if (Rand01() < std::min(c, 1.0f)) { s.beamExtra.push_back(-0.08f); s.beamExtra.push_back(0.08f); }
+        for (float c = s.chanceBig[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)   // upgraded: 1 + level extra shots
+            if (Rand01() < std::min(c, 1.0f))
+                for (int k = 0; k <= s.chanceBigLv[(int)CKind::Extra]; ++k)
+                    s.beamExtra.push_back(0.08f * (float)(k / 2 + 1) * (k % 2 ? 1.0f : -1.0f));
     }
     for (const float off : s.beamExtra) {
         Bullet b = out.front();

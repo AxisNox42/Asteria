@@ -319,10 +319,10 @@ void DrawPanel(PanelState& st, const PanelIn& in) {
     }
     BatchFlush();
     for (int i = 0; i < shown; ++i) {
-        // Upgraded cards (augment rework): a star per branch taken, top left.
+        // Upgraded cards (augment rework): their upgrade level, top left.
         const int stars = syn::Stage(taken[i]) - 1;
         if (stars > 0) {
-            const std::wstring sb((size_t)stars, L'★');
+            const std::wstring sb = L"+" + std::to_wstring(stars);
             const float scx = panelX + ((float)(i % cols) + 0.5f) * cell;
             const float scy = gridY + ((float)(i / cols) + 0.5f) * cell;
             drawT(*lab.r, sb.c_str(), Snap(scx - cell * 0.5f + 2.0f * uiS), Snap(scy - cell * 0.5f),
@@ -549,13 +549,13 @@ void DrawPanel(PanelState& st, const PanelIn& in) {
         // An upgraded card: its stars after the name, and the branches it took before its text.
         const int stars = syn::Stage(st.descAug) - 1;
         std::wstring title = def.locName[li];
-        if (stars > 0) title += L"  " + std::wstring((size_t)stars, L'★');
+        if (stars > 0) title += L"  Lv." + std::to_wstring(stars);
         drawT(*lab.r, title.c_str(), Snap(panelX), Snap(descY), lab.scale,
                     0.45f + 0.55f * rr, 0.45f + 0.55f * rg, 0.45f + 0.55f * rb, 0.98f * a);
         std::wstring text;
         const int bits = syn::Branches(st.descAug);
         for (int b = 0; b < 3; ++b)
-            if (bits & (1 << b)) text += (b == 2 ? L"◆ " : L"▲ ") + syn::UpgradeLine(st.descAug, b, li) + L" · ";
+            if (bits & (1 << b)) text += (b == 2 ? L"◆ " : L"▲ ") + syn::UpgradeSummary(st.descAug, b, li) + L" · ";
         text += def.locDesc[li];
         wchar_t lines[kDescLines][kWrapChars];
         const int n = WrapLines(*lab.r, lab.scale, text.c_str(), panelW, lines, kDescLines);

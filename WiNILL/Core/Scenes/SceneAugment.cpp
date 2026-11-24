@@ -591,6 +591,7 @@ CardText LayoutCardText(const AugDef& def, float ui, int slot = -1) {
     if (g_GameManager.ActiveIsUpgrade() && branch >= 0) {
         static const wchar_t* kUp[3] = { L"강화", L"Upgrade", L"強化" };
         const int li = CurLangIdx();
+        // The level shows in the star row (and its "+n" once the stars are full), not here.
         t.meta = std::wstring(kUp[li]) + L" · " + synergy::BranchName(branch, li);
         if (branch == 2)
             t.meta += std::wstring(L" (") + synergy::FamilyName((synergy::Family)syn::CardFamilyOf(augIdx), li) + L")";
@@ -1323,6 +1324,22 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
                  d.col.r, d.col.g, d.col.b, titleA * 0.95f);
         DrawShadowedText(g_TextL, name, d.x - nameW * 0.5f, d.y + kTitleY * ui - nameH * 0.5f,
                          tx.titleScale, kText.r, kText.g, kText.b, titleA, 0.70f);
+        // Upgrades past the star row (repeatable, 2026-11-24): "+n" right of the last star, and on an
+        // upgrade pick "+n → +n+1" when the pick lands past the row.
+        {
+            const int over = ac::TierOverflow(rarity[i], tierUps[i]);
+            const int next = tierPreview[i] ? ac::TierOverflow(rarity[i], tierUps[i] + 1) : over;
+            if (next > 0) {
+                std::wstring tag = over > 0 ? L"+" + std::to_wstring(over) : L"";
+                if (next > over) tag += (over > 0 ? L" → +" : L"+") + std::to_wstring(next);
+                const float ts = UiTextScale(g_TextS, UiTextLevel::Supporting, ui);
+                const float th = g_TextS.Height(tag.c_str(), ts);
+                const float tx0 = d.x + (ac::TierSlotX(ac::kTierSlots - 1) + ac::kTierGap * 0.75f) * ui;
+                const Rgb tagCol = Mix(d.col, kWhite, 0.80f);
+                DrawShadowedText(g_TextS, tag.c_str(), tx0, d.y + kRarityY * ui - th * 0.5f, ts,
+                                 tagCol.r, tagCol.g, tagCol.b, titleA * 0.95f, 0.70f);
+            }
+        }
         const float left = d.x - (ac::kCardW * 0.5f - 22.0f) * ui;
         const Rgb metaCol = Mix(d.col, kText, 0.35f);
         DrawShadowedText(g_TextS, tx.meta.c_str(), left, d.y + kMetaY * ui, tx.metaScale,

@@ -4089,9 +4089,9 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
     const bool objectiveDone = !eliteWave && clear.cleared && clear.wave == gm.currentWave;
     if ((objectiveDone || quotaMet || eliteDone) &&
         !gm.waveAdvancePending && gm.currentWave < FinalWaveCount(g_Difficulty)) {
-        // Augment rework: a clear upgrades owned cards (two on an elite or boss wave), the
-        // fastest clear band one more (RewardRules.h). The new augments come from level-ups.
-        // An elite wave's speed is still its elite's (the quota part does not count).
+        // Augment rework: every clear upgrades one owned card (RewardRules.h; 2026-11-24 no extra
+        // pick for elite / boss waves or a fast clear). The new augments come from level-ups.
+        // The clear speed is still logged (earned tier).
         const WaveRewardTimes times = quotaMet
             ? RegularWaveRewardTimes(quota) : WaveRewardTimesFor(eliteDone ? false : clear.boss);
         const float seconds = quotaMet ? g_GameTime - gm.waveStartTime
@@ -4103,7 +4103,7 @@ static void ProcessWaveTransitions(int scrW, int scrH) {
                                             passive::LuckChanceMult(), gm.rewardPityCount);
         gm.rewardSpeed = WaveRewardSpeed(seconds, times);
         const bool specialWave = IsSpecialWave(gm.currentWave, g_Difficulty);
-        const int upgrades = (specialWave ? 2 : 1) + (earned == WaveRewardTier::Legendary ? 1 : 0);
+        const int upgrades = 1;   // one upgrade per wave clear (2026-11-24: no extra for elite / boss / fast)
         gamelog::Event("WAVE_CLEAR", "cleared_wave=%d,clear_sec=%.2f,by=%s,kills=%d,quota=%d,"
                        "earned_tier=%d,upgrades=%d,hp=%.1f",
                        gm.currentWave, seconds, quotaMet ? "quota" : eliteDone ? "elite+quota" : "objective",

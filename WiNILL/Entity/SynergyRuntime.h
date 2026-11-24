@@ -29,7 +29,10 @@ bool HasFrame();                       // a frame is owned this run
 // Three branches per card (0 A key number, 1 B second number, 2 C family shape), each once.
 int  Stage(int augIdx);                // 0 not owned, else 1 + branches taken (stars)
 int  MaxStage(int augIdx);             // 1 = never upgraded (frames, mythics, laser amps), else 4
-int  Branches(int augIdx);             // taken branches: bit 1 A, 2 B, 4 C
+int  Branches(int augIdx);             // branches taken at least once: bit 1 A, 2 B, 4 C
+int  BranchCount(int augIdx, int branch);   // how many times a branch was taken (2026-11-24: repeatable)
+// What a branch's picks did so far ("튕김 2 → 4"), for the build panel ("" when never taken).
+std::wstring UpgradeSummary(int augIdx, int branch, int lang);
 bool CanTakeBranch(int augIdx, int branch);   // owned and the branch not taken yet (every card has all three)
 bool CanUpgrade(int augIdx);           // any branch left
 void Upgrade(int augIdx, int branch);  // take one branch

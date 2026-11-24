@@ -193,6 +193,13 @@ inline TierSlot TierSlotKind(int k, int rarity, int upgrades, bool preview) {
     return TierSlot::Empty;
 }
 
+// Upgrades past the row's last star (upgrades repeat without end since 2026-11-24): drawn as
+// "+n" beside the row.
+inline int TierOverflow(int rarity, int upgrades) {
+    const int filled = std::max(0, std::min(5, rarity + 1));
+    return std::max(0, upgrades - (kTierSlots - filled));
+}
+
 // Five-point star, point up: 10 corners clockwise from the top tip.
 inline void StarCorners(float cx, float cy, float r, float* px, float* py) {
     for (int i = 0; i < 10; ++i) {

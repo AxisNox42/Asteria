@@ -304,6 +304,9 @@ void GameManager::PickRewardChoices() {
 
 // Wave clear: up to five owned cards that can still go up a stage, the last one
 // upgraded always among them.
+// A card's weight in the upgrade draw: halved by each upgrade it has (RewardRules.h).
+static float UpgradeWeightOf(int card) { return reward::UpgradeWeight(std::max(0, syn::Stage(card) - 1)); }
+
 // Wave clear: three upgrade offers, each one branch of an owned card (RewardRules.h).
 static std::vector<reward::UpgradeOffer> OpenUpgradeOffers() {
     std::vector<reward::UpgradeOffer> all;
@@ -325,8 +328,8 @@ void GameManager::SetUpgradeOffers(const std::vector<reward::UpgradeOffer>& offe
 }
 
 void GameManager::PickUpgradeChoices() {
-    SetUpgradeOffers(reward::PickUpgradeOffers(OpenUpgradeOffers(), lastUpgraded,
-                                               std::min((int)kAugChoiceMax, reward::kUpgradeChoices), RollN));
+    SetUpgradeOffers(reward::PickUpgradeOffers(OpenUpgradeOffers(), std::min((int)kAugChoiceMax, reward::kUpgradeChoices),
+                                               UpgradeWeightOf, Roll01));
 }
 
 // A reroll can show something new: an open branch that is not on screen now.
@@ -394,12 +397,14 @@ bool GameManager::RerollUpgrade() {
         for (int k = 0; k < augChoiceCount; ++k) was = was || (augChoices[k] == o.card && augChoiceBranch[k] == o.branch);
         (was ? shown : fresh).push_back(o);
     }
-    std::vector<reward::UpgradeOffer> picked = reward::PickUpgradeOffers(fresh, lastUpgraded, reward::kUpgradeChoices, RollN);
-    while ((int)picked.size() < reward::kUpgradeChoices && !shown.empty()) {
-        const int j = RollN((int)shown.size());
-        picked.push_back(shown[(size_t)j]);
-        shown.erase(shown.begin() + j);
-    }
+    std::vector<reward::UpgradeOffer> picked = reward::PickUpgradeOffers(fresh, reward::kUpgradeChoices, UpgradeWeightOf, Roll01);
+    // Too few new ones: fill from what was on screen, cards not yet shown first.
+    for (int pass = 0; pass < 2 && (int)picked.size() < reward::kUpgradeChoices; ++pass)
+        for (size_t j = 0; j < shown.size() && (int)picked.size() < reward::kUpgradeChoices; ++j) {
+            bool cardIn = false;
+            for (const reward::UpgradeOffer& o : picked) cardIn = cardIn || o.card == shown[j].card;
+            if (pass == 1 || !cardIn) { picked.push_back(shown[j]); shown.erase(shown.begin() + (long)j); --j; }
+        }
     --upgradeRerollsLeft;
     SetUpgradeOffers(picked);
     gamelog::Event("AUG_REROLL", "offers=%d,rerolls_left=%d", augChoiceCount, upgradeRerollsLeft);

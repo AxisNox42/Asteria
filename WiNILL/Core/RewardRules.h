@@ -5,11 +5,12 @@
 // can check them without linking the game:
 //   * run start  : one frame out of three (the bare gun among them);
 //   * level-up   : one new augment out of three, its rarity set by the level;
-//   * wave clear : take one of three upgrade branches of the cards you hold
-//                  (two picks on an elite or boss wave), with one reroll.
+//   * wave clear : take one of three upgrade offers (different cards, drawn by
+//                  weight; a card just upgraded comes up less), with one reroll.
 // Docs/QA/2026-11-17_구조분석/Asteria_증강구조_개선안_2026-11-17.docx, 2·3·8장.
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace reward {
@@ -51,56 +52,75 @@ inline int NextLowStreak(int lowStreak, int bestRarity) {
     return bestRarity >= 1 ? 0 : lowStreak + 1;
 }
 
-// Upgrades a wave clear pays: one, two on an elite or boss wave, one more for
-// the fastest clear band. Never more than the cards that can still be upgraded.
-inline int UpgradePicks(bool specialWave, bool fastest, int upgradable) {
-    const int n = (specialWave ? 2 : 1) + (fastest ? 1 : 0);
-    return std::max(0, std::min(n, upgradable));
-}
+// Upgrades a wave clear pays: always one (2026-11-24: no extra pick for elite / boss waves
+// or a fast clear). None when nothing can be upgraded.
+inline int UpgradePicks(int upgradable) { return upgradable > 0 ? 1 : 0; }
 
-// An upgrade offer: one branch (0 A, 1 B, 2 C) of one owned card (2026-11-23: every card
-// has three branches, each taken once).
+// An upgrade offer: one branch (0 A, 1 B, 2 C) of one owned card. Branches can be taken
+// again and again (2026-11-24).
 struct UpgradeOffer {
     int card = -1, branch = 0;
     bool operator==(const UpgradeOffer& o) const { return card == o.card && branch == o.branch; }
 };
-inline constexpr int kMaxOffersPerCard = 2;   // when more than one card can be upgraded
 
-// Up to `count` offers out of `candidates` (every branch still open). One branch of the
-// card upgraded last (`lastCard`, -1 = none) is among them when it has one left, so a
-// build that digs into one card is not left to luck. With several cards, one card shows at
-// most kMaxOffersPerCard branches while others can fill the slots; with a single card all
-// of its branches show. `roll(n)` returns 0..n-1.
-template <class Roll>
-std::vector<UpgradeOffer> PickUpgradeOffers(std::vector<UpgradeOffer> candidates, int lastCard, int count, Roll&& roll) {
+// A card's weight in the upgrade draw: halved by every upgrade it already has, so a card
+// just upgraded comes up less (100% → 50% → 25% …).
+inline float UpgradeWeight(int upgrades) { return std::pow(0.5f, (float)std::max(0, upgrades)); }
+
+// Up to `count` offers out of `candidates` (the open branches of the owned cards):
+//   * three or more cards: `count` different cards, drawn by weight, one random branch each;
+//   * fewer cards: each card once, then the slots left go to another open branch of a card
+//     drawn by weight (one card alone shows its three branches).
+// `weightOf(card)` gives a card's weight, `roll01()` a number in [0, 1).
+template <class Weight, class Roll01>
+std::vector<UpgradeOffer> PickUpgradeOffers(const std::vector<UpgradeOffer>& candidates, int count,
+                                            Weight&& weightOf, Roll01&& roll01) {
     std::vector<UpgradeOffer> out;
     if (count <= 0 || candidates.empty()) return out;
-    auto perCard = [&](int card) {
-        int n = 0;
-        for (const UpgradeOffer& o : out) n += o.card == card ? 1 : 0;
-        return n;
+    // Open branches per card.
+    std::vector<int> cards;
+    std::vector<std::vector<int>> branches;
+    for (const UpgradeOffer& o : candidates) {
+        size_t k = 0;
+        while (k < cards.size() && cards[k] != o.card) ++k;
+        if (k == cards.size()) { cards.push_back(o.card); branches.emplace_back(); }
+        branches[k].push_back(o.branch);
+    }
+    auto rollIndex = [&](int n) { return std::min(n - 1, (int)(roll01() * (float)n)); };
+    auto takeBranch = [&](size_t k) {
+        std::vector<int>& open = branches[k];
+        const int j = rollIndex((int)open.size());
+        out.push_back({ cards[k], open[(size_t)j] });
+        open.erase(open.begin() + j);
     };
-    auto take = [&](size_t j) { out.push_back(candidates[j]); candidates.erase(candidates.begin() + (long)j); };
-    {
-        std::vector<size_t> mine;
-        for (size_t j = 0; j < candidates.size(); ++j)
-            if (lastCard >= 0 && candidates[j].card == lastCard) mine.push_back(j);
-        if (!mine.empty()) take(mine[(size_t)roll((int)mine.size())]);
-    }
-    for (int pass = 0; pass < 2 && (int)out.size() < count; ++pass) {
-        // pass 0 keeps to kMaxOffersPerCard per card; pass 1 fills what is left with anything.
-        while ((int)out.size() < count) {
-            std::vector<size_t> open;
-            for (size_t j = 0; j < candidates.size(); ++j)
-                if (pass == 1 || perCard(candidates[j].card) < kMaxOffersPerCard) open.push_back(j);
-            if (open.empty()) break;
-            take(open[(size_t)roll((int)open.size())]);
+    auto drawCard = [&](const std::vector<size_t>& pool) {
+        float total = 0.0f;
+        for (size_t k : pool) total += std::max(1e-6f, weightOf(cards[k]));
+        float r = roll01() * total;
+        for (size_t k : pool) {
+            r -= std::max(1e-6f, weightOf(cards[k]));
+            if (r < 0.0f) return k;
         }
-    }
-    // The kept offer takes a random slot rather than always the first.
-    if (out.size() > 1) {
-        const int at = roll((int)out.size());
-        std::swap(out[0], out[(size_t)at]);
+        return pool.back();
+    };
+    if ((int)cards.size() >= count) {
+        std::vector<size_t> pool;
+        for (size_t k = 0; k < cards.size(); ++k) pool.push_back(k);
+        while ((int)out.size() < count && !pool.empty()) {
+            const size_t k = drawCard(pool);
+            takeBranch(k);
+            pool.erase(std::find(pool.begin(), pool.end(), k));
+        }
+    } else {
+        for (size_t k = 0; k < cards.size(); ++k) takeBranch(k);
+        while ((int)out.size() < count) {
+            std::vector<size_t> pool;
+            for (size_t k = 0; k < cards.size(); ++k) if (!branches[k].empty()) pool.push_back(k);
+            if (pool.empty()) break;
+            takeBranch(drawCard(pool));
+        }
+        // Shuffle so the extra branch is not always last.
+        for (int i = (int)out.size() - 1; i > 0; --i) std::swap(out[(size_t)i], out[(size_t)rollIndex(i + 1)]);
     }
     return out;
 }
