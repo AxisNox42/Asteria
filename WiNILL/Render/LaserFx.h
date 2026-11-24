@@ -3,7 +3,8 @@
 //
 //   tier 1  레이저        hold fire: charge kCharge s, then a beam stands from the ship along
 //                         the aim and stays on while fire is held (unlimited range: it runs to the
-//                         arena edge, or bounces back with bounce cards).
+//                         arena edge, or bounces back with bounce cards). The beam turns toward the
+//                         aim faster and faster for as long as it keeps turning (kTurnAccel).
 //   tier 2  + 집속 레이저 the beam charges in kChargeFocus s, and heats up
 //                         while it stays on: thicker and whiter, up to +60% damage at kHeatTime.
 //   tier 3  + 과부하 레이저 letting go of a beam held over kReleaseMin s releases the heat as one
@@ -49,7 +50,10 @@ inline constexpr int   kMaxFlashes = 64;
 inline constexpr int   kMaxBeams = 32;          // beams of one volley that are drawn and remembered
 inline constexpr float kLegFalloff = 0.80f;     // each reflected leg of a beam hits this much softer than the one before
 inline constexpr float kBounceFxGap = 0.5f;     // bounce cards' on-bounce effects fire at most this often per beam
-inline constexpr float kTurnRate = 1.6f;       // rad/s: the standing beam turns toward the aim at this fixed rate
+inline constexpr float kTurnRate = 1.6f;       // rad/s: the standing beam starts turning toward the aim at this rate ...
+inline constexpr float kTurnAccel = 0.3f;      // ... and speeds up by this (rad/s per s) at first, for as long as it keeps turning ...
+inline constexpr float kTurnJerk = 0.3f;       // ... the speed-up itself grows by this (rad/s per s, every second): the longer, the steeper
+inline constexpr float kTurnMax = 4.0f;        // rad/s: the fastest it turns
 // The beam (and its hit band) grows with each laser card: 레이저 / + 집속 / + 과부하.
 // Big steps on purpose: each tier must read as a clearly heavier beam at a glance.
 inline constexpr float kTierWidth[4] = { 1.0f, 1.0f, 1.9f, 2.8f };
@@ -144,6 +148,8 @@ struct Main {
     bool  evCharge = false, evOpen = false;
     int   beams = 0;            // beams opened so far: one beam counts as one shot (SynergyRuntime Shape)
     float bounceCd = 0.0f;      // until the beam's reflections may set off on-bounce effects again
+    float turnSpeed = 0.0f;     // rad/s the standing beam turns at now: grows while it keeps turning, 0 once it stops
+    float turnAccel = kTurnAccel;   // rad/s per s it speeds up by now: grows by kTurnJerk while it keeps turning
 };
 
 // A short beam of a laser shot that did not leave with the main beam,
@@ -192,6 +198,7 @@ inline bool Hold(bool held, float px, float py, float tx, float ty, float dt, in
     Main& m = g_Main;
     m.tier = std::max(1, tier);
     m.px = px; m.py = py;
+    bool turning = false;
     if (held) {
         if (std::hypot(tx - px, ty - py) > 1.0f) {
             const float want = std::atan2(ty - py, tx - px);
@@ -200,7 +207,13 @@ inline bool Hold(bool held, float px, float py, float tx, float ty, float dt, in
                 float d = want - m.aim;
                 while (d > 3.14159265f) d -= 6.2831853f;
                 while (d < -3.14159265f) d += 6.2831853f;
-                const float step = kTurnRate * dt;
+                // Turns faster the longer it keeps turning; once it is on the aim and stays there, the speed starts over.
+                if (std::fabs(d) > 1e-4f) {
+                    turning = true;
+                    m.turnAccel += kTurnJerk * dt;
+                    m.turnSpeed = std::min(kTurnMax, std::max(kTurnRate, m.turnSpeed + m.turnAccel * dt));
+                }
+                const float step = m.turnSpeed * dt;
                 m.aim += std::clamp(d, -step, step);
                 if (m.aim > 3.14159265f) m.aim -= 6.2831853f;
                 else if (m.aim < -3.14159265f) m.aim += 6.2831853f;
@@ -212,7 +225,9 @@ inline bool Hold(bool held, float px, float py, float tx, float ty, float dt, in
         m.on = m.charge >= ChargeTime();
         if (m.on && !was) { m.evOpen = true; ++m.beams; }
         if (m.on) { m.onT = was ? m.onT + dt : 0.0f; m.offT = 0.0f; }
+        if (!turning) { m.turnSpeed = 0.0f; m.turnAccel = kTurnAccel; }
     } else {
+        m.turnSpeed = 0.0f; m.turnAccel = kTurnAccel;
         m.charge = std::max(0.0f, m.charge - 2.0f * dt);   // a quick re-press charges faster
         if (m.on) {
             m.on = false; m.offT = 0.0f;

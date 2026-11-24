@@ -66,6 +66,25 @@ int main() {
     laser_fx::WearPane(0, pts);
     Check(space::g_Absorbed.size() == 1, "an unstopped beam wears nothing");
 
+    // Turning: the standing beam speeds up while it keeps turning and starts over once it stops.
+    laser_fx::Clear();
+    laser_fx::Hold(true, 0.0f, 0.0f, 100.0f, 0.0f, 0.5f, 1);   // charges and opens toward +x
+    Check(laser_fx::g_Main.on, "beam stands");
+    const float dt = 1.0f / 60.0f;
+    float prev = laser_fx::g_Main.aim, firstStep = 0.0f, lastStep = 0.0f;
+    for (int i = 0; i < 60; ++i) {   // the aim sits behind the ship: a long turn
+        laser_fx::Hold(true, 0.0f, 0.0f, -100.0f, 1.0f, dt, 1);
+        float d = std::fabs(laser_fx::g_Main.aim - prev);
+        if (d > 3.0f) d = 6.2831853f - d;
+        if (i == 0) firstStep = d;
+        lastStep = d; prev = laser_fx::g_Main.aim;
+    }
+    Check(lastStep > firstStep * 1.2f, "the beam turns faster the longer it keeps turning");
+    Check(laser_fx::g_Main.turnSpeed > laser_fx::kTurnRate, "turn speed has grown");
+    for (int i = 0; i < 200; ++i) laser_fx::Hold(true, 0.0f, 0.0f, -100.0f, 1.0f, dt, 1);   // arrives and stays
+    Check(laser_fx::g_Main.turnSpeed == 0.0f && laser_fx::g_Main.turnAccel == laser_fx::kTurnAccel,
+          "turn speed and its speed-up start over once the beam has stopped");
+
     if (g_failures == 0) std::printf("laser panes: all checks passed\n");
     return g_failures == 0 ? 0 : 1;
 }
