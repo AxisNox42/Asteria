@@ -334,7 +334,7 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"ESC — 일시정지(재개·설정·메뉴) / Space — READY 화면에서 전투 시작, 일시정지 중 재개 / "
         L"마우스를 카드·아이콘 위에 올리면 상세 설명이 표시됩니다",
 
-        L"런을 시작하면 이번 런의 무기(프레임) 3장 중 1장을 고릅니다 / "
+        L"게임을 시작하면 이번 게임의 무기(프레임) 3장 중 1장을 고릅니다 / "
         L"적 처치 → 경험치(EXP) → 레벨업하면 새 증강 카드 3장 중 1장을 고릅니다 / "
         L"웨이브를 클리어하면 가진 증강 중 하나를 강화합니다 (엘리트·보스 웨이브는 2번, 다시 굴리기 1회) / "
         L"숫자키로 후보를 고르고 Space로 확정합니다. 고르기 전에는 다음 웨이브가 시작되지 않습니다 / "
@@ -358,14 +358,13 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"플레이 중 획득한 스타더스트는 HUD에 표시되고 플레이 종료 시 정산됩니다 / "
         L"레벨업 증강과 웨이브 강화로 빌드를 키웁니다 / "
         L"플레이가 끝나면 일부 성과가 코인으로 정산되어 메타 상점에 쓰입니다 / "
-        L"메인 메뉴 상점 — 코인으로 영구 스탯과 테마를 해금 / "
-        L"업적 달성 시 코인·해금 보상이 주어집니다",
+        L"메인 메뉴 상점 — 코인으로 영구 스탯과 테마를 해금",
 
         L"재료 증강 3종을 모으고 Lv10 이상이면 「조합 증강」이 등장합니다 / "
         L"조합은 강력하지만 재료를 차지하므로 계획적으로 모으세요 / "
         L"메인 메뉴 도감 — 적·증강 정보 검색(위키 스타일) / "
         L"설정에서 언어·볼륨·관측 필드 동작을 바꿀 수 있습니다 / "
-        L"패배 후에도 코인·도감·업적 진행은 유지됩니다. 반복 플레이로 빌드를 완성하세요",
+        L"패배 후에도 코인·도감 진행은 유지됩니다. 반복 플레이로 빌드를 완성하세요",
     },
     /* EN */
     {
@@ -405,14 +404,13 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"Stardust earned mid-play is shown on the HUD and settled at play end / "
         L"Level-up augments and wave-clear upgrades shape your build / "
         L"End of play converts some progress into meta coins / "
-        L"Main menu shop — permanent stats and display themes / "
-        L"Achievements grant coins and unlocks",
+        L"Main menu shop — permanent stats and display themes",
 
         L"Collect 3 combo ingredient augments + reach Lv10 → combo augment appears / "
         L"Combos are strong but cost ingredient slots — plan ahead / "
         L"Main menu Codex — searchable wiki for enemies and augments / "
         L"Settings: language, volume, observatory behavior / "
-        L"Death keeps coins, codex, and achievements — iterate your build",
+        L"Death keeps coins and codex — iterate your build",
     },
     /* JP */
     {
@@ -453,14 +451,13 @@ inline const wchar_t* kTutorialPageBody[LANG_COUNT][TUTORIAL_PAGE_COUNT] = {
         L"プレイ中に得たスターダストはHUDに表示され、終了時に精算 / "
         L"レベルアップの強化カードとウェーブの強化でビルドを育てる / "
         L"プレイ終了後、一部の成果がメタコインに換算 / "
-        L"メニューショップ — 永久ステータス・テーマなど / "
-        L"実績でコインと解禁報酬",
+        L"メニューショップ — 永久ステータス・テーマなど",
 
         L"素材強化3種+Lv10以上で「組合強化」出現 / "
         L"強力だが素材枠を使う — 計画的に収集 / "
         L"メニュー図鑑 — 敵·強化を検索(ウィキ風) / "
         L"設定で言語·音量·窓動作を変更 / "
-        L"敗北後もコイン·図鑑·実績は保持 — 繰り返しビルドを完成させよう",
+        L"敗北後もコイン·図鑑は保持 — 繰り返しビルドを完成させよう",
     },
 };
 

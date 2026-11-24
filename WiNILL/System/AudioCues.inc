@@ -183,8 +183,6 @@ CUE(EnemyScopeCharge, 60, 3, false, false, 1, "Resource/Audio/sfx/enemy_scope_ch
 CUE(EnemyShot, 60, 6, false, false, 1, "Resource/Audio/sfx/enemy_shot.wav")
 // enemy_telegraph — 적 공격 차지/조준 예고 공용 (짧은 상승음)
 CUE(EnemyTelegraph, 120, 6, false, false, 1, "Resource/Audio/sfx/enemy_telegraph.wav")
-// meta_achievement — 4초 '업적 달성!' 토스트 + 코인 보상
-CUE(MetaAchievement, 60, 3, false, false, 1, "Resource/Audio/sfx/meta_achievement.wav")
 // os_arrange — 일시정지 중 Ctrl: 창 드래그/최소화/닫기
 CUE(OsArrange, 60, 3, false, false, 1, "Resource/Audio/sfx/os_arrange.wav")
 // os_pane_close — 창 닫힘(수축 애니메이션)

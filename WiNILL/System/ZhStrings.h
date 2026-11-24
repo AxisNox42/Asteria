@@ -206,10 +206,8 @@ inline const Entry kEntries[] = {
     { L"Start at 100k + F-key augments", L"10万分起始 + F键增强" },
     // HUD
     { L"LOW HP", L"生命过低" },
-    // Achievements (names)
-    { L"Chain Massacre", L"连锁屠杀" }, { L"High Scorer", L"高分者" }, { L"Millionaire", L"百万富翁" },
-    { L"Regular", L"常客" }, { L"Risk Taker", L"冒险家" }, { L"Slaughterer", L"屠戮者" },
-    { L"Vital Strike", L"致命一击" }, { L"Wanderer", L"漫游者" }, { L"Veteran", L"老兵" },
+    // Job names
+    { L"Wanderer", L"漫游者" },
 };
 
 inline constexpr int kEntryCount = (int)(sizeof(kEntries) / sizeof(kEntries[0]));

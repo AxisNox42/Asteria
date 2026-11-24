@@ -86,6 +86,28 @@ int main() {
         }
         if (!(B->hp < 99999.0f)) { std::printf("FAIL: B never hit\n"); ++fail; }
     }
+
+    // 저격총 위력 관통 + 표적 반사탄: a kill used to let the shot fly straight on (it never bent).
+    // Now the power pass bends toward the next enemy, still carrying the power it has left.
+    {
+        for (Monster* m : manager.monsters) delete m;
+        manager.monsters.clear();
+        Monster* C = Add(manager, 400.0f, 300.0f); C->hp = 1.0f;   // dies to the hit
+        Monster* D = Add(manager, 400.0f, 500.0f);
+        Bullet s = volley.empty() ? gun : volley[0];
+        s.powerPierce = true; s.piercing = false; s.pierceLeft = 0; s.powerLeft = 1.0f;
+        if (s.synRicochet < 1) s.synRicochet = 1;
+        s.prevX = 380.0f; s.prevY = 300.0f; s.x = 400.0f; s.y = 300.0f;
+        std::vector<Bullet> shots = { s };
+        CollisionSystem::Update(0.0f, 0.0f, manager, shots, hp, scoreAccum, score, g_Stats);
+        std::printf("sniper: C alive %d, shots %zu", (int)C->alive, shots.size());
+        if (!shots.empty()) std::printf(", dir %.2f %.2f, power %.2f", shots[0].dirX, shots[0].dirY, shots[0].powerLeft);
+        std::printf("\n");
+        if (C->alive) { std::printf("FAIL: sniper shot did not kill C\n"); ++fail; }
+        if (shots.empty()) { std::printf("FAIL: sniper shot ended after the kill\n"); ++fail; }
+        else if (shots[0].dirY < 0.9f) { std::printf("FAIL: sniper power pass flew straight instead of bending to D\n"); ++fail; }
+        (void)D;
+    }
     std::printf(fail ? "ricochet test FAILED\n" : "ricochet test passed\n");
     return fail ? 1 : 0;
 }

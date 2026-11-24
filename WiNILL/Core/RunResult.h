@@ -6,10 +6,9 @@
 // path commits once, on the DYING -> GAMEOVER transition).
 
 #include "SaveSystem.h"
-#include "Achievements.h"
 
 // Records the run (best score, totals, codex kills, coins — RecordRunResult
-// saves), unlocks the 10-games achievement and saves for it. Creative and
+// saves). Creative and
 // debug plays (callers pass !PlayRecordsProgress()) record nothing and earn
 // no end-of-run coins; a debug play still saves the stardust it picked up.
 // Returns the new-record flag (g_LastRunRecord).
@@ -17,13 +16,7 @@ inline bool CommitRunResult(bool creative, int difficultyIdx, long long score,
                             long long kills, int weaponIdx,
                             int wave = 0) {
     if (!creative) {
-        const bool record = RecordRunResult(difficultyIdx, score, kills, weaponIdx, wave);
-        if (g_TotalGames >= 10) TryUnlockAch(ACH_GAMES_10);
-        if (g_AchSaveNeeded) {
-            SaveGame();
-            g_AchSaveNeeded = false;
-        }
-        return record;
+        return RecordRunResult(difficultyIdx, score, kills, weaponIdx, wave);
     }
     g_LastRunCoins = 0;
     // A debug play (not creative) still counts its codex kills.

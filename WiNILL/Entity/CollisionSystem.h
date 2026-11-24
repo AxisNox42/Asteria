@@ -307,11 +307,16 @@ public:
                                              monster->worldY, baseDamage, crit, !monster->alive);
                 if (!monster->alive) CollectMonsterKill(rewards, *monster);
 
+                // A power pass (a kill, not a pierce card's free pass) of a sniper shot with 표적 반사탄
+                // bends to the next enemy instead of flying straight, carrying the power it has left.
+                const bool powerPass = bullet.powerPierce && !(bullet.piercing || bullet.pierceLeft > 0);
                 const bool fliesOn = bullet.powerPierce
                     ? SniperFliesOn(bullet, baseDamage * MetaPlayerHitMult(IsEliteMob(monster->kind), IsBossMob(monster->kind)),
                                     dealt, shotKilled)
                     : bullet.SurvivesHit();
-                if (fliesOn) { bullet.RememberHit(monster); ++bullet.synPierced; }
+                if (fliesOn && powerPass && bullet.synRicochet > 0 && passive_hooks::bulletRedirect &&
+                    passive_hooks::bulletRedirect(bullet, monster)) { ++bullet.synPierced; }
+                else if (fliesOn) { bullet.RememberHit(monster); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, monster)) {}
                 else                 bullet.active = false;
                 consumed = true;
@@ -366,10 +371,15 @@ public:
                                              ranged->worldY, baseDamage, crit, !ranged->alive);
                 if (!ranged->alive) CollectScopeKill(rewards, *ranged);
 
+                // A power pass (a kill, not a pierce card's free pass) of a sniper shot with 표적 반사탄
+                // bends to the next enemy instead of flying straight, carrying the power it has left.
+                const bool powerPass = bullet.powerPierce && !(bullet.piercing || bullet.pierceLeft > 0);
                 const bool fliesOn = bullet.powerPierce
                     ? SniperFliesOn(bullet, baseDamage * MetaPlayerHitMult(false, false), dealt, shotKilled)
                     : bullet.SurvivesHit();
-                if (fliesOn) { bullet.RememberHit(ranged); ++bullet.synPierced; }
+                if (fliesOn && powerPass && bullet.synRicochet > 0 && passive_hooks::bulletRedirect &&
+                    passive_hooks::bulletRedirect(bullet, ranged)) { ++bullet.synPierced; }
+                else if (fliesOn) { bullet.RememberHit(ranged); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, ranged)) {}
                 else                 bullet.active = false;
                 if (!scan) break;

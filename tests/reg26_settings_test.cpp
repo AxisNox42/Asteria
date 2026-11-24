@@ -100,7 +100,7 @@ static void CheckRoundTrip() {
     g_BestScore[0] = 11; g_BestScore[1] = 22; g_BestScore[2] = 33;
     g_TotalKills = 444; g_TotalGames = 55; g_Coins = 6666;
     g_WeaponBestScore[1] = 77; g_WeaponRunCount[0] = 8;
-    g_MetaLv[META_HP] = 2; g_AchUnlocked[0] = true; g_AugSeen[3] = true;
+    g_MetaLv[META_HP] = 2; g_AugSeen[3] = true;
     g_MobSeen[CM_SWARM] = true; g_MobKillCounts[CM_ROTOR] = 99; g_JobBought[1] = true;
     SaveGame();
 
@@ -116,14 +116,14 @@ static void CheckRoundTrip() {
     for (auto& v : g_BestScore) v = 0;
     g_TotalKills = g_TotalGames = g_Coins = 0;
     g_WeaponBestScore[1] = 0; g_WeaponRunCount[0] = 0;
-    g_MetaLv[META_HP] = 0; g_AchUnlocked[0] = false; g_AugSeen[3] = false;
+    g_MetaLv[META_HP] = 0; g_AugSeen[3] = false;
     g_MobSeen[CM_SWARM] = false; g_MobKillCounts[CM_ROTOR] = 0; g_JobBought[1] = false;
     LoadGame();
     assert(Read() == edited);
     assert(g_BestScore[0] == 11 && g_BestScore[1] == 22 && g_BestScore[2] == 33);
     assert(g_TotalKills == 444 && g_TotalGames == 55 && g_Coins == 6666);
     assert(g_WeaponBestScore[1] == 77 && g_WeaponRunCount[0] == 8);
-    assert(g_MetaLv[META_HP] == 2 && g_AchUnlocked[0] && g_AugSeen[3] && g_MobSeen[CM_SWARM]);
+    assert(g_MetaLv[META_HP] == 2 && g_AugSeen[3] && g_MobSeen[CM_SWARM]);
     assert(g_MobKillCounts[CM_ROTOR] == 99 && g_JobBought[1]);
     std::printf("round trip: 18 options + progress survive save -> reload\n");
 }

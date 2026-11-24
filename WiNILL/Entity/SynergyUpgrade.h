@@ -281,7 +281,7 @@ inline const wchar_t* UpLabelText(UpLabel l, int lang) {
         { L"발동 기준 피해",  L"Damage to trigger", L"発動に必要な被ダメージ" },
         { L"정지 시간",       L"Stillness needed",  L"静止時間" },
         { L"필요 스침",       L"Grazes needed",     L"必要なかすり" },
-        { L"런당 횟수",       L"Uses per run",      L"ランごとの回数" },
+        { L"게임당 횟수",       L"Uses per run",      L"ランごとの回数" },
         { L"체력 기준",       L"HP line",           L"体力の基準" },
         { L"저장 상한",       L"Storage cap",       L"蓄積上限" },
         { L"한 번에 나가는 탄", L"Shots per fire",  L"一度に出る弾" },

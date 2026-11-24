@@ -19,8 +19,6 @@ static void ResetProfile() {
         g_WeaponTotalKills[i] = 0; g_WeaponRunCount[i] = 0;
     }
     for (int i = 0; i < CM_COUNT; ++i) { g_MobKillCounts[i] = 0; g_RunMobKillCounts[i] = 0; }
-    for (int i = 0; i < ACH_COUNT; ++i) g_AchUnlocked[i] = false;
-    g_AchSaveNeeded = false;
 }
 
 int main() {
@@ -52,15 +50,12 @@ int main() {
     CommitRunResult(false, 2, 2000, 4, 0);
     assert(g_BestScore[2] == 2000 && g_LastRunCoins == 6);                    // (2 + 2) x 1.5
 
-    // The 10th game unlocks its achievement once and clears the save flag.
+    // Achievements were removed (2026-11-24): the 10th game gives no extra coins.
     g_TotalGames = 9;
     const long long coinsBefore = g_Coins;
     CommitRunResult(false, 0, 0, 0, 0);
-    assert(g_TotalGames == 10 && g_AchUnlocked[ACH_GAMES_10] && !g_AchSaveNeeded);
-    assert(g_Coins == coinsBefore + ACH_DEFS[ACH_GAMES_10].coinReward);
-    CommitRunResult(false, 0, 0, 0, 0);
-    assert(g_Coins == coinsBefore + ACH_DEFS[ACH_GAMES_10].coinReward);      // no second unlock
-    std::printf("10th game: achievement once (+%d coins)\n", ACH_DEFS[ACH_GAMES_10].coinReward);
+    assert(g_TotalGames == 10 && g_Coins == coinsBefore + g_LastRunCoins);
+    std::printf("10th game: no achievement bonus\n");
 
     // Creative / debug: nothing recorded, no coins, and the play's codex kills
     // are dropped so they cannot leak into the next recorded play.

@@ -4334,11 +4334,6 @@ static void UpdateBgmFlow(float realDelta) {
         Audio::StopLoop(Audio::Cue::SkillBoomerangLoop);
     }
 
-    // 업적 토스트가 새로 뜸 (TryUnlockAch 가 타이머를 4초로 되돌림)
-    static float s_achToastSeen = 0.0f;
-    if (g_AchToastTimer > s_achToastSeen) Audio::Play(Audio::Cue::MetaAchievement);
-    s_achToastSeen = g_AchToastTimer;
-
     if (gm.currentState == GameState::RUNNING) {
         // 엘리트가 막 들어옴 (웨이브 시작 1.5초 뒤)
         static bool s_eliteSpawned = false;
@@ -4463,47 +4458,6 @@ static bool TutorialPaused() {
 }
 
 // ---- Overlay pieces drawn from the frame loop (kept out of main() body) ----
-static void DrawAchievementToast(float sw, float sh, float delta) {
-    if (g_AchToastTimer > 0.0f && g_AchToastId >= 0 &&
-        g_AchToastId < ACH_COUNT) {
-        g_AchToastTimer -= delta;
-        float a = g_AchToastTimer > 3.0f ? (4.0f - g_AchToastTimer)
-                : std::min(1.0f, g_AchToastTimer);
-        if (a < 0.0f) a = 0.0f; if (a > 1.0f) a = 1.0f;
-        int li2 = LangIndex();
-        const wchar_t* LBL[3] = { L"\uC5C5\uC801 \uB2EC\uC131!", L"Achievement!", L"\u5B9F\u7E3E\u9054\u6210!" };
-        wchar_t tb[160];
-        wchar_t rewardText[32];
-        FormatGrouped(ACH_DEFS[g_AchToastId].coinReward, rewardText, 32);
-        swprintf_s(tb, L"%ls  %ls  (+%ls)", LBL[li2],
-                   AchName(g_AchToastId), rewardText);
-        const float toastScale = UiTextScale(g_TextS, UiTextLevel::Description,
-                                             UiScale(sw, sh));
-        float bw = g_TextS.Width(tb, toastScale) + 48.0f;
-        // The combo counter sits at the top centre too (sh * 0.115). While it is
-        // up, the toast drops below its largest size (pulse + milestone) so
-        // neither hides the other; it glides there instead of jumping.
-        const bool comboUp = g_ShowCombo && g_Combo >= 5 &&
-                             g_GameManager.currentState == GameState::RUNNING;
-        float wantY = sh * 0.10f;
-        if (comboUp) {
-            const float comboMaxSc = UiTextScale(g_TextS, UiTextLevel::Subtitle,
-                                                 1.95f * 1.12f * UiScale(sw, sh));
-            // 유지 시간은 글자 색으로 보여 주므로 밑에 바가 없다
-            wantY = sh * 0.115f + g_TextS.Height(L"0 COMBO", comboMaxSc) + 14.0f;
-        }
-        static float s_toastY = -1.0f;
-        if (s_toastY < 0.0f || g_AchToastTimer > 3.9f) s_toastY = wantY;
-        else s_toastY += (wantY - s_toastY) * (1.0f - std::exp(-delta * 10.0f));
-        float bx0 = (sw - bw) * 0.5f, by0 = s_toastY;
-        BindMainShader();
-        drawRect(bx0, by0, bw, 52.0f, 0.12f, 0.10f, 0.02f, 0.85f * a);
-        drawRect(bx0, by0, bw, 4.0f, 1.0f, 0.85f, 0.25f, 0.95f * a);
-        g_TextS.Draw(tb, bx0 + 24.0f, by0 + 16.0f, toastScale,
-                     1.0f, 0.9f, 0.4f, a);
-    }
-}
-
 static void DrawModeLabels(GameState st, float sw, float sh) {
     // ?�?�??�리?�이?�브 HUD (게임 �? ??F:증강  G:무적 ?�?�?
     if (g_CreativeMode &&
@@ -7435,15 +7389,6 @@ CollisionSystem::Update(pCX, pCY,
                 if (ranged->alive)
                     MarkMobSeenId(CM_SCOPE);
 
-            // ?�적 조건 체크 (???�수/??보유 증강 기�? ??보스 ?�적?�?처치 ?�점?�서 처리)
-            if (PlayRecordsProgress()) {
-                long long runScore = g_GameManager.score;
-                long long runKills = g_Stats.killCount;
-                if (runScore >= 300000)  TryUnlockAch(ACH_SCORE_300K);
-                if (runScore >= 500000)  TryUnlockAch(ACH_SCORE_500K);
-                if (runScore >= 1000000) TryUnlockAch(ACH_SCORE_1M);
-                if (runKills >= 500)     TryUnlockAch(ACH_KILLS_500);
-            }
 
             UpdateEnemyFx(delta);
             // Death animations advance inside MonsterManager::UpdateAll, on the
@@ -7640,7 +7585,10 @@ CollisionSystem::Update(pCX, pCY,
                     Shake(0.16f + 0.14f * heat, 3.0f + 7.0f * heat);
                     TriggerShotKick();
                 }
-            } else if (fireHeld && fireTimer >= effInterval) {
+            } else if (fireHeld && fireTimer >= effInterval &&
+                       // A pick opened earlier in this frame (wave clear, or the run-start frame pick
+                       // while the PLAY click is still held) must not leak a shot that flies off after it.
+                       g_GameManager.currentState == GameState::RUNNING) {
                 float tx, ty;
                 if (aimTarget(tx, ty)) {
                     spawnAimed(tx, ty);
@@ -8038,9 +7986,6 @@ CollisionSystem::Update(pCX, pCY,
             }
 
             // ?�?�??�게???�업?�시�???메뉴?�??�일??OS ?�레???��? (?�스?�톱 방어 ?��??? ?�?�?
-            // ?�?�??�적 ?�금 ?�스??(?�단 중앙 배너, 4�??�시 ???�이?? ?�?�?
-            DrawAchievementToast(sw, sh, delta);
-
             DrawModeLabels(st, sw, sh);
 
             // ?�?�?[7b] UI ???�스?�치 ??메뉴/�??�태??Scene_* ?�수�?분리 ?�?�?
@@ -8306,8 +8251,8 @@ CollisionSystem::Update(pCX, pCY,
         g_RmbPrev = rawRmb;
 
         // ?�적 ?�금 / ?�감 발견 발생 ???�??(게임 �?즉시 ?�구??
-        if (g_AchSaveNeeded || g_CodexDirty) {
-            SaveGame(); g_AchSaveNeeded = false; g_CodexDirty = false;
+        if (g_CodexDirty) {
+            SaveGame(); g_CodexDirty = false;
         }
 
         BatchFlush();   // ?�레??마�?�????��? ?�형 모두 그림

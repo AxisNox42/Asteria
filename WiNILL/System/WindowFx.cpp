@@ -105,22 +105,30 @@ static void CoverEdgeGap(HWND game) {
 void UpdateWindowTaskbarPolicy(GLFWwindow* window) {
     if (!window) return;
     HWND hwnd = glfwGetWin32Window(window);
-    const bool active = GetForegroundWindow() == hwnd && !IsIconic(hwnd);
+    // The game counts as in front while any window of this process is: its own OS panes,
+    // the edge guard and message boxes used to drop the mark and let the taskbar back over it.
+    HWND fg = GetForegroundWindow();
+    DWORD fgPid = 0;
+    if (fg) GetWindowThreadProcessId(fg, &fgPid);
+    const bool active = fg && (fg == hwnd || fgPid == GetCurrentProcessId()) && !IsIconic(hwnd);
     // Reapply on focus changes and Explorer restart; retry failures without
-    // issuing a COM request every rendered frame.
+    // issuing a COM request every rendered frame. While in front the mark is also
+    // re-asserted every second: the Shell can drop it on its own (seen on Win11),
+    // and nothing else would notice.
     static HWND lastWindow = nullptr, lastShell = nullptr;
     static bool lastActive = false;
     static bool applied = false;
     static double nextRetry = 0.0;
     HWND shell = FindWindowW(L"Shell_TrayWnd", nullptr);
     const double now = glfwGetTime();
-    if (hwnd == lastWindow && shell == lastShell && active == lastActive &&
-        (applied || now < nextRetry)) return;
+    const bool same = hwnd == lastWindow && shell == lastShell && active == lastActive;
+    // In front: every second (or sooner after a failure). Behind: once, then only retry failures.
+    if (same && (active ? now < nextRetry : (applied || now < nextRetry))) return;
     applied = MarkShellFullscreen(hwnd, active);
     lastWindow = hwnd;
     lastShell = shell;
     lastActive = active;
-    nextRetry = now + 2.0;
+    nextRetry = now + (active ? 1.0 : 2.0);
 }
 
 void ReleaseWindowTaskbarPolicy(GLFWwindow* window) {

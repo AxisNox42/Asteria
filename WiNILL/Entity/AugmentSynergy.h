@@ -175,7 +175,7 @@ inline const std::vector<Aug>& Table() {
         T_ON_STILL, 0, false, Fx{}.proc_(0.35f).move_(0.94f)},
     {"T_GRAZE",   "스침 충전",  "스침 30회마다 피해 25를 막는 보호막 충전", Rar::Common, Role::Trigger,
         T_SHIELD, 0, false, Fx{}.shield_(3.2f)},
-    {"T_CAKE",    "회복 조각","피해를 20 받으면 다음 웨이브를 클리어할 때 체력 20 회복 (런 2회)", Rar::Common, Role::Trigger,
+    {"T_CAKE",    "회복 조각","피해를 20 받으면 다음 웨이브를 클리어할 때 체력 20 회복 (게임당 2회)", Rar::Common, Role::Trigger,
         T_HP, 0, false, Fx{}.shield_(3.8f)},
     // ── 증폭 (조건부) ──
     // ── 대가 ──
@@ -223,7 +223,7 @@ inline const std::vector<Aug>& Table() {
         T_SHIELD, 0, false, Fx{}.evade_(0.15f).shield_(1.5f)},
     {"G_MIRROR",  "거울 반사 방벽",  "피해 90을 막는 보호막 1회 (재충전 없음, 보호막은 합계 220까지) · 보호막이 깨질 때마다 주변 3.5○ 안의 적탄을 공격력 100% 내 탄으로 되돌림", Rar::Epic, Role::Guard,
         T_SHIELD, 0, false, Fx{}.shield_(9.0f).proc_(0.10f)},
-    {"G_LASTWALL","최후의 방벽","피해 220을 막는 보호막 (런당 1회, 보호막은 합계 220까지) · 죽을 만큼의 피해도 한 번 막음 (0.75초 무적 + 주변 3○ 적탄 소거)", Rar::Legendary, Role::Guard,
+    {"G_LASTWALL","최후의 방벽","피해 220을 막는 보호막 (게임당 1회, 보호막은 합계 220까지) · 죽을 만큼의 피해도 한 번 막음 (0.75초 무적 + 주변 3○ 적탄 소거)", Rar::Legendary, Role::Guard,
         T_SHIELD | T_ON_HURT, 0, false, Fx{}.shield_(22.0f).proc_(0.10f)},
     // ── 특이한 동사 (새 규칙) ──
     {"V_DICE",    "주사위탄",   "발사할 때마다 하나를 무작위로 얻음: 관통 +2 · 벽 튕김 +2 · 3갈래 분열 (피해 28%) · 착탄 폭발 (1○, 탄 피해의 30%) — 지금 효과가 없는 결과는 다시 굴림", Rar::Epic, Role::Verb,

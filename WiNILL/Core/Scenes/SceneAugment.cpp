@@ -1498,7 +1498,7 @@ static void Scene_AugSelectCards(const SceneCtx& c) {
             }
             guideText = head + L"   " + guideText;
         } else if (g_GameManager.ActiveIsFrame()) {
-            const std::wstring head = li == 0 ? L"런 시작 · 이번 런의 무기를 고르세요" : li == 2 ? L"ラン開始 · このランの武器を選んでください" : L"RUN START · CHOOSE THIS RUN'S FRAME";
+            const std::wstring head = li == 0 ? L"게임 시작 · 이번 게임의 무기를 고르세요" : li == 2 ? L"ラン開始 · このランの武器を選んでください" : L"RUN START · CHOOSE THIS RUN'S FRAME";
             guideText = head + L"   " + guideText;
         } else if (g_GameManager.ActiveIsWaveNewCard()) {
             // A wave clear with nothing left to upgrade gives a new augment instead.

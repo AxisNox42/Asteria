@@ -54,8 +54,8 @@ inline constexpr float kLegFalloff = 0.80f;     // each reflected leg of a beam 
 inline constexpr float kBounceFxGap = 0.5f;     // bounce cards' on-bounce effects fire at most this often per beam
 inline constexpr float kTurnRate = 1.6f;       // rad/s: the standing beam starts turning toward the aim at this rate ...
 inline constexpr float kTurnAccel = 0.3f;      // ... and speeds up by this (rad/s per s) at first, for as long as it keeps turning ...
-inline constexpr float kTurnJerk = 0.3f;       // ... the speed-up itself grows by this (rad/s per s, every second): the longer, the steeper
-inline constexpr float kTurnMax = 4.0f;        // rad/s: the fastest it turns
+inline constexpr float kTurnJerk = 0.2f;       // ... the speed-up itself grows by this (rad/s per s, every second): the longer, the steeper
+inline constexpr float kTurnMax = 3.0f;        // rad/s: the fastest it turns
 // The beam (and its hit band) grows with each laser card: 레이저 / + 집속 / + 과부하.
 // Big steps on purpose: each tier must read as a clearly heavier beam at a glance.
 inline constexpr float kTierWidth[4] = { 1.0f, 1.0f, 1.9f, 2.8f };

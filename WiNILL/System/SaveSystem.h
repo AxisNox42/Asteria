@@ -319,9 +319,6 @@ inline void SaveGame() {
     for (int i = 0; i < META_COUNT; i++) {
         std::snprintf(ln, sizeof(ln), "meta%d=%d\n", i, g_MetaLv[i]); buf += ln;
     }
-    for (int i = 0; i < ACH_COUNT; i++) {
-        std::snprintf(ln, sizeof(ln), "ach%d=%d\n", i, g_AchUnlocked[i] ? 1 : 0); buf += ln;
-    }
     for (int i = 0; i < AUG_TOTAL; i++)
         if (g_AugSeen[i]) { std::snprintf(ln, sizeof(ln), "augseen%d=1\n", i); buf += ln; }
     for (int i = 0; i < CM_COUNT; i++)
@@ -514,10 +511,7 @@ inline void LoadGame() {
                 g_MetaLv[mi] = (int)(val < 0 ? 0 : val > META_DEFS[mi].maxLv
                                                    ? META_DEFS[mi].maxLv : val);
         }
-        else if (!std::strncmp(key, "ach", 3)) {
-            int ai = atoi(key + 3);
-            if (ai >= 0 && ai < ACH_COUNT) g_AchUnlocked[ai] = (val != 0);
-        }
+        // "ach%d" (achievements, removed 2026-11-24) in an old save: ignored like any unknown key.
         else if (!std::strncmp(key, "augseen", 7)) {
             int ai = atoi(key + 7);
             if (val != 0) augSeenKeys.push_back(ai);
@@ -578,7 +572,6 @@ inline void ResetSaveProgress() {
     }
     g_Coins = 0; g_LastRunCoins = 0;
     for (int i = 0; i < META_COUNT; i++) g_MetaLv[i] = 0;
-    for (int i = 0; i < ACH_COUNT;  i++) g_AchUnlocked[i] = false;
     for (int i = 0; i < AUG_TOTAL;  i++) g_AugSeen[i] = false;
     for (int i = 0; i < CM_COUNT;   i++) g_MobSeen[i] = false;
     for (int i = 0; i < CM_COUNT;   i++) {

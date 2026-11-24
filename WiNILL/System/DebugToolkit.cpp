@@ -1090,7 +1090,7 @@ bool DebugToolkit::BeginInput(GLFWwindow* window, float screenW, float screenH,
                 }
                 if (spawned <= 0) {
                     SetMessage(selectedMob_ >= 10 && selectedMob_ <= 12
-                        ? L"소환 실패: 보스가 이미 필드에 있거나 런이 진행 중이 아닙니다"
+                        ? L"소환 실패: 보스가 이미 필드에 있거나 게임이 진행 중이 아닙니다"
                         : L"소환 실패: 몬스터 수용 한도에 도달했습니다");
                     return true;
                 }

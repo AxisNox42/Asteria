@@ -150,6 +150,9 @@ struct State {
     float chanceBig[6] = {};
     int   chanceBigLv[6] = {};       // ...and how far their effect has grown (the most of the cards holding)
     int   appliedChanceCrit = 0;
+    // Extra-shot cards roll each on their own (a 50% and a 35% card can both fire: 3 shots 17.5%),
+    // instead of one roll of their sum (85% for +1, never +2). One entry per holding card.
+    std::vector<float> extraRolls;
     float appliedChanceCritMul = 0;
     float sinceDash = 99.0f, sinceHurt = 99.0f, nearest = 1e9f;
     float sinceKill = 99.0f, sinceShield = 99.0f;   // eased conditions (branch B)
@@ -657,6 +660,7 @@ void UpdateChances(const passive::StepInput& in) {
     for (float& c : s.chanceBig) c = 0.0f;
     for (int& c : s.chanceBigLv) c = 0;
     int wantCrit = 0;
+    s.extraRolls.clear();
     if (!s.chanceRows.empty()) {
         s.crowd = 0; s.enemiesLeft = 0; s.nearest = 1e9f; s.bossUp = false; s.nearBullets = 0;
         ForEachEnemy([&](auto& e, float ex, float ey) {
@@ -690,6 +694,7 @@ void UpdateChances(const passive::StepInput& in) {
                 else if (big) s.chanceBig[(int)kind] += p;
                 else s.chance[(int)kind] += p;
             }
+                if (!big && kind == CKind::Extra) s.extraRolls.push_back(p);
             // A small line ring round the ship when a chance card's condition comes on (not too often).
             if (holds && !s.chanceWas[r] && s.clock - s.chanceFxAt[r] > 1.5f) {
                 static const float kCol[6][3] = { { 1.0f, 0.35f, 0.45f }, { 1.0f, 0.85f, 0.35f }, { 0.45f, 0.9f, 1.0f },
@@ -1503,8 +1508,15 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
     // Chance of an extra bullet (the chance cards).
     if (newShot || reroll) {
         s.beamExtra.clear();
-        for (float c = s.chance[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)
-            if (Rand01() < std::min(c, 1.0f)) s.beamExtra.push_back(Rand01() < 0.5f ? -0.08f : 0.08f);
+        // Each extra-shot card rolls on its own (each whole 100% of one card is a sure +1);
+        // the extras fan out either side of the aim, alternating, so two never overlap.
+        const float side = Rand01() < 0.5f ? -1.0f : 1.0f;
+        for (const float p : s.extraRolls)
+            for (float c = p; c > 0.0f; c -= 1.0f)
+                if (Rand01() < std::min(c, 1.0f)) {
+                    const int k = (int)s.beamExtra.size();
+                    s.beamExtra.push_back(side * 0.08f * (float)(k / 2 + 1) * (k % 2 ? -1.0f : 1.0f));
+                }
         for (float c = s.chanceBig[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)   // upgraded: 1 + level extra shots
             if (Rand01() < std::min(c, 1.0f))
                 for (int k = 0; k <= s.chanceBigLv[(int)CKind::Extra]; ++k)
