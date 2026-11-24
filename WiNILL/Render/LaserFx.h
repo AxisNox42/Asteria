@@ -2,8 +2,9 @@
 // 레이저 (F_LASER) and its upgrades: a real beam, not a projectile.
 //
 //   tier 1  레이저        hold fire: charge kCharge s, then a beam stands from the ship along
-//                         the aim and stays on while fire is held (range 9.5○).
-//   tier 2  + 집속 레이저 the beam reaches the walls, charges in kChargeFocus s, and heats up
+//                         the aim and stays on while fire is held (unlimited range: it runs to the
+//                         arena edge, or bounces back with bounce cards).
+//   tier 2  + 집속 레이저 the beam charges in kChargeFocus s, and heats up
 //                         while it stays on: thicker and whiter, up to +60% damage at kHeatTime.
 //   tier 3  + 과부하 레이저 letting go of a beam held over kReleaseMin s releases the heat as one
 //                         thick beam (kReleaseMult x the laser's damage at full heat).
@@ -26,15 +27,14 @@
 #include <glm/glm.hpp>
 
 #include "../Entity/Bullet.h"
+#include "../Entity/PassiveHooks.h"
 #include "../Entity/SpaceRules.h"
 
 namespace laser_fx {
 
 inline constexpr float kCharge = 0.40f;        // hold this long before the beam opens
 inline constexpr float kChargeFocus = 0.25f;   // with 집속 레이저
-inline constexpr float kRange = 760.0f;        // 9.5○
-inline constexpr float kFreeRange = 1600.0f;   // with return / hunter (the card lifts the range limit)
-inline constexpr float kWallRange = 8000.0f;   // 집속 레이저: up to the arena edge
+inline constexpr float kWallRange = 8000.0f;   // unlimited range: up to the arena edge (every tier)
 inline constexpr float kHeatTime = 2.5f;       // 집속 레이저: full heat after this long on
 inline constexpr float kHeatDamage = 0.60f;    // +60% damage at full heat
 inline constexpr float kHeatWidth = 0.50f;     // +50% width at full heat
@@ -46,6 +46,9 @@ inline constexpr int   kReleaseSteps = 24;     // the release's segments (Bullet
 inline constexpr float kHold = 0.05f;          // a flash beam stays this long ...
 inline constexpr float kFade = 0.16f;          // ... then thins out over this long (the main beam too)
 inline constexpr int   kMaxFlashes = 64;
+inline constexpr int   kMaxBeams = 32;          // beams of one volley that are drawn and remembered
+inline constexpr float kLegFalloff = 0.80f;     // each reflected leg of a beam hits this much softer than the one before
+inline constexpr float kBounceFxGap = 0.5f;     // bounce cards' on-bounce effects fire at most this often per beam
 inline constexpr float kTurnRate = 1.6f;       // rad/s: the standing beam turns toward the aim at this fixed rate
 // The beam (and its hit band) grows with each laser card: 레이저 / + 집속 / + 과부하.
 // Big steps on purpose: each tier must read as a clearly heavier beam at a glance.
@@ -127,7 +130,7 @@ struct Main {
     std::vector<float> offsets;
     std::vector<float> sides;   // each shot's sideways offset (쌍발 사격탄: two beams side by side)
     int   bounces = 0;
-    float range = kRange;
+    float range = kWallRange;
     float baseHalfW = 6.5f;     // the band before heat
     glm::vec3 color{ 0.55f, 0.95f, 1.0f };
     // Where the tick that is being fired left from.
@@ -140,6 +143,7 @@ struct Main {
     // Sound events since main.cpp last read them (TakeEvents).
     bool  evCharge = false, evOpen = false;
     int   beams = 0;            // beams opened so far: one beam counts as one shot (SynergyRuntime Shape)
+    float bounceCd = 0.0f;      // until the beam's reflections may set off on-bounce effects again
 };
 
 // A short beam of a laser shot that did not leave with the main beam,
@@ -254,6 +258,7 @@ inline void LaySegments(const Bullet& proto, const std::vector<glm::vec2>& pts, 
         sb.prevX = p0.x; sb.prevY = p0.y; sb.x = p1.x; sb.y = p1.y;
         sb.dirX = (p1.x - p0.x) / len; sb.dirY = (p1.y - p0.y) / len;
         sb.synBounces = (int)k;
+        sb.dmgMult *= std::pow(kLegFalloff, (float)k);   // the card's bounce bonuses stack on a softer beam
         out.push_back(sb);
     }
 }
@@ -263,6 +268,7 @@ inline void LaySegments(const Bullet& proto, const std::vector<glm::vec2>& pts, 
 inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
     g_Arena = arena;
     for (Flash& f : g_Flashes) f.age += dt;
+    g_Main.bounceCd -= dt;
     g_Flashes.erase(std::remove_if(g_Flashes.begin(), g_Flashes.end(),
         [](const Flash& f) { return f.age >= (f.big ? kReleaseLife : kHold + kFade); }), g_Flashes.end());
 
@@ -273,13 +279,13 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
     for (Bullet& b : bullets) {
         if (!b.active || IsScan(b) || !IsLaserShot(b)) continue;
         b.sizeScale = std::min(kMaxLaserScale, b.sizeScale * kTierWidth[std::clamp(m.tier, 0, 3)]);
-        const bool free = (b.synFlags & synf::Return) != 0;
-        const float range = m.tier >= 2 ? kWallRange : (free ? kFreeRange : kRange);
+        // Unlimited range, unless a card caps the shot (근접 탄두's 19○ arrives as maxRange).
+        const float range = b.maxRange > 0.0f ? std::min(b.maxRange, kWallRange) : kWallRange;
         const int bounces = std::max(0, b.bouncesLeft);
         const float halfW = std::max(2.5f, 5.0f * b.sizeScale);   // kPlayerShotHitPx per sizeScale
         // An echo (겹겹 메아리) leaves the ship later: its own flash beam, not merged into the main one.
         const bool main = std::hypot(b.x - m.tickX, b.y - m.tickY) < 12.0f && m.tick > 0 &&
-                          !(b.synFlags & synf::Echo);
+                          !(b.synFlags & (synf::Echo | synf::Clone));
         if (main) {
             if (m.offsetsTick != m.tick) { m.offsetsTick = m.tick; m.offsets.clear(); m.sides.clear(); }
             float off = std::atan2(b.dirY, b.dirX) - m.tickAim;
@@ -288,7 +294,7 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
             // Sideways offset off the tick's aim; a side-by-side pair stands far enough apart to read as two.
             float side = -(b.x - m.tickX) * std::sin(m.tickAim) + (b.y - m.tickY) * std::cos(m.tickAim);
             if (std::fabs(side) > 1.0f) side = std::copysign(std::max(std::fabs(side), halfW * 1.6f), side);
-            if (m.offsets.size() < 16) { m.offsets.push_back(off); m.sides.push_back(side); }
+            if ((int)m.offsets.size() < kMaxBeams) { m.offsets.push_back(off); m.sides.push_back(side); }
             m.bounces = bounces; m.range = range; m.baseHalfW = halfW; m.color = b.color;
             // The beam follows the aim between ticks, so the damage lies where it is drawn:
             // along the current aim from the current ship position.
@@ -304,6 +310,15 @@ inline void Step(std::vector<Bullet>& bullets, float dt, const Rect& arena) {
         int pane = 0;
         Path(b.x, b.y, b.dirX, b.dirY, range, bounces, arena, pts, &pane);
         WearPane(pane, pts);
+        // 튕김 cards: each reflection of the main beam is a bounce for them (blast on bounce ...), at most every kBounceFxGap.
+        if (main && pts.size() > 2 && m.bounceCd <= 0.0f && passive_hooks::bulletBounce) {
+            m.bounceCd = kBounceFxGap;
+            for (size_t k = 1; k + 1 < pts.size(); ++k) {
+                Bullet t = b;
+                t.x = t.prevX = pts[k].x; t.y = t.prevY = pts[k].y;
+                passive_hooks::bulletBounce(t);
+            }
+        }
         if (!main && (int)g_Flashes.size() < kMaxFlashes) {
             Flash f; f.pts = pts; f.halfW = halfW; f.color = b.color;
             f.alpha = (b.synFlags & synf::Echo) ? 0.5f : 1.0f;

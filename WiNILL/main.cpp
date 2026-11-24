@@ -7620,8 +7620,13 @@ CollisionSystem::Update(pCX, pCY,
                     const float aim = laser_fx::g_Main.aim;
                     const float dist = std::max(100.0f, std::hypot(tx - pCX, ty - pCY));
                     spawnOne(pCX + std::cos(aim) * dist, pCY + std::sin(aim) * dist);
-                    passive::OnShot();
-                    gamelog::Shot();
+                    // One beam is one shot: the shot counters (10-shot pulse, variable fire, stats) count it when it opens.
+                    static int s_countedBeam = -1;
+                    if (laser_fx::g_Main.beams != s_countedBeam) {
+                        s_countedBeam = laser_fx::g_Main.beams;
+                        passive::OnShot();
+                        gamelog::Shot();
+                    }
                     fireTimer = 0.0f;
                 }
                 laser_fx::Main& lm = laser_fx::g_Main;

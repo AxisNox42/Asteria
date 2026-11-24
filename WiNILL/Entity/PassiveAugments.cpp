@@ -494,20 +494,21 @@ void HookBulletHit(const Bullet& bullet, const void* target, float x, float y,
         return;
     }
     syn::OnBulletHit(bullet, target, x, y, crit, killed, damage);
-    if (crit && Has(AugType::P_EDGE_CRITICAL_CHAIN_BURST) && ++s.crits >= 6) {
+    const bool procOk = syn::ProcOk();   // a laser beam's repeat hits on one enemy do not set off procs
+    if (crit && procOk && Has(AugType::P_EDGE_CRITICAL_CHAIN_BURST) && ++s.crits >= 6) {
         s.crits = 0;
         Audio::Play(Audio::Cue::ProcCounterFull);
         DamageAll(500.0f, 1.0f, 0.85f, 0.45f, true, 1.0f, ScreenFx::CritChain);
     }
-    if (Has(AugType::P_SHADOW_TRIPLE_STRIKE) && Chance(0.10f)) {
+    if (procOk && Has(AugType::P_SHADOW_TRIPLE_STRIKE) && Chance(0.10f)) {
         ExtraStrikes(x, y);
         ChanceTriggered();
     }
-    if (Has(AugType::P_STORM_CORONA_ROUND) && Chance(0.03f)) {
+    if (procOk && Has(AugType::P_STORM_CORONA_ROUND) && Chance(0.03f)) {
         DamageAll(40.0f, 0.65f, 0.80f, 1.0f, false, 1.0f, ScreenFx::Zap);
         ChanceTriggered();
     }
-    if (Has(AugType::P_VEIN_CRATER_ROUND) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
+    if (procOk && Has(AugType::P_VEIN_CRATER_ROUND) && s.pickaxeCd <= 0.0f && Chance(0.20f)) {
         s.pickaxeCd = 2.5f;
         DamageRadius(x, y, Rings(1.5f), 200.0f, 1.0f, 0.70f, 0.30f);
         ChanceTriggered();

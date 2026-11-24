@@ -4,7 +4,7 @@
 LOC = {
     # ── frames ──
     "F_MINIGUN": ("Minigun", "ミニガン", "Fire interval 0.07s, bullet damage -60%, move speed -10%", "連射間隔0.07秒、弾のダメージ-60%、移動速度-10%"),
-    "F_LASER": ("Laser", "レーザー", "After a 0.4s charge, holds a laser beam while you fire · enemies in the beam take 30% of your attack every 0.1s (pierces everything it touches, range 9.5○, bounces off walls with a bounce card) · one beam counts as one shot", "0.4秒のチャージ後、押している間レーザー光線を撃ち続ける · 光線に触れた敵は0.1秒ごとに攻撃力の30%のダメージ (触れた敵を全て貫通、射程9.5○、跳弾カードがあれば壁で反射) · 一度点けた光線を射撃1回と数える"),
+    "F_LASER": ("Laser", "レーザー", "After a 0.4s charge, holds a laser beam while you fire · enemies in the beam take 30% of your attack every 0.1s (pierces everything it touches, unlimited range, bounces off walls with a bounce card) · one beam counts as one shot", "0.4秒のチャージ後、押している間レーザー光線を撃ち続ける · 光線に触れた敵は0.1秒ごとに攻撃力の30%のダメージ (触れた敵を全て貫通、射程無限、跳弾カードがあれば壁で反射) · 一度点けた光線を射撃1回と数える"),
     "F_SHOTGUN": ("Shotgun", "ショットガン", "Fires 7 pellets in a spread, range 7○", "一度に7発を散弾発射、射程7○"),
     "F_SNIPER": ("Sniper Rifle", "スナイパーライフル", "Slow but heavy piercing shots (pass through 2 enemies)", "遅いが重い貫通弾を発射 (敵2体を貫通)"),
     "F_BURST": ("Burst Rifle", "バースト銃", "Fires 3 shots at once in a tight group, slow fire rate", "一度に3発をまとめて撃つ、連射は遅い"),
@@ -45,7 +45,7 @@ LOC = {
     "V_TWIN": ("Twin Shot Rounds", "双発射撃弾", "Fires two shots side by side (65% damage each)", "2発を並べて発射 (1発あたりダメージ65%)"),
     "V_MARK": ("Branded Mark Rounds", "烙印標識弾", "Marks the enemy for 5s; marked enemies take +25% bullet damage", "命中した敵に5秒間刻印、刻印された敵は受ける弾のダメージ+25%"),
     "V_BURN": ("Ember Igniting Rounds", "火種点火弾", "Hit enemies burn for 3s (20% attack per second)", "命中した敵が3秒間燃える (毎秒攻撃力20%)"),
-    "V_HUNTER": ("Relentless Hunter Rounds", "執拗な狩猟弾", "Strongly homing piercing shots that turn back after flying 13○ and hit again · removes the Shotgun/Laser range limit", "強く曲がる貫通誘導弾 — 13○飛ぶと戻ってきて再び当たる · ショットガン・レーザーの射程制限がなくなる"),
+    "V_HUNTER": ("Relentless Hunter Rounds", "執拗な狩猟弾", "Strongly homing piercing shots that turn back after flying 13○ and hit again · removes the Shotgun range limit", "強く曲がる貫通誘導弾 — 13○飛ぶと戻ってきて再び当たる · ショットガンの射程制限がなくなる"),
     "V_SPRAY": ("Fan Spray Rounds", "扇状散開弾", "Each shot adds 2 side bullets (35% damage)", "射撃ごとに左右へ弾2発追加 (ダメージ35%)"),
     "V_GRAVITY": ("Mini Gravity Rounds", "小型重力弾", "Pulls enemies within 1.5○ of the hit up to 1○ toward it (not bosses, elites or ranged enemies)", "命中点の周囲1.5○以内の敵を最大1○引き寄せる (ボス・エリート・遠距離の敵は除く)"),
     "T_LASTSTAND": ("Last Stand", "背水の陣", "+50% all damage at 30% HP or less", "体力30%以下で全ダメージ+50%"),
@@ -116,7 +116,7 @@ LOC = {
     "P_COMBO_BOUNCE": ("Fervor Ricochet", "高揚跳弾", "At a kill combo of 5+, bullets have a 75% chance of +1 wall bounce", "撃破コンボが5以上のとき、弾が75%の確率で壁跳ね+1"),
     "P_COMBO_BLAST": ("Fervor Blast", "高揚爆発", "At a kill combo of 5+, bullets have a 45% chance to burst in 1○ on hit (30% of shot damage)", "撃破コンボが5以上のとき、弾が45%の確率で命中時に1○の爆発 (弾ダメージの30%)"),
     "P_LONG_SPLIT": ("Attrition Split", "持久分裂", "From 20s into a wave, bullets have a 40% chance to split in 3 on hit (28% damage)", "ウェーブ開始20秒後から、弾が40%の確率で命中時に3方向へ分裂 (ダメージ28%)"),
-    "A_LASER_FOCUS": ("Focus Laser", "集束レーザー", "The laser grows thicker, reaches the walls and charges in 0.25s · it grows thicker and hotter the longer it stays on: +60% damage after 2.5s", "レーザーが太くなって壁まで届き、チャージが0.25秒に短縮 · 照射し続けるほど太く熱くなり、2.5秒でダメージ+60%"),
+    "A_LASER_FOCUS": ("Focus Laser", "集束レーザー", "The laser grows thicker and charges in 0.25s · it grows thicker and hotter the longer it stays on: +60% damage after 2.5s", "レーザーが太くなり、チャージが0.25秒に短縮 · 照射し続けるほど太く熱くなり、2.5秒でダメージ+60%"),
     "A_LASER_OVERLOAD": ("Overload Laser", "過負荷レーザー", "The laser grows thicker still · its heat spreads to enemies it touches, one layer per 0.25s (up to 5 layers, 10% attack per second per layer, holds 3s after the last touch) · let go of a laser held over 0.6s to release the stored heat as one thick beam (scales with the time held: 10x the laser's damage at 2.5s; enemies hit go straight to 5 layers)", "レーザーがさらに太くなる · 光線に触れた敵に熱が移り、0.25秒ごとに1層ずつ溜まる (最大5層、1層につき毎秒攻撃力10%、最後に触れてから3秒持続) · 0.6秒以上照射したレーザーを離すと、溜めた熱を太い光線1発として放出 (照射時間に比例、2.5秒でレーザーのダメージの10倍、当たった敵はすぐ5層)"),
     "P_LONG_CRIT": ("Attrition Crit", "持久会心", "From 20s into a wave, crit chance +100%", "ウェーブ開始20秒後から、会心率+100%"),
 }

@@ -184,11 +184,14 @@ struct State {
     std::unordered_map<const void*, float> marks;
     std::unordered_map<const void*, Burn>  burns;
     std::unordered_map<const void*, LaserBurn> laserBurns;
+    std::unordered_map<const void*, float> laserProcAt;   // when a beam last set off a hit proc on this enemy
+    bool procOk = true;                                   // the hit being handled may set off procs (see ProcGate)
     std::vector<Ember> embers;
     std::vector<RingFx> rings;
     passive::StepInput in;
     // 레이저: one beam is one shot. The beam the rolls below were made for, and what it rolled.
     int   laserBeam = -1;
+    float beamRollT = -1.0e9f;                            // s.clock when the beam's rolls were last made
     float beamBoost = 1.0f;
     bool  beamNth = false;
     std::vector<float> beamExtra;                         // extra shots' angle offsets
@@ -585,7 +588,7 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
     if (o.F_LASER) {
         // A real beam (LaserFx.h): the shot never flies, it becomes the still segments
         // of a beam held from the ship. The beam's band is the shot's hit width.
-        b.maxRange = 760.0f; b.piercing = true; b.sizeScale *= 1.3f;
+        b.piercing = true; b.sizeScale *= 1.3f;   // range: unlimited unless a card caps it (maxRange is read in LaserFx Step)
         b.color = glm::vec3(0.55f, 0.95f, 1.0f);
         b.synFlags |= synf::FrameLaser;
     }
@@ -781,6 +784,7 @@ void ForgetEnemy(const void* enemy) {
     s.marks.erase(enemy);
     s.burns.erase(enemy);
     s.laserBurns.erase(enemy);
+    s.laserProcAt.erase(enemy);
 }
 
 Streak* FindStreak(int id) {
@@ -1099,6 +1103,10 @@ static const CardClash kClashes[] = {
     { "F_MORTAR", "T_CRITECHO" }, { "F_MORTAR", "Y_FATE" },    // the landing blast never crits
     { "F_WAVE", "V_PIERCE" }, { "F_WAVE", "V_RICOCHET" },
     { "F_LASER", "V_PIERCE" }, { "F_LASER", "V_RICOCHET" },
+    // The beam does not fly (LaserFx LaySegments drops homing / return / hover / grow, and trail zones
+    // follow the distance flown), so these leave the laser nothing to act on.
+    { "F_LASER", "V_HOMING" }, { "F_LASER", "V_HUNTER" }, { "F_LASER", "V_GROW" },
+    { "F_LASER", "V_HOVER" }, { "F_LASER", "V_TRAIL" },
     { "V_HUNTER", "V_PIERCE" }, { "V_HUNTER", "V_RICOCHET" },
 };
 // Chance cards: a shell never pierces, bounces or hits (pierce / bounce / blast chances do nothing),
@@ -1321,6 +1329,14 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
     const bool newShot = !o.F_LASER || laser_fx::g_Main.beams != s.laserBeam;
     if (o.F_LASER) s.laserBeam = laser_fx::g_Main.beams;
     if (newShot) ++s.shots;
+    // A beam held on re-rolls its chance cards and dice every kBeamRerollGap (their conditions are read again),
+    // so a condition that ended (a dash's 1 s, standing still ...) does not live as long as the beam.
+    constexpr float kBeamRerollGap = 1.0f;
+    const bool reroll = o.F_LASER && !newShot && s.clock - s.beamRollT >= kBeamRerollGap;
+    if (newShot || reroll) s.beamRollT = s.clock;
+    // 정지 반응 / 박자 사격 x3 on a beam lasts only its first kBeamBoostTime (not as long as it is held).
+    constexpr float kBeamBoostTime = 1.0f;
+    const float beamBoost = (o.F_LASER && laser_fx::g_Main.onT > kBeamBoostTime) ? 1.0f : s.beamBoost;
     const float aim = std::atan2(base.dirY, base.dirX);
     int n = std::clamp((int)std::lround(s.bullets), 1, 16);
     const bool parallel = n == 2 && !o.F_SHOTGUN && !o.F_BURST;
@@ -1341,7 +1357,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         if (o.T_RHYTHM && ++s.rhythm >= std::max(2, (int)UPB(T_RHYTHM))) { s.rhythm = 0; s.beamBoost *= UPA(T_RHYTHM); Audio::Play(Audio::Cue::ProcCounterFull); }
     }
     // Shape (박자): a boosted shot (stillness, beat) deals +50%.
-    boost *= s.beamBoost * (s.beamBoost > 1.0f ? 1.0f + 0.5f * ShapeLv(synergy::Family::Beat) : 1.0f);
+    boost *= beamBoost * (beamBoost > 1.0f ? 1.0f + 0.5f * ShapeLv(synergy::Family::Beat) : 1.0f);
     if (s.dashBoostT > 0.0f) boost *= 1.3f;
     if (o.T_GRUDGE && s.stored > 0.0f) {
         const float pct = std::min(UPB(T_GRUDGE) * 100.0f * UPA(T_GRUDGE), s.stored * 100.0f * UPA(T_GRUDGE));
@@ -1366,7 +1382,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         ApplyFrameLook(b, tx, ty);
         if (!o.F_LASER) ApplyVerbs(b, tx, ty, RollVerbs(b));
         else {
-            if (newShot && i == 0) s.beamRoll = RollVerbs(b);
+            if ((newShot || reroll) && i == 0) s.beamRoll = RollVerbs(b);
             ApplyVerbs(b, tx, ty, s.beamRoll);
         }
         if (o.T_ANCHOR && s.stillT > 0.5f) {
@@ -1399,7 +1415,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         }
     }
     // Chance of an extra bullet (the chance cards).
-    if (newShot) {
+    if (newShot || reroll) {
         s.beamExtra.clear();
         for (float c = s.chance[(int)CKind::Extra]; c > 0.0f; c -= 1.0f)
             if (Rand01() < std::min(c, 1.0f)) s.beamExtra.push_back(Rand01() < 0.5f ? -0.08f : 0.08f);
@@ -1455,7 +1471,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
         out.push_back(b);
     }
     // Echo: the same volley again a moment later.
-    if (o.Y_ECHO) {
+    if (o.Y_ECHO && newShot) {   // a beam is one shot: one echo of it, not one per 0.1 s tick
         Echo e; e.t = 0.2f; e.shots = out;
         for (Bullet& shot : e.shots) shot.synFlags |= synf::Echo;
         s.echoes.push_back(std::move(e));
@@ -1500,9 +1516,25 @@ float DamageTakenMult() {
 
 // ───────────────────────── events ─────────────────────────
 
+// 레이저: a beam lays new segments every 0.1 s, so each enemy on it is "hit" ten times a second. Hit procs
+// (blasts, pulls, splits, echo shots, chance procs, crit counters) are rated per hit, not per second:
+// a beam's segments may set them off on one enemy only once per kLaserProcGap. Damage, marks, burns,
+// the beam's own burn stacks and kills still count on every hit.
+constexpr float kLaserProcGap = 0.5f;
+bool ProcGate(const Bullet& b, const void* target) {
+    if (!(b.synFlags & synf::Hitscan)) return true;
+    auto [it, fresh] = s.laserProcAt.try_emplace(target, s.clock);
+    if (fresh) return true;
+    if (s.clock - it->second < kLaserProcGap) return false;
+    it->second = s.clock;
+    return true;
+}
+bool ProcOk() { return s.procOk; }
+
 void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool crit, bool killed, float damage) {
-    if (!s.any || b.skillShot) return;
+    if (!s.any || b.skillShot) { s.procOk = true; return; }
     const Flags& o = s.on;
+    s.procOk = ProcGate(b, target);
     if (s.openingAt < 0.0f) s.openingAt = s.clock;   // 개전 일제사격 starts on the wave's first hit
     // 운명의 필살 일격: a shot's crit cuts an X through the hit point; every other enemy in
     // its reach takes kFateCutShare of that crit. At most one cut per kFateCutGap (a fast gun
@@ -1543,13 +1575,13 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
     // On-hit blasts scale with the shot's own damage factor (frame, split child, side shot, laser tick),
     // as a mortar shell's landing already does: a flat % of attack made fast frames multiply them.
     const float shotMult = b.dmgMult * s.dmg;
-    if (b.blastPct > 0.0f) {
+    if (b.blastPct > 0.0f && s.procOk) {
         const float r = 80.0f * (1.0f + (o.V_BLAST ? UPB(V_BLAST) : 0.0f));
         Burst(x, y, r, b.blastPct * 100.0f * shotMult);
         // Shape (폭발): the same spot goes off again 0.5 s later at half the damage.
         if (ShapeOn(synergy::Family::Blast)) AddZone(x, y, r * 0.8f, 0.5f, 0.0f, b.blastPct * std::min(100.0f, 50.0f * ShapeLv(synergy::Family::Blast)) * shotMult);
     }
-    if (b.synFlags & synf::Gravity) {
+    if ((b.synFlags & synf::Gravity) && s.procOk) {
         // 특이점 붕괴 탄두: at most one implosion per enemy per 0.15 s (piercing, split and beam hits
         // made it go off on every hit and the damage grew with the square of the crowd).
         bool go = true;
@@ -1559,7 +1591,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         }
         if (go) Explode(x, y, o.Y_SINGULAR ? Rings(1.5f) : 75.0f * UPA(V_GRAVITY) / 1.5f, o.Y_SINGULAR ? 150.0f * shotMult : UPB(V_GRAVITY) * 100.0f * shotMult, true, o.Y_SINGULAR ? Rings(2.5f) : 0.0f);
     }
-    if (b.splitCount > 0 && !b.splitSpent && s.pending.size() < 64) {
+    if (b.splitCount > 0 && !b.splitSpent && s.procOk && s.pending.size() < 64) {
         b.splitSpent = true;
         const float fan[5] = { -0.70f, 0.70f, 0.0f, -1.30f, 1.30f };
         const int n = std::min(b.splitCount, 5);
@@ -1590,7 +1622,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         }
     }
     // An echo shot's crit sets off no echo of its own: at a high crit chance they chained without end.
-    if (crit && o.T_CRITECHO && !(b.synFlags & synf::CritEchoShot)) {
+    if (crit && s.procOk && o.T_CRITECHO && !(b.synFlags & synf::CritEchoShot)) {
         // From the ship at the enemy nearest to it (the hit spot if none is left).
         float ex = x, ey = y;
         g_MonsterManager.FindNearestEnemy(s.in.px, s.in.py, ex, ey);
@@ -1603,7 +1635,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
         }
     }
     // Shape (치명): a crit sets off a small blast, at most every 0.1 s.
-    if (crit && ShapeOn(synergy::Family::Crit) && s.clock - s.critBlastAt >= 0.1f) {
+    if (crit && s.procOk && ShapeOn(synergy::Family::Crit) && s.clock - s.critBlastAt >= 0.1f) {
         s.critBlastAt = s.clock;
         Burst(x, y, 55.0f, 40.0f * ShapeLv(synergy::Family::Crit) * shotMult);
     }

@@ -243,11 +243,16 @@ public:
             const float minY = std::min(bullet.prevY, bullet.y);
             const float maxY = std::max(bullet.prevY, bullet.y);
             bool consumed = false;
+            // A laser beam segment (LaserFx.h) lies still and hits every enemy on it at once; a flying
+            // shot ends its step at its first hit. One hit per step capped a beam at its step count
+            // (9) of enemies, which an unlimited-range beam through a crowd runs into.
+            const bool scan = (bullet.synFlags & synf::Hitscan) != 0;
 
             const int shotSpace = bullet.space >= 0 ? bullet.space : space::kPlayerSource;
             ClampPlayerBulletSize(bullet);   // spawned or grown since the last projectile step
             const float shotScale = bullet.sizeScale;
-            for (auto* monster : manager.monsters) {
+            for (size_t mi = 0; mi < manager.monsters.size(); ++mi) {   // by index: a hit hook may add enemies
+                auto* monster = manager.monsters[mi];
                 if (!monster->alive) continue;
                 if (bullet.HasHit(monster)) continue;
                 if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
@@ -298,11 +303,13 @@ public:
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, monster)) {}
                 else                 bullet.active = false;
                 consumed = true;
-                break;
+                if (!scan || !bullet.active) break;
             }
 
-            if (consumed) continue;
-            for (auto* ranged : manager.rangedMobs) {
+            if (consumed && !scan) continue;
+            for (size_t ri = 0; ri < manager.rangedMobs.size(); ++ri) {
+                auto* ranged = manager.rangedMobs[ri];
+                if (!bullet.active) break;
                 if (!ranged->alive) continue;
                 if (bullet.HasHit(ranged)) continue;
                 if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) continue;
@@ -343,7 +350,7 @@ public:
                 if (bullet.SurvivesHit()) { bullet.RememberHit(ranged); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, ranged)) {}
                 else                 bullet.active = false;
-                break;
+                if (!scan) break;
             }
         }
 

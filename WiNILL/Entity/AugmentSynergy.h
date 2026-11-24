@@ -123,7 +123,7 @@ inline const std::vector<Aug>& Table() {
     {"F_BASIC",   "기본 사격",  "지금의 기본 총", Rar::Common, Role::Frame, T_NONE, 0, false, Fx{}},
     {"F_MINIGUN", "미니건",     "연사 간격 0.07초, 탄 피해 -60%, 이동 -10%", Rar::Rare, Role::Frame,
         T_RAPID, 0, false, Fx{}.rate_(2.857f).dmg_(0.40f).acc_(0.92f).move_(0.9f)},
-    {"F_LASER",   "레이저",     "0.4초 차징 뒤 누르는 동안 레이저 광선을 계속 쏨 · 광선에 닿은 적은 0.1초마다 공격력의 30% 피해 (모두 관통, 사거리 9.5○, 튕김 카드가 있으면 벽에서 반사) · 한 번 켠 광선이 사격 1회로 셈", Rar::Rare, Role::Frame,
+    {"F_LASER",   "레이저",     "0.4초 차징 뒤 누르는 동안 레이저 광선을 계속 쏨 · 광선에 닿은 적은 0.1초마다 공격력의 30% 피해 (모두 관통, 사거리 무한, 튕김 카드가 있으면 벽에서 반사) · 한 번 켠 광선이 사격 1회로 셈", Rar::Rare, Role::Frame,
         T_BEAM | T_PIERCE, 0, false, Fx{}.rate_(2.0f).dmg_(0.30f).acc_(1.27f).pierce_(9)},
     {"F_SHOTGUN", "샷건",       "한 번에 7발 산개, 사거리 7○", Rar::Rare, Role::Frame,
         T_SPREAD, 0, false, Fx{}.rate_(0.36f).dmg_(0.52f).acc_(0.66f).bullets_(7.0f)},
@@ -201,7 +201,7 @@ inline const std::vector<Aug>& Table() {
         T_MARK, 0, false, Fx{}.dmgAdd_(0.2f)},
     {"V_BURN",    "불씨 점화탄",     "맞힌 적이 3초간 불탐 (초당 공격력 20%)", Rar::Rare, Role::Verb,
         T_BURN, 0, false, Fx{}.proc_(0.35f)},
-    {"V_HUNTER",  "집요한 사냥탄",     "강하게 휘는 관통 유도탄 — 13○ 날아가면 되돌아오며 다시 맞힘 · 샷건·레이저의 사거리 제한이 사라짐", Rar::Legendary, Role::Verb,
+    {"V_HUNTER",  "집요한 사냥탄",     "강하게 휘는 관통 유도탄 — 13○ 날아가면 되돌아오며 다시 맞힘 · 샷건의 사거리 제한이 사라짐", Rar::Legendary, Role::Verb,
         T_HOMING | T_RETURN, 0, false, Fx{}.extraPass_(0.5f).homing_(0.10f)},
     {"V_SPRAY",   "부채꼴 산개탄",     "사격마다 좌우로 탄 2발 추가 (피해 35%)", Rar::Rare, Role::Verb,
         T_SPREAD, 0, false, Fx{}.bullets_(1.6f).dmg_(0.76f)},
@@ -353,7 +353,7 @@ inline const std::vector<Aug>& Table() {
         T_NONE, 0, false, Fx{}.crit_(0.400f)},
     // ── 레이저 강화 (레어 레이저 → 에픽 → 전설, 앞 단계 카드가 있어야 나옴; LaserFx.h) ──
     // proc is the reference model's estimate of the heat-up / the release blast (the runtime does the real thing).
-    {"A_LASER_FOCUS", "집속 레이저", "레이저가 더 굵어지고 벽까지 닿으며 차징이 0.25초로 줄어듦 · 켜 둘수록 굵고 뜨거워져 2.5초 동안 켜 두면 피해 +60%", Rar::Epic, Role::Amp,
+    {"A_LASER_FOCUS", "집속 레이저", "레이저가 더 굵어지고 차징이 0.25초로 줄어듦 · 켜 둘수록 굵고 뜨거워져 2.5초 동안 켜 두면 피해 +60%", Rar::Epic, Role::Amp,
         T_BEAM2, T_BEAM, false, Fx{}.proc_(0.55f)},
     {"A_LASER_OVERLOAD", "과부하 레이저", "레이저가 한층 더 굵어짐 · 광선에 닿은 적에게 열이 옮겨붙어 0.25초마다 1겹씩 쌓임 (최대 5겹, 겹마다 초당 공격력 10%, 마지막으로 닿은 뒤 3초 유지) · 0.6초 넘게 켜 두다 놓으면 모은 열을 굵은 광선 한 방으로 방출 (켜 둔 시간에 비례, 2.5초면 레이저 피해의 10배, 맞은 적은 바로 5겹)", Rar::Legendary, Role::Amp,
         T_NONE, T_BEAM2, false, Fx{}.proc_(0.95f)},

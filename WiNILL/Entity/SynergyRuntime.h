@@ -56,6 +56,7 @@ void  Step(const passive::StepInput& in);
 
 // Events from the shared combat code.
 // damage: the hit's own damage, crit included (운명의 필살 일격's cut deals a share of it).
+bool  ProcOk();                                          // the hit just passed to OnBulletHit may set off hit procs (a beam's repeat hits may not)
 void  OnBulletHit(const Bullet& b, const void* target, float x, float y, bool crit, bool killed,
                   float damage = 0.0f);
 bool  Redirect(Bullet& b, const void* hitTarget);         // ricochet: true = the shot flies on

@@ -1050,6 +1050,7 @@ void OnPlayerBullet(const Bullet& shot) {
         b.x += offX; b.y += offY; b.prevX = b.x; b.prevY = b.y;
         b.dmgMult *= passive::MultiHitMult();   // the clone's copy hits as hard as the ship's shot
         b.color = glm::vec3(0.60f, 0.50f, 0.95f);
+        if (shot.synFlags & synf::FrameLaser) b.synFlags |= synf::Clone;   // a laser copy: its own beam (LaserFx.h)
         // "착탄 폭발은 없음": the dash blast and the synergy on-hit blasts (파열, 중력탄) stay with the ship.
         b.blastOnHit = false;
         b.blastPct = 0.0f;
