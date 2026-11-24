@@ -22,7 +22,8 @@ inline constexpr uint32_t Mark = 1u << 0, Burn = 1u << 1, Grow = 1u << 2, Hover 
     CritEchoShot = 1u << 26, // 치명 반응's extra shot: its own crits set off no further echo
     Grazed = 1u << 27,       // an enemy shot already counted by 스침 (T_GRAZE); Bullet::grazed is Graze Recovery's
     GrazeNear = 1u << 28,    // an enemy shot inside the 스침 band, counted once it leaves without hitting
-    Clone = 1u << 29;        // a 분신 사격 copy of the ship's shot: a laser copy is its own flash beam, never the main beam
+    Clone = 1u << 29,        // a 분신 사격 copy of the ship's shot: a laser copy is its own flash beam, never the main beam
+    FrameShotgun = 1u << 30; // look only: a 샷건 pellet, drawn as a tracer streak
 }
 inline constexpr uint32_t kSynNoHit = synf::Lob | synf::Mine;   // a shell or a mine does not hit on the way
 

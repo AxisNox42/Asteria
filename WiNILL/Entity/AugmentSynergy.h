@@ -387,7 +387,7 @@ struct Result {
 };
 
 // The frames as measured in the game (scripts/test_frame_balance.ps1, 2026-11-24) over what this
-// model makes of them alone: it misses rules that live in the game, not the table (shotgun and wave
+// model makes of them alone: it misses rules that live in the game, not the table (shotgun x1.21 and wave
 // x1.3 per shot, a mortar shell that only bursts, laser ticks, the crossbow's mark, the sniper's
 // power pierce ...). Evaluate scales a frame's damage by it, so a frame alone reads as measured.
 inline float FrameCalibration(const char* code) {

@@ -31,6 +31,9 @@ float g_AugExitT = 0.0f;
 bool TryEscNavigateBack() { return false; }
 float g_BaseOrtho[16] = {};
 float g_ShakeTime = 0.0f, g_ShakeMag = 0.0f;
+// Draw-side size of a mob (EntityDraw.cpp), read by the 석궁 mark; no renderer here.
+float MobOutlineExtent(const Monster*) { return 20.0f; }
+float MobOutlineExtent(const RangedMob*) { return 20.0f; }
 
 static int Find(const char* name) {
     for (int i = 0; i < AUG_TOTAL; ++i) if (std::strcmp(ALL_AUGS[i].name, name) == 0) return i;

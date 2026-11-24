@@ -12,6 +12,7 @@
 #include "PlayerStats.h"
 #include "BalanceTuning.h"
 #include "Juice.h"
+#include "ShotgunFeel.h"
 #include "../Core/Codex.h"
 
 // Player shot vs enemy: the two circles touch (enemy body + shot), instead of
@@ -243,32 +244,41 @@ public:
             const float maxX = std::max(bullet.prevX, bullet.x);
             const float minY = std::min(bullet.prevY, bullet.y);
             const float maxY = std::max(bullet.prevY, bullet.y);
-            bool consumed = false;
             // A laser beam segment (LaserFx.h) lies still and hits every enemy on it at once; a flying
-            // shot ends its step at its first hit. One hit per step capped a beam at its step count
+            // shot takes its step's enemies nearest first (below). One hit per step capped a beam at its step count
             // (9) of enemies, which an unlimited-range beam through a crowd runs into.
             const bool scan = (bullet.synFlags & synf::Hitscan) != 0;
 
             const int shotSpace = bullet.space >= 0 ? bullet.space : space::kPlayerSource;
             ClampPlayerBulletSize(bullet);   // spawned or grown since the last projectile step
             const float shotScale = bullet.sizeScale;
-            for (size_t mi = 0; mi < manager.monsters.size(); ++mi) {   // by index: a hit hook may add enemies
-                auto* monster = manager.monsters[mi];
-                if (!monster->alive) continue;
-                if (bullet.HasHit(monster)) continue;
-                if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) continue;
+            // Does the shot's step touch this enemy? `t` is how far along the step (0 = where it was).
+            auto touchesAt = [&](float ex, float ey, float hitRadius, float& t) -> bool {
+                if (ex < minX - hitRadius || ex > maxX + hitRadius ||
+                    ey < minY - hitRadius || ey > maxY + hitRadius) return false;
+                if (SegDistSq(ex, ey, bullet.prevX, bullet.prevY, bullet.x, bullet.y) >= hitRadius * hitRadius)
+                    return false;
+                const float sx = bullet.x - bullet.prevX, sy = bullet.y - bullet.prevY;
+                const float len2 = sx * sx + sy * sy;
+                t = len2 > 1e-6f ? ((ex - bullet.prevX) * sx + (ey - bullet.prevY) * sy) / len2 : 0.0f;
+                return true;
+            };
+            auto monsterTouches = [&](Monster* monster, float& t) -> bool {
+                if (!monster->alive || bullet.HasHit(monster)) return false;
+                if (!space::Reaches(shotSpace, monster->worldX, monster->worldY)) return false;
                 const float hitRadius = PlayerShotHitRadius(
-                    MobBodyHitPx(monster->kind) * monster->sizeScale,
-                    shotScale);
-                if (monster->worldX < minX - hitRadius || monster->worldX > maxX + hitRadius ||
-                    monster->worldY < minY - hitRadius || monster->worldY > maxY + hitRadius)
-                    continue;
-                if (SegDistSq(monster->worldX, monster->worldY,
-                              bullet.prevX, bullet.prevY, bullet.x, bullet.y) >=
-                    hitRadius * hitRadius)
-                    continue;
-
-                if (bullet.mobTick && !laser_fx::MobReady(monster)) continue;   // the standing laser: this enemy's own tick
+                    MobBodyHitPx(monster->kind) * monster->sizeScale, shotScale);
+                if (!touchesAt(monster->worldX, monster->worldY, hitRadius, t)) return false;
+                return !(bullet.mobTick && !laser_fx::MobReady(monster));   // the standing laser: this enemy's own tick
+            };
+            auto rangedTouches = [&](RangedMob* ranged, float& t) -> bool {
+                if (!ranged->alive || bullet.HasHit(ranged)) return false;
+                if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) return false;
+                if (!touchesAt(ranged->worldX, ranged->worldY, PlayerShotHitRadius(kScopeBodyHitPx, shotScale), t))
+                    return false;
+                return !(bullet.mobTick && !laser_fx::MobReady(ranged));
+            };
+            auto hitMonster = [&](Monster* monster) {
                 bool crit = false;
                 const float passiveMult = passive_hooks::bulletDamageMult
                     ? passive_hooks::bulletDamageMult(bullet, monster, monster->worldX,
@@ -294,7 +304,8 @@ public:
                 if (monster->alive && !IsBossMob(monster->kind) && !IsEliteMob(monster->kind) &&
                     !monster->genesisThrown && monster->genesisRotorPhase == 0 &&
                     monster->thrownPhase == 0) {
-                    monster->TryHitStun(bullet.dirX, bullet.dirY);
+                    monster->TryHitStun(bullet.dirX, bullet.dirY,
+                                        (bullet.synFlags & synf::FrameShotgun) ? shotgun_feel::kKnockMult : 1.0f);
                 }
                 {   // 저격총: a free pass (pierce card) sparks white, a power pass in the shot's colour
                     const bool freePass = bullet.powerPierce && (bullet.piercing || bullet.pierceLeft > 0);
@@ -319,27 +330,8 @@ public:
                 else if (fliesOn) { bullet.RememberHit(monster); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, monster)) {}
                 else                 bullet.active = false;
-                consumed = true;
-                if (!scan || !bullet.active) break;
-            }
-
-            if (consumed && !scan) continue;
-            for (size_t ri = 0; ri < manager.rangedMobs.size(); ++ri) {
-                auto* ranged = manager.rangedMobs[ri];
-                if (!bullet.active) break;
-                if (!ranged->alive) continue;
-                if (bullet.HasHit(ranged)) continue;
-                if (!space::Reaches(shotSpace, ranged->worldX, ranged->worldY)) continue;
-                const float HIT_RADIUS = PlayerShotHitRadius(kScopeBodyHitPx, shotScale);
-                if (ranged->worldX < minX - HIT_RADIUS || ranged->worldX > maxX + HIT_RADIUS ||
-                    ranged->worldY < minY - HIT_RADIUS || ranged->worldY > maxY + HIT_RADIUS)
-                    continue;
-                if (SegDistSq(ranged->worldX, ranged->worldY,
-                              bullet.prevX, bullet.prevY, bullet.x, bullet.y) >=
-                    HIT_RADIUS * HIT_RADIUS)
-                    continue;
-
-                if (bullet.mobTick && !laser_fx::MobReady(ranged)) continue;
+            };
+            auto hitRanged = [&](RangedMob* ranged) {
                 bool crit = false;
                 const float passiveMult = passive_hooks::bulletDamageMult
                     ? passive_hooks::bulletDamageMult(bullet, ranged, ranged->worldX,
@@ -382,7 +374,39 @@ public:
                 else if (fliesOn) { bullet.RememberHit(ranged); ++bullet.synPierced; }
                 else if (passive_hooks::bulletRedirect && passive_hooks::bulletRedirect(bullet, ranged)) {}
                 else                 bullet.active = false;
-                if (!scan) break;
+            };
+            if (scan) {
+                for (size_t mi = 0; mi < manager.monsters.size() && bullet.active; ++mi) {   // by index: a hit hook may add enemies
+                    float t;
+                    if (monsterTouches(manager.monsters[mi], t)) hitMonster(manager.monsters[mi]);
+                }
+                for (size_t ri = 0; ri < manager.rangedMobs.size() && bullet.active; ++ri) {
+                    float t;
+                    if (rangedTouches(manager.rangedMobs[ri], t)) hitRanged(manager.rangedMobs[ri]);
+                }
+                continue;
+            }
+            // A flying shot hits what its step touches nearest first (a fast shotgun pellet flies
+            // 100+ px a frame, and the list order once let it hit a far enemy before a near one).
+            // A shot that flies on straight (pierce) goes on to the next one along the same step;
+            // a bounce, a redirect or the end of the shot ends the step.
+            for (int guard = 0; guard < Bullet::kHitMemory && bullet.active; ++guard) {
+                Monster* bestMob = nullptr; RangedMob* bestRanged = nullptr;
+                float bestT = 1e30f;
+                for (size_t mi = 0; mi < manager.monsters.size(); ++mi) {
+                    float t;
+                    if (monsterTouches(manager.monsters[mi], t) && t < bestT) { bestT = t; bestMob = manager.monsters[mi]; }
+                }
+                for (size_t ri = 0; ri < manager.rangedMobs.size(); ++ri) {
+                    float t;
+                    if (rangedTouches(manager.rangedMobs[ri], t) && t < bestT) { bestT = t; bestMob = nullptr; bestRanged = manager.rangedMobs[ri]; }
+                }
+                if (!bestMob && !bestRanged) break;
+                const float ox = bullet.x, oy = bullet.y, odx = bullet.dirX, ody = bullet.dirY;
+                if (bestRanged) hitRanged(bestRanged); else hitMonster(bestMob);
+                if (!bullet.active) break;
+                if (bullet.x != ox || bullet.y != oy || bullet.dirX != odx || bullet.dirY != ody) break;
+                if (bestRanged ? !bullet.HasHit(bestRanged) : !bullet.HasHit(bestMob)) break;
             }
         }
 

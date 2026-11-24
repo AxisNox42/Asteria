@@ -4,6 +4,7 @@
 #include "LineFx.h"
 #include "LaserFx.h"
 #include "../Entity/SkillTags.h"
+#include "../Entity/ShotgunFeel.h"
 #include "../Entity/MonsterManager.h"
 #include "../Entity/GravisField.h"
 #include "Camera.h"
@@ -323,6 +324,19 @@ static bool DrawCardShot(const Bullet& b, float r) {
         float ax, ay, bx, by;
         P(r * 1.3f, 0.0f, ax, ay); P(-r * 0.05f, 0.0f, bx, by);
         SkillStroke(ax, ay, bx, by, 1.2f, lit, 1.0f);
+        return true;
+    }
+    if (f & synf::FrameShotgun) {   // 샷건: a tracer streak, bright at the head and fading back
+        const float len = std::min(shotgun_feel::kTracerLen, b.traveled);
+        if (len > 1.0f) {
+            float ax = b.x - ux * len, ay = b.y - uy * len;
+            float mx = b.x - ux * len * 0.45f, my = b.y - uy * len * 0.45f;
+            SkillStroke(ax, ay, b.x, b.y, 3.4f, { c.r * 0.2f, c.g * 0.2f, c.b * 0.2f }, 0.35f);
+            SkillStroke(ax, ay, mx, my, 1.2f, c, 0.35f);
+            SkillStroke(mx, my, b.x, b.y, 1.8f, lit, 1.0f);
+        }
+        float hx, hy; P(r * 0.9f, 0.0f, hx, hy);
+        SkillStroke(b.x, b.y, hx, hy, 2.4f, glm::vec3(1.0f), 1.0f);
         return true;
     }
     if (f & synf::FrameWave) {   // 파동포: three arcs of a wavefront, the front one brightest

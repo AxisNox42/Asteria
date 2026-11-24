@@ -507,12 +507,13 @@ public:
     float hitStunTimer = 0.0f;
     float hitStunCooldown = 0.0f;
     float hitKnockX = 0.0f, hitKnockY = 0.0f;
-    void TryHitStun(float dirX, float dirY) {
+    // `knock` scales the shove (샷건 pellets push harder, ShotgunFeel.h).
+    void TryHitStun(float dirX, float dirY, float knock = 1.0f) {
         if (hitStunCooldown > 0.0f || LynxHoldsPosition()) return;
         hitStunTimer = HIT_STUN_TIME;
         hitStunCooldown = HIT_STUN_COOLDOWN;
-        hitKnockX = dirX * HIT_KNOCK_SPEED;
-        hitKnockY = dirY * HIT_KNOCK_SPEED;
+        hitKnockX = dirX * HIT_KNOCK_SPEED * knock;
+        hitKnockY = dirY * HIT_KNOCK_SPEED * knock;
     }
     // Elite hit feel: no stun or shove; the body swells a little (pulse ->
     // swell, which rises fast and follows the pulse down) and, on a critical

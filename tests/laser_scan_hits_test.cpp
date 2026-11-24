@@ -47,7 +47,8 @@ int main() {
         CollisionSystem::Update(0.0f, 0.0f, manager, bullets, hp, scoreAccum, score, stats);
         for (size_t i = 0; i < manager.monsters.size(); ++i) assert(manager.monsters[i]->hp == hpBefore[i]);
     }
-    {   // a flying piercing shot still hits one enemy per step
+    {   // a flying piercing shot takes every enemy along its step, nearest first (2026-11-24 shotgun feel:
+        // it used to stop at one per step, so a long fast step skipped the rest)
         MonsterManager manager;
         Line(manager, 15);
         Bullet fly(100.0f, 300.0f, 1500.0f, 300.0f);
@@ -55,8 +56,8 @@ int main() {
         fly.piercing = true; fly.sizeScale = 1.3f;
         std::vector<Bullet> bullets = { fly };
         CollisionSystem::Update(0.0f, 0.0f, manager, bullets, hp, scoreAccum, score, stats);
-        std::printf("flying shot: %d enemy hit in one step\n", CountHurt(manager));
-        assert(CountHurt(manager) == 1);
+        std::printf("flying shot: %d enemies hit in one step\n", CountHurt(manager));
+        assert(CountHurt(manager) == 15);
     }
     {   // 몹별 틱: each enemy takes the standing beam on its own timer
         laser_fx::Clear();

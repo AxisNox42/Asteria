@@ -70,6 +70,8 @@
 #include "CaelumDraw.h"
 #include "StrikeFx.h"        // shared hit effects: blasts, bolts, falling stars, novas
 #include "LaserFx.h"         // the 레이저 frame card's beams
+#include "ShotgunFeel.h"     // 샷건: muzzle flash, recoil
+#include "LineFx.h"
 #include "NormaFx.h"         // OCTANS's own seals and pane frames
 #include "CaelumFx.h"        // ERIDANUS's own torn crop-mark rings
 #include "WaveHud.h"
@@ -6989,6 +6991,7 @@ int main() {
                 UpdateProjectiles(g_Bullets, g_MonsterManager, playerWin,
                                   FIXED_DT, (float)screenWidth, (float)screenHeight,
                                   g_ViewZoom);
+                shotgun_feel::Tick(FIXED_DT);
 
                 // Passive augments: timers, counters, stillness, grazes.
                 if (playerControl) {
@@ -7894,8 +7897,26 @@ CollisionSystem::Update(pCX, pCY,
                     g_GameTime);
                 vitals_hud::DrawWardRings(pCX, pCY, playerSize, g_PlayerWaveWard, g_GameTime);
             }
-            DrawPlayerWeaponShell(pCX, pCY, playerSize,
-                                  atan2f(wmy - pCY, wmx - pCX), g_GameTime);
+            {   // 샷건: the drawn ship kicks back along the aim, then a fan of short lines leaves its nose
+                const float aimA = atan2f(wmy - pCY, wmx - pCX);
+                const float kick = shotgun_feel::RecoilOffset();
+                DrawPlayerWeaponShell(pCX - cosf(aimA) * kick, pCY - sinf(aimA) * kick, playerSize,
+                                      aimA, g_GameTime);
+                if (shotgun_feel::g_FlashT > 0.0f) {
+                    const float k = shotgun_feel::g_FlashT / shotgun_feel::kFlashTime;   // 1 -> 0
+                    const float fa = shotgun_feel::g_FlashAng, half = shotgun_feel::g_FlashHalf;
+                    const float nose = playerSize * 0.95f;
+                    const float ox = pCX + cosf(fa) * nose, oy = pCY + sinf(fa) * nose;
+                    for (int i = 0; i < 5; ++i) {
+                        const float a = fa - half + 2.0f * half * (float)i / 4.0f;
+                        const float len = (i == 2 ? 30.0f : 20.0f) * (0.6f + 0.4f * k);
+                        line_fx::Line(ox, oy, ox + cosf(a) * len, oy + sinf(a) * len, 3.6f,
+                                      { 0.20f, 0.18f, 0.10f }, 0.5f * k);
+                        line_fx::Line(ox, oy, ox + cosf(a) * len, oy + sinf(a) * len, 1.6f,
+                                      { 1.0f, 0.95f, 0.75f }, k);
+                    }
+                }
+            }
             DrawLevelUpRings(pCX, pCY, playerSize,
                              g_GameManager.levelUpTransition.Progress());
             BatchFlush();

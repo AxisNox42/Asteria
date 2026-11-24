@@ -15,6 +15,7 @@
 #include "SynergyUpgrade.h"
 #include "Bullet.h"
 #include "CrossbowBolts.h"
+#include "ShotgunFeel.h"
 #include "EnemyParticles.h"
 #include "GameManager.h"
 #include "Juice.h"
@@ -592,7 +593,11 @@ void ApplyFrameLook(Bullet& b, float tx, float ty) {
     // A frame that fires few bullets kills about one enemy per shot however hard it hits, so the
     // slow frames fire faster with less per shot (table) and the spread frames get a small correction
     // measured in the smoke run (kills in 20 s).
-    if (o.F_SHOTGUN) { b.maxRange = 560.0f; b.speed *= 0.9f; b.dmgMult *= 1.3f; }
+    // 샷건 pellet x1.21 (x1.3 before the fast pellets landed more hits: overall 1.36 -> back near 1.27).
+    constexpr float kShotgunPelletDmg = 1.21f;
+    // 샷건: near-hitscan pellets (Docs/Plans/2026-11-24_샷건_타격감.md): 1200 x 5.8 = ~7000 px/s, the 7○ range
+    // in ~0.08 s. CollisionSystem takes a step's enemies nearest first, so the long steps hit in order.
+    if (o.F_SHOTGUN) { b.maxRange = 560.0f; b.speed *= shotgun_feel::kSpeedMult; b.dmgMult *= kShotgunPelletDmg; b.synFlags |= synf::FrameShotgun; }
     // 저격총: no pierce count of its own; a kill lets it fly on with the power left (Bullet.h SniperFliesOn).
     if (o.F_SNIPER) { b.speed *= 1.6f; b.sizeScale *= 1.4f; b.color = glm::vec3(0.85f, 0.95f, 1.0f); b.synFlags |= synf::FrameSniper; b.powerPierce = true; }
     if (o.F_CROSSBOW) { b.speed *= crossbow::kSpeed; b.sizeScale *= 2.0f; b.color = glm::vec3(0.95f, 0.85f, 0.55f); b.synFlags |= synf::FrameCrossbow; }
@@ -1436,6 +1441,7 @@ void Shape(const Bullet& base, float px, float py, float tx, float ty, std::vect
     const bool parallel = n == 2 && !o.F_SHOTGUN && !o.F_BURST;
     float width = 0.0f;
     if (o.F_SHOTGUN) width = 0.60f;
+    if (o.F_SHOTGUN && newShot) shotgun_feel::OnVolley(aim, width);   // muzzle flash + recoil
     else if (o.F_BURST) width = 0.14f;
     else if (n > 1 && !parallel) width = std::min(0.12f * (float)(n - 1), 0.7f);
 
