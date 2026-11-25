@@ -3805,12 +3805,14 @@ static void DrawHorologiumTells(const Monster* m) {
 }
 
 static void DrawHorologium(const Monster* m) {
-    DrawHorologiumTells(m);   // floor warnings stay outside the hit-feel scope
+    // Floor warnings stay outside the hit-feel scope; previews (Codex) have none.
+    if (!g_SuppressMobSeen) DrawHorologiumTells(m);
     const horologium::Brain& br = m->horologium;
     float cr = m->color.r, cg = m->color.g, cb = m->color.b;
     ApplyMobStyleTint(cr, cg, cb);
     const float x = m->worldX, y = m->worldY;
-    const float k = horologium::kSheet;
+    // In play sizeScale is kSizeScale (k = kSheet); a preview shrinks it.
+    const float k = horologium::kSheet * m->sizeScale / horologium::kSizeScale;
     EliteHitFxScope hitFx(m, x, y);
     // Dial.
     DrawEnemyArc(x, y, 60.0f * k, 0.0f, 6.2831853f, 56, cr, cg, cb, 1.0f, 2.4f);
@@ -4439,6 +4441,13 @@ void drawRangedMob(const RangedMob* r, float visualTime) {
     }
 }
 
+// Codex card fit: the outer reach of each big body, in units of 18 * scale.
+constexpr float kCodexBossReach = 1.6f;
+constexpr float kCodexNormaFit = kCodexBossReach / 2.13f;    // ring + brackets
+constexpr float kCodexCaelumFit = kCodexBossReach / 1.45f;   // frame + handles
+// HOROLOGIUM: tilted orbit (76 sheet units) at sizeScale / kSizeScale.
+constexpr float kCodexHorologiumFit = kCodexBossReach * 18.0f * horologium::kSizeScale / 76.0f;
+
 void drawCodexMobPreview(int codexId, float x, float y, float scale) {
     // Codex previews must not count as discoveries while reusing gameplay draw
     // code.  This keeps the preview silhouette and its animation in lockstep
@@ -4467,6 +4476,7 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         case CM_TRIGON: kind = MobKind::TRIANGULUM; break;
         case CM_OCTANS:   kind = MobKind::NORMA;  break;
         case CM_ERIDANUS: kind = MobKind::CAELUM; break;
+        case CM_HOROLOGIUM: kind = MobKind::HOROLOGIUM; break;
         default: break;                                // ROTOR
         }
         Monster preview(x, y, 1.0f, 1.0f, false);
@@ -4490,9 +4500,38 @@ void drawCodexMobPreview(int codexId, float x, float y, float scale) {
         preview.triangulumSpin = t * triangulum::kOrbitSpeed;
         // TRIGON's shell reaches 1.7x its base; shrink it to fit the card.
         if (kind == MobKind::TRIANGULUM) preview.sizeScale = scale * 0.72f;
-        // Boss bodies are drawn at boss size; bring them down to an elite's card footprint.
-        if (IsBossMob(kind)) preview.sizeScale = scale * 0.55f;
-        drawMob(&preview);
+        // Both bosses turn on normaVisualAngle (phase-1 speed in play).
+        preview.normaVisualAngle = t * 0.35f;
+        // Fit each boss to the card: NORMA's ring + brackets reach ~2.13 base,
+        // CAELUM's frame ~1.3 base (base = 18 * sizeScale).
+        if (kind == MobKind::NORMA)  preview.sizeScale = scale * kCodexNormaFit;
+        if (kind == MobKind::CAELUM) preview.sizeScale = scale * kCodexCaelumFit;
+        if (kind == MobKind::HOROLOGIUM) {
+            // The clock is upright; its hands, tilted orbit and star turn
+            // at the in-play rates. Its sheet is drawn at sizeScale.
+            horologium::Brain& br = preview.horologium;
+            br.minute = fmodf(t * horologium::kMinuteTurn, 6.2831853f);
+            br.hour = fmodf(t * horologium::kHourTurn, 6.2831853f);
+            br.tilt = -0.349f + fmodf(t * horologium::kOrbitPrecess, 6.2831853f);
+            br.rider = fmodf(t * horologium::kRiderTurn, 6.2831853f);
+            preview.sizeScale = scale * kCodexHorologiumFit;
+        }
+        if (kind == MobKind::CAELUM) {
+            // CAELUM's body reads the fight's global state; show the fresh
+            // phase-1 form, and leave no leak pixels behind.
+            caelum::State fresh;
+            std::swap(caelum::g, fresh);
+            caelum_draw::LeakPx savedPx[caelum_draw::kLeakPx];
+            std::copy(caelum_draw::g_LeakPx, caelum_draw::g_LeakPx + caelum_draw::kLeakPx, savedPx);
+            const int savedLeak = caelum_draw::g_LeakN;
+            caelum_draw::g_LeakN = 0;
+            drawMob(&preview);
+            std::swap(caelum::g, fresh);
+            std::copy(savedPx, savedPx + caelum_draw::kLeakPx, caelum_draw::g_LeakPx);
+            caelum_draw::g_LeakN = savedLeak;
+        } else {
+            drawMob(&preview);
+        }
     }
     g_SuppressMobSeen = wasSuppressed;
 }
