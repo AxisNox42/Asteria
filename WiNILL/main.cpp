@@ -4013,10 +4013,10 @@ static void FinishRunVictory(int finalWave, const wchar_t* const (&reason)[3],
 // Felling the final wave's boss (NORMA or CAELUM) wins the run at once.
 static void CompleteBossRun(int finalWave) {
     static const wchar_t* const norma[3] = {
-        L"OCTANS 처치", L"OCTANS Defeated", L"OCTANS撃破"
+        L"팔문 처치", L"OCTANS Defeated", L"OCTANS撃破"
     };
     static const wchar_t* const caelumWin[3] = {
-        L"ERIDANUS 처치", L"ERIDANUS Defeated", L"ERIDANUS撃破"
+        L"탁류 처치", L"ERIDANUS Defeated", L"ERIDANUS撃破"
     };
     FinishRunVictory(finalWave, FinalBossKind() == MobKind::CAELUM ? caelumWin : norma, "boss_defeated");
 }
@@ -6655,7 +6655,7 @@ int main() {
                 g_DeathReason[0] = L'\0';   // no "signal dispersed" line; the result screen falls back to the outcome label
                 if (g_NormaDoom) {
                     static const wchar_t* const DOOM[3] = {
-                        L"OCTANS의 심판: 시간 초과", L"Judged by OCTANS: time ran out",
+                        L"팔문의 심판: 시간 초과", L"Judged by OCTANS: time ran out",
                         L"OCTANSの裁き: 時間切れ" };
                     wcscpy_s(g_DeathReason, DOOM[li]);
                 }

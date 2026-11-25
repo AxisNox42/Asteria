@@ -78,7 +78,7 @@ inline const wchar_t* const kMemoLines[] = {
     L"[x] 북쪽 경계 확인", L"[ ] 03:14 로그 다시 읽기", L"[ ] 이 창을 누가 열었는지 찾기",
     L"오늘도 하늘이 한 번 재시작됐다.", L"별들이 선으로만 이어진다. 원래 그랬나?",
     L"창 안으로는 탄이 못 들어온다고 들었다.", L"누가 내 창을 또 옮겼다...",
-    L"OCTANS 근처에는 가지 말 것.", L"여덟 번째 별이 꺼지면 끝이라고 했다.",
+    L"팔문 근처에는 가지 말 것.", L"여덟 번째 별이 꺼지면 끝이라고 했다.",
     L"memo: the sky compiles at night", L"remember: windows are walls",
     L"grocery: stardust x3, ink, more ink", L"p.s. 마우스 커서가 또 하늘을 지나갔다",
     L"8개의 별, 4개의 창, 1개의 심장", L"내일 할 일: 아무 창도 열지 않기",
@@ -518,7 +518,7 @@ inline void PaintCopy(HDC dc, const RECT& r, const Content& c) {
     static const wchar_t* const kFmt[3] = { L"탄 %d개 복사 중", L"Copying %d shots", L"弾を %d 個コピー中" };
     swprintf_s(line, kFmt[l], total);
     Text(dc, x, y, line, f.ink);
-    static const wchar_t* const kPath[3] = { L"OCTANS 에서 플레이어 위치 로", L"from OCTANS to your position",
+    static const wchar_t* const kPath[3] = { L"팔문에서 플레이어 위치로", L"from OCTANS to your position",
                                              L"OCTANS から プレイヤーの位置 へ" };
     Text(dc, x, y + f.lineH, kPath[l], f.faint);
     const int bw = std::max(40, (int)(r.right - r.left) - 36);
