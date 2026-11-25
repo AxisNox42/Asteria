@@ -273,7 +273,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
         return SettingsSnapshotChanged(savedSettings);
     };
 
-    const bool rmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    const bool rmb = InputMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT);
     if (c.inputFocusChanged) s_volDrag = -1;
     // While a key is being captured, ESC / right-click cancel the capture
     // instead of leaving the screen (decided from the frame-start state).

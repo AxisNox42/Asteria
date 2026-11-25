@@ -10,6 +10,7 @@
 #include "UiLayout.h"
 #include "WindowChrome.h"
 #include "Settings.h"
+#include "Input.h"
 #include "Translations.h"
 #include "TutorialText.h"
 #include "Meta.h"
@@ -306,7 +307,7 @@ void Scene_RunConfigInline(const SceneCtx& c) {
     s_RcEntryT = std::min(1.0f, s_RcEntryT + dt);
     if (launchExit) launchT = std::min(0.50f, launchT + dt);
 
-    const bool rmb = c.window && glfwGetMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    const bool rmb = InputMouseButton(c.window, GLFW_MOUSE_BUTTON_RIGHT);
     const bool escEdge = EscPressedEdge(c, prevEsc);
     const bool backInput = escEdge || (rmb && !g_RmbPrev);
 

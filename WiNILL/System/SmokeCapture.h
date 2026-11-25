@@ -209,3 +209,5 @@ private:
 };
 
 inline SmokeCapture g_SmokeRun;
+// The scripted pointer, kept between frames: smoke runs never read the real mouse.
+inline double g_SmokePointerX = -10000.0, g_SmokePointerY = -10000.0;

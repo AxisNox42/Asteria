@@ -393,6 +393,33 @@ InputFocusTransition InputUpdateWindowFocus(GLFWwindow* window) {
     return transition;
 }
 
+static bool s_pointerLive = true;
+void InputSetPointerLive(bool live) { s_pointerLive = live; }
+bool InputPointerLive() { return s_pointerLive; }
+bool InputMouseButton(GLFWwindow* window, int button) {
+    return window && s_pointerLive && glfwGetMouseButton(window, button) == GLFW_PRESS;
+}
+
+bool InputPointerOnGame(GLFWwindow* window) {
+#ifdef _WIN32
+    (void)window;
+    // Our process owns the game window and every window it opens (panes,
+    // overlay), so those taking focus still count as the game.
+    const DWORD self = GetCurrentProcessId();
+    auto ours = [self](HWND h) {
+        if (!h) return false;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(GetAncestor(h, GA_ROOT), &pid);
+        return pid == self;
+    };
+    POINT pt{};
+    if (!GetCursorPos(&pt)) return true;
+    return ours(GetForegroundWindow()) && ours(WindowFromPoint(pt));
+#else
+    return glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+#endif
+}
+
 void InputUpdateGameplayCursor(GLFWwindow* window, GameState state,
                                bool crosshairEnabled, bool debugVisible) {
     (void)state;   // every screen shows the crosshair as the pointer

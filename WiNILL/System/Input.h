@@ -82,5 +82,14 @@ void InputSetCodexImeAnchor(float compositionX, float caretX,
 // deliver release events while another application owns the keyboard.
 void InputClearState();
 InputFocusTransition InputUpdateWindowFocus(GLFWwindow* window);
+// Away from the game (Alt-Tab), the mouse belongs to other programs: the
+// main loop clears its pointer, and InputMouseButton reads every button as
+// up. Smoke runs never take focus, so main keeps the pointer live for them.
+void InputSetPointerLive(bool live);
+bool InputPointerLive();
+bool InputMouseButton(GLFWwindow* window, int button);
+// True while the game (or a window it opened) is in front and the cursor is
+// over one of its windows: another program covering the game gets no hover.
+bool InputPointerOnGame(GLFWwindow* window);
 void InputUpdateGameplayCursor(GLFWwindow* window, GameState state,
                                bool crosshairEnabled, bool debugVisible);

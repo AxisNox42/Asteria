@@ -5372,15 +5372,29 @@ int main() {
         glfwGetCursorPos(window, &mx, &my);
         mx /= g_PixelScale;   // window pixels to logical units
         my /= g_PixelScale;
-        const bool rawLmb = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        const bool rawRmb = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        // Smoke runs are driven by the script alone: the real mouse never
+        // reaches them. The pointer is the script's from the last frame
+        // (off screen, -10000, until a step places it).
+        if (g_SmokeCapture) {
+            mx = g_SmokePointerX;
+            my = g_SmokePointerY;
+        }
+        // Aim and the drawn crosshair always follow the real pointer. Hover and
+        // clicks only do while the game is in front and nothing else covers
+        // it (Alt-Tab, Explorer over the game): the UI gets an off-screen point.
+        const bool pointerOnGame = g_SmokeCapture || InputPointerOnGame(window);
+        InputSetPointerLive(!g_SmokeCapture && pointerOnGame);
+        float wmx = ScreenToWorldX((float)mx);
+        float wmy = ScreenToWorldY((float)my);
+        double drawMx = mx, drawMy = my;
+        if (!pointerOnGame) mx = my = -10000.0;
+        const bool rawLmb = InputMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+        const bool rawRmb = InputMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
         if (inputFocusChanged) {
             g_LmbPrev = rawLmb;
             g_RmbPrev = rawRmb;
         }
         bool lmb = rawLmb;
-        float wmx = ScreenToWorldX((float)mx);
-        float wmy = ScreenToWorldY((float)my);
 
         // --- ?�력 처리 ---
         GameState prevState = g_GameManager.currentState;
@@ -6559,6 +6573,8 @@ int main() {
                     (float)screenHeight, mx, my, lmb, false);
             wmx = ScreenToWorldX((float)mx);
             wmy = ScreenToWorldY((float)my);
+            g_SmokePointerX = mx;   // next frame's input pass starts from here
+            g_SmokePointerY = my;
         }
 
         // GAMEOVER?�READY ?�동 감�? (ESC ?�으�?직접 ?�환??경우)
@@ -8295,6 +8311,9 @@ CollisionSystem::Update(pCX, pCY,
             crosshairState != GameState::AUG_SELECT)
             g_FireLatched = false;
         // The crosshair is the pointer on every screen (lobby, settings, pause...).
+        // Off the game, the UI pointer is parked off screen; the crosshair
+        // keeps the real one.
+        if (!pointerOnGame) { mx = drawMx; my = drawMy; }
         if (g_ShowCrosshair && !g_DebugToolkit.IsVisible() &&
             (glfwGetWindowAttrib(window, GLFW_FOCUSED) || g_SmokeCapture) &&   // smoke windows never take focus
             mx >= 0.0 && my >= 0.0 && mx < screenWidth && my < screenHeight) {
