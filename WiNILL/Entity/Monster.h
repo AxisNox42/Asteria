@@ -1252,7 +1252,7 @@ public:
         const float vx = hx * antaresMoveSpeed, vy = hy * antaresMoveSpeed;
         const float tip = aw::TipAhead(AntaresBodyRadius()), width = AntaresFrictionWidth();
         auto rnd = [] { return (float)(rand() % 1001) / 1000.0f; };
-        auto room = [] { return (int)g_Sparks.size() < JuiceSparkCap(); };
+        auto room = [] { return true; };   // sparks have no count limit
         antaresSideSparks += aw::kSideRate * antaresFriction * dt;
         while (antaresSideSparks >= 1.0f && room()) {
             antaresSideSparks -= 1.0f;

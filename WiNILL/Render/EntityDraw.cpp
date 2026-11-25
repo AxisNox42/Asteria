@@ -3063,80 +3063,100 @@ static void DrawBeamRift(float x0, float y0, float x1, float y1, float bandR, fl
 }
 
 // 레이저 (F_LASER): the player's beam (LaserFx.h), in the Quasar beam's style at
-// the gun's scale: soft glow, a darkened band, the colour body, a bright inner
-// column and white core, energy flowing out, and hard three-layer edges exactly
-// on the hit band. Charging shows a quiet aim line and a ring closing on the muzzle.
+// the gun's scale: soft glow, the colour body, a bright inner column and core, energy
+// flowing out, and a single edge line exactly on the hit band. Charging shows a quiet
+// aim line and a ring closing on the muzzle.
+//
+// Eye strain (2026-11-25): the cross-section brightens smoothly toward the centre with no
+// thin dark / bright lines side by side inside the beam (equal stripes a few px apart read
+// as a grating, the most tiring pattern there is), the core is a tinted white rather than
+// pure white, and nothing flickers. 설정 > 레이저 효과 (g_LaserFxLevel) quiets it further.
 namespace {
-// `tier` (1..3, the laser cards owned) adds structure inside the beam besides the width:
-// 2 집속 twin focusing rails, 3 과부하 an outer sheath and two strands winding along it.
+struct LaserLook {   // what a 레이저 효과 level keeps
+    float fill, glow, flow;       // body / glow / flowing streaks
+    float legStep, legMin;        // each reflected leg drawn this much fainter than the one before, down to legMin
+    bool  strands;                // 과부하 winding strands
+};
+LaserLook LaserLookFor(int level) {
+    switch (level) {
+        case 1:  return { 0.65f, 0.50f, 0.0f, 0.60f, 0.20f, false };   // 약하게
+        case 2:  return { 0.35f, 0.00f, 0.0f, 0.45f, 0.12f, false };   // 최소
+        default: return { 1.00f, 1.00f, 0.6f, 1.00f, 1.00f, true  };   // 기본
+    }
+}
+// `tier` (1..3, the laser cards owned) shows in the beam besides the width:
+// 2 집속 a wider, brighter core, 3 과부하 a wider glow and two faint strands winding along it.
 void DrawLaserPath(const std::vector<glm::vec2>& pts, float R, float ws, float age, float alpha,
                    const glm::vec3& col, float flowT, bool impact, int tier = 1) {
     const int n = (int)pts.size();
     if (n < 2 || ws <= 0.01f) return;
+    // Smoke runs can pin the level (ASTERIA_SMOKE_LASERFX=0|1|2) to compare them; the setting otherwise.
+    static const int smokeLevel = [] {
+        char* v = nullptr; size_t len = 0;
+        int lv = -1;
+        if (_dupenv_s(&v, &len, "ASTERIA_SMOKE_LASERFX") == 0 && v && *v) lv = std::clamp(std::atoi(v), 0, 2);
+        std::free(v);
+        return lv;
+    }();
+    const LaserLook look = LaserLookFor(smokeLevel >= 0 ? smokeLevel : g_LaserFxLevel);
     const float batchSaved = g_BatchAlpha;
     const float cr = col.r, cg = col.g, cb = col.b;
+    // The core: white tinted toward the beam's colour (pure white on black glares).
+    const float wr = 0.80f + 0.20f * cr, wg = 0.80f + 0.20f * cg, wb = 0.80f + 0.20f * cb;
     const float bandR = R * ws;
     const float swell = (0.45f + 0.55f * Monster::QuasarEase(age / 0.08f)) * ws;     // snaps open
     const float flash = 1.0f + 0.40f * (1.0f - Monster::QuasarEase(age / 0.20f));    // brighter as it opens
-    const float pulse = 0.90f + 0.10f * sinf(age * 18.85f);                           // breathing, no flicker
+    const float pulse = 0.96f + 0.04f * sinf(age * 18.85f);                           // breathing, barely: no flicker
     g_BatchAlpha = batchSaved * alpha * (0.35f + 0.65f * std::sqrt(ws));
+    const float coreW = R * (tier >= 2 ? 0.55f : 0.42f) * swell;                     // 집속: a wider core
+    const float colW = R * (tier >= 2 ? 1.10f : 0.95f) * swell;
+    const float spread = (18.0f + 12.0f * ws) * std::max(1.0f, R / 6.5f) * (tier >= 3 ? 1.3f : 1.0f);
+    const float ew = 1.2f + 0.6f * ws;
     float carried = 0.0f;
     for (int k = 0; k + 1 < n; ++k) {
         const float x0 = pts[k].x, y0 = pts[k].y, x1 = pts[k + 1].x, y1 = pts[k + 1].y;
         const float len = std::hypot(x1 - x0, y1 - y0);
         if (len < 0.5f) continue;
         const bool lastLeg = k + 2 == n;
-        DrawBeamGlow(x0, y0, x1, y1, bandR, (18.0f + 12.0f * ws) * std::max(1.0f, R / 6.5f),
-                     std::min(0.55f, 0.30f * pulse * flash) * (0.35f + 0.65f * ws),
-                     lastLeg ? std::min(len, 40.0f) : 0.0f, cr, cg, cb);
-        drawLineQuad(x0, y0, x1, y1, bandR * 2.0f + 2.0f, 0.0f, 0.0f, 0.0f, 0.28f);
-        drawLineQuad(x0, y0, x1, y1, bandR * 2.0f, cr, cg, cb, std::min(1.0f, 0.42f * pulse * flash));
-        drawLineQuad(x0, y0, x1, y1, R * 0.95f * swell, cr, cg, cb, std::min(1.0f, 0.70f * pulse * flash));
-        drawLineQuad(x0, y0, x1, y1, std::max(1.0f, R * 0.42f * swell), 1.0f, 1.0f, 1.0f, 0.95f);
-        if (flowT > 0.0f && ws > 0.05f)
-            DrawBeamFlow(x0, y0, x1, y1, bandR, carried, flowT, ws, 5, k, cr, cg, cb);
-        // Hard edges on the band: dark under-stroke, beam colour, white core.
+        // 약하게 / 최소: reflected legs fainter each bounce (기본: as bright as the first).
+        const float v = k == 0 ? 1.0f : std::max(look.legMin, std::pow(look.legStep, (float)k));
+        const float fill = look.fill * v;
+        if (look.glow > 0.0f)
+            DrawBeamGlow(x0, y0, x1, y1, bandR, spread,
+                         std::min(0.55f, 0.30f * pulse * flash) * (0.35f + 0.65f * ws) * look.glow * v,
+                         lastLeg ? std::min(len, 40.0f) : 0.0f, cr, cg, cb);
+        // Body: brighter toward the centre, each layer inside the one before (no dark gaps).
+        drawLineQuad(x0, y0, x1, y1, bandR * 2.0f, cr, cg, cb, std::min(1.0f, 0.42f * pulse * flash) * fill);
+        drawLineQuad(x0, y0, x1, y1, colW, cr, cg, cb, std::min(1.0f, 0.70f * pulse * flash) * fill);
+        drawLineQuad(x0, y0, x1, y1, std::max(1.0f, coreW), wr, wg, wb, 0.85f * fill);
+        if (look.flow > 0.0f && flowT > 0.0f && ws > 0.05f)
+            DrawBeamFlow(x0, y0, x1, y1, bandR, carried, flowT, ws * look.flow * v, 5, k, cr, cg, cb);
+        // One edge line in the beam's colour on each side of the hit band (it stays readable at every level).
         const float nx = -(y1 - y0) / len * bandR, ny = (x1 - x0) / len * bandR;
-        const float ew = (1.2f + 0.6f * ws) * (tier >= 3 ? 1.6f : tier == 2 ? 1.3f : 1.0f);
+        const float edgeA = 0.80f * std::max(0.40f, fill);
         for (int e = -1; e <= 1; e += 2) {
             const float ox = nx * (float)e, oy = ny * (float)e;
-            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew + 2.0f, 0.0f, 0.0f, 0.0f, 0.55f);
-            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew, cr, cg, cb, 0.95f);
-            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew * 0.45f, 1.0f, 1.0f, 1.0f, 0.85f);
+            drawLineQuad(x0 + ox, y0 + oy, x1 + ox, y1 + oy, ew, cr, cg, cb, edgeA);
         }
-        // Tier structure (lines only, inside or hugging the band).
-        if (tier >= 2 && ws > 0.05f) {
+        // 과부하: two faint strands winding along the beam in opposite phase, scrolling outward slowly.
+        if (tier >= 3 && look.strands && ws > 0.05f) {
             const float ux = (x1 - x0) / len, uy = (y1 - y0) / len, px = -uy, py = ux;
-            // 집속: two bright rails that pinch the core (the beam is being focused).
-            for (int e = -1; e <= 1; e += 2) {
-                const float o = bandR * 0.55f * (float)e;
-                drawLineQuad(x0 + px * o, y0 + py * o, x1 + px * o, y1 + py * o, 1.4f, 1.0f, 1.0f, 1.0f, 0.55f);
-            }
-            if (tier >= 3) {
-                // 과부하: an outer sheath just off the band, and two strands winding along the
-                // beam in opposite phase, scrolling outward from the ship.
-                for (int e = -1; e <= 1; e += 2) {
-                    const float o = bandR * 1.45f * (float)e;
-                    drawLineQuad(x0 + px * o, y0 + py * o, x1 + px * o, y1 + py * o, 1.6f, 0.0f, 0.0f, 0.0f, 0.45f);
-                    drawLineQuad(x0 + px * o, y0 + py * o, x1 + px * o, y1 + py * o, 1.0f, cr, cg, cb, 0.75f);
-                }
-                const float wave = std::max(40.0f, bandR * 5.0f);   // one turn of a strand
-                const int steps = std::min(240, (int)(len / 8.0f) + 2);
-                for (int s = 0; s < 2; ++s) {
-                    float lx = 0.0f, ly = 0.0f;
-                    for (int i = 0; i <= steps; ++i) {
-                        const float d = len * (float)i / (float)steps;
-                        const float ph = (carried + d) / wave * 6.2831853f - age * 14.0f + 3.14159265f * (float)s;
-                        const float o = bandR * 1.15f * sinf(ph);
-                        const float qx = x0 + ux * d + px * o, qy = y0 + uy * d + py * o;
-                        if (i > 0) drawLineQuad(lx, ly, qx, qy, 1.5f, 1.0f, 1.0f, 1.0f, 0.70f);
-                        lx = qx; ly = qy;
-                    }
+            const float wave = std::max(40.0f, bandR * 5.0f);   // one turn of a strand
+            const int steps = std::min(240, (int)(len / 8.0f) + 2);
+            for (int s = 0; s < 2; ++s) {
+                float lx = 0.0f, ly = 0.0f;
+                for (int i = 0; i <= steps; ++i) {
+                    const float d = len * (float)i / (float)steps;
+                    const float ph = (carried + d) / wave * 6.2831853f - age * 6.0f + 3.14159265f * (float)s;
+                    const float o = bandR * 1.15f * sinf(ph);
+                    const float qx = x0 + ux * d + px * o, qy = y0 + uy * d + py * o;
+                    if (i > 0) drawLineQuad(lx, ly, qx, qy, 1.2f, wr, wg, wb, 0.30f * v);
+                    lx = qx; ly = qy;
                 }
             }
         }
-        if (!lastLeg)   // bounce point: a thin ring where the legs meet
-            DrawEnemyArc(x1, y1, R * 1.4f, 0.0f, 6.2831853f, 18, 1.0f, 1.0f, 1.0f, 0.60f * ws, 1.2f);
+        if (!lastLeg)   // bounce point: a small ring in the beam's colour where the legs meet
+            DrawEnemyArc(x1, y1, R * 1.2f, 0.0f, 6.2831853f, 18, cr, cg, cb, 0.50f * ws * std::max(0.40f, v), 1.0f);
         carried += len;
     }
     // The muzzle: a ring bursts out as the beam opens.
@@ -3144,16 +3164,16 @@ void DrawLaserPath(const std::vector<glm::vec2>& pts, float R, float ws, float a
         const float u = age / 0.22f;
         const float out = 1.0f - (1.0f - u) * (1.0f - u) * (1.0f - u);
         DrawEnemyArc(pts[0].x, pts[0].y, R * (1.2f + 3.0f * out), 0.0f, 6.2831853f, 28,
-                     1.0f, 1.0f, 1.0f, 0.90f * (1.0f - u), 2.0f);
+                     wr, wg, wb, 0.80f * (1.0f - u), 2.0f);
         DrawEnemyArc(pts[0].x, pts[0].y, R * (1.0f + 2.0f * out), 0.0f, 6.2831853f, 24,
                      cr, cg, cb, 0.60f * (1.0f - u), 1.4f);
     }
-    // Where it ends: a small flickering ring (the beam stops here).
+    // Where it ends: a small steady ring (the beam stops here).
     if (impact) {
         const glm::vec2 e = pts.back();
-        const float f = 0.8f + 0.2f * sinf(age * 41.0f);
-        DrawEnemyArc(e.x, e.y, bandR * 1.3f * f, 0.0f, 6.2831853f, 18, 1.0f, 1.0f, 1.0f, 0.70f, 1.4f);
-        drawCircle(e.x, e.y, bandR * 0.55f, 1.0f, 1.0f, 1.0f, 0.75f * ws);
+        const float v = n <= 2 ? 1.0f : std::max(look.legMin, std::pow(look.legStep, (float)(n - 2)));
+        DrawEnemyArc(e.x, e.y, bandR * 1.2f, 0.0f, 6.2831853f, 18, wr, wg, wb, 0.65f * v, 1.4f);
+        drawCircle(e.x, e.y, bandR * 0.55f, wr, wg, wb, 0.65f * ws * v * look.fill);
     }
     g_BatchAlpha = batchSaved;
 }

@@ -721,12 +721,9 @@ void SpawnHoleBlast(float x, float y, line_fx::Rgb c) {
     auto rnd = []() { return (float)(rand() % 10001) / 10000.0f; };
     SpawnSparks(x, y, 70, 1.0f, 0.94f, 1.0f, 1500.0f);
     int slot = 0;
-    const int cap = EnemyParticleCap();
     auto put = [&](float px, float py, float vx, float vy, float life, float size,
                    line_fx::Rgb col, EnemyParticleShape shape, float delay) {
-        while (slot < cap && g_EnemyParts[slot].active) ++slot;
-        if (slot >= cap) return;
-        EnemyParticle& e = g_EnemyParts[slot];
+        EnemyParticle& e = AcquireEnemyParticle(slot);
         e = {};
         e.x = px; e.y = py; e.vx = vx; e.vy = vy;
         e.life = e.maxLife = life; e.size = size;

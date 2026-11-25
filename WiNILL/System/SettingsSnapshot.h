@@ -13,6 +13,8 @@ struct SettingsSnapshot {
     bool shaderFx = false;
     MobVisualStyle mobStyle = MobVisualStyle::CLASSIC;
     bool combo = true;
+    bool dmgNumbers = true;
+    int laserFx = 0;
     int soundVol = 100;
     bool bgmEnabled = true;
     bool sfxEnabled = true;
@@ -34,7 +36,7 @@ struct SettingsSnapshot {
 
 inline SettingsSnapshot CaptureSettingsSnapshot() {
     return { g_FpsCap, g_VfxDensity, g_ShaderFx, g_MobVisualStyle,
-             g_ShowCombo,
+             g_ShowCombo, g_ShowDamageNumbers, g_LaserFxLevel,
              g_SoundVol, g_BgmEnabled, g_SfxEnabled,
              g_AudioMonoOutput, g_AudioEngineEnabled,
              g_AutoSkill, g_ShowCrosshair, g_DebugMode,
@@ -49,6 +51,8 @@ inline void RestoreSettingsSnapshot(const SettingsSnapshot& saved) {
     g_ShaderFx = saved.shaderFx;
     g_MobVisualStyle = saved.mobStyle;
     g_ShowCombo = saved.combo;
+    g_ShowDamageNumbers = saved.dmgNumbers;
+    g_LaserFxLevel = saved.laserFx;
     g_SoundVol = saved.soundVol;
     g_BgmEnabled = saved.bgmEnabled;
     g_SfxEnabled = saved.sfxEnabled;
@@ -82,6 +86,8 @@ inline bool SettingsSnapshotChanged(const SettingsSnapshot& saved) {
         || g_ShaderFx != saved.shaderFx
         || g_MobVisualStyle != saved.mobStyle
         || g_ShowCombo != saved.combo
+        || g_ShowDamageNumbers != saved.dmgNumbers
+        || g_LaserFxLevel != saved.laserFx
         || g_SoundVol != saved.soundVol
         || g_BgmEnabled != saved.bgmEnabled
         || g_SfxEnabled != saved.sfxEnabled

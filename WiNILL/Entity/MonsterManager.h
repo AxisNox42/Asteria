@@ -705,7 +705,6 @@ private:
         float n = arc / 100.0f * 10.0f * dt;   // about 10 a second per 100 px of band
         for (; n > 0.0f; n -= 1.0f) {
             if ((float)(rand() % 1001) / 1000.0f >= n) continue;
-            if ((int)g_Sparks.size() >= JuiceSparkCap()) return;
             const float a = w.aim + ((float)(rand() % 2001) / 1000.0f - 1.0f) * w.halfArc;
             if (w.ring && !regulus_wave::Covers(w, cosf(a), sinf(a))) continue;
             const float out = 60.0f + (float)(rand() % 120);

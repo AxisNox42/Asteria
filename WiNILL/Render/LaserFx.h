@@ -36,7 +36,7 @@ namespace laser_fx {
 
 inline constexpr float kCharge = 0.40f;        // hold this long before the beam opens
 inline constexpr float kChargeFocus = 0.25f;   // with 집속 레이저
-inline constexpr float kWallRange = 8000.0f;   // unlimited range: up to the arena edge (every tier)
+inline constexpr float kWallRange = 1.0e5f;    // unlimited range: the whole path, however many bounces (8000 ran out after ~3 bounces on a zoomed-out arena)
 inline constexpr float kHeatTime = 2.5f;       // 집속 레이저: full heat after this long on
 inline constexpr float kHeatDamage = 0.60f;    // +60% damage at full heat
 inline constexpr float kHeatWidth = 0.50f;     // +50% width at full heat
@@ -101,7 +101,7 @@ inline void Path(float x, float y, float dx, float dy, float range, int bounces,
     x = std::clamp(x, a.minX, a.maxX); y = std::clamp(y, a.minY, a.maxY);
     pts.emplace_back(x, y);
     float left = range;
-    for (int guard = 0; guard < 8 && left > 0.5f; ++guard) {
+    for (int guard = 0; guard < 24 && left > 0.5f; ++guard) {
         float t = left;
         int wall = 0;   // 1 = x wall, 2 = y wall
         if (dx > 1e-5f) { const float tw = (a.maxX - x) / dx; if (tw < t) { t = tw; wall = 1; } }

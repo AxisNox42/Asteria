@@ -312,26 +312,28 @@ static void CheckAntaresBullfight() {
 }
 
 static void CheckPriorityAndDelay() {
+    // No particle limit (2026-11-25): a crowded pool never thins bursts or
+    // replaces live particles; it grows instead.
     ResetEnemyParticles();
-    while (ActiveCount() < EnemyParticleCap() * 4 / 5) {
+    Monster lone(0.0f, 0.0f);
+    lone.SpawnDeathEffect(0.0f);
+    const int perBurst = ActiveCount();
+    assert(perBurst > 0);
+    ResetEnemyParticles();
+    int deaths = 0;
+    while (ActiveCount() < MAX_ENEMY_PARTS) {
         Monster mob(0.0f, 0.0f);
         mob.SpawnDeathEffect(0.0f);
+        ++deaths;
     }
-    const int before = ActiveCount();
-    Monster crowdedMob(0.0f, 0.0f);
-    crowdedMob.SpawnDeathEffect(0.0f);
-    assert(ActiveCount() - before <= 10);
-    for (int i = 0; i < MAX_ENEMY_PARTS; ++i) {
-        Monster mob(0.0f, 0.0f);
-        mob.SpawnDeathEffect(0.0f);
-    }
-    assert(ActiveCount() == MAX_ENEMY_PARTS);
+    assert(ActiveCount() == deaths * perBurst);
     Monster largeMob(999.0f, 0.0f);
     largeMob.MakeKind(MobKind::QUASAR);
     largeMob.SpawnDeathEffect(0.0f);
     int largeParts = 0;
     for (const auto& p : g_EnemyParts) if (p.active && p.originX == 999.0f) ++largeParts;
-    assert(largeParts > 10 && ActiveCount() == MAX_ENEMY_PARTS);
+    assert(largeParts > 10 && ActiveCount() == deaths * perBurst + largeParts);
+    assert(EnemyParticleCap() > MAX_ENEMY_PARTS);
     Monster tinyMob(0.0f, 0.0f);
     tinyMob.MakeKind(MobKind::SWARM);
     tinyMob.SpawnDeathEffect(0.0f);
@@ -377,5 +379,5 @@ int main() {
     assert(ActiveCount() > 0 && g_EnemyParts[0].originX == 50.0f);
     UpdateEnemyParticles(0.8f);
     assert(ActiveCount() == 0);
-    std::printf("PASS: Gimbal range, zoomed viewport clamp and CircleTexture coordinates; particle pool/presets/bounds/lifetime. Pool: %zu bytes.\n", sizeof(g_EnemyParts));
+    std::printf("PASS: Gimbal range, zoomed viewport clamp and CircleTexture coordinates; particle pool/presets/bounds/lifetime. Pool: %zu slots.\n", g_EnemyParts.size());
 }

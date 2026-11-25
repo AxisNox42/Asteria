@@ -276,6 +276,8 @@ inline void SaveGame() {
     add("fps=%lld\n",       g_FpsCap);
     add("crosshair=%lld\n", g_ShowCrosshair     ? 1 : 0);
     add("combo=%lld\n",     g_ShowCombo         ? 1 : 0);
+    add("dmgnum=%lld\n",    g_ShowDamageNumbers ? 1 : 0);
+    add("laserfx=%lld\n",   g_LaserFxLevel);
     add("soundvol=%lld\n",  g_SoundVol);
     add("bgmvol=%lld\n",    g_BgmVol);
     add("sfxvol=%lld\n",    g_SfxVol);
@@ -459,7 +461,8 @@ inline void LoadGame() {
                 g_FpsCap = (int)val;
         }
         else if (!std::strcmp(key, "crosshair"))   g_ShowCrosshair     = (val != 0);
-        else if (!std::strcmp(key, "dmgnum"))      g_ShowDamageNumbers = true;
+        else if (!std::strcmp(key, "dmgnum"))      g_ShowDamageNumbers = (val != 0);
+        else if (!std::strcmp(key, "laserfx"))     g_LaserFxLevel      = (int)(val < 0 ? 0 : val > 2 ? 2 : val);
         else if (!std::strcmp(key, "combo"))       g_ShowCombo         = (val != 0);
         else if (!std::strcmp(key, "soundvol"))    g_SoundVol          = (int)(val < 0 ? 0 : val > 100 ? 100 : val);
         else if (!std::strcmp(key, "bgmvol"))      g_BgmVol            = (int)(val < 0 ? 0 : val > 100 ? 100 : val);

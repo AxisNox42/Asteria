@@ -31,6 +31,7 @@ inline float g_SmokeTimeScale = 1.0f;
 inline bool  g_SmokeFire = false;
 inline bool  g_SmokeNoGun = false;     // NOGUN=1: FIRE=1 still uses skills and takes cards, the gun stays quiet
 inline bool  g_SmokeNoQuota = false;   // NOQUOTA=1: the kill quota never ends a wave
+inline bool  g_SmokeNoSpawn = false;   // NOSPAWN=1: the wave spawns nothing by itself (step spawns still work)
 // Smoke-only: keep the player at full health (GOD=1).
 inline bool  g_SmokeGod = false;
 inline constexpr int LANG_COUNT = 3;    // languages with full text tables (KR, EN, JP)
@@ -329,6 +330,8 @@ inline bool      g_CreativeFreeGrab   = false;   // F 그랩 중 — 이 픽 뒤
 
 // 손맛 표시 토글 (설정에서 ON/OFF)
 inline bool g_ShowDamageNumbers = true;
+// 레이저 효과: 0 기본, 1 약하게, 2 최소 (EntityDraw DrawLaserPath: less glow / fill, reflected legs fainter).
+inline int  g_LaserFxLevel = 0;
 inline bool g_ShowCombo         = true;   // 콤보 카운터 표시
 inline int  g_SoundVol          = 100;    // 사운드 마스터 볼륨 (0=끄기 ~ 100)
 inline int  g_BgmVol            = 100;    // BGM 채널 볼륨 (0~100, 0이면 꺼짐)
@@ -448,34 +451,21 @@ inline float CombatKeylineStrength() {
 enum class MobVisualStyle { CLASSIC, SOFT };
 inline MobVisualStyle g_MobVisualStyle = MobVisualStyle::CLASSIC;
 
-// 위성 VFX 밀도 — REDUCED=EMP·덫·패치 간격↑
-// Keep the old save values: FULL=0, REDUCED=1; append the middle quality.
+// 그래픽 품질(VFX 밀도) 설정은 2026-11-25 에 빠졌다: 항상 최고 품질, 파티클 수 제한 없음.
+// 예전 세이브의 vfxdens 값은 읽고 쓰기만 하고 아무 데도 쓰지 않는다.
 enum class VfxDensity { FULL = 0, REDUCED = 1, MEDIUM = 2 };
-#if defined(__APPLE__)
-inline VfxDensity g_VfxDensity = VfxDensity::REDUCED;
-#else
 inline VfxDensity g_VfxDensity = VfxDensity::FULL;
-#endif
-inline float VfxIntervalMult() {
-    return g_VfxDensity == VfxDensity::REDUCED ? 1.45f
-         : g_VfxDensity == VfxDensity::MEDIUM ? 1.20f : 1.0f;
-}
-inline int EnemyParticleCap() {
-    return g_VfxDensity == VfxDensity::REDUCED ? 256
-         : g_VfxDensity == VfxDensity::MEDIUM ? 512 : 1024;
-}
+inline float VfxIntervalMult() { return 1.0f; }
 
 // macOS 1회 성능 프로필 적용 여부 (asteria_save.cfg 의 macopt=1)
 inline bool g_MacOptV1 = false;
 
-// 원·부채꼴 등 다각형 분할 수 (VFX 밀도·플랫폼 반영)
+// 원·부채꼴 등 다각형 분할 수 (플랫폼 반영)
 inline int GfxCircleSegs() {
 #if defined(__APPLE__)
-    return g_VfxDensity == VfxDensity::REDUCED ? 6
-         : g_VfxDensity == VfxDensity::MEDIUM ? 7 : 8;
+    return 8;
 #else
-    return g_VfxDensity == VfxDensity::REDUCED ? 10
-         : g_VfxDensity == VfxDensity::MEDIUM ? 11 : 12;
+    return 12;
 #endif
 }
 inline int GfxArcSegs(float mult = 1.5f) {

@@ -12,21 +12,11 @@ struct Spark {
     float life, maxLife, size;
     float r, g, b;
 };
+// No count limit: every spark asked for is spawned.
 inline std::vector<Spark> g_Sparks;
-
-inline int JuiceSparkCap() {
-#if defined(__APPLE__)
-    return g_VfxDensity == VfxDensity::REDUCED ? 160
-         : g_VfxDensity == VfxDensity::MEDIUM ? 190 : 220;
-#else
-    return g_VfxDensity == VfxDensity::REDUCED ? 350
-         : g_VfxDensity == VfxDensity::MEDIUM ? 425 : 500;
-#endif
-}
 
 inline void SpawnSparks(float x, float y, int n,
                         float r, float g, float b, float speed = 300.0f) {
-    n = std::min(n, std::max(0, JuiceSparkCap() - (int)g_Sparks.size()));
     for (int i = 0; i < n; ++i) {
         const float angle = (float)(rand() % 628) * 0.01f;
         const float velocity = speed * (0.35f + (rand() % 100) * 0.01f);
@@ -64,9 +54,20 @@ struct EnemyParticle {
     float delay = 0.0f, originX = 0.0f, originY = 0.0f, radiusLimit = 0.0f;
     EnemyParticleShape shape = EnemyParticleShape::SQUARE;
 };
-// Allocate once; quality limits the slots used to 256 / 512 / 1024.
+// No count limit: the pool starts at MAX_ENEMY_PARTS slots and grows when
+// every slot is busy. Free slots are reused, so it only grows at peaks.
 inline constexpr int MAX_ENEMY_PARTS = 1024;
-inline EnemyParticle g_EnemyParts[MAX_ENEMY_PARTS] = {};
+inline std::vector<EnemyParticle> g_EnemyParts(MAX_ENEMY_PARTS);
+inline int EnemyParticleCap() { return (int)g_EnemyParts.size(); }
+
+// A free slot, or a new one at the end. The reference is valid until the next
+// call (a new slot can move the pool).
+inline EnemyParticle& AcquireEnemyParticle(int& from) {
+    const int size = (int)g_EnemyParts.size();
+    while (from < size && g_EnemyParts[from].active) ++from;
+    if (from >= size) g_EnemyParts.emplace_back();
+    return g_EnemyParts[from];
+}
 
 inline float MobDeathParticleRadius(float visualBaseRadius) {
     return visualBaseRadius * 1.35f * 1.7f;
@@ -99,36 +100,17 @@ inline void ClampEnemyParticleRange(EnemyParticle& p) {
     }
 }
 
-inline EnemyParticle* FindEnemyParticleSlot(float radiusLimit) {
-    EnemyParticle* victim = nullptr;
-    for (int i = 0; i < EnemyParticleCap(); ++i) {
-        auto& p = g_EnemyParts[i];
-        if (!p.active) return &p;
-        if ((p.radiusLimit < radiusLimit ||
-             (p.radiusLimit == radiusLimit && p.life < p.maxLife * 0.35f)) &&
-            (!victim || p.radiusLimit < victim->radiusLimit ||
-             (p.radiusLimit == victim->radiusLimit && p.life < victim->life)))
-            victim = &p;
-    }
-    return victim; // A larger death burst replaces lower-priority particles.
-}
-
 inline void SpawnEnemyParticleBurst(float x, float y, glm::vec3 color,
                                     float bodyRadius, const EnemyParticleBurst& burst,
                                     bool reduced = false) {
-    int active = 0;
-    const int cap = EnemyParticleCap();
-    for (int i = 0; i < cap; ++i) if (g_EnemyParts[i].active) ++active;
-    int count = reduced ? std::max(3, burst.count / 2) : burst.count;
-    if (active >= cap * 4 / 5 && bodyRadius < 48.0f)
-        count = std::max(6, count / 2);
+    const int count = reduced ? std::max(3, burst.count / 2) : burst.count;
     const float range = std::max(4.0f, bodyRadius)
                       * std::clamp(burst.rangeScale, 1.3f, 2.0f);
     const float delay = std::clamp(burst.delay, 0.0f, 0.08f);
     const float life = std::clamp(burst.life, 0.05f, 0.80f - delay);
+    int from = 0;
     for (int i = 0; i < count; ++i) {
-        auto* slot = FindEnemyParticleSlot(range);
-        if (!slot) break;
+        EnemyParticle* slot = &AcquireEnemyParticle(from);
         const int directions = burst.directions > 0 ? burst.directions : count;
         const float angle = burst.phase + (burst.randomPlacement
                           ? (float)(rand() % 10001) / 10000.0f * 6.2831853f
@@ -165,7 +147,6 @@ inline void SpawnEnemyParticleBurst(float x, float y, glm::vec3 color,
 
 inline void UpdateEnemyParticles(float delta) {
     const int cap = EnemyParticleCap();
-    for (int i = cap; i < MAX_ENEMY_PARTS; ++i) g_EnemyParts[i].active = false;
     for (int i = 0; i < cap; ++i) {
         auto& p = g_EnemyParts[i];
         if (!p.active) continue;

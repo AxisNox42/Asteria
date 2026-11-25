@@ -8,6 +8,7 @@
 //   ASTERIA_SMOKE_KEYLINE = 0              (선택, 전투 요소 테두리 끄기: 전후 비교용)
 //   ASTERIA_SMOKE_BACKDROP = white|grey|sky (선택, 투명 창 뒤를 밝은 단색으로: 밝은 바탕화면 대비 확인)
 //   ASTERIA_SMOKE_ORBITS  = 0              (선택, PLAY 무기 별자리 궤도 링 끄기)
+//   ASTERIA_SMOKE_NOSHOT  = 1              (선택, 단계마다 PNG 를 저장하지 않음: 화면 녹화용, 캡처 때문에 끊기지 않게)
 // STEP 형식: NAME[@fx,fy][!|*][~sec]
 //   QUASARFALL=<초> / QUASARBEAM=<초> : 퀘이사 준비 시작부터 지정 시점 재현 (ASTERIA_QREFLECT=<n> 로 빔 반사 횟수)
 //   COMBO=<n> : 콤보를 n 으로, 유지 시간은 꽉 찬 상태로 (콤보 유지 바 확인용)
@@ -20,6 +21,7 @@
 //   TUTSTEP=<n>   : READYSTEP 과 같되 로비 튜토리얼 모드로 (튜토리얼 어둡기·출격 잠금 확인용)
 //   TUTGUIDE=hp|xp|move|shoot|dash|kill|launch : 튜토리얼 안내 카드를 띄움 (hp/xp 는 TUTSTEP=0 뒤에)
 //   KEYDOWN=<GLFW 키> / KEYUP=<GLFW 키> : 그 키를 누른 채로 / 뗌 (32 SPACE, 340 SHIFT, 87 W …)
+//   NOSPAWN=1 / NOSPAWN=0 : 몹 자연 생성 끄기 / 켜기 (웨이브가 스스로 몹·엘리트·보스를 들이지 않음. SPAWN= 같은 단계 소환은 그대로)
 //   MOBGRID / MOBBUFF=<1 보호막,2 가속,4 은신 비트합> : 몹 격자 배치 / 전원에 버프 부여
 //   MOBCLEAR / MOBDUMP=<라벨> : 모든 몹 제거 / 살아있는 그라비티·레굴루스 상태를 Screenshots/mob_state.txt 에 기록
 //   GENESISROTOR=<초> : 제네시스 로터 준비 시작부터 지정 시점 재현 (캡처 시 정지)
@@ -93,6 +95,7 @@ public:
             width_ = std::atoi(size.c_str());
             height_ = std::atoi(size.c_str() + x + 1);
         }
+        noShot_ = SmokeEnv("ASTERIA_SMOKE_NOSHOT") == "1";
         if (SmokeEnv("ASTERIA_SMOKE_KEYLINE") == "0") g_CombatKeylineScale = 0.0f;
         if (SmokeEnv("ASTERIA_SMOKE_ORBITS") == "0") g_PlayConstellationOrbits = false;
         g_SmokeCapture = true;
@@ -140,7 +143,11 @@ public:
             lmb = true;
             clicked_ = true;
         }
-        if (!requested_ && t >= step.hold) {
+        if (!requested_ && t >= step.hold && noShot_) {
+            // ASTERIA_SMOKE_NOSHOT=1: no PNG at the end of the step, so a filmed run has no capture hitch.
+            ++index_;
+            started_ = false;
+        } else if (!requested_ && t >= step.hold) {
             g_DebugToolkit.RequestNamedScreenshot(FileName(step), g_DebugToolkit.IsVisible());
             requested_ = true;
         } else if (requested_ && !g_DebugToolkit.CapturePending()) {
@@ -158,6 +165,7 @@ private:
     bool started_ = false;
     bool clicked_ = false;
     bool requested_ = false;
+    bool noShot_ = false;
     double stepStart_ = 0.0;
 
     void ParseSteps(const std::string& spec) {

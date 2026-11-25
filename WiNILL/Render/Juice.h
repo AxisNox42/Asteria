@@ -172,23 +172,20 @@ inline void SpawnEnemyExplosion(float ex, float ey,
     float baseS = big ? 200.0f : 100.0f;
     float varS  = big ? 250.0f : 150.0f;
     float lifeT = big ? 0.45f  : 0.30f;
-    int placed = 0, j = 0;
-    while (placed < count && j < EnemyParticleCap()) {
-        if (!g_EnemyParts[j].active) {
-            float angle = (float)placed / (float)count * 6.2831853f
-                        + ((float)(rand() % 100) - 50.0f) * 0.012f;
-            float spd   = baseS + (float)(rand() % (int)varS);
-            float sz    = big ? (float)(5 + rand() % 10)
-                              : (float)(3 + rand() % 5);
-            g_EnemyParts[j] = {
-                ex, ey,
-                cosf(angle) * spd, sinf(angle) * spd,
-                lifeT, lifeT, sz, cr, cg, cb, true
-            };
-            g_EnemyParts[j].shape = RandomEnemyParticleShape();
-            ++placed;
-        }
-        ++j;
+    int j = 0;
+    for (int placed = 0; placed < count; ++placed) {
+        EnemyParticle& slot = AcquireEnemyParticle(j);
+        float angle = (float)placed / (float)count * 6.2831853f
+                    + ((float)(rand() % 100) - 50.0f) * 0.012f;
+        float spd   = baseS + (float)(rand() % (int)varS);
+        float sz    = big ? (float)(5 + rand() % 10)
+                          : (float)(3 + rand() % 5);
+        slot = {
+            ex, ey,
+            cosf(angle) * spd, sinf(angle) * spd,
+            lifeT, lifeT, sz, cr, cg, cb, true
+        };
+        slot.shape = RandomEnemyParticleShape();
     }
 }
 

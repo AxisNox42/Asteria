@@ -137,7 +137,7 @@ void DrawMenuBackground(float sw, float sh, float delta, float darkenAmount,
     // The post-process CRT shader already supplies scanlines. Keep this
     // decorative pass only when CRT is off so thin menu geometry is not doubled.
     if (!g_ShaderFx) {
-        const float scanlineA = (g_VfxDensity == VfxDensity::REDUCED) ? 0.008f : 0.012f;
+        const float scanlineA = 0.012f;
         for (float yy = 0.0f; yy < sh; yy += 4.0f)
             drawRect(0.0f, yy, sw, 1.0f, 0.35f, 0.20f, 0.85f, scanlineA);
     }
@@ -564,7 +564,7 @@ static void DrawInfiniteConstellationField(float sw, float sh, float strengthTar
     cam.y += sinf(heading) * speed * dt;
 
     const float uiS = std::max(0.75f, std::min(1.6f, sh / 1080.0f));
-    const bool reduced = (g_VfxDensity == VfxDensity::REDUCED);
+    const bool reduced = false;
     struct Layer { float parallax, cell, lineA, starA, size, thick; int minS, maxS; uint32_t salt; };
     const Layer layers[3] = {
         { 0.28f, 380.0f, 0.16f, 0.45f, 0.80f, 0.60f, 3, 5, 0xA11u },   // far

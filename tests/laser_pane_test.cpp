@@ -58,6 +58,15 @@ int main() {
     Check(pane == 7, "bounced beam: stopped by the pane on its second leg");
     Check(pts.size() == 3 && std::fabs(pts.back().y - 600.0f) < 1.0f, "bounced beam ends at the pane's edge");
 
+    // Unlimited range: a zoomed-out (wide) arena and many bounces never cut the beam short.
+    {
+        const laser_fx::Rect wide{ 0.0f, 3600.0f, 0.0f, 2000.0f };
+        std::vector<glm::vec2> wp;
+        space::g_Regions.clear();   // no panes of the earlier checks
+        laser_fx::Path(900.0f, 700.0f, 0.97f, 0.243f, laser_fx::kWallRange, 6, wide, wp);
+        Check(wp.size() == 8, "6 bounces on a wide arena: all 7 legs are laid");
+    }
+
     // Wearing: a stopped beam records one absorb on that pane, as the player's.
     space::g_Absorbed.clear();
     laser_fx::WearPane(pane, pts);

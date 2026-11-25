@@ -4584,7 +4584,7 @@ static void DrawFloatingCombatText(GameState st, float sw, float sh) {
     if (st == GameState::RUNNING || st == GameState::DYING) {
         DrawDummyReadouts(sw, sh);
         // ?��?지 ?�자 (?�드 ???�크�?변?????�스?? ???�정 ?��?
-        for (auto& d : g_DmgNumbers) {
+        if (g_ShowDamageNumbers) for (auto& d : g_DmgNumbers) {
             float t  = d.life / d.maxLife;                   // 1 ??0
             float sx = roundf(W2SX(d.x)), sy = W2SY(d.y);
             wchar_t nb[32]; FormatGrouped(d.amount, nb, 32);
@@ -4731,8 +4731,6 @@ int main() {
     if (!g_MacOptV1) {
         g_MacOptV1 = true;
         g_ShaderFx = false;
-        if (g_VfxDensity == VfxDensity::FULL)
-            g_VfxDensity = VfxDensity::REDUCED;
         SaveGame();
     }
 #endif
@@ -5956,6 +5954,10 @@ int main() {
                     } else if (step.rfind("NOQUOTA=", 0) == 0) {
                         // NOQUOTA=1: mass kills do not end the wave (no card screen mid-test).
                         g_SmokeNoQuota = step.size() > 8 && step[8] == '1';
+                    } else if (step.rfind("NOSPAWN=", 0) == 0) {
+                        // NOSPAWN=1: natural spawning off (0 turns it back on). Smoke steps
+                        // such as SPAWN= / DEBUGSPAWN= still work.
+                        g_SmokeNoSpawn = step.size() > 8 && step[8] == '1';
                     } else if (step.rfind("UPBRANCH=", 0) == 0) {
                         // UPBRANCH=<AugDef::name>#<0 A|1 B|2 C>: take that upgrade branch now.
                         const std::string spec = step.substr(9);
@@ -7597,11 +7599,14 @@ CollisionSystem::Update(pCX, pCY,
             if (g_ShakeTime > 0.0f) g_ShakeTime -= delta;
 
 
-            UpdateEnemySpawns(g_MonsterManager, g_Stats,
-                              screenWidth, screenHeight, delta, g_GameTime,
-                              g_GameManager.currentWave,
-                              g_GameTime - g_GameManager.waveStartTime,
-                              g_GameManager.score, g_Difficulty);
+            // NOSPAWN=1 (smoke): the wave brings nothing in by itself (no regular mobs, elite or
+            // boss), so a scripted scene only has the mobs its own steps spawn.
+            if (!g_SmokeNoSpawn)
+                UpdateEnemySpawns(g_MonsterManager, g_Stats,
+                                  screenWidth, screenHeight, delta, g_GameTime,
+                                  g_GameManager.currentWave,
+                                  g_GameTime - g_GameManager.waveStartTime,
+                                  g_GameManager.score, g_Difficulty);
             g_GameTime += delta;
             ProcessWaveTransitions(screenWidth, screenHeight);
             TickNormaJudgment(delta);

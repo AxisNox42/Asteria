@@ -660,7 +660,7 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // GAMEPLAY: auto skill, fire mode, crosshair, crosshair size, crosshair colour,
     // pane photos, then the debug row (last, so hiding it just drops the count).
     constexpr int kGameplayRows = 7;
-    const int rowCounts[5] = { 4, 5, kDebugSettingsVisible ? kGameplayRows : kGameplayRows - 1,
+    const int rowCounts[5] = { 6, 5, kDebugSettingsVisible ? kGameplayRows : kGameplayRows - 1,
                                GAME_ACTION_COUNT + 1, 3 };
 
     static wchar_t s_volBuf[8];
@@ -700,6 +700,13 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // Menu darkness: drag slider, 50 = the original look. Menus only.
     settingsRows[0][3] = { SettingsText(L"화면 어둡기", L"MENU DIMMING", L"画面の暗さ"), nullptr, false, true, false, false,
                            {}, 0, 0, &g_MenuDim };
+    settingsRows[0][4] = { SettingsText(L"데미지 숫자", L"DAMAGE NUMBERS", L"ダメージ数字"), nullptr, false, false, false, false,
+                           { toggleOn, toggleOff }, 2, g_ShowDamageNumbers ? 0 : 1 };
+    // 레이저 효과: quieter laser beams for tired / sensitive eyes (DrawLaserPath).
+    settingsRows[0][5] = { SettingsText(L"레이저 효과", L"LASER EFFECTS", L"レーザー効果"), nullptr, false, false, false, false,
+                           { SettingsText(L"기본", L"FULL", L"標準"), SettingsText(L"약하게", L"SOFT", L"弱め"),
+                             SettingsText(L"최소", L"MINIMAL", L"最小") },
+                           3, std::clamp(g_LaserFxLevel, 0, 2) };
     settingsRows[1][0] = { SettingsText(L"마스터 볼륨", L"MASTER VOL", L"マスター音量"), s_volBuf, false, true, false, false,
                            {}, 0, 0, &g_SoundVol };
     settingsRows[1][1] = { SettingsText(L"BGM 채널", L"BGM BUS", L"BGM"), nullptr, false, true, false, false,
@@ -762,9 +769,10 @@ void Scene_SettingsInline(const SceneCtx& c) {
         if (!savedSettingsValid) return false;
         if (category == 0) {
             if (row == 0) return g_FpsCap != savedSettings.fps;
-            if (row == 1) return g_VfxDensity != savedSettings.density;
             if (row == 2) return g_ShowCombo != savedSettings.combo;
             if (row == 3) return g_MenuDim != savedSettings.menuDim;
+            if (row == 4) return g_ShowDamageNumbers != savedSettings.dmgNumbers;
+            if (row == 5) return g_LaserFxLevel != savedSettings.laserFx;
         } else if (category == 1) {
             if (row == 0) return g_SoundVol != savedSettings.soundVol;
             if (row == 1) return g_BgmVol != savedSettings.bgmVol;
@@ -799,11 +807,13 @@ void Scene_SettingsInline(const SceneCtx& c) {
     auto addItem = [&](int cat, int row, const wchar_t* label) {
         list[listCount++] = { cat, row, false, label };
     };
-    const wchar_t* displayLabels[4] = {
+    const wchar_t* displayLabels[6] = {
         SettingsText(L"FPS 제한", L"FPS CAP", L"FPS上限"),
         SettingsText(L"그래픽 품질", L"GRAPHICS", L"グラフィック品質"),
         SettingsText(L"콤보 HUD", L"COMBO HUD", L"コンボHUD"),
-        SettingsText(L"화면 어둡기", L"MENU DIMMING", L"画面の暗さ") };
+        SettingsText(L"화면 어둡기", L"MENU DIMMING", L"画面の暗さ"),
+        SettingsText(L"데미지 숫자", L"DAMAGE NUMBERS", L"ダメージ数字"),
+        SettingsText(L"레이저 효과", L"LASER EFFECTS", L"レーザー効果") };
     const wchar_t* audioLabels[5] = {
         SettingsText(L"마스터 볼륨", L"MASTER VOL", L"マスター音量"),
         SettingsText(L"BGM 채널", L"BGM BUS", L"BGM"),
@@ -829,7 +839,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     // The left category index is an accordion; keep every right-side option
     // visible so changing categories does not collapse the settings board.
     addHeader(0, SettingsText(L"화면", L"DISPLAY", L"画面"));
-    for (int i = 0; i < 4; ++i) addItem(0, i, displayLabels[i]);
+    // Row 1 (그래픽 품질) was removed 2026-11-25: always full quality, no particle limit.
+    for (int i = 0; i < 6; ++i) if (i != 1) addItem(0, i, displayLabels[i]);
     addHeader(1, SettingsText(L"소리", L"AUDIO", L"サウンド"));
     for (int i = 0; i < 5; ++i) addItem(1, i, audioLabels[i]);
     addHeader(2, SettingsText(L"게임플레이", L"GAMEPLAY", L"ゲームプレイ"));
@@ -860,7 +871,8 @@ void Scene_SettingsInline(const SceneCtx& c) {
     for (int category = 0; category < 5; ++category) {
         addRightHeader(category, categoryLabels[category]);
         for (int row = 0; row < rowCounts[category]; ++row)
-            addRightItem(category, row, categoryRows[category][row]);
+            if (category != 0 || row != 1)
+                addRightItem(category, row, categoryRows[category][row]);
     }
 
     bool focusChanged = accordionFocusPending;
@@ -1323,8 +1335,15 @@ void Scene_SettingsInline(const SceneCtx& c) {
                 };
                 return graphics[optionLanguage][optionIndex];
             }
-            if (row == 2) {
+            if (row == 2 || row == 4) {
                 return kToggleLabels[optionLanguage][optionIndex];
+            }
+            if (row == 5) {
+                static const wchar_t* laser[3][3] = {
+                    { L"기본", L"약하게", L"최소" }, { L"FULL", L"SOFT", L"MINIMAL" },
+                    { L"標準", L"弱め", L"最小" }
+                };
+                return laser[optionLanguage][optionIndex];
             }
         } else if (category == 1) {
             if (row == 1 || row == 2 || row == 4)
@@ -2310,11 +2329,12 @@ void Scene_SettingsInline(const SceneCtx& c) {
                  const int fps[] = { 0, 30, 60, 144, 300, -1 };
                  g_FpsCap = fps[option];
                  glfwSwapInterval(g_FpsCap == 0 ? 1 : 0);
-             } else if (row == 1) {
-                 g_VfxDensity = option == 0 ? VfxDensity::REDUCED :
-                                option == 1 ? VfxDensity::MEDIUM : VfxDensity::FULL;
             } else if (row == 2) {
                 g_ShowCombo = option == 0;
+            } else if (row == 4) {
+                g_ShowDamageNumbers = option == 0;
+            } else if (row == 5) {
+                g_LaserFxLevel = std::clamp(option, 0, 2);
              }
          } else if (category == 1) {
              if (row == 3) {
