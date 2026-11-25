@@ -258,6 +258,16 @@ constexpr float kMoveNear = 350.0f, kMoveFar = 650.0f;
 constexpr float kMoveSpeed = 200.0f;
 constexpr float kMoveRestMin = 1.5f, kMoveRestMax = 2.5f;
 constexpr float kBodyMinX = 140.0f, kBodyMinY = 130.0f;   // kept this far inside the screen
+// The body's top limit: below the boss bar, whose height grows with the HUD
+// scale (main.cpp DrawNormaBossBar: topY + 92 x scale; the scale is
+// Render/UiLayout.h UiScale, repeated here). At 1280x720 this is about
+// kBodyMinY; on bigger screens the outer ring (about 56 px x scale) no longer crosses
+// the wave counter and the bar.
+inline float BodyMinY() {
+    const float ui = std::clamp(std::min(g_W * 0.94f / 1640.0f, g_H * 0.90f / 910.0f), 0.70f, 1.35f);
+    const float barBottom = 4.0f + 92.0f * ui + 8.0f;
+    return std::max(kBodyMinY, barBottom + 24.0f + 56.0f * ui);
+}
 
 // ── Erode (phase 2) ─────────────────────────────────────────
 constexpr float kErodeAfter = 1.6f;         // seconds in one cell
@@ -1230,7 +1240,7 @@ inline void PickMoveSpot(float px, float py) {
         float x, y;
         CellCentre(rand() % CellCount(), x, y);
         x = std::clamp(x, kBodyMinX, g_W - kBodyMinX);
-        y = std::clamp(y, kBodyMinY, g_H - kBodyMinY);
+        y = std::clamp(y, BodyMinY(), std::max(BodyMinY(), g_H - kBodyMinY));
         const float d = std::hypot(x - px, y - py);
         if (d < kMoveNear || d > kMoveFar) continue;
         if (std::hypot(x - g.bossX, y - g.bossY) < kCell * 0.8f) continue;

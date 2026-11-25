@@ -9,6 +9,10 @@
 
 static constexpr float DT = 1.0f / 120.0f;
 
+// Since 35e415e a fresh Genesis spends GENESIS_ENTRY_TIME assembling before its
+// first charge. The cycle checks below start from the end of that entrance.
+static void SkipEntrance(Monster* g) { g->genesisEntry = Monster::GENESIS_ENTRY_TIME; }
+
 static int CountThrown(const MonsterManager& mm) {
     int n = 0;
     for (auto* m : mm.monsters)
@@ -22,13 +26,32 @@ static void Step(MonsterManager& mm, float px, float py, float& hp,
         mm.UpdateAll(px, py, DT, hp, bullets);
 }
 
+// Entrance: no tracking, charge or throw until GENESIS_ENTRY_TIME has passed.
+static void CheckEntrance() {
+    MonsterManager mm;
+    std::vector<Bullet> bullets;
+    float hp = 1000.0f;
+    auto* g = new Monster(0.0f, 0.0f);
+    g->MakeKind(MobKind::GENESIS);
+    assert(g->genesisEntry == 0.0f);
+    g->hiveOrbitAngle = 2.5f;
+    mm.monsters.push_back(g);
+    Step(mm, 600.0f, 900.0f, hp, bullets, Monster::GENESIS_ENTRY_TIME - 0.05f);
+    assert(g->hivePhase == 0 && g->spawnTimer == 0.0f && g->GenesisStacks() == 0);
+    assert(g->hiveOrbitAngle == 2.5f);              // not tracking yet
+    Step(mm, 600.0f, 900.0f, hp, bullets, 0.2f);
+    assert(g->spawnTimer > 0.0f);                   // charging after the entrance
+    std::printf("entrance: %.1fs idle, then charge ok\n", Monster::GENESIS_ENTRY_TIME);
+    mm.Clear();
+}
+
 // Genesis tracks the player, locks the aim, throws 2-3 Swarms, recovers.
 static void CheckLauncherCycle() {
     MonsterManager mm;
     std::vector<Bullet> bullets;
     float hp = 1000.0f;
     auto* g = new Monster(0.0f, 0.0f);
-    g->MakeKind(MobKind::GENESIS);
+    g->MakeKind(MobKind::GENESIS); SkipEntrance(g);
     g->hiveOrbitAngle = 2.5f;                    // start facing away
     mm.monsters.push_back(g);
     const float px = 600.0f, py = 900.0f;        // well off the fan lines
@@ -132,9 +155,9 @@ static void CheckThrownCap() {
     std::vector<Bullet> bullets;
     float hp = 1.0e9f;
     auto* full = new Monster(0.0f, 0.0f);
-    full->MakeKind(MobKind::GENESIS);
+    full->MakeKind(MobKind::GENESIS); SkipEntrance(full);
     auto* other = new Monster(300.0f, 0.0f);
-    other->MakeKind(MobKind::GENESIS);
+    other->MakeKind(MobKind::GENESIS); SkipEntrance(other);
     assert(full->genesisId != other->genesisId);
     mm.monsters.push_back(full);
     mm.monsters.push_back(other);
@@ -166,7 +189,7 @@ static void CheckThrowRange() {
     std::vector<Bullet> bullets;
     float hp = 1000.0f;
     auto* g = new Monster(0.0f, 0.0f);
-    g->MakeKind(MobKind::GENESIS);
+    g->MakeKind(MobKind::GENESIS); SkipEntrance(g);
     mm.monsters.push_back(g);
     Step(mm, 2500.0f, 0.0f, hp, bullets, Monster::GENESIS_TRACK_TIME + 0.05f);
     assert(g->hivePhase == 1);
@@ -188,7 +211,7 @@ static void CheckShellStacks() {
     std::vector<Bullet> bullets;
     float hp = 1000.0f;
     auto* g = new Monster(0.0f, 0.0f);
-    g->MakeKind(MobKind::GENESIS);
+    g->MakeKind(MobKind::GENESIS); SkipEntrance(g);
     mm.monsters.push_back(g);
     const float px = 600.0f, py = 900.0f;
     for (int n = 0; n < 3; ++n) {
@@ -224,7 +247,7 @@ static void CheckRandomThrows() {
     std::vector<Bullet> bullets;
     float hp = 1.0e9f;
     auto* g = new Monster(0.0f, 0.0f);
-    g->MakeKind(MobKind::GENESIS);
+    g->MakeKind(MobKind::GENESIS); SkipEntrance(g);
     mm.monsters.push_back(g);
     const float px = 0.0f, py = 700.0f;
     float firstX[3] = {};
@@ -303,7 +326,7 @@ static void CheckHpScaling() {
     std::vector<Bullet> bullets;
     float hp = 1.0e9f;
     auto* g = new Monster(0.0f, 0.0f, 2.0f);         // spawned under a 2x ramp
-    g->MakeKind(MobKind::GENESIS);
+    g->MakeKind(MobKind::GENESIS); SkipEntrance(g);
     assert(std::fabs(g->hp - Monster::GENESIS_BASE_HP * 2.0f) < 0.01f);
     mm.monsters.push_back(g);
     while (g->hivePhase != 3)
@@ -327,7 +350,7 @@ static void CheckVolleyDamage() {
     std::vector<Bullet> bullets;
     float hp = 1.0e6f;
     auto* g = new Monster(0.0f, 0.0f);
-    g->MakeKind(MobKind::GENESIS);
+    g->MakeKind(MobKind::GENESIS); SkipEntrance(g);
     mm.monsters.push_back(g);
     const float px = 0.0f, py = 600.0f;
     int volleys = 0;
@@ -385,6 +408,7 @@ int main() {
     CheckLandingBlast();
     CheckSpeedSpin();
     CheckHpScaling();
+    CheckEntrance();
     CheckLauncherCycle();
     CheckShellStacks();
     CheckRandomThrows();

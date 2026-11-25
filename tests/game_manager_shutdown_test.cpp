@@ -4,10 +4,12 @@
 #include "PlayerStats.h"
 #include <cstdio>
 #include <cstdlib>
+#include "audio_stub.h"   // GameManager now plays sounds; the test stays silent
 
 // Unrelated GameManager entry points are linked but unused by this GL test.
 PlayerStats g_Stats;
 int g_CurrentWeapon = 0;
+bool keys[1024] = {};   // KeyHeld() reads this (Input.cpp is not linked)
 GameState g_SettingsReturnTo = GameState::MAIN_MENU;
 int g_HoveredAug = -1, g_AugExitSlot = -1;
 float g_AugExitT = 0.0f;
@@ -15,6 +17,13 @@ bool TryEscNavigateBack() { return false; }
 namespace passive {   // the card draw's filter (PassiveAugments.cpp)
 bool CanOffer(int) { return true; }
 float LuckChanceMult() { return 1.0f; }
+int HeldCount(int) { return 0; }
+}
+namespace syn {       // upgrades and the frame pick (SynergyRuntime.cpp)
+bool IsFrame(int) { return false; }
+void SetFramePick(bool) {}
+int Stage(int) { return 0; }
+bool CanTakeBranch(int, int) { return false; }
 }
 
 static int lateDeletes = 0;

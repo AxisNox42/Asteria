@@ -3,6 +3,7 @@
 // player still on the line. Run with scripts/test_lynx_mob.ps1.
 #include "MonsterManager.h"
 #include "EnemyRoster.h"
+#include "../WiNILL/Core/WaveSystem.h"   // IsSpecialWave / FinalWaveCount for the debut check
 #include "audio_stub.h"   // game code now plays sounds; tests stay silent
 #include <cassert>
 #include <cmath>
@@ -30,12 +31,13 @@ static void CheckRank() {
     assert(!IsBossMob(MobKind::LYNX));
     assert(RosterFirstWave(RosterKind::LYNX, 1) > 0);
     assert(RosterFirstWave(RosterKind::LYNX, 0) == 0);    // not on EASY
-    // Each debut gets its wave to itself: no other first appearance, no elite or boss.
+    // The debut is never on an elite or boss wave. Sharing the debut wave with
+    // another regular is allowed: TRIGON (Triangulum_Mob_Design.md) was set to
+    // wave 7 on NORMAL..NIGHTMARE after Lynx, so HARD/NIGHTMARE share wave 7.
     for (int d = 1; d < kRosterDifficulties; ++d) {
         const int first = RosterFirstWave(RosterKind::LYNX, d);
-        for (const RosterEntry& entry : kEnemyRoster)
-            assert(entry.kind == RosterKind::LYNX || entry.firstWave[d] != first);
-        assert(first % 4 != 0);
+        assert(!IsSpecialWave(first, static_cast<Difficulty>(d)));
+        assert(first <= FinalWaveCount(static_cast<Difficulty>(d)));
     }
     Monster m(0.0f, 0.0f);
     const float rotorHp = m.hp;
@@ -130,15 +132,31 @@ static void CheckHeadingStaysWrapped() {
     delete m;
 }
 
-// While aiming it tracks a moving player closely.
+// While aiming it turns toward the player at kTurnRate (slowed to 0.9 rad/s in
+// 1b10a59 so a side-step outruns it), and it still settles on a small offset.
 static void CheckAimTracks() {
-    Monster* m = MakeLynx();
-    std::vector<Bullet> bullets;
-    float hp = 1000.0f;
-    m->lynxSnipe = lynx::SnipeAim;
-    for (int i = 0; i < 90; ++i) Step(m, 0.0f, 450.0f, hp, bullets);
-    assert(std::fabs(m->lynxHeading - lynx::kPi * 0.5f) < 0.05f);
-    delete m;
+    {
+        Monster* m = MakeLynx();
+        std::vector<Bullet> bullets;
+        float hp = 1000.0f;
+        m->lynxSnipe = lynx::SnipeAim;
+        for (int i = 0; i < 90; ++i) Step(m, 0.0f, 450.0f, hp, bullets);
+        const float turned = lynx::kTurnRate * 90.0f * DT;   // rate-limited, not a snap
+        assert(turned < lynx::kPi * 0.5f);
+        assert(std::fabs(m->lynxHeading - turned) < 0.02f);
+        delete m;
+    }
+    {
+        Monster* m = MakeLynx();
+        std::vector<Bullet> bullets;
+        float hp = 1000.0f;
+        m->lynxSnipe = lynx::SnipeAim;
+        const float off = 0.6f;                               // reachable inside kAimTime
+        assert(off < lynx::kTurnRate * lynx::kAimTime);
+        for (int i = 0; i < 90; ++i) Step(m, cosf(off) * 450.0f, sinf(off) * 450.0f, hp, bullets);
+        assert(std::fabs(m->lynxHeading - off) < 0.02f);
+        delete m;
+    }
 }
 
 // It holds still while aiming.

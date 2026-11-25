@@ -2728,10 +2728,13 @@ public:
             normaVelX *= settle;
             normaVelY *= settle;
             worldX += normaVelX * deltaTime;
+            const float prevY = worldY;
             worldY += normaVelY * deltaTime;
+            // The drift may not carry it up over the boss bar (above the limit already: no higher).
+            worldY = std::max(worldY, std::min(prevY, caelum::BodyMinY()));
             return;
         }
-        if (worldY < 130.0f) {          // coming in from above the screen
+        if (worldY < caelum::BodyMinY()) {   // coming in from above the screen (to under the boss bar)
             worldY += 220.0f * deltaTime;
             return;
         }
@@ -2763,7 +2766,8 @@ public:
         if (el > step) { normaVelX += ex / el * step; normaVelY += ey / el * step; }
         else { normaVelX = wantX; normaVelY = wantY; }
         worldX = std::clamp(worldX + normaVelX * deltaTime, caelum::kBodyMinX, caelum::g_W - caelum::kBodyMinX);
-        worldY = std::clamp(worldY + normaVelY * deltaTime, caelum::kBodyMinY, caelum::g_H - caelum::kBodyMinY);
+        worldY = std::clamp(worldY + normaVelY * deltaTime, caelum::BodyMinY(),
+                            std::max(caelum::BodyMinY(), caelum::g_H - caelum::kBodyMinY));
         TryContact(distance, playerHP, contactDmg, deltaTime);
     }
 

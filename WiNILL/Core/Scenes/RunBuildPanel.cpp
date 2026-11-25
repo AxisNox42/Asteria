@@ -24,6 +24,7 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include "WrapRules.h"
 
 namespace run_build {
 // The glyph atlases are baked at fixed sizes (S, L, XL) and only ever scaled
@@ -70,9 +71,15 @@ int WrapLines(TextRenderer& r, float scale, const wchar_t* text, float maxW,
                 wmemmove(cur, cur + lastSpace + 1, (size_t)rest);
                 len = rest;
             } else {
-                emit(len - 1);
-                cur[0] = cur[len - 1];
-                len = 1;
+                // Between characters: step back past places a line may not break
+                // (WrapRules.h: "、" / "%" never start a line, numbers stay whole).
+                int b = len - 1;   // cur[b..] moves down
+                while (b > 0 && wrap_rules::Glued(cur[b - 1], cur[b])) --b;
+                if (b == 0) b = len - 1;   // nowhere better: break where it overflowed
+                emit(b);
+                const int rest = len - b;
+                wmemmove(cur, cur + b, (size_t)rest);
+                len = rest;
             }
             cur[len] = 0;
             lastSpace = -1;

@@ -738,7 +738,8 @@ void Landed(const Bullet& b, float radius) {
     if (b.splitCount > 0 && s.pending.size() < 64) {
         const int n = std::min(b.splitCount, 5);
         for (int i = 0; i < n; ++i) {
-            Bullet c = MakeShot(x, y, 2.0f * kPi * (float)i / (float)n + 0.3f, b.splitDmg, 520.0f);
+            // The shell's own multiplier carries over, as a hit split's children take b.dmgMult * splitDmg.
+            Bullet c = MakeShot(x, y, 2.0f * kPi * (float)i / (float)n + 0.3f, b.dmgMult * b.splitDmg, 520.0f);
             s.pending.push_back(c);
         }
     }
@@ -1165,11 +1166,14 @@ static const CardClash kClashes[] = {
     { "V_HUNTER", "V_PIERCE" }, { "V_HUNTER", "V_RICOCHET" },
 };
 // Chance cards: a shell never pierces, bounces or hits (pierce / bounce / blast chances do nothing),
-// and a wave, laser or hunter shot pierces everything already (a pierce chance does nothing).
+// and its landing blast never crits (a crit chance does nothing); a wave, laser or hunter shot
+// pierces everything already (a pierce chance does nothing).
 static bool ChanceClash(const std::string& chance, const std::string& other) {
     for (const ChanceRow& row : kChance) {
         if (chance != row.code) continue;
-        if (other == "F_MORTAR") return row.kind == CKind::Pierce || row.kind == CKind::Bounce || row.kind == CKind::Blast;
+        if (other == "F_MORTAR")
+            return row.kind == CKind::Pierce || row.kind == CKind::Bounce || row.kind == CKind::Blast ||
+                   row.kind == CKind::Crit;
         if (other == "F_WAVE" || other == "F_LASER" || other == "V_HUNTER") return row.kind == CKind::Pierce;
         return false;
     }
@@ -1717,6 +1721,7 @@ void OnBulletHit(const Bullet& b, const void* target, float x, float y, bool cri
             c.x = c.prevX = b.x; c.y = c.prevY = b.y;
             c.dmgMult = b.dmgMult * b.splitDmg;
             c.sizeScale = b.sizeScale * 0.75f;
+            c.synGrowBase = b.synGrowBase * 0.75f;   // a growing child grows from its own smaller size, not back to the parent's
             c.splitCount = 0; c.splitSpent = true; c.synRicochet = 0;
             c.synTrailChain = 0; c.synTrailAt = c.traveled;   // its own tail, from the split point
             if (!b.piercing && c.pierceLeft > 0) --c.pierceLeft;   // the parent spends one on this hit
@@ -1997,7 +2002,10 @@ void Step(const passive::StepInput& in) {
             for (Bullet& b : g_Bullets)
                 if (b.active && b.isEnemy &&
                     (b.x - in.px) * (b.x - in.px) + (b.y - in.py) * (b.y - in.py) < Rings(UPB(G_MIRROR)) * Rings(UPB(G_MIRROR))) {
-                    b.isEnemy = false; b.dirX = -b.dirX; b.dirY = -b.dirY; b.dmgMult = 1.0f;
+                    // "공격력 100%": DamageMult multiplies every shot by the frames' s.dmg (laser 0.27,
+                    // minigun 0.40 ...), so the reflected shot cancels it to land at the attack itself.
+                    b.isEnemy = false; b.dirX = -b.dirX; b.dirY = -b.dirY;
+                    b.dmgMult = 1.0f / std::max(0.01f, s.dmg);
                     b.color = glm::vec3(0.7f, 0.9f, 1.0f);
                 }
     }

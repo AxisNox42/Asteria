@@ -417,30 +417,39 @@ static void DrawSealChain(float x0, float y, float w, float scale, float ratio, 
 //   - ANTARES counts its whole family: splitting does not refill the bar
 //   - on entry the name swells in over the bar and settles; on death the
 //     star blooms and the line lets go
+//   - two elites at once: the second gets a smaller bar under the first (a
+//     third and later are not drawn); when the first falls the second moves up
 static constexpr float kEliteTrailHold = 0.40f;
-static void DrawEliteBar(float sw, float scale, float topY) {
-    static int s_key = 0;
-    static float s_ratio = 1.0f, s_trail = 1.0f, s_lastHit = -10.0f, s_lastT = 0.0f;
-    static float s_peak = 1.0f, s_born = -10.0f, s_gone = -10.0f;
-    static float s_shield = 0.0f, s_regen = 0.0f, s_shieldFlash = 0.0f;
-    static MobKind s_kind = MobKind::REGULUS;
-    static glm::vec3 s_color(1.0f);
-    static int s_frags = 1;
+struct EliteBarSlot {
+    int key = 0;
+    float ratio = 1.0f, trail = 1.0f, lastHit = -10.0f, lastT = 0.0f;
+    float peak = 1.0f, born = -10.0f, gone = -10.0f;
+    float shield = 0.0f, regen = 0.0f, shieldFlash = 0.0f;
+    MobKind kind = MobKind::REGULUS;
+    glm::vec3 color{ 1.0f };
+    int frags = 1;
+};
+// One elite (an ANTARES family counts as one) as the bar tracks it.
+struct EliteBarGroup { int key; const Monster* lead; float sum; int frags; };
+static int EliteBarKey(const Monster* m) {
+    return m->kind == MobKind::ANTARES ? 1000 + m->antaresFamily : (int)m->kind;
+}
+// One bar. `size` shrinks the second bar (width, line weights and head together).
+static void DrawEliteBarSlot(EliteBarSlot& st, const Monster* lead, float sum, int frags,
+                             float sw, float scale, float y, float size) {
+    int& s_key = st.key;
+    float& s_ratio = st.ratio; float& s_trail = st.trail; float& s_lastHit = st.lastHit; float& s_lastT = st.lastT;
+    float& s_peak = st.peak; float& s_born = st.born; float& s_gone = st.gone;
+    float& s_shield = st.shield; float& s_regen = st.regen; float& s_shieldFlash = st.shieldFlash;
+    MobKind& s_kind = st.kind;
+    glm::vec3& s_color = st.color;
+    int& s_frags = st.frags;
+    scale *= size;
 
-    const Monster* lead = nullptr;
-    float sum = 0.0f;
-    int frags = 0;
-    for (const Monster* m : g_MonsterManager.monsters) {
-        if (!m->alive || !IsEliteMob(m->kind)) continue;
-        if (!lead) lead = m;
-        if (m->kind == MobKind::ANTARES && lead->kind == MobKind::ANTARES &&
-            m->antaresFamily == lead->antaresFamily) { sum += m->hp; ++frags; }
-    }
     const float dt = std::clamp(g_GameTime - s_lastT, 0.0f, 0.1f);
     s_lastT = g_GameTime;
     if (lead) {
-        const int key = lead->kind == MobKind::ANTARES ? 1000 + lead->antaresFamily
-                                                       : (int)lead->kind;
+        const int key = EliteBarKey(lead);
         if (key != s_key) {
             s_key = key; s_born = g_GameTime; s_gone = -10.0f;
             s_ratio = s_trail = 1.0f; s_lastHit = -10.0f;
@@ -484,9 +493,8 @@ static void DrawEliteBar(float sw, float scale, float topY) {
     const float age = g_GameTime - s_born;
     const float open = std::clamp(age / 0.55f, 0.0f, 1.0f);
     const float ease = 1.0f - (1.0f - open) * (1.0f - open) * (1.0f - open);
-    const float fullW = sw * 0.28f;
+    const float fullW = sw * 0.28f * size;
     const float w = fullW * ease, cx = sw * 0.5f, x0 = cx - w * 0.5f;
-    const float y = topY + 104.0f * scale;
     // The elite's own colour: a deeper edge, a lighter head.
     const hud_lines::Rgb base{ s_color.r, s_color.g, s_color.b };
     const hud_lines::Rgb white{ 0.97f, 0.97f, 1.0f };
@@ -698,6 +706,42 @@ static void DrawEliteBar(float sw, float scale, float topY) {
             g_TextS.Draw(kHow[li], cx + fullW * 0.5f - hw, ty + g_TextS.Height(state, ts) + 6.0f * scale, hs,
                          1.0f, 1.0f, 1.0f, fade * a);
         }
+    }
+}
+
+static void DrawEliteBar(float sw, float scale, float topY) {
+    static EliteBarSlot s_slots[2];
+    // The first bar gone (faded out) while the second still runs: it moves up.
+    if (s_slots[0].key == 0 && s_slots[1].key != 0) std::swap(s_slots[0], s_slots[1]);
+
+    EliteBarGroup groups[8];
+    int n = 0;
+    for (const Monster* m : g_MonsterManager.monsters) {
+        if (!m->alive || !IsEliteMob(m->kind)) continue;
+        const int key = EliteBarKey(m);
+        int g = 0;
+        while (g < n && groups[g].key != key) ++g;
+        if (g == n) {
+            if (n == 8) continue;
+            groups[n++] = { key, m, 0.0f, 0 };
+        }
+        if (m->kind == MobKind::ANTARES) { groups[g].sum += m->hp; ++groups[g].frags; }
+    }
+    // Each bar keeps its own elite; a free bar takes the first elite no bar shows.
+    int pick[2] = { -1, -1 };
+    for (int s = 0; s < 2; ++s)
+        for (int g = 0; g < n && s_slots[s].key != 0; ++g)
+            if (groups[g].key == s_slots[s].key) { pick[s] = g; break; }
+    for (int s = 0; s < 2; ++s) {
+        if (s_slots[s].key != 0) continue;
+        for (int g = 0; g < n; ++g)
+            if (g != pick[0] && g != pick[1]) { pick[s] = g; break; }
+    }
+    const float y0 = topY + 104.0f * scale;
+    for (int s = 0; s < 2; ++s) {
+        const EliteBarGroup* g = pick[s] >= 0 ? &groups[pick[s]] : nullptr;
+        DrawEliteBarSlot(s_slots[s], g ? g->lead : nullptr, g ? g->sum : 0.0f, g ? g->frags : 0,
+                         sw, scale, s == 0 ? y0 : y0 + 78.0f * scale, s == 0 ? 1.0f : 0.78f);
     }
 }
 
@@ -8223,12 +8267,15 @@ CollisionSystem::Update(pCX, pCY,
                 DrawCrashCountdown(sw, hudScale, hudTopY);
 
                 // ?�상?? FPS
-                wchar_t fpsBuf[32];
-                swprintf_s(fpsBuf, L"%ls  %d", T(StrId::FPS), g_CurrentFPS);
-                const float fpsScale = UiTextScale(g_TextS, UiTextLevel::Supporting, hudScale);
-                float fpsW = g_TextS.Width(fpsBuf, fpsScale);
-                g_TextS.Draw(fpsBuf, sw - fpsW - 12.0f, hudTopY, fpsScale,
-                             0.7f, 0.9f, 1.0f, 0.85f);
+                // Only with debug on: players never see the counter by default.
+                if (g_DebugMode) {
+                    wchar_t fpsBuf[32];
+                    swprintf_s(fpsBuf, L"%ls  %d", T(StrId::FPS), g_CurrentFPS);
+                    const float fpsScale = UiTextScale(g_TextS, UiTextLevel::Supporting, hudScale);
+                    float fpsW = g_TextS.Width(fpsBuf, fpsScale);
+                    g_TextS.Draw(fpsBuf, sw - fpsW - 12.0f, hudTopY, fpsScale,
+                                 0.7f, 0.9f, 1.0f, 0.85f);
+                }
 
 
 

@@ -6,13 +6,15 @@
 #include "audio_stub.h"   // game code now plays sounds; tests stay silent
 
 static constexpr float DT=1.0f/120.0f;
+// A fresh Genesis assembles for GENESIS_ENTRY_TIME first (35e415e); start after it.
+static void SkipEntrance(Monster* g){ g->genesisEntry=Monster::GENESIS_ENTRY_TIME; }
 struct Scene {
     MonsterManager mm;
     std::vector<Bullet> bullets;
     float hp=10000;
     Monster* g;
     Scene() {
-        g=new Monster(200,300); g->MakeKind(MobKind::GENESIS); g->speed=0;
+        g=new Monster(200,300); g->MakeKind(MobKind::GENESIS); SkipEntrance(g); g->speed=0;
         g->genesisNextRotor=true; g->spawnTimer=Monster::GENESIS_TRACK_TIME+0.01f;
         mm.monsters.push_back(g); tick(0);
         assert(g->hivePhase==4);

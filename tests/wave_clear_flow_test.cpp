@@ -152,8 +152,11 @@ int main() {
     EXPECT(NormaDefeated(), "final boss fall wins");
     run.mm.Clear();
 
-    // The first elite (wave 4) sits near 9,000 effective HP on NORMAL, and the
-    // next one (wave 8) scales by the HP ramp.
+    // The first elite (wave 4) on NORMAL: EliteWaveHpMult (0.3.16) put the
+    // strongest at about 2,500 effective HP, and the per-wave ramp (x1.24 at
+    // wave 4, 2026-11-17 plan) lifts that to about 3,100. Every kind sits in a
+    // band below that, and the next one (wave 8) scales by the HP ramp.
+    float strongestFirst = 0.0f;
     for (int kind = 0; kind < kEliteKindCount; ++kind) {
         auto eliteHp = [&](int wave) {
             ResetEnemySpawnState();
@@ -174,10 +177,13 @@ int main() {
         };
         const float first = eliteHp(4), later = eliteHp(8);
         std::printf("elite %d: wave 4 %.0f HP, wave 8 %.0f HP\n", kind, first, later);
-        EXPECT(first > 7500.0f && first < 10200.0f, "elite %d first HP %.0f", kind, first);
+        EXPECT(first > 2300.0f && first < 3300.0f, "elite %d first HP %.0f", kind, first);
+        strongestFirst = std::max(strongestFirst, first);
         EXPECT(std::fabs(later / first - WaveHpRamp(8, Difficulty::NORMAL) / WaveHpRamp(4, Difficulty::NORMAL)) < 0.01f,
                "elite %d ramps by wave (%.0f -> %.0f)", kind, first, later);
     }
+    EXPECT(std::fabs(strongestFirst - 3100.0f) < 150.0f,
+           "strongest first elite %.0f HP, want about 3,100", strongestFirst);
 
     // Antares: the wave waits for every split fragment, in the game's real
     // order: a body falls in one frame and splits in the next mob update, so

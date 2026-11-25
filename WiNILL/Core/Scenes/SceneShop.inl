@@ -55,7 +55,9 @@ inline void TierColor(int t, float& r, float& g, float& b) {
 inline int Key(Kind k, int id) { return (int)k * 1000 + id; }
 
 constexpr int kMaxEntries = 128;
-constexpr int kTabCount = 3;   // ALL, UPGRADES, CODEX
+// ALL, UPGRADES. The CODEX tab (tab 2) is hidden: it listed the weapon augments,
+// which left the card pool, so it was always empty. Its builder stays for now.
+constexpr int kTabCount = 2;
 
 } // namespace shopgrid
 
@@ -664,9 +666,9 @@ void Scene_Shop(const SceneCtx& c) {
                  0.88f, 0.94f, 1.0f, 0.70f * dustA, 0.0f, true);
     }
     static const wchar_t* kTabName[3][kTabCount] = {
-        { L"전체", L"영구 업그레이드", L"도감" },
-        { L"ALL", L"UPGRADES", L"CODEX" },
-        { L"すべて", L"恒久強化", L"図鑑" },
+        { L"전체", L"영구 업그레이드" },
+        { L"ALL", L"UPGRADES" },
+        { L"すべて", L"恒久強化" },
     };
     float tabsEndX = gridX, tabsH = 0.0f;   // tab row extent, for the guide
     {
