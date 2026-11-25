@@ -6772,6 +6772,7 @@ int main() {
                 g_ZoomCX = g_ZoomCY = 0.0f;             // �?중심 ?�면 중앙?�로
                 g_GameManager.currentState = GameState::GAMEOVER;
                 g_DyingTimer = 0.0f;
+                strike_fx::Clear();      // nothing of the fight is left behind the report
                 g_GameOverFade = 0.0f;   // 결과 메뉴 ?�이?�인 ?�작 (2.5�?
                 // 기록 ?�?????�이?�별 최고???�적/코인 갱신 (?�기록이�??�시)
                 //   ?�리?�이?�브 모드(?�드박스)??코인·기록 ?�외 (?�밍 방�?)
@@ -7930,7 +7931,18 @@ CollisionSystem::Update(pCX, pCY,
         }
         g_BatchAlpha = spaceBaseAlpha;
         caelum_draw::DrawOverlay(g_GameTime);
-        DrawPlayerLasers();
+        // The player's own effects stop updating once the ship dies, so they
+        // fade out over the first 0.3 s of DYING and never reach the result
+        // screen (they would freeze there).
+        float playerFxAlpha = 1.0f;
+        if (wgs == GameState::DYING)
+            playerFxAlpha = std::clamp(1.0f - (DYING_DUR - g_DyingTimer) / 0.3f, 0.0f, 1.0f);
+        else if (wgs == GameState::GAMEOVER)
+            playerFxAlpha = 0.0f;
+        const bool drawPlayerFx = playerFxAlpha > 0.001f;
+        g_BatchAlpha = spaceBaseAlpha * playerFxAlpha;
+        if (drawPlayerFx) DrawPlayerLasers();
+        g_BatchAlpha = spaceBaseAlpha;
         DrawBulletHalos(g_Bullets);
         for (auto& b : g_Bullets) {
             if (b.active) drawBullet(b);
@@ -7968,10 +7980,14 @@ CollisionSystem::Update(pCX, pCY,
         DrawCombatFx();
         norma_fx::Draw();
         caelum_fx::Draw();
-        DrawStardustPickups();
-        active::DrawWorld(g_GameTime);
-        syn::DrawWorld();
-        strike_fx::Draw();
+        if (drawPlayerFx) {
+            g_BatchAlpha = spaceBaseAlpha * playerFxAlpha;
+            DrawStardustPickups();
+            active::DrawWorld(g_GameTime);
+            syn::DrawWorld();
+            strike_fx::Draw();
+            g_BatchAlpha = spaceBaseAlpha;
+        }
         BatchFlush();
 
         // READY draws its own ship inside the practice field (SceneReady.cpp).
