@@ -8359,10 +8359,9 @@ CollisionSystem::Update(pCX, pCY,
             g_FireLatched = false;
         // The crosshair is the pointer on every screen (lobby, settings, pause...).
         // Off the game, the UI pointer is parked off screen; the crosshair
-        // keeps the real one.
+        // keeps the real one, drawn even while another window has focus.
         if (!pointerOnGame) { mx = drawMx; my = drawMy; }
         if (g_ShowCrosshair && !g_DebugToolkit.IsVisible() &&
-            (glfwGetWindowAttrib(window, GLFW_FOCUSED) || g_SmokeCapture) &&   // smoke windows never take focus
             mx >= 0.0 && my >= 0.0 && mx < screenWidth && my < screenHeight) {
             BindMainShader();
             DrawGameplayCrosshair((float)mx, (float)my);
