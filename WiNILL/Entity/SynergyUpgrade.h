@@ -1,6 +1,6 @@
 #pragma once
 // Card upgrades (augment rework; Docs/Plans/2026-11-24_반복강화_가중치.md).
-// Every upgradable card has three branches, and each can be taken again and again:
+// Every upgradable card has three branches, and each can be taken up to kBranchMaxPicks times:
 //   A  its key number            (UpRow::A, a cost card's cost grows with it: UpRow::A2)
 //   B  a second number           (UpRow::B; chance cards: their condition is eased, ChanceCondB)
 //   C  its family's shape (Family): x1, x2, x3 ... with every pick of that family's C
@@ -50,6 +50,9 @@ enum class UpLabel {
 // How a number reads: Pct "12%", PlusPct "+12%" / "-10%" (0 alone: just the new value),
 // Mult "×3", Count / Flat "12", Plus "+2", Sec "3초", Ring "4○".
 enum class UpUnit { Pct, PlusPct, Mult, Count, Flat, Plus, Sec, Ring };
+
+// The same branch (A, B or C) of one card can be picked at most this many times (2026-11-25).
+inline constexpr int kBranchMaxPicks = 2;
 
 inline constexpr float kNoLimit = 3.0e38f;
 struct UpVal {

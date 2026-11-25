@@ -1312,13 +1312,13 @@ static const ChanceRow* ChanceRowOf(int i) {
     return nullptr;
 }
 
-// Owned and the branch can still grow: every branch can be taken again (2026-11-24) until
-// its number reaches its limit.
+// Owned and the branch can still grow: a branch can be taken again (2026-11-24), at most
+// kBranchMaxPicks times per card (2026-11-25), and not past its number's limit.
 bool CanTakeBranch(int augIdx, int branch) {
     const int i = CardOf(augIdx);
     if (i < 0 || branch < 0 || branch > 2 || s.own[i] <= 0 || !Upgradable(i)) return false;
+    if (Picks(i, branch) >= synergy::kBranchMaxPicks) return false;
     if (branch == 2) return CardFamily(i) != synergy::Family::None;
-    if (Picks(i, branch) >= 250) return false;
     if (const ChanceRow* row = ChanceRowOf(i))
         return branch == 0 || synergy::ChanceCondCanGrow((synergy::ChCond)(int)row->cond, Picks(i, 1));
     const synergy::UpRow* r = synergy::FindUp(T()[i].code);
