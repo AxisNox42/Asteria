@@ -256,7 +256,7 @@ inline const Entry kEntries[kTermCount] = {
       { L"확률로 발동하는 다른 증강|확률로 발동하는 증강", L"chance-based augment", L"確率で発動する他の強化|確率で発動する強化" },
       { Term::Luck }, 1 },
     { { L"적 분류", L"Enemy types", L"敵の分類" },
-      { L"일반 적: 로터·스웜·스코프·그라비티·짐벌·마그네타·링크스·트라이곤. 엘리트: 제네시스·퀘이사·레굴루스·안타레스. 보스: 옥탄스·에리다누스.",
+      { L"일반 적: 로터·스웜·스코프·그라비티·짐벌·결계별·링크·트리곤. 엘리트: 제네시스·퀘이사·헌원·안타레스·태엽성. 보스: 팔문·탁류.",
         L"Regular: Rotor, Swarm, Scope, Gravity, Gimbal, Magnetar, Lynx, Trigon. Elite: Genesis, Quasar, Regulus, Antares. Boss: Octans, Eridanus.",
         L"通常の敵: ローター・スウォーム・スコープ・グラビティ・ジンバル・マグネター・リンクス・トライゴン。エリート: ジェネシス・クエーサー・レグルス・アンタレス。ボス: オクタンス・エリダヌス。" },
       { L"일반 적|엘리트|보스", L"regular enemy|elites|elite|bosses|boss", L"通常の敵|雑魚|エリート|ボス" },

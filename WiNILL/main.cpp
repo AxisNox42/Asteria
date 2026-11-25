@@ -844,8 +844,10 @@ static void DrawNormaBossBar(float sw, float scale, float topY) {
         DrawSealChain(x0, y, w, scale, ratio, refill, boss->normaPhase, ice);
     }
     BatchFlush();
-    const wchar_t* name = caelumBoss ? (boss->normaPhase == 2 ? L"ERIDANUS  II" : L"ERIDANUS")
-                        : boss->normaPhase == 2 ? L"OCTANS  II" : L"OCTANS";
+    // Codex name in the current language (e.g. 팔문 / OCTANS), "  II" in phase 2.
+    std::wstring nameBuf = MobName(caelumBoss ? CM_ERIDANUS : CM_OCTANS);
+    if (boss->normaPhase == 2) nameBuf += L"  II";
+    const wchar_t* name = nameBuf.c_str();
     const float ts = 0.55f * scale;
     g_TextS.Draw(name, x0, y - 10.0f * scale - g_TextS.Height(name, ts), ts,
                  ice.r, ice.g, ice.b, 0.95f);
